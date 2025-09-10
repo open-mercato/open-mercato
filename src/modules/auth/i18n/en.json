@@ -1,0 +1,9 @@
+{
+  "auth.signIn": "Sign in",
+  "auth.email": "Email",
+  "auth.password": "Password",
+  "auth.sendResetLink": "Send reset link",
+  "auth.resetPassword": "Reset password",
+  "auth.usersRoles": "Users & Roles",
+  "auth.manageAuthSettings": "Manage authentication settings."
+}

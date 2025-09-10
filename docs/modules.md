@@ -20,6 +20,7 @@ export type ErpModule = {
   backendRoutes?: { path: string; Component: FC }[]
   apis?: { method: 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'; path: string; handler: ApiHandler }[]
   cli?: { name: string; run(argv: string[]): Promise<void>|void }
+  translations?: Record<string, Record<string, string>>
 }
 ```
 
@@ -58,6 +59,35 @@ export type ErpModule = {
 2. Expose a pseudo-tree under `src/modules/<module>` via a postinstall script or a wrapper package; or copy its files into `src/modules/<module>`.
 3. Ensure it ships its drizzle schema under `/db/schema.ts` so migrations generate.
 4. Run `npm run modules:generate` to refresh the registry.
+
+## Translations (i18n)
+- Base app dictionaries: `src/i18n/<locale>.json` (e.g., `en`, `pl`).
+- Module dictionaries: `src/modules/<module>/i18n/<locale>.json`.
+- The generator auto-imports module JSON and adds them to `ErpModule.translations`.
+- Layout merges base + all module dictionaries for the current locale and provides:
+  - `useT()` hook for client components (`@/lib/i18n/context`).
+  - `loadDictionary(locale)` for server components (`@/lib/i18n/server`).
+
+Client usage:
+```tsx
+"use client"
+import { useT } from '@/lib/i18n/context'
+export default function MyComponent() {
+  const t = useT()
+  return <h1>{t('example.moduleTitle')}</h1>
+}
+```
+
+Server usage:
+```tsx
+import { detectLocale, loadDictionary } from '@/lib/i18n/server'
+export default async function Page() {
+  const locale = detectLocale()
+  const dict = await loadDictionary(locale)
+  const t = (k: string) => dict[k] ?? k
+  return <h1>{t('backend.title')}</h1>
+}
+```
 
 ## Multi-tenant
 - Core table: `organizations` with `id`, `name`, `is_active`, `created_at`, `updated_at`.

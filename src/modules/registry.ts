@@ -27,6 +27,7 @@ export type ErpModule = {
   frontendRoutes?: ModuleRoute[]
   apis?: ModuleApi[]
   cli?: ModuleCli[]
+  translations?: Record<string, Record<string, string>>
 }
 
 // Auto-generated modules list

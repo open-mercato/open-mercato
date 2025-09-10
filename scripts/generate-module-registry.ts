@@ -26,6 +26,7 @@ function scan() {
     const backendRoutes: string[] = []
     const apis: string[] = []
     let cliImportName: string | null = null
+    const translations: string[] = []
 
     // Pages: frontend (files under frontend/**/*.tsx)
     const feDir = path.join(modDir, 'frontend')
@@ -118,12 +119,27 @@ function scan() {
       cliImportName = importName
     }
 
+    // Translations: i18n/<locale>.json
+    const i18nDir = path.join(modDir, 'i18n')
+    if (fs.existsSync(i18nDir)) {
+      for (const e of fs.readdirSync(i18nDir, { withFileTypes: true })) {
+        if (e.isFile() && e.name.endsWith('.json')) {
+          const locale = e.name.replace(/\.json$/, '')
+          const importName = `T_${toVar(modId)}_${toVar(locale)}`
+          const importPath = `@/modules/${modId}/i18n/${locale}.json`
+          imports.push(`import ${importName} from '${importPath}'`)
+          translations.push(`'${locale}': ${importName} as Record<string,string>`) // flat keys expected
+        }
+      }
+    }
+
     moduleDecls.push(`{
       id: '${modId}',
       ${frontendRoutes.length ? `frontendRoutes: [${frontendRoutes.join(', ')}],` : ''}
       ${backendRoutes.length ? `backendRoutes: [${backendRoutes.join(', ')}],` : ''}
       ${apis.length ? `apis: [${apis.join(', ')}],` : ''}
       ${cliImportName ? `cli: ${cliImportName},` : ''}
+      ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
     }`)
   }
 

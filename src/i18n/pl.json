@@ -1,0 +1,20 @@
+{
+  "app.title": "EHR start (Next.js + shadcn + drizzle)",
+  "app.status": "{status}",
+  "app.goToLogin": "Przejdź do logowania",
+  "app.examplePage": "Strona przykładowa",
+  "app.exampleAdmin": "Panel przykładowy",
+  "backend.title": "Zaplecze",
+  "backend.selectModule": "Wybierz moduł w panelu.",
+  "auth.signIn": "Zaloguj się",
+  "auth.email": "Email",
+  "auth.password": "Hasło",
+  "auth.sendResetLink": "Wyślij link resetujący",
+  "auth.resetPassword": "Resetuj hasło",
+  "auth.usersRoles": "Użytkownicy i role",
+  "auth.manageAuthSettings": "Zarządzaj ustawieniami uwierzytelniania.",
+  "example.moduleTitle": "Moduł przykładowy",
+  "example.publicPage": "Publiczna strona przykładowa.",
+  "example.adminTitle": "Panel przykładowy",
+  "example.manageEntities": "Zarządzaj encjami przykładowymi."
+}
