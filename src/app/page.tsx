@@ -21,6 +21,13 @@ export default async function Home() {
         <Button>Przycisk shadcn</Button>
         <Button variant="secondary">Secondary</Button>
       </div>
+      <div className="text-sm mt-6">
+        <a className="underline" href="/login">Go to Login</a>
+        <span className="mx-2">·</span>
+        <a className="underline" href="/example">Example page</a>
+        <span className="mx-2">·</span>
+        <a className="underline" href="/backend/example">Example admin</a>
+      </div>
     </main>
   );
 }

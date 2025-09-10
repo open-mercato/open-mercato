@@ -7,12 +7,18 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
+    "modules:generate": "tsx scripts/generate-module-registry.ts",
+    "predev": "npm run modules:generate",
+    "prebuild": "npm run modules:generate",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "erp": "tsx src/cli/erp.ts"
   },
   "dependencies": {
+    "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-slot": "^1.2.3",
+    "bcryptjs": "^3.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.2",
