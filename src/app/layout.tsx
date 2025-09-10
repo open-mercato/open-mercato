@@ -29,7 +29,7 @@ export default async function RootLayout({
   const dict = await loadDictionary(locale)
   return (
     <html lang={locale}>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
         <I18nProvider locale={locale} dict={dict}>
           <div className="min-h-svh flex flex-col">
             <div className="flex-1 min-h-0">{children}</div>
