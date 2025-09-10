@@ -30,7 +30,8 @@ export type ErpModule = {
 }
 
 // Auto-generated modules list
-export { modules } from './generated'
+import { modules } from './generated'
+export { modules }
 
 export function findFrontendRoute(pathname: string): ModuleRoute | undefined {
   for (const m of modules) {

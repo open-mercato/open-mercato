@@ -38,11 +38,16 @@ export type ErpModule = {
 
 ### Database Schema and Migrations
 - Place module tables in `src/modules/<module>/db/schema.ts`.
-- Drizzle config includes all module schemas:
+- Root drizzle config includes all module schemas (for app-wide migrations):
   - `drizzle.config.ts` → `schema: ['src/db/schema.ts', 'src/modules/**/db/schema.ts']`
-- Generate and run migrations from the root:
+- Generate and run app-wide migrations from the root:
   - `npm run db:generate`
   - `npm run db:migrate`
+- Module-scoped migrations (for publishing modules):
+  - Output folder per module: `src/modules/<module>/drizzle`
+  - Generate: `npm run db:generate:module -- <module>`
+  - Migrate: `npm run db:migrate:module -- <module>`
+  - Studio: `npm run db:studio:module -- <module>`
 
 ### CLI
 - Optional: add `src/modules/<module>/cli.ts` default export `(argv) => void|Promise<void>`.

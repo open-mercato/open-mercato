@@ -17,6 +17,9 @@ This repository is designed for extensibility. Agents should leverage the module
   - Optional CLI at `src/modules/<module>/cli.ts` default export
 - Database schemas live in `src/modules/<module>/db/schema.ts` and are picked by drizzle-kit.
 - A generator builds `src/modules/generated.ts`; run `npm run modules:generate` or rely on `predev`/`prebuild`.
+- Migrations:
+  - App-wide (all schemas): `npm run db:generate` / `npm run db:migrate`
+  - Module-scoped: `npm run db:generate:module -- <module>` → outputs to `src/modules/<module>/drizzle`
 
 ## Database Naming
 - Tables: plural snake_case (e.g., `users`, `user_roles`, `example_items`).

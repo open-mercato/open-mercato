@@ -3,16 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "yarn run modules:generate && next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
     "modules:generate": "tsx scripts/generate-module-registry.ts",
-    "predev": "npm run modules:generate",
+    
     "prebuild": "npm run modules:generate",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
+    "db:generate:module": "tsx scripts/drizzle-module.ts generate",
+    "db:migrate:module": "tsx scripts/drizzle-module.ts migrate",
+    "db:studio:module": "tsx scripts/drizzle-module.ts studio",
     "erp": "tsx src/cli/erp.ts"
   },
   "dependencies": {
