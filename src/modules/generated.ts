@@ -5,10 +5,14 @@ import C1_auth_reset from '@/modules/auth/frontend/reset'
 import C2_auth_page from '@/modules/auth/backend/page'
 import H3_auth_POST_auth_login from '@/modules/auth/api/post/auth/login'
 import CLI_auth from '@/modules/auth/cli'
+import T_auth_en from '@/modules/auth/i18n/en.json'
+import T_auth_pl from '@/modules/auth/i18n/pl.json'
 import C4_example_example from '@/modules/example/frontend/example'
 import C5_example_example from '@/modules/example/backend/example'
 import H6_example_GET_example_ping from '@/modules/example/api/get/example/ping'
 import CLI_example from '@/modules/example/cli'
+import T_example_en from '@/modules/example/i18n/en.json'
+import T_example_pl from '@/modules/example/i18n/pl.json'
 
 export const modules: ErpModule[] = [
   {
@@ -17,6 +21,7 @@ export const modules: ErpModule[] = [
       backendRoutes: [{ path: '/backend/auth', Component: C2_auth_page }],
       apis: [{ method: 'POST', path: '/auth/login', handler: H3_auth_POST_auth_login }],
       cli: CLI_auth,
+      translations: { 'en': T_auth_en as Record<string,string>, 'pl': T_auth_pl as Record<string,string> },
     },
   {
       id: 'example',
@@ -24,5 +29,6 @@ export const modules: ErpModule[] = [
       backendRoutes: [{ path: '/backend/example', Component: C5_example_example }],
       apis: [{ method: 'GET', path: '/example/ping', handler: H6_example_GET_example_ping }],
       cli: CLI_example,
+      translations: { 'en': T_example_en as Record<string,string>, 'pl': T_example_pl as Record<string,string> },
     }
 ]

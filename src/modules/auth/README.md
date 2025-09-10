@@ -15,3 +15,4 @@ DB entities used (defined in root schema):
 Notes:
 - Passwords are hashed with `bcryptjs`.
 - Session management will be added later; login redirects to `/workspace` on success.
+
