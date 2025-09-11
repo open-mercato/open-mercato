@@ -8,7 +8,6 @@
     "start": "next start",
     "lint": "eslint",
     "modules:generate": "tsx scripts/generate-module-registry.ts",
-    
     "prebuild": "npm run modules:generate",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -21,6 +20,7 @@
   "dependencies": {
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-slot": "^1.2.3",
+    "@react-email/components": "^0.5.3",
     "bcryptjs": "^3.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -31,6 +31,8 @@
     "pg": "^8.16.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "react-email": "^4.2.11",
+    "resend": "^6.0.3",
     "tailwind-merge": "^3.3.1",
     "zod": "^4.1.5"
   },

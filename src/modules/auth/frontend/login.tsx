@@ -70,6 +70,9 @@ export default function LoginPage() {
             <button disabled={submitting} className="h-10 rounded-md bg-foreground text-background mt-2 hover:opacity-90 transition disabled:opacity-60">
               {submitting ? '...' : t('auth.signIn')}
             </button>
+            <div className="text-xs text-muted-foreground mt-2">
+              <a className="underline" href="/reset">Forgot password?</a>
+            </div>
           </form>
         </CardContent>
       </Card>
