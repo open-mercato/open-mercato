@@ -34,7 +34,7 @@
       "idx": 4,
       "version": "7",
       "when": 1757513417086,
-      "tag": "drizzle/0004_auth_sessions.sql",
+      "tag": "0004_auth_sessions",
       "breakpoints": true
     }
   ]
