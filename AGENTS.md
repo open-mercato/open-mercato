@@ -42,3 +42,6 @@ This repository is designed for extensibility. Agents should leverage the module
 - No one-letter variable names.
 - Avoid in-line comments; prefer self-documenting code.
 - Keep exports minimal and typed.
+ - Prefer small, reusable libraries and utilities with minimal or no external dependencies where it makes sense.
+ - Favor functional programming (pure functions, data-first utilities) over classes.
+ - Write any necessary code comments in English.
