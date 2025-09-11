@@ -3,7 +3,7 @@ import type { ErpModule } from './registry'
 import C0_auth_login from '@/modules/auth/frontend/login'
 import C1_auth_reset from '@/modules/auth/frontend/reset'
 import C2_auth_index from '@/modules/auth/backend//page'
-import H3_auth_POST_auth_login from '@/modules/auth/api/post/auth/login'
+import * as R3_auth_login from '@/modules/auth/api/login'
 import CLI_auth from '@/modules/auth/cli'
 import T_auth_en from '@/modules/auth/i18n/en.json'
 import T_auth_pl from '@/modules/auth/i18n/pl.json'
@@ -21,7 +21,7 @@ export const modules: ErpModule[] = [
       id: 'auth',
       frontendRoutes: [{ pattern: '/login',   Component: C0_auth_login }, { pattern: '/reset',   Component: C1_auth_reset }],
       backendRoutes: [{ pattern: '/backend/auth',   Component: C2_auth_index }],
-      apis: [{ method: 'POST', path: '/auth/login', handler: H3_auth_POST_auth_login }],
+      apis: [{ path: '/auth/login',   handlers: R3_auth_login }],
       cli: CLI_auth,
       translations: { 'en': T_auth_en as Record<string,string>, 'pl': T_auth_pl as Record<string,string> },
     },
@@ -29,7 +29,7 @@ export const modules: ErpModule[] = [
       id: 'example',
       frontendRoutes: [{ pattern: '/blog/[id]',   Component: C4_example_blog__id_ }, { pattern: '/example',   Component: C5_example_example }],
       backendRoutes: [{ pattern: '/backend/blog/[id]', requireAuth: true,  Component: C6_example_blog__id_ }, { pattern: '/backend/example', requireAuth: true, requireRoles: ["admin"], Component: C7_example_example }],
-      apis: [{ path: '/blog/[id]', requireAuth: true, requireRoles: ["admin"], handlers: R8_example_blog__id_ }],
+      apis: [{ path: '/example/blog/[id]', requireAuth: true, requireRoles: ["admin"], handlers: R8_example_blog__id_ }],
       cli: CLI_example,
       translations: { 'en': T_example_en as Record<string,string>, 'pl': T_example_pl as Record<string,string> },
     }

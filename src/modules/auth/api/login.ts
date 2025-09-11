@@ -2,14 +2,13 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { compare } from 'bcryptjs'
 import { getDb } from '@/db'
-import { users } from '@/db/schema'
-import { roles, userRoles } from '@/db/schema'
+import { users, roles, userRoles } from '@/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { signJwt } from '@/lib/auth/jwt'
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(6) })
 
-export default async function loginHandler(req: Request) {
+export async function POST(req: Request) {
   const form = await req.formData()
   const email = String(form.get('email') ?? '')
   const password = String(form.get('password') ?? '')
@@ -43,10 +42,9 @@ export default async function loginHandler(req: Request) {
     }
   }
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id))
-  // Embed roles array in the token
+  // Embed roles in token
   const userRoleNames: string[] = []
   const roleRows = await db.select({ id: roles.id, name: roles.name }).from(roles)
-  // Fetch assigned role ids for user
   const assigned = await db.select({ roleId: userRoles.roleId }).from(userRoles).where(eq(userRoles.userId, user.id))
   const assignedSet = new Set(assigned.map(r => r.roleId))
   for (const r of roleRows) {
@@ -57,3 +55,4 @@ export default async function loginHandler(req: Request) {
   res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   return res
 }
+

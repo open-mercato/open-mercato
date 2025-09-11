@@ -148,10 +148,39 @@ function scan() {
       for (const rel of routeFiles) {
         const segs = rel.split('/')
         segs.pop() // remove route.ts
-        const routePath = '/' + segs.join('/')
+        const routePath = '/' + [modId, ...segs].filter(Boolean).join('/')
         const importName = `R${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
         const importPath = `@/modules/${modId}/api/${[...segs].join('/')}/route`
         const absPath = path.join(apiDir, ...segs, 'route.ts')
+        const ra = fileHasRequireAuth(absPath)
+        const rr = fileRequireRoles(absPath)
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        apis.push(`{ path: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} handlers: ${importName} }`)
+      }
+
+      // APIs: Next-style single files: api/**/*.ts (excluding route.ts and legacy method dirs)
+      const plainFiles: string[] = []
+      const methodNames = new Set(['get','post','put','patch','delete'])
+      const walkPlain = (dir: string, rel: string[] = []) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (e.isDirectory()) {
+            if (methodNames.has(e.name.toLowerCase())) continue
+            walkPlain(path.join(dir, e.name), [...rel, e.name])
+          } else if (e.isFile() && e.name.endsWith('.ts') && e.name !== 'route.ts') {
+            plainFiles.push([...rel, e.name].join('/'))
+          }
+        }
+      }
+      walkPlain(apiDir)
+      for (const rel of plainFiles) {
+        const segs = rel.split('/')
+        const file = segs.pop()!
+        const pathWithoutExt = file.replace(/\.ts$/, '')
+        const fullSegs = [...segs, pathWithoutExt]
+        const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
+        const importName = `R${importId++}_${toVar(modId)}_${toVar(fullSegs.join('_')||'index')}`
+        const importPath = `@/modules/${modId}/api/${fullSegs.join('/')}`
+        const absPath = path.join(apiDir, ...segs, file)
         const ra = fileHasRequireAuth(absPath)
         const rr = fileRequireRoles(absPath)
         imports.push(`import * as ${importName} from '${importPath}'`)
@@ -175,7 +204,7 @@ function scan() {
           const file = segs.pop()!
           const pathWithoutExt = file.replace(/\.ts$/, '')
           const fullSegs = [...segs, pathWithoutExt]
-          const routePath = '/' + fullSegs.join('/')
+          const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
           const importName = `H${importId++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
           const importPath = `@/modules/${modId}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
           imports.push(`import ${importName} from '${importPath}'`)
