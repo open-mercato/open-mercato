@@ -1,8 +1,8 @@
-import { pgTable, serial, text, timestamp, boolean, integer } from 'drizzle-orm/pg-core'
+import { pgTable, serial, text, timestamp, boolean, integer, uuid } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
 export const organizations = pgTable('organizations', {
-  id: serial('id').primaryKey(),
+  id: uuid('id').defaultRandom().primaryKey(),
   name: text('name').notNull(),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
@@ -10,10 +10,10 @@ export const organizations = pgTable('organizations', {
 })
 
 export const users = pgTable('users', {
-  id: serial('id').primaryKey(),
+  id: uuid('id').defaultRandom().primaryKey(),
   email: text('email').notNull().unique(),
   name: text('name'),
-  organizationId: integer('organization_id').notNull(),
+  organizationId: uuid('organization_id').notNull(),
   passwordHash: text('password_hash'),
   isConfirmed: boolean('is_confirmed').notNull().default(false),
   lastLoginAt: timestamp('last_login_at', { withTimezone: false }),
@@ -28,7 +28,7 @@ export const roles = pgTable('roles', {
 
 export const userRoles = pgTable('user_roles', {
   id: serial('id').primaryKey(),
-  userId: integer('user_id').notNull(),
+  userId: uuid('user_id').notNull(),
   roleId: integer('role_id').notNull(),
   createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
 })

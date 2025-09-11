@@ -15,7 +15,7 @@ const addUser: ModuleCli = {
     }
     const email = args.email
     const password = args.password
-    const organizationId = Number(args.organizationId ?? args.orgId ?? args.org)
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org)
     const rolesCsv = (args.roles ?? '').trim()
     if (!email || !password || !organizationId) {
       console.error('Usage: erp auth add-user --email <email> --password <password> --organizationId <id> [--roles customer,employee]')
