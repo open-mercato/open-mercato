@@ -48,6 +48,24 @@ function scan() {
         return null
       }
     }
+    function filePageTitle(absPath: string): string | null {
+      try {
+        const src = fs.readFileSync(absPath, 'utf8')
+        const m = src.match(/export\s+const\s+(pageTitle|title)\s*=\s*['\"]([^'\"]+)['\"]/)
+        return m ? m[2] : null
+      } catch {
+        return null
+      }
+    }
+    function filePageGroup(absPath: string): string | null {
+      try {
+        const src = fs.readFileSync(absPath, 'utf8')
+        const m = src.match(/export\s+const\s+(pageGroup|group)\s*=\s*['\"]([^'\"]+)['\"]/)
+        return m ? m[2] : null
+      } catch {
+        return null
+      }
+    }
 
     // Pages: frontend
     const feDir = path.join(modDir, 'frontend')
@@ -111,12 +129,16 @@ function scan() {
           routePath = '/backend/' + segs.join('/')
         }
         const importName = `C${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
-        const importPath = `@/modules/${modId}/backend/${[...segs].join('/')}/page`
+        const importPath = segs.length
+          ? `@/modules/${modId}/backend/${segs.join('/')}/page`
+          : `@/modules/${modId}/backend/page`
         const absPath = path.join(beDir, ...segs, 'page.tsx')
         const ra = fileHasRequireAuth(absPath)
+        const title = filePageTitle(absPath)
+        const group = filePageGroup(absPath)
         const rr = fileRequireRoles(absPath)
         imports.push(`import ${importName} from '${importPath}'`)
-        backendRoutes.push(`{ pattern: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} Component: ${importName} }`)
+        backendRoutes.push(`{ pattern: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} ${title ? `title: ${JSON.stringify(title)},` : ''} ${group ? `group: ${JSON.stringify(group)},` : ''} Component: ${importName} }`)
       }
       // Back-compat: direct files like example.tsx -> /backend/example
       for (const rel of found.filter(f => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
@@ -128,9 +150,11 @@ function scan() {
         const importPath = `@/modules/${modId}/backend/${[...segs, name].join('/')}`
         const absPath = path.join(beDir, ...segs, name + '.tsx')
         const ra = fileHasRequireAuth(absPath)
+        const title = filePageTitle(absPath)
+        const group = filePageGroup(absPath)
         const rr = fileRequireRoles(absPath)
         imports.push(`import ${importName} from '${importPath}'`)
-        backendRoutes.push(`{ pattern: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} Component: ${importName} }`)
+        backendRoutes.push(`{ pattern: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} ${title ? `title: ${JSON.stringify(title)},` : ''} ${group ? `group: ${JSON.stringify(group)},` : ''} Component: ${importName} }`)
       }
     }
 

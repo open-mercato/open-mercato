@@ -11,6 +11,8 @@ export type ModuleRoute = {
   path?: string
   requireAuth?: boolean
   requireRoles?: string[]
+  title?: string
+  group?: string
   Component: (props: any) => ReactNode | Promise<ReactNode>
 }
 

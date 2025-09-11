@@ -1,6 +1,9 @@
 "use client"
 import { useT } from '@/lib/i18n/context'
 
+export const requireAuth = true
+export const pageTitle = 'Users & Roles'
+export const pageGroup = 'Auth'
 export default function AuthAdminPage() {
   const t = useT()
   return (
