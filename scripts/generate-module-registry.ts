@@ -36,6 +36,18 @@ function scan() {
         return false
       }
     }
+    function fileRequireRoles(absPath: string): string[] | null {
+      try {
+        const src = fs.readFileSync(absPath, 'utf8')
+        const m = src.match(/export\s+const\s+requireRoles\s*=\s*\[([^\]]*)\]/)
+        if (!m) return null
+        const inner = m[1]
+        const roles = Array.from(inner.matchAll(/['\"]([^'\"]+)['\"]/g)).map((x) => x[1]).filter(Boolean)
+        return roles.length ? roles : []
+      } catch {
+        return null
+      }
+    }
 
     // Pages: frontend
     const feDir = path.join(modDir, 'frontend')
@@ -57,8 +69,9 @@ function scan() {
         const routePath = '/' + (segs.join('/') || '')
         const absPath = path.join(feDir, ...segs, 'page.tsx')
         const ra = fileHasRequireAuth(absPath)
+        const rr = fileRequireRoles(absPath)
         imports.push(`import ${importName} from '${importPath}'`)
-        frontendRoutes.push(`{ pattern: '${routePath||'/'}', ${ra ? 'requireAuth: true,' : ''} Component: ${importName} }`)
+        frontendRoutes.push(`{ pattern: '${routePath||'/'}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} Component: ${importName} }`)
       }
       // Back-compat: direct files like login.tsx -> /login
       for (const rel of found.filter(f => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
@@ -71,8 +84,9 @@ function scan() {
         const routePath = '/' + (routeSegs.join('/') || '')
         const absPath = path.join(feDir, ...segs, name + '.tsx')
         const ra = fileHasRequireAuth(absPath)
+        const rr = fileRequireRoles(absPath)
         imports.push(`import ${importName} from '${importPath}'`)
-        frontendRoutes.push(`{ pattern: '${routePath||'/'}', ${ra ? 'requireAuth: true,' : ''} Component: ${importName} }`)
+        frontendRoutes.push(`{ pattern: '${routePath||'/'}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} Component: ${importName} }`)
       }
     }
 
@@ -100,8 +114,9 @@ function scan() {
         const importPath = `@/modules/${modId}/backend/${[...segs].join('/')}/page`
         const absPath = path.join(beDir, ...segs, 'page.tsx')
         const ra = fileHasRequireAuth(absPath)
+        const rr = fileRequireRoles(absPath)
         imports.push(`import ${importName} from '${importPath}'`)
-        backendRoutes.push(`{ pattern: '${routePath}', ${ra ? 'requireAuth: true,' : ''} Component: ${importName} }`)
+        backendRoutes.push(`{ pattern: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} Component: ${importName} }`)
       }
       // Back-compat: direct files like example.tsx -> /backend/example
       for (const rel of found.filter(f => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
@@ -113,8 +128,9 @@ function scan() {
         const importPath = `@/modules/${modId}/backend/${[...segs, name].join('/')}`
         const absPath = path.join(beDir, ...segs, name + '.tsx')
         const ra = fileHasRequireAuth(absPath)
+        const rr = fileRequireRoles(absPath)
         imports.push(`import ${importName} from '${importPath}'`)
-        backendRoutes.push(`{ pattern: '${routePath}', ${ra ? 'requireAuth: true,' : ''} Component: ${importName} }`)
+        backendRoutes.push(`{ pattern: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} Component: ${importName} }`)
       }
     }
 
@@ -137,8 +153,9 @@ function scan() {
         const importPath = `@/modules/${modId}/api/${[...segs].join('/')}/route`
         const absPath = path.join(apiDir, ...segs, 'route.ts')
         const ra = fileHasRequireAuth(absPath)
+        const rr = fileRequireRoles(absPath)
         imports.push(`import * as ${importName} from '${importPath}'`)
-        apis.push(`{ path: '${routePath}', ${ra ? 'requireAuth: true,' : ''} handlers: ${importName} }`)
+        apis.push(`{ path: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} handlers: ${importName} }`)
       }
       // Back-compat: legacy per-method structure
       const methods: HttpMethod[] = ['GET','POST','PUT','PATCH','DELETE']

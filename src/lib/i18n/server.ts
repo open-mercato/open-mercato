@@ -3,10 +3,10 @@ import { defaultLocale, locales, type Locale } from './config'
 import type { Dict } from './context'
 import { modules } from '@/modules/registry'
 
-export function detectLocale(): Locale {
-  const c = cookies().get('locale')?.value
+export async function detectLocale(): Promise<Locale> {
+  const c = (await cookies()).get('locale')?.value
   if (c && locales.includes(c as Locale)) return c as Locale
-  const accept = headers().get('accept-language') || ''
+  const accept = (await headers()).get('accept-language') || ''
   const match = locales.find(l => new RegExp(`(^|,)\s*${l}(-|;|,|$)`, 'i').test(accept))
   return match ?? defaultLocale
 }
@@ -20,4 +20,3 @@ export async function loadDictionary(locale: Locale): Promise<Dict> {
   }
   return merged
 }
-

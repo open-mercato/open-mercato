@@ -4,7 +4,7 @@ import { users } from '@/db/schema'
 import { detectLocale, loadDictionary } from '@/lib/i18n/server'
 
 export default async function Home() {
-  const locale = detectLocale()
+  const locale = await detectLocale()
   const dict = await loadDictionary(locale)
   const t = (k: string, params?: Record<string,string|number>) => {
     const s = dict[k] ?? k

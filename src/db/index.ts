@@ -4,7 +4,7 @@ import { Pool } from 'pg'
 
 declare global {
   // eslint-disable-next-line no-var
-  var __drizzlePool: Pool | undefined
+  var __drizzlePool: any | undefined
 }
 
 function getPool() {

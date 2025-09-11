@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { compare } from 'bcryptjs'
 import { getDb } from '@/db'
 import { users } from '@/db/schema'
-import { eq } from 'drizzle-orm'
+import { roles, userRoles } from '@/db/schema'
+import { eq, and } from 'drizzle-orm'
 import { signJwt } from '@/lib/auth/jwt'
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(6) })
@@ -12,6 +13,8 @@ export default async function loginHandler(req: Request) {
   const form = await req.formData()
   const email = String(form.get('email') ?? '')
   const password = String(form.get('password') ?? '')
+  const requireRoleRaw = (String(form.get('requireRole') ?? form.get('role') ?? '')).trim()
+  const requiredRoles = requireRoleRaw ? requireRoleRaw.split(',').map((s) => s.trim()).filter(Boolean) : []
   const parsed = loginSchema.safeParse({ email, password })
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: 'Invalid credentials' }, { status: 400 })
@@ -25,8 +28,31 @@ export default async function loginHandler(req: Request) {
   if (!ok) {
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
+  // Optional role requirement
+  if (requiredRoles.length) {
+    let authorized = false
+    for (const roleName of requiredRoles) {
+      const r = await db.select({ roleId: roles.id }).from(roles).where(eq(roles.name, roleName)).limit(1)
+      const roleId = r[0]?.roleId
+      if (!roleId) continue
+      const rel = await db.select().from(userRoles).where(and(eq(userRoles.userId, user.id), eq(userRoles.roleId, roleId))).limit(1)
+      if (rel.length) { authorized = true; break }
+    }
+    if (!authorized) {
+      return NextResponse.json({ ok: false, error: 'Not authorized for this area' }, { status: 403 })
+    }
+  }
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id))
-  const token = signJwt({ sub: user.id, orgId: user.organizationId, email: user.email })
+  // Embed roles array in the token
+  const userRoleNames: string[] = []
+  const roleRows = await db.select({ id: roles.id, name: roles.name }).from(roles)
+  // Fetch assigned role ids for user
+  const assigned = await db.select({ roleId: userRoles.roleId }).from(userRoles).where(eq(userRoles.userId, user.id))
+  const assignedSet = new Set(assigned.map(r => r.roleId))
+  for (const r of roleRows) {
+    if (assignedSet.has(r.id)) userRoleNames.push(r.name)
+  }
+  const token = signJwt({ sub: user.id, orgId: user.organizationId, email: user.email, roles: userRoleNames })
   const res = NextResponse.json({ ok: true, token, redirect: '/backend' })
   res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   return res

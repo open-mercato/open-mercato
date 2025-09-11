@@ -5,11 +5,12 @@ export type AuthContext = {
   sub: string
   orgId: string
   email?: string
+  roles?: string[]
   [k: string]: any
 } | null
 
-export function getAuthFromCookies(): AuthContext {
-  const token = cookies().get('auth_token')?.value
+export async function getAuthFromCookies(): Promise<AuthContext> {
+  const token = (await cookies()).get('auth_token')?.value
   if (!token) return null
   try {
     const payload = verifyJwt(token)
@@ -36,4 +37,3 @@ export function getAuthFromRequest(req: Request): AuthContext {
     return null
   }
 }
-

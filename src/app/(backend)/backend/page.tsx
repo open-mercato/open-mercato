@@ -1,7 +1,7 @@
 import { detectLocale, loadDictionary } from '@/lib/i18n/server'
 
 export default async function BackendIndex() {
-  const locale = detectLocale()
+  const locale = await detectLocale()
   const dict = await loadDictionary(locale)
   const t = (k: string) => dict[k] ?? k
   return (

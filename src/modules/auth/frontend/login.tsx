@@ -1,6 +1,6 @@
 "use client"
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,6 +9,8 @@ import { useT } from '@/lib/i18n/context'
 export default function LoginPage() {
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const requireRole = (searchParams.get('requireRole') || searchParams.get('role') || '').trim()
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -18,6 +20,7 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       const form = new FormData(e.currentTarget)
+      if (requireRole) form.set('requireRole', requireRole)
       const res = await fetch('/api/auth/login', { method: 'POST', body: form })
       if (res.redirected) {
         // NextResponse.redirect from API
@@ -48,6 +51,9 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent>
           <form className="grid gap-3" onSubmit={onSubmit} noValidate>
+            {requireRole && (
+              <div className="text-xs text-muted-foreground">Access requires role: <span className="font-medium">{requireRole}</span></div>
+            )}
             {error && (
               <div className="text-sm text-red-600" role="alert" aria-live="polite">
                 {error}

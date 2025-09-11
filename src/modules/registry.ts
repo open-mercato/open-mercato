@@ -1,9 +1,8 @@
-import type { NextRequest } from 'next/server'
 import type { ReactNode } from 'react'
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
-export type ApiHandler = (req: NextRequest | Request) => Promise<Response> | Response
+export type ApiHandler = (req: Request, ctx?: any) => Promise<Response> | Response
 
 export type ModuleRoute = {
   // Next-style pattern, supports dynamic segments like '/blog/[id]' or '[...slug]'.
@@ -11,7 +10,8 @@ export type ModuleRoute = {
   pattern?: string
   path?: string
   requireAuth?: boolean
-  Component: (props: { params?: Record<string, string | string[]> }) => ReactNode | Promise<ReactNode>
+  requireRoles?: string[]
+  Component: (props: any) => ReactNode | Promise<ReactNode>
 }
 
 // Legacy per-method entries
@@ -26,6 +26,7 @@ export type ModuleApiRouteFile = {
   path: string // may include dynamic segments like '/blog/[id]'
   handlers: Partial<Record<HttpMethod, ApiHandler>>
   requireAuth?: boolean
+  requireRoles?: string[]
 }
 
 export type ModuleApi = ModuleApiLegacy | ModuleApiRouteFile
@@ -112,14 +113,14 @@ export function findBackendMatch(pathname: string): { route: ModuleRoute; params
   }
 }
 
-export function findApi(method: HttpMethod, pathname: string): { handler: ApiHandler; params: Record<string, string | string[]>; requireAuth?: boolean } | undefined {
+export function findApi(method: HttpMethod, pathname: string): { handler: ApiHandler; params: Record<string, string | string[]>; requireAuth?: boolean; requireRoles?: string[] } | undefined {
   for (const m of modules) {
     const apis = m.apis ?? []
     for (const a of apis) {
       if ('handlers' in a) {
         const params = matchPattern(a.path, pathname)
         const handler = (a.handlers as any)[method]
-        if (params && handler) return { handler, params, requireAuth: a.requireAuth }
+        if (params && handler) return { handler, params, requireAuth: a.requireAuth, requireRoles: (a as any).requireRoles }
       } else {
         // legacy exact match
         const al = a as ModuleApiLegacy

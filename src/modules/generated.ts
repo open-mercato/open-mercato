@@ -12,7 +12,6 @@ import C5_example_example from '@/modules/example/frontend/example'
 import C6_example_blog__id_ from '@/modules/example/backend/blog/[id]/page'
 import C7_example_example from '@/modules/example/backend/example'
 import * as R8_example_blog__id_ from '@/modules/example/api/blog/[id]/route'
-import H9_example_GET_example_ping from '@/modules/example/api/get/example/ping'
 import CLI_example from '@/modules/example/cli'
 import T_example_en from '@/modules/example/i18n/en.json'
 import T_example_pl from '@/modules/example/i18n/pl.json'
@@ -20,17 +19,17 @@ import T_example_pl from '@/modules/example/i18n/pl.json'
 export const modules: ErpModule[] = [
   {
       id: 'auth',
-      frontendRoutes: [{ pattern: '/login', Component: C0_auth_login }, { pattern: '/reset', Component: C1_auth_reset }],
-      backendRoutes: [{ pattern: '/backend/auth', Component: C2_auth_index }],
+      frontendRoutes: [{ pattern: '/login',   Component: C0_auth_login }, { pattern: '/reset',   Component: C1_auth_reset }],
+      backendRoutes: [{ pattern: '/backend/auth',   Component: C2_auth_index }],
       apis: [{ method: 'POST', path: '/auth/login', handler: H3_auth_POST_auth_login }],
       cli: CLI_auth,
       translations: { 'en': T_auth_en as Record<string,string>, 'pl': T_auth_pl as Record<string,string> },
     },
   {
       id: 'example',
-      frontendRoutes: [{ pattern: '/blog/[id]', Component: C4_example_blog__id_ }, { pattern: '/example', Component: C5_example_example }],
-      backendRoutes: [{ pattern: '/backend/blog/[id]', Component: C6_example_blog__id_ }, { pattern: '/backend/example', Component: C7_example_example }],
-      apis: [{ path: '/blog/[id]', handlers: R8_example_blog__id_ }, { method: 'GET', path: '/example/ping', handler: H9_example_GET_example_ping }],
+      frontendRoutes: [{ pattern: '/blog/[id]',   Component: C4_example_blog__id_ }, { pattern: '/example',   Component: C5_example_example }],
+      backendRoutes: [{ pattern: '/backend/blog/[id]', requireAuth: true,  Component: C6_example_blog__id_ }, { pattern: '/backend/example', requireAuth: true, requireRoles: ["admin"], Component: C7_example_example }],
+      apis: [{ path: '/blog/[id]', requireAuth: true, requireRoles: ["admin"], handlers: R8_example_blog__id_ }],
       cli: CLI_example,
       translations: { 'en': T_example_en as Record<string,string>, 'pl': T_example_pl as Record<string,string> },
     }

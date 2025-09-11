@@ -25,7 +25,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const locale = detectLocale()
+  const locale = await detectLocale()
   const dict = await loadDictionary(locale)
   return (
     <html lang={locale}>
