@@ -4,6 +4,7 @@
   "app.goToLogin": "Przejdź do logowania",
   "app.examplePage": "Strona przykładowa",
   "app.exampleAdmin": "Panel przykładowy",
+  "app.exampleBlogPost": "Przykładowy wpis na blogu",
   "backend.title": "Zaplecze",
   "backend.selectModule": "Wybierz moduł w panelu.",
   "auth.signIn": "Zaloguj się",

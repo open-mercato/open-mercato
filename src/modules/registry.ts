@@ -6,15 +6,27 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type ApiHandler = (req: NextRequest | Request) => Promise<Response> | Response
 
 export type ModuleRoute = {
-  path: string // e.g. '/login' or '/backend/example'
+  // Next-style pattern, supports dynamic segments like '/blog/[id]' or '[...slug]'.
+  // Backwards-compat: older registry may provide `path`.
+  pattern?: string
+  path?: string
   Component: (props: { params?: Record<string, string | string[]> }) => ReactNode | Promise<ReactNode>
 }
 
-export type ModuleApi = {
+// Legacy per-method entries
+export type ModuleApiLegacy = {
   method: HttpMethod
-  path: string // e.g. '/auth/login'
+  path: string
   handler: ApiHandler
 }
+
+// New Next-style route file that can expose multiple HTTP methods in one file
+export type ModuleApiRouteFile = {
+  path: string // may include dynamic segments like '/blog/[id]'
+  handlers: Partial<Record<HttpMethod, ApiHandler>>
+}
+
+export type ModuleApi = ModuleApiLegacy | ModuleApiRouteFile
 
 export type ModuleCli = {
   command: string // e.g. 'add-user'
@@ -34,26 +46,84 @@ export type ErpModule = {
 import { modules } from './generated'
 export { modules }
 
-export function findFrontendRoute(pathname: string): ModuleRoute | undefined {
+// --- Routing helpers ---
+
+function normPath(s: string) {
+  return (s.startsWith('/') ? s : '/' + s).replace(/\/+$/, '') || '/'
+}
+
+function matchPattern(pattern: string, pathname: string): Record<string, string | string[]> | undefined {
+  const p = normPath(pattern)
+  const u = normPath(pathname)
+  const pSegs = p.split('/').slice(1)
+  const uSegs = u.split('/').slice(1)
+  const params: Record<string, string | string[]> = {}
+  let i = 0
+  for (let j = 0; j < pSegs.length; j++, i++) {
+    const seg = pSegs[j]
+    const mCatchAll = seg.match(/^\[\.\.\.(.+)\]$/) // [...slug]
+    const mOptCatch = seg.match(/^\[\[\.\.\.(.+)\]\]$/) // [[...slug]]
+    const mDyn = seg.match(/^\[(.+)\]$/) // [id]
+    if (mCatchAll) {
+      const key = mCatchAll[1]
+      if (i >= uSegs.length) return undefined // requires at least one
+      params[key] = uSegs.slice(i)
+      i = uSegs.length
+      return i === uSegs.length ? params : undefined
+    } else if (mOptCatch) {
+      const key = mOptCatch[1]
+      params[key] = i < uSegs.length ? uSegs.slice(i) : []
+      i = uSegs.length
+      return params
+    } else if (mDyn) {
+      if (i >= uSegs.length) return undefined
+      params[mDyn[1]] = uSegs[i]
+    } else {
+      if (i >= uSegs.length || uSegs[i] !== seg) return undefined
+    }
+  }
+  if (i !== uSegs.length) return undefined
+  return params
+}
+
+function getPattern(r: ModuleRoute) {
+  return r.pattern ?? r.path ?? '/'
+}
+
+export function findFrontendMatch(pathname: string): { route: ModuleRoute; params: Record<string, string | string[]> } | undefined {
   for (const m of modules) {
     const routes = m.frontendRoutes ?? []
-    const match = routes.find((r) => r.path === pathname)
-    if (match) return match
+    for (const r of routes) {
+      const params = matchPattern(getPattern(r), pathname)
+      if (params) return { route: r, params }
+    }
   }
 }
 
-export function findBackendRoute(pathname: string): ModuleRoute | undefined {
+export function findBackendMatch(pathname: string): { route: ModuleRoute; params: Record<string, string | string[]> } | undefined {
   for (const m of modules) {
     const routes = m.backendRoutes ?? []
-    const match = routes.find((r) => r.path === pathname)
-    if (match) return match
+    for (const r of routes) {
+      const params = matchPattern(getPattern(r), pathname)
+      if (params) return { route: r, params }
+    }
   }
 }
 
-export function findApi(method: HttpMethod, pathname: string) {
+export function findApi(method: HttpMethod, pathname: string): { handler: ApiHandler; params: Record<string, string | string[]> } | undefined {
   for (const m of modules) {
     const apis = m.apis ?? []
-    const match = apis.find((a) => a.method === method && a.path === pathname)
-    if (match) return match
+    for (const a of apis) {
+      if ('handlers' in a) {
+        const params = matchPattern(a.path, pathname)
+        const handler = (a.handlers as any)[method]
+        if (params && handler) return { handler, params }
+      } else {
+        // legacy exact match
+        if ((a as ModuleApiLegacy).method === method && (a as ModuleApiLegacy).path === pathname) {
+          return { handler: (a as ModuleApiLegacy).handler, params: {} }
+        }
+      }
+    }
   }
 }

@@ -4,6 +4,7 @@
   "app.goToLogin": "Go to Login",
   "app.examplePage": "Example page",
   "app.exampleAdmin": "Example admin",
+  "app.exampleBlogPost": "Example blog post",
   "backend.title": "Backend",
   "backend.selectModule": "Select a module in the backend.",
   "auth.signIn": "Sign in",

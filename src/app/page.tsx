@@ -34,6 +34,8 @@ export default async function Home() {
         <a className="underline" href="/example">{t('app.examplePage')}</a>
         <span className="mx-2">·</span>
         <a className="underline" href="/backend/example">{t('app.exampleAdmin')}</a>
+        <span className="mx-2">·</span>
+        <a className="underline" href="/blog/123">{t('app.exampleBlogPost')}</a>
       </div>
     </main>
   );
