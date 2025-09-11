@@ -1,3 +1,4 @@
+export const requireAuth = true
 export default function ExampleAdminBlogPost({ params }: { params: { id: string } }) {
   return (
     <div className="p-6">
@@ -6,4 +7,3 @@ export default function ExampleAdminBlogPost({ params }: { params: { id: string 
     </div>
   )
 }
-

@@ -10,6 +10,7 @@ export type ModuleRoute = {
   // Backwards-compat: older registry may provide `path`.
   pattern?: string
   path?: string
+  requireAuth?: boolean
   Component: (props: { params?: Record<string, string | string[]> }) => ReactNode | Promise<ReactNode>
 }
 
@@ -24,6 +25,7 @@ export type ModuleApiLegacy = {
 export type ModuleApiRouteFile = {
   path: string // may include dynamic segments like '/blog/[id]'
   handlers: Partial<Record<HttpMethod, ApiHandler>>
+  requireAuth?: boolean
 }
 
 export type ModuleApi = ModuleApiLegacy | ModuleApiRouteFile
@@ -110,18 +112,19 @@ export function findBackendMatch(pathname: string): { route: ModuleRoute; params
   }
 }
 
-export function findApi(method: HttpMethod, pathname: string): { handler: ApiHandler; params: Record<string, string | string[]> } | undefined {
+export function findApi(method: HttpMethod, pathname: string): { handler: ApiHandler; params: Record<string, string | string[]>; requireAuth?: boolean } | undefined {
   for (const m of modules) {
     const apis = m.apis ?? []
     for (const a of apis) {
       if ('handlers' in a) {
         const params = matchPattern(a.path, pathname)
         const handler = (a.handlers as any)[method]
-        if (params && handler) return { handler, params }
+        if (params && handler) return { handler, params, requireAuth: a.requireAuth }
       } else {
         // legacy exact match
-        if ((a as ModuleApiLegacy).method === method && (a as ModuleApiLegacy).path === pathname) {
-          return { handler: (a as ModuleApiLegacy).handler, params: {} }
+        const al = a as ModuleApiLegacy
+        if (al.method === method && al.path === pathname) {
+          return { handler: al.handler, params: {} }
         }
       }
     }

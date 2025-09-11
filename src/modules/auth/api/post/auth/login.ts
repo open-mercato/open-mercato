@@ -4,6 +4,7 @@ import { compare } from 'bcryptjs'
 import { getDb } from '@/db'
 import { users } from '@/db/schema'
 import { eq } from 'drizzle-orm'
+import { signJwt } from '@/lib/auth/jwt'
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(6) })
 
@@ -25,5 +26,8 @@ export default async function loginHandler(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id))
-  return NextResponse.redirect(new URL('/backend', req.url))
+  const token = signJwt({ sub: user.id, orgId: user.organizationId, email: user.email })
+  const res = NextResponse.json({ ok: true, token, redirect: '/backend' })
+  res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  return res
 }
