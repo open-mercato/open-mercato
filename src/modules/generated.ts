@@ -7,14 +7,15 @@ import C3_auth_index from '@/modules/auth/backend//page'
 import * as R4_auth_login from '@/modules/auth/api/login'
 import * as R5_auth_reset_confirm from '@/modules/auth/api/reset/confirm'
 import * as R6_auth_reset from '@/modules/auth/api/reset'
+import * as R7_auth_session_refresh from '@/modules/auth/api/session/refresh'
 import CLI_auth from '@/modules/auth/cli'
 import T_auth_en from '@/modules/auth/i18n/en.json'
 import T_auth_pl from '@/modules/auth/i18n/pl.json'
-import C7_example_blog__id_ from '@/modules/example/frontend/blog/[id]/page'
-import C8_example_example from '@/modules/example/frontend/example'
-import C9_example_blog__id_ from '@/modules/example/backend/blog/[id]/page'
-import C10_example_example from '@/modules/example/backend/example'
-import * as R11_example_blog__id_ from '@/modules/example/api/blog/[id]/route'
+import C8_example_blog__id_ from '@/modules/example/frontend/blog/[id]/page'
+import C9_example_example from '@/modules/example/frontend/example'
+import C10_example_blog__id_ from '@/modules/example/backend/blog/[id]/page'
+import C11_example_example from '@/modules/example/backend/example'
+import * as R12_example_blog__id_ from '@/modules/example/api/blog/[id]/route'
 import CLI_example from '@/modules/example/cli'
 import T_example_en from '@/modules/example/i18n/en.json'
 import T_example_pl from '@/modules/example/i18n/pl.json'
@@ -24,15 +25,15 @@ export const modules: ErpModule[] = [
       id: 'auth',
       frontendRoutes: [{ pattern: '/reset/[token]',   Component: C0_auth_reset__token_ }, { pattern: '/login',   Component: C1_auth_login }, { pattern: '/reset',   Component: C2_auth_reset }],
       backendRoutes: [{ pattern: '/backend/auth',   Component: C3_auth_index }],
-      apis: [{ path: '/auth/login',   handlers: R4_auth_login }, { path: '/auth/reset/confirm',   handlers: R5_auth_reset_confirm }, { path: '/auth/reset',   handlers: R6_auth_reset }],
+      apis: [{ path: '/auth/login',   handlers: R4_auth_login }, { path: '/auth/reset/confirm',   handlers: R5_auth_reset_confirm }, { path: '/auth/reset',   handlers: R6_auth_reset }, { path: '/auth/session/refresh',   handlers: R7_auth_session_refresh }],
       cli: CLI_auth,
       translations: { 'en': T_auth_en as Record<string,string>, 'pl': T_auth_pl as Record<string,string> },
     },
   {
       id: 'example',
-      frontendRoutes: [{ pattern: '/blog/[id]',   Component: C7_example_blog__id_ }, { pattern: '/example',   Component: C8_example_example }],
-      backendRoutes: [{ pattern: '/backend/blog/[id]', requireAuth: true,  Component: C9_example_blog__id_ }, { pattern: '/backend/example', requireAuth: true, requireRoles: ["admin"], Component: C10_example_example }],
-      apis: [{ path: '/example/blog/[id]', requireAuth: true, requireRoles: ["admin"], handlers: R11_example_blog__id_ }],
+      frontendRoutes: [{ pattern: '/blog/[id]',   Component: C8_example_blog__id_ }, { pattern: '/example',   Component: C9_example_example }],
+      backendRoutes: [{ pattern: '/backend/blog/[id]', requireAuth: true,  Component: C10_example_blog__id_ }, { pattern: '/backend/example', requireAuth: true, requireRoles: ["admin"], Component: C11_example_example }],
+      apis: [{ path: '/example/blog/[id]', requireAuth: true, requireRoles: ["admin"], handlers: R12_example_blog__id_ }],
       cli: CLI_example,
       translations: { 'en': T_example_en as Record<string,string>, 'pl': T_example_pl as Record<string,string> },
     }

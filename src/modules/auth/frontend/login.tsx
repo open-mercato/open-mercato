@@ -67,6 +67,10 @@ export default function LoginPage() {
               <Label htmlFor="password">{t('auth.password')}</Label>
               <Input id="password" name="password" type="password" required aria-invalid={!!error} />
             </div>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" name="remember" className="accent-foreground" />
+              <span>Remember me</span>
+            </label>
             <button disabled={submitting} className="h-10 rounded-md bg-foreground text-background mt-2 hover:opacity-90 transition disabled:opacity-60">
               {submitting ? '...' : t('auth.signIn')}
             </button>

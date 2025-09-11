@@ -29,7 +29,13 @@
       "when": 1757513034902,
       "tag": "0003_password_resets",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1757513417086,
+      "tag": "drizzle/0004_auth_sessions.sql",
+      "breakpoints": true
     }
-
   ]
 }

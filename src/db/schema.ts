@@ -42,6 +42,15 @@ export const passwordResets = pgTable('password_resets', {
   createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
 })
 
+export const authSessions = pgTable('auth_sessions', {
+  id: serial('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
+  token: text('token').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: false }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: false }),
+})
+
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   users: many(users),
 }))

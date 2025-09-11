@@ -8,7 +8,7 @@ export default async function BackendCatchAll({ params }: { params: { slug: stri
   if (!match) return notFound()
   if (match.route.requireAuth) {
     const auth = await getAuthFromCookies()
-    if (!auth) redirect('/login')
+    if (!auth) redirect('/api/auth/session/refresh?redirect=' + encodeURIComponent(pathname))
     const required = match.route.requireRoles || []
     if (required.length) {
       const roles = auth.roles || []

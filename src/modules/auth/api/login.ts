@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { compare } from 'bcryptjs'
 import { getDb } from '@/db'
-import { users, roles, userRoles } from '@/db/schema'
+import { users, roles, userRoles, authSessions } from '@/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { signJwt } from '@/lib/auth/jwt'
 
@@ -12,6 +12,7 @@ export async function POST(req: Request) {
   const form = await req.formData()
   const email = String(form.get('email') ?? '')
   const password = String(form.get('password') ?? '')
+  const remember = String(form.get('remember') ?? '').toLowerCase() === 'on' || String(form.get('remember') ?? '') === '1' || String(form.get('remember') ?? '') === 'true'
   const requireRoleRaw = (String(form.get('requireRole') ?? form.get('role') ?? '')).trim()
   const requiredRoles = requireRoleRaw ? requireRoleRaw.split(',').map((s) => s.trim()).filter(Boolean) : []
   const parsed = loginSchema.safeParse({ email, password })
@@ -53,6 +54,13 @@ export async function POST(req: Request) {
   const token = signJwt({ sub: user.id, orgId: user.organizationId, email: user.email, roles: userRoleNames })
   const res = NextResponse.json({ ok: true, token, redirect: '/backend' })
   res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  if (remember) {
+    const days = Number(process.env.REMEMBER_ME_DAYS || '30')
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    const crypto = await import('node:crypto')
+    const sessionToken = crypto.randomBytes(32).toString('hex')
+    await db.insert(authSessions).values({ userId: user.id, token: sessionToken, expiresAt })
+    res.cookies.set('session_token', sessionToken, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
+  }
   return res
 }
-
