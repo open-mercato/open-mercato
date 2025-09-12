@@ -4,7 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@/modules/auth/services/authService'
 import crypto from 'node:crypto'
 import { sendEmail } from '@/lib/email/send'
-import ResetPasswordEmail from '@/emails/ResetPasswordEmail'
+import ResetPasswordEmail from '@/modules/auth/emails/ResetPasswordEmail'
 
 const schema = z.object({ email: z.string().email() })
 
