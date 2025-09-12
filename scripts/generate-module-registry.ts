@@ -27,6 +27,15 @@ function scan() {
     const apis: string[] = []
     let cliImportName: string | null = null
     const translations: string[] = []
+    let infoImportName: string | null = null
+
+    // Module metadata: index.ts exporting `metadata` or default
+    const indexTs = path.join(modDir, 'index.ts')
+    if (fs.existsSync(indexTs)) {
+      infoImportName = `I${importId++}_${toVar(modId)}`
+      const importPath = `@/modules/${modId}/index`
+      imports.push(`import * as ${infoImportName} from '${importPath}'`)
+    }
 
     // Metadata is read at runtime from a named export `metadata`.
 
@@ -247,6 +256,7 @@ function scan() {
 
     moduleDecls.push(`{
       id: '${modId}',
+      ${infoImportName ? `info: ${infoImportName}.metadata ?? ${infoImportName}.default,` : ''}
       ${frontendRoutes.length ? `frontendRoutes: [${frontendRoutes.join(', ')}],` : ''}
       ${backendRoutes.length ? `backendRoutes: [${backendRoutes.join(', ')}],` : ''}
       ${apis.length ? `apis: [${apis.join(', ')}],` : ''}
@@ -262,6 +272,7 @@ ${imports.join('\n')}
 export const modules: ErpModule[] = [
   ${moduleDecls.join(',\n  ')}
 ]
+export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
 `
   fs.writeFileSync(outFile, output)
 }

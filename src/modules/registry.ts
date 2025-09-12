@@ -40,8 +40,20 @@ export type ModuleCli = {
   run: (argv: string[]) => Promise<void> | void
 }
 
+export type ErpModuleInfo = {
+  name?: string
+  title?: string
+  version?: string
+  description?: string
+  author?: string
+  license?: string
+  homepage?: string
+  copyright?: string
+}
+
 export type ErpModule = {
   id: string // plural snake_case (special cases: 'auth', 'example')
+  info?: ErpModuleInfo
   backendRoutes?: ModuleRoute[]
   frontendRoutes?: ModuleRoute[]
   apis?: ModuleApi[]
@@ -52,6 +64,7 @@ export type ErpModule = {
 // Auto-generated modules list
 import { modules } from './generated'
 export { modules }
+export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
 
 // --- Routing helpers ---
 

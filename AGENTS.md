@@ -15,8 +15,14 @@ This repository is designed for extensibility. Agents should leverage the module
   - Special case: `src/modules/<module>/backend/page.tsx` → `/backend/<module>`
   - API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
   - Optional CLI at `src/modules/<module>/cli.ts` default export
+  - Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
+  - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
 - Database entities (MikroORM) live in `src/modules/<module>/db/entities.ts` (fallback: `schema.ts` for compatibility).
-- A generator builds `src/modules/generated.ts`; run `npm run modules:generate` or rely on `predev`/`prebuild`.
+- Generators build:
+  - `src/modules/generated.ts` (routes/APIs/CLIs + info)
+  - `src/modules/entities.generated.ts` (MikroORM entities)
+  - `src/modules/di.generated.ts` (DI registrars)
+  - Run `npm run modules:prepare` or rely on `predev`/`prebuild`.
 - Migrations (module-scoped with MikroORM):
   - Generate all modules: `npm run db:generate` (iterates modules, writes to `src/modules/<module>/migrations`)
   - Apply all modules: `npm run db:migrate` (ordered, directory first)
@@ -34,6 +40,7 @@ This repository is designed for extensibility. Agents should leverage the module
 ## Security and Quality
 - Validate all inputs with `zod`.
 - Use MikroORM EntityManager/repositories; never interpolate into SQL strings.
+- Use DI (Awilix) to inject services; avoid new-ing classes directly in handlers.
 - Hash passwords with `bcryptjs` (cost ≥10). Never log credentials.
 - Return minimal error messages for auth (avoid revealing whether email exists).
 

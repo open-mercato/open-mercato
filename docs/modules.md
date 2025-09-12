@@ -11,16 +11,37 @@ This ERP supports modular features delivered as either:
 - Folders: snake_case.
 
 ## Module Interface
-Export an `ErpModule` as default or named export from `index.tsx`:
+- No manual registry file is needed — the app auto-discovers modules.
+- Provide optional metadata and DI registrar to integrate with the container and module listing.
+
+### Metadata (index.ts)
+Create `src/modules/<module>/index.ts` exporting `metadata`:
 
 ```ts
-export type ErpModule = {
-  id: string
-  frontendRoutes?: { path: string; Component: FC }[]
-  backendRoutes?: { path: string; Component: FC }[]
-  apis?: { method: 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'; path: string; handler: ApiHandler }[]
-  cli?: { name: string; run(argv: string[]): Promise<void>|void }
-  translations?: Record<string, Record<string, string>>
+import type { ErpModuleInfo } from '@/modules/registry'
+
+export const metadata: ErpModuleInfo = {
+  name: '<module-id>',
+  title: 'Human readable title',
+  version: '0.1.0',
+  description: 'Short description',
+  author: 'You',
+  license: 'MIT'
+}
+```
+
+Generators expose `modulesInfo` for listing.
+
+### Dependency Injection (di.ts)
+Create `src/modules/<module>/di.ts` exporting `register(container)` to add/override services and components.
+
+```ts
+import { asClass, asValue } from 'awilix'
+import type { AppContainer } from '@/lib/di/container'
+
+export function register(container: AppContainer) {
+  // container.register({ myService: asClass(MyService).scoped() })
+  // container.register({ myComponent: asValue(MyComponent) })
 }
 ```
 
@@ -86,3 +107,7 @@ export default async function Page() {
 - Core module `directory` defines `tenants` and `organizations`.
 - Entities that belong to an organization must include `tenant_id` and `organization_id` FKs.
 - Client code must always scope queries by `tenant_id` and `organization_id`.
+
+## Listing and Overriding
+- List loaded modules and their metadata via `modulesInfo` exported from `@/modules/registry` or `@/modules/generated`.
+- Override services/entities/components by registering replacements in your module `di.ts`. The container loads core defaults first, then applies registrars from each module in order, allowing overrides.
