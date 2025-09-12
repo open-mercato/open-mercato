@@ -12,6 +12,8 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 - 🔐 Authentication, roles, sessions included
 - ⚙️ Next.js app router, TypeScript, zod, bcryptjs
 
+<img src="./docs//open-mercato-homepage.jpg" alt="Open Mercato homepage"/>
+
 ## Getting Started
 
 1) Prerequisites
