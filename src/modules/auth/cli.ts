@@ -1,8 +1,8 @@
-import { getDb } from '@/db'
-import { users } from '@/db/schema'
-import { eq } from 'drizzle-orm'
 import type { ModuleCli } from '@/modules/registry'
-import { organizations } from '@/db/schema'
+import { getEm } from '@/lib/db/mikro'
+import { hash } from 'bcryptjs'
+import { User, Role, UserRole } from '@/modules/auth/db/entities'
+import { Tenant, Organization } from '@/modules/directory/db/entities'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -21,46 +21,31 @@ const addUser: ModuleCli = {
       console.error('Usage: erp auth add-user --email <email> --password <password> --organizationId <id> [--roles customer,employee]')
       return
     }
-    const { hash } = await import('bcryptjs')
-    const passwordHash = await hash(password, 10)
-    const db = getDb()
-    const inserted = await db.insert(users).values({ email, organizationId, passwordHash, isConfirmed: true }).returning({ id: users.id })
-    const userId = inserted[0]?.id
-    if (!userId) {
-      console.error('Failed to insert user')
-      return
-    }
+    const em = await getEm()
+    const org = await em.findOneOrFail(Organization, { id: Number(organizationId) }, { populate: ['tenant'] })
+    const u = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organization: org, tenant: org.tenant })
+    await em.persistAndFlush(u)
     if (rolesCsv) {
-      const { roles, userRoles } = await import('@/db/schema')
-      const roleNames = rolesCsv.split(',').map((s) => s.trim()).filter(Boolean)
-      for (const name of roleNames) {
-        const existing = await db.select().from(roles).where(eq(roles.name, name)).limit(1)
-        let roleId = existing[0]?.id
-        if (!roleId) {
-          const r = await db.insert(roles).values({ name }).returning({ id: roles.id })
-          roleId = r[0]?.id
-        }
-        if (roleId) {
-          await db.insert(userRoles).values({ userId, roleId })
-        }
+      const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
+      for (const name of names) {
+        let role = await em.findOne(Role, { name })
+        if (!role) { role = em.create(Role, { name }); await em.persistAndFlush(role) }
+        const link = em.create(UserRole, { user: u, role })
+        await em.persistAndFlush(link)
       }
     }
-    console.log('User created with id', userId)
+    console.log('User created with id', u.id)
   },
 }
 
 const seedRoles: ModuleCli = {
   command: 'seed-roles',
   async run() {
-    const db = getDb()
-    const { roles } = await import('@/db/schema')
     const defaults = ['customer', 'employee', 'admin', 'owner']
+    const em = await getEm()
     for (const name of defaults) {
-      const existing = await db.select().from(roles).where(eq(roles.name, name)).limit(1)
-      if (existing.length === 0) {
-        await db.insert(roles).values({ name })
-        console.log('Inserted role', name)
-      }
+      const existing = await em.findOne(Role, { name })
+      if (!existing) { await em.persistAndFlush(em.create(Role, { name })); console.log('Inserted role', name) }
     }
     console.log('Roles ensured')
   },
@@ -82,14 +67,13 @@ const addOrganization: ModuleCli = {
       console.error('Usage: erp auth add-org --name <organization name>')
       return
     }
-    const db = getDb()
-    const inserted = await db.insert(organizations).values({ name }).returning({ id: organizations.id })
-    const id = inserted[0]?.id
-    if (!id) {
-      console.error('Failed to create organization')
-      return
-    }
-    console.log('Organization created with id', id)
+    const em = await getEm()
+    // Create tenant implicitly for simplicity
+    const tenant = em.create(Tenant, { name: `${name} Tenant` })
+    await em.persistAndFlush(tenant)
+    const org = em.create(Organization, { name, tenant })
+    await em.persistAndFlush(org)
+    console.log('Organization created with id', org.id, 'in tenant', tenant.id)
   },
 }
 
@@ -110,48 +94,32 @@ const setupApp: ModuleCli = {
       console.error('Usage: erp auth setup --orgName <name> --email <email> --password <password> [--roles owner,admin]')
       return
     }
-    const db = getDb()
-    // 1) Create organization
-    const orgRes = await db.insert(organizations).values({ name: orgName }).returning({ id: organizations.id })
-    const organizationId = orgRes[0]?.id
-    if (!organizationId) {
-      console.error('Failed to create organization')
-      return
-    }
+    const em = await getEm()
+    // 1) Create tenant and organization
+    const tenant = em.create(Tenant, { name: `${orgName} Tenant` })
+    await em.persistAndFlush(tenant)
+    const org = em.create(Organization, { name: orgName, tenant })
+    await em.persistAndFlush(org)
     // 2) Ensure roles exist
     if (rolesCsv) {
-      const { roles } = await import('@/db/schema')
       const roleNames = rolesCsv.split(',').map((s) => s.trim()).filter(Boolean)
       for (const name of roleNames) {
-        const existing = await db.select().from(roles).where(eq(roles.name, name)).limit(1)
-        if (existing.length === 0) {
-          await db.insert(roles).values({ name })
-          console.log('Inserted role', name)
-        }
+        let role = await em.findOne(Role, { name })
+        if (!role) { role = em.create(Role, { name }); await em.persistAndFlush(role) }
       }
     }
     // 3) Create user in organization
-    const { hash } = await import('bcryptjs')
-    const passwordHash = await hash(password, 10)
-    const userRes = await db.insert(users).values({ email, organizationId, passwordHash, isConfirmed: true }).returning({ id: users.id })
-    const userId = userRes[0]?.id
-    if (!userId) {
-      console.error('Failed to create user')
-      return
-    }
+    const user = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organization: org, tenant })
+    await em.persistAndFlush(user)
     // 4) Assign roles if any
     if (rolesCsv) {
-      const { roles, userRoles } = await import('@/db/schema')
       const roleNames = rolesCsv.split(',').map((s) => s.trim()).filter(Boolean)
       for (const name of roleNames) {
-        const existing = await db.select().from(roles).where(eq(roles.name, name)).limit(1)
-        const roleId = existing[0]?.id
-        if (roleId) {
-          await db.insert(userRoles).values({ userId, roleId })
-        }
+        const role = await em.findOneOrFail(Role, { name })
+        await em.persistAndFlush(em.create(UserRole, { user, role }))
       }
     }
-    console.log('Setup complete:', { organizationId, userId })
+    console.log('Setup complete:', { tenantId: tenant.id, organizationId: org.id, userId: user.id })
   },
 }
 

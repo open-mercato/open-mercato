@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getDb } from '@/db'
-import { authSessions, users, roles, userRoles } from '@/db/schema'
-import { and, eq, gt } from 'drizzle-orm'
+import { getEm } from '@/lib/db/mikro'
+import { refreshFromSessionToken } from '@/modules/auth/services/authService'
 import { signJwt } from '@/lib/auth/jwt'
 
 function parseCookie(req: Request, name: string): string | null {
@@ -16,19 +15,11 @@ export async function GET(req: Request) {
   const toAbs = (p: string) => new URL(p, url.origin).toString()
   const token = parseCookie(req, 'session_token')
   if (!token) return NextResponse.redirect(toAbs('/login?redirect=' + encodeURIComponent(redirectTo)))
-  const db = getDb()
-  const now = new Date()
-  const [sess] = await db.select().from(authSessions).where(and(eq(authSessions.token, token), gt(authSessions.expiresAt, now))).limit(1)
-  if (!sess) return NextResponse.redirect(toAbs('/login?redirect=' + encodeURIComponent(redirectTo)))
-  // Load user and roles
-  const [user] = await db.select().from(users).where(eq(users.id, sess.userId)).limit(1)
-  if (!user) return NextResponse.redirect(toAbs('/login?redirect=' + encodeURIComponent(redirectTo)))
-  const assigned = await db.select({ roleId: userRoles.roleId }).from(userRoles).where(eq(userRoles.userId, user.id))
-  const assignedSet = new Set(assigned.map(r => r.roleId))
-  const roleRows = await db.select({ id: roles.id, name: roles.name }).from(roles)
-  const userRoleNames: string[] = []
-  for (const r of roleRows) if (assignedSet.has(r.id)) userRoleNames.push(r.name)
-  const jwt = signJwt({ sub: user.id, orgId: user.organizationId, email: user.email, roles: userRoleNames })
+  const em = await getEm()
+  const ctx = await refreshFromSessionToken(em as any, token)
+  if (!ctx) return NextResponse.redirect(toAbs('/login?redirect=' + encodeURIComponent(redirectTo)))
+  const { user, roles } = ctx
+  const jwt = signJwt({ sub: String(user.id), tenantId: String(user.tenant.id), orgId: String(user.organization.id), email: user.email, roles })
   const res = NextResponse.redirect(toAbs(redirectTo))
   res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   return res

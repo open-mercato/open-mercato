@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
-import { getDb } from '@/db'
-import { users } from '@/db/schema'
+import { getEm } from '@/lib/db/mikro'
+import { User } from '@/modules/auth/db/entities'
 import { detectLocale, loadDictionary } from '@/lib/i18n/server'
 
 export default async function Home() {
@@ -13,9 +13,9 @@ export default async function Home() {
   let status: string;
   try {
     // Simple query to validate DB connectivity
-    const db = getDb();
-    const result = await db.select({ count: users.id }).from(users).limit(1);
-    status = `Połączenie z DB OK. Tabela users gotowa.`;
+    const em = await getEm()
+    const count = await em.count(User, {})
+    status = `Połączenie z DB OK. Users: ${count}`;
   } catch (e: any) {
     status = `DB niegotowa: ${e?.message ?? 'brak połączenia'}`;
   }

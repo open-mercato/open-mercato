@@ -15,11 +15,11 @@ This repository is designed for extensibility. Agents should leverage the module
   - Special case: `src/modules/<module>/backend/page.tsx` → `/backend/<module>`
   - API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
   - Optional CLI at `src/modules/<module>/cli.ts` default export
-- Database schemas live in `src/modules/<module>/db/schema.ts` and are picked by drizzle-kit.
+- Database entities (MikroORM) live in `src/modules/<module>/db/entities.ts` (fallback: `schema.ts` for compatibility).
 - A generator builds `src/modules/generated.ts`; run `npm run modules:generate` or rely on `predev`/`prebuild`.
-- Migrations:
-  - App-wide (all schemas): `npm run db:generate` / `npm run db:migrate`
-  - Module-scoped: `npm run db:generate:module -- <module>` → outputs to `src/modules/<module>/drizzle`
+- Migrations (module-scoped with MikroORM):
+  - Generate all modules: `npm run db:generate` (iterates modules, writes to `src/modules/<module>/migrations`)
+  - Apply all modules: `npm run db:migrate` (ordered, directory first)
 
 ## Database Naming
 - Tables: plural snake_case (e.g., `users`, `user_roles`, `example_items`).
@@ -33,7 +33,7 @@ This repository is designed for extensibility. Agents should leverage the module
 
 ## Security and Quality
 - Validate all inputs with `zod`.
-- Use parameterized queries (via drizzle) and never interpolate into SQL strings.
+- Use MikroORM EntityManager/repositories; never interpolate into SQL strings.
 - Hash passwords with `bcryptjs` (cost ≥10). Never log credentials.
 - Return minimal error messages for auth (avoid revealing whether email exists).
 

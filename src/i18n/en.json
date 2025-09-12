@@ -1,5 +1,5 @@
 {
-  "app.title": "EHR starter (Next.js + shadcn + drizzle)",
+  "app.title": "EHR starter (Next.js + shadcn + MikroORM)",
   "app.status": "{status}",
   "app.goToLogin": "Go to Login",
   "app.examplePage": "Example page",

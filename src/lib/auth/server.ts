@@ -3,6 +3,7 @@ import { verifyJwt } from './jwt'
 
 export type AuthContext = {
   sub: string
+  tenantId: string
   orgId: string
   email?: string
   roles?: string[]

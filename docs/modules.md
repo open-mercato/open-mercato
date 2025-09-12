@@ -37,18 +37,11 @@ export type ErpModule = {
 - Implement handlers under `src/modules/<module>/api/<method>/<path>.ts` (default export returns `Response`).
 - The app exposes a catch-all API route in `src/app/api/[...slug]/route.ts` and dispatches by method + path.
 
-### Database Schema and Migrations
-- Place module tables in `src/modules/<module>/db/schema.ts`.
-- Root drizzle config includes all module schemas (for app-wide migrations):
-  - `drizzle.config.ts` → `schema: ['src/db/schema.ts', 'src/modules/**/db/schema.ts']`
-- Generate and run app-wide migrations from the root:
-  - `npm run db:generate`
-  - `npm run db:migrate`
-- Module-scoped migrations (for publishing modules):
-  - Output folder per module: `src/modules/<module>/drizzle`
-  - Generate: `npm run db:generate:module -- <module>`
-  - Migrate: `npm run db:migrate:module -- <module>`
-  - Studio: `npm run db:studio:module -- <module>`
+### Database Schema and Migrations (MikroORM)
+- Place module entities in `src/modules/<module>/db/entities.ts` (fallback: `schema.ts`).
+- Generate combined module registry and entities: `npm run modules:prepare`.
+- Generate migrations for all modules: `npm run db:generate` → writes to `src/modules/<module>/migrations`.
+- Apply migrations for all modules: `npm run db:migrate`.
 
 ### CLI
 - Optional: add `src/modules/<module>/cli.ts` default export `(argv) => void|Promise<void>`.
@@ -57,7 +50,7 @@ export type ErpModule = {
 ## Adding an External Module
 1. Install the npm package (must be ESM compatible) into `node_modules`.
 2. Expose a pseudo-tree under `src/modules/<module>` via a postinstall script or a wrapper package; or copy its files into `src/modules/<module>`.
-3. Ensure it ships its drizzle schema under `/db/schema.ts` so migrations generate.
+3. Ensure it ships its MikroORM entities under `/db/entities.ts` so migrations generate.
 4. Run `npm run modules:generate` to refresh the registry.
 
 ## Translations (i18n)
@@ -90,6 +83,6 @@ export default async function Page() {
 ```
 
 ## Multi-tenant
-- Core table: `organizations` with `id`, `name`, `is_active`, `created_at`, `updated_at`.
-- Entities that belong to an organization must include `organization_id` FK.
-- Client code must always scope queries by `organization_id`.
+- Core module `directory` defines `tenants` and `organizations`.
+- Entities that belong to an organization must include `tenant_id` and `organization_id` FKs.
+- Client code must always scope queries by `tenant_id` and `organization_id`.

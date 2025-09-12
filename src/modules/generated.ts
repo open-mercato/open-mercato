@@ -33,6 +33,14 @@ export const modules: ErpModule[] = [
       translations: { 'en': T_auth_en as Record<string,string>, 'pl': T_auth_pl as Record<string,string> },
     },
   {
+      id: 'directory',
+      
+      
+      
+      
+      
+    },
+  {
       id: 'example',
       frontendRoutes: [{ pattern: '/blog/[id]', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C10_example_blog__id_ }, { pattern: '/example', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C11_example_example }],
       backendRoutes: [{ pattern: '/backend/blog/[id]', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C12_example_blog__id_ }, { pattern: '/backend/example', requireAuth: (M14_example_example.metadata)?.requireAuth, requireRoles: (M14_example_example.metadata)?.requireRoles, title: (M14_example_example.metadata)?.pageTitle ?? (M14_example_example.metadata)?.title, group: (M14_example_example.metadata)?.pageGroup ?? (M14_example_example.metadata)?.group, visible: (M14_example_example.metadata)?.visible, enabled: (M14_example_example.metadata)?.enabled, Component: C13_example_example }],
