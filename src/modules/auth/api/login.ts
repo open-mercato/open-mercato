@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server'
 import { userLoginSchema } from '@/modules/auth/data/validators'
-import { compare } from 'bcryptjs'
 import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@/modules/auth/services/authService'
 import { signJwt } from '@/lib/auth/jwt'
 
-const loginSchema = z.object({ email: z.string().email(), password: z.string().min(6) })
+// validation comes from userLoginSchema
 
 export async function POST(req: Request) {
   const form = await req.formData()

@@ -2,11 +2,10 @@ import { requestPasswordResetSchema } from '@/modules/auth/data/validators'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@/modules/auth/services/authService'
-import crypto from 'node:crypto'
 import { sendEmail } from '@/lib/email/send'
 import ResetPasswordEmail from '@/modules/auth/emails/ResetPasswordEmail'
 
-const schema = z.object({ email: z.string().email() })
+// validation via requestPasswordResetSchema
 
 export async function POST(req: Request) {
   const form = await req.formData()

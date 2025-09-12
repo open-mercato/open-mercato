@@ -2,9 +2,8 @@ import { confirmPasswordResetSchema } from '@/modules/auth/data/validators'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@/modules/auth/services/authService'
-import { hash } from 'bcryptjs'
 
-const schema = z.object({ token: z.string().min(10), password: z.string().min(6) })
+// validation via confirmPasswordResetSchema
 
 export async function POST(req: Request) {
   const form = await req.formData()
