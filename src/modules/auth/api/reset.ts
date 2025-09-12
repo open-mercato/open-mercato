@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { requestPasswordResetSchema } from '@/modules/auth/data/validators'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@/modules/auth/services/authService'
@@ -11,7 +11,7 @@ const schema = z.object({ email: z.string().email() })
 export async function POST(req: Request) {
   const form = await req.formData()
   const email = String(form.get('email') ?? '')
-  const parsed = schema.safeParse({ email })
+  const parsed = requestPasswordResetSchema.safeParse({ email })
   if (!parsed.success) return NextResponse.json({ ok: true }) // do not reveal
   const c = await createRequestContainer()
   const auth = c.resolve<AuthService>('authService')

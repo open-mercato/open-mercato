@@ -41,3 +41,4 @@ export class Organization {
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 }
+

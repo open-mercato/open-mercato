@@ -17,7 +17,7 @@ This repository is designed for extensibility. Agents should leverage the module
   - Optional CLI at `src/modules/<module>/cli.ts` default export
   - Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
   - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
-- Database entities (MikroORM) live in `src/modules/<module>/db/entities.ts` (fallback: `schema.ts` for compatibility).
+- Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
 - Generators build:
   - `src/modules/generated.ts` (routes/APIs/CLIs + info)
   - `src/modules/entities.generated.ts` (MikroORM entities)
@@ -39,6 +39,9 @@ This repository is designed for extensibility. Agents should leverage the module
 
 ## Security and Quality
 - Validate all inputs with `zod`.
+- Place validators next to entities (per module) in `src/modules/<module>/data/validators.ts`.
+- Define create/update/input schemas and reuse from APIs, CLIs, and admin forms.
+- Derive TypeScript types from zod via `z.infer<typeof schema>`.
 - Use MikroORM EntityManager/repositories; never interpolate into SQL strings.
 - Use DI (Awilix) to inject services; avoid new-ing classes directly in handlers.
 - Hash passwords with `bcryptjs` (cost ≥10). Never log credentials.

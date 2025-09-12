@@ -59,10 +59,16 @@ export function register(container: AppContainer) {
 - The app exposes a catch-all API route in `src/app/api/[...slug]/route.ts` and dispatches by method + path.
 
 ### Database Schema and Migrations (MikroORM)
-- Place module entities in `src/modules/<module>/db/entities.ts` (fallback: `schema.ts`).
+- Place module entities in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts`).
 - Generate combined module registry and entities: `npm run modules:prepare`.
 - Generate migrations for all modules: `npm run db:generate` → writes to `src/modules/<module>/migrations`.
 - Apply migrations for all modules: `npm run db:migrate`.
+
+### Validation (zod)
+- Put validators alongside entities in `src/modules/<module>/data/validators.ts`.
+- Create focused schemas (e.g., `userLoginSchema`, `tenantCreateSchema`).
+- Import and reuse validators across APIs/CLI/forms to keep behavior consistent.
+- Derive types as needed: `type Input = z.infer<typeof userLoginSchema>`.
 
 ### CLI
 - Optional: add `src/modules/<module>/cli.ts` default export `(argv) => void|Promise<void>`.

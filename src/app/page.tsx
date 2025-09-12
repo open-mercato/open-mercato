@@ -1,8 +1,8 @@
 import { Button } from '@/components/ui/button'
 import { getEm } from '@/lib/db/mikro'
 import { modules } from '@/modules/registry'
-import { User } from '@/modules/auth/db/entities'
-import { Tenant, Organization } from '@/modules/directory/db/entities'
+import { User } from '@/modules/auth/data/entities'
+import { Tenant, Organization } from '@/modules/directory/data/entities'
 
 function FeatureBadge({ label }: { label: string }) {
   return (

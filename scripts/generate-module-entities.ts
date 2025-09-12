@@ -17,14 +17,17 @@ function scan() {
   let n = 0
   for (const mod of mods) {
     const modId = mod.name
-    const dbDir = path.join(modulesRoot, modId, 'db')
-    if (!fs.existsSync(dbDir)) continue
+    const dataDir = path.join(modulesRoot, modId, 'data')
+    const dbDir = path.join(modulesRoot, modId, 'db') // legacy fallback
+    const baseDir = fs.existsSync(dataDir) ? dataDir : (fs.existsSync(dbDir) ? dbDir : null)
+    if (!baseDir) continue
     // prefer override, then entities.ts, then schema.ts for compatibility
     const candidates = ['entities.override.ts', 'entities.ts', 'schema.ts']
-    const found = candidates.map(f => path.join(dbDir, f)).find(p => fs.existsSync(p))
+    const found = candidates.map(f => path.join(baseDir, f)).find(p => fs.existsSync(p))
     if (!found) continue
     const importName = `E_${toVar(modId)}_${n++}`
-    const relImport = `@/modules/${modId}/db/${path.basename(found).replace(/\.ts$/, '')}`
+    const sub = path.basename(path.dirname(found)) // 'data' or 'db'
+    const relImport = `@/modules/${modId}/${sub}/${path.basename(found).replace(/\.ts$/, '')}`
     imports.push(`import * as ${importName} from '${relImport}'`)
     entityRefs.push(`...Object.values(${importName}).filter(v => typeof v === 'function') as any[]`)
   }

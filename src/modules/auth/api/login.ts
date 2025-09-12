@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { z } from 'zod'
+import { userLoginSchema } from '@/modules/auth/data/validators'
 import { compare } from 'bcryptjs'
 import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@/modules/auth/services/authService'
@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const remember = String(form.get('remember') ?? '').toLowerCase() === 'on' || String(form.get('remember') ?? '') === '1' || String(form.get('remember') ?? '') === 'true'
   const requireRoleRaw = (String(form.get('requireRole') ?? form.get('role') ?? '')).trim()
   const requiredRoles = requireRoleRaw ? requireRoleRaw.split(',').map((s) => s.trim()).filter(Boolean) : []
-  const parsed = loginSchema.safeParse({ email, password })
+  const parsed = userLoginSchema.pick({ email: true, password: true }).safeParse({ email, password })
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: 'Invalid credentials' }, { status: 400 })
   }

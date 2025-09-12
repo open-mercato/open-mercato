@@ -11,3 +11,4 @@ export class ExampleItem {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
+

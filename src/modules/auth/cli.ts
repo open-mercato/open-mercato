@@ -1,8 +1,8 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import { hash } from 'bcryptjs'
-import { User, Role, UserRole } from '@/modules/auth/db/entities'
-import { Tenant, Organization } from '@/modules/directory/db/entities'
+import { User, Role, UserRole } from '@/modules/auth/data/entities'
+import { Tenant, Organization } from '@/modules/directory/data/entities'
 
 const addUser: ModuleCli = {
   command: 'add-user',

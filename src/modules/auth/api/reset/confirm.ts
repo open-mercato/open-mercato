@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { confirmPasswordResetSchema } from '@/modules/auth/data/validators'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@/modules/auth/services/authService'
@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   const form = await req.formData()
   const token = String(form.get('token') ?? '')
   const password = String(form.get('password') ?? '')
-  const parsed = schema.safeParse({ token, password })
+  const parsed = confirmPasswordResetSchema.safeParse({ token, password })
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid request' }, { status: 400 })
   const c = await createRequestContainer()
   const auth = c.resolve<AuthService>('authService')

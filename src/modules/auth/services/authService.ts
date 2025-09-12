@@ -1,6 +1,6 @@
 import { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
-import { User, Role, UserRole, Session, PasswordReset } from '@/modules/auth/db/entities'
+import { User, Role, UserRole, Session, PasswordReset } from '@/modules/auth/data/entities'
 import crypto from 'node:crypto'
 
 export class AuthService {

@@ -11,15 +11,18 @@ const modulesRoot = path.resolve('src/modules')
 type Cmd = 'generate' | 'apply'
 
 async function loadModuleEntities(modId: string) {
-  // Prefer entities.ts, fallback to schema.ts for compatibility
-  const base = path.join(modulesRoot, modId, 'db')
+  // Prefer data/, fallback to legacy db/
+  const bases = [path.join(modulesRoot, modId, 'data'), path.join(modulesRoot, modId, 'db')]
   const candidates = ['entities.ts', 'schema.ts']
-  for (const f of candidates) {
-    const p = path.join(base, f)
-    if (fs.existsSync(p)) {
-      const mod = await import(pathToImport(`@/modules/${modId}/db/${f.replace(/\.ts$/, '')}`))
-      const entities = Object.values(mod).filter(v => typeof v === 'function')
-      if (entities.length) return entities as any[]
+  for (const base of bases) {
+    for (const f of candidates) {
+      const p = path.join(base, f)
+      if (fs.existsSync(p)) {
+        const sub = path.basename(base)
+        const mod = await import(pathToImport(`@/modules/${modId}/${sub}/${f.replace(/\.ts$/, '')}`))
+        const entities = Object.values(mod).filter(v => typeof v === 'function')
+        if (entities.length) return entities as any[]
+      }
     }
   }
   return []
