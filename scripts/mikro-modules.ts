@@ -62,7 +62,24 @@ async function run(cmd: Cmd) {
     if (cmd === 'generate') {
       const diff = await migrator.createMigration()
       if (diff && diff.fileName) {
-        results.push(`${modId}: generated ${path.basename(diff.fileName)}`)
+        try {
+          const orig = diff.fileName
+          const base = path.basename(orig)
+          const dir = path.dirname(orig)
+          const ext = path.extname(base)
+          const stem = base.replace(ext, '')
+          const suffix = `_${modId}`
+          const newBase = stem.endsWith(suffix) ? base : `${stem}${suffix}${ext}`
+          const newPath = path.join(dir, newBase)
+          let content = fs.readFileSync(orig, 'utf8')
+          // Rename class to ensure uniqueness as well
+          content = content.replace(/export class (Migration\d+)/, `export class $1_${modId.replace(/[^a-zA-Z0-9]/g, '_')}`)
+          fs.writeFileSync(newPath, content, 'utf8')
+          if (newPath !== orig) fs.unlinkSync(orig)
+          results.push(`${modId}: generated ${newBase}`)
+        } catch (e) {
+          results.push(`${modId}: generated ${path.basename(diff.fileName)} (rename failed)`)  
+        }
       } else {
         results.push(`${modId}: no changes`)
       }
@@ -81,4 +98,3 @@ if (sub !== 'generate' && sub !== 'apply') {
   process.exit(1)
 }
 run(sub as Cmd).catch((e) => { console.error(e); process.exit(1) })
-

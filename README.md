@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+🚀 Open Mercato
+
+Open Mercato is a new‑era, AI‑supportive ERP foundation framework for service‑ and product‑based companies — built to power bookings, operations, and growth. It’s modular, extensible, and designed for teams that want strong defaults with room to customize everything.
+
+## Highlights
+
+- 🧩 Modular architecture with auto‑discovery (pages, APIs, CLI)
+- 🧠 AI‑supportive foundation ready for assistive workflows
+- 🗃️ Per‑module entities and migrations via MikroORM
+- 🧱 Strong multi‑tenant model (tenants + organizations)
+- 🧰 Dependency Injection (Awilix) for service/component overrides
+- 🔐 Authentication, roles, sessions included
+- ⚙️ Next.js app router, TypeScript, zod, bcryptjs
 
 ## Getting Started
 
-First, run the development server:
+1) Prerequisites
+- Node.js 20+
+- PostgreSQL database
+- Environment variables in `.env` (copy from `.env.example`):
+  - `DATABASE_URL=postgres://user:password@localhost:5432/mercato`
+  - `JWT_SECRET=some-strong-secret`
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+2) Install dependencies
+- `yarn install`
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+3) Prepare modules (registry, entities, DI)
+- `yarn modules:prepare`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+4) Database migrations (per‑module)
+- Generate: `yarn db:generate`
+- Apply: `yarn db:migrate`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+5) Seed roles and bootstrap an organization + admin user
+- Seed default roles: `yarn mercato auth seed-roles`
+- Setup tenant/org/admin:
+  - `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles owner,admin`
 
-## Learn More
+6) Run the app
+- `yarn dev`
+- Open http://localhost:3000
 
-To learn more about Next.js, take a look at the following resources:
+## Architecture Overview
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- 🧩 Modules: Each feature lives under `src/modules/<module>` with auto‑discovered frontend/backend pages, APIs, CLI, i18n, and DB entities.
+- 🗃️ Database: MikroORM with per‑module entities and migrations; no global schema. Migrations are generated and applied per module.
+- 🧰 Dependency Injection: Awilix container constructed per request. Modules can register and override services/components via `di.ts`.
+- 🏢 Multi‑tenant: Core `directory` module defines `tenants` and `organizations`. Most entities carry `tenant_id` + `organization_id`.
+- 🔐 Security: zod validation, bcryptjs hashing, JWT sessions, role‑based access in routes and APIs.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## License
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- MIT — see `LICENSE` for details.
