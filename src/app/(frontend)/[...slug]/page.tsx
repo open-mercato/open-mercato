@@ -2,8 +2,9 @@ import { notFound, redirect } from 'next/navigation'
 import { findFrontendMatch } from '@/modules/registry'
 import { getAuthFromCookies } from '@/lib/auth/server'
 
-export default async function SiteCatchAll({ params }: { params: { slug: string[] } }) {
-  const pathname = '/' + (params.slug?.join('/') ?? '')
+export default async function SiteCatchAll({ params }: { params: Promise<{ slug: string[] }> }) {
+  const p = await params
+  const pathname = '/' + (p.slug?.join('/') ?? '')
   const match = findFrontendMatch(pathname)
   if (!match) return notFound()
   if (match.route.requireAuth) {

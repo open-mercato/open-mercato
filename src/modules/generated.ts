@@ -29,7 +29,7 @@ import T_example_pl from '@/modules/example/i18n/pl.json'
 export const modules: Module[] = [
   {
       id: 'auth',
-      info: I0_auth.metadata ?? I0_auth.default,
+      info: I0_auth.metadata,
       frontendRoutes: [{ pattern: '/reset/[token]', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C1_auth_reset__token_ }, { pattern: '/login', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C2_auth_login }, { pattern: '/reset', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C3_auth_reset }],
       backendRoutes: [{ pattern: '/backend/auth', requireAuth: (M5_auth_index.metadata)?.requireAuth, requireRoles: (M5_auth_index.metadata)?.requireRoles, title: (M5_auth_index.metadata)?.pageTitle ?? (M5_auth_index.metadata)?.title, group: (M5_auth_index.metadata)?.pageGroup ?? (M5_auth_index.metadata)?.group, visible: (M5_auth_index.metadata)?.visible, enabled: (M5_auth_index.metadata)?.enabled, Component: C4_auth_index }],
       apis: [{ path: '/auth/login', requireAuth: R6_auth_login.metadata?.requireAuth, requireRoles: R6_auth_login.metadata?.requireRoles, handlers: R6_auth_login }, { path: '/auth/logout', requireAuth: R7_auth_logout.metadata?.requireAuth, requireRoles: R7_auth_logout.metadata?.requireRoles, handlers: R7_auth_logout }, { path: '/auth/reset/confirm', requireAuth: R8_auth_reset_confirm.metadata?.requireAuth, requireRoles: R8_auth_reset_confirm.metadata?.requireRoles, handlers: R8_auth_reset_confirm }, { path: '/auth/reset', requireAuth: R9_auth_reset.metadata?.requireAuth, requireRoles: R9_auth_reset.metadata?.requireRoles, handlers: R9_auth_reset }, { path: '/auth/session/refresh', requireAuth: R10_auth_session_refresh.metadata?.requireAuth, requireRoles: R10_auth_session_refresh.metadata?.requireRoles, handlers: R10_auth_session_refresh }],
@@ -38,7 +38,7 @@ export const modules: Module[] = [
     },
   {
       id: 'directory',
-      info: I11_directory.metadata ?? I11_directory.default,
+      info: I11_directory.metadata,
       
       
       
@@ -47,7 +47,7 @@ export const modules: Module[] = [
     },
   {
       id: 'example',
-      info: I12_example.metadata ?? I12_example.default,
+      info: I12_example.metadata,
       frontendRoutes: [{ pattern: '/blog/[id]', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C13_example_blog__id_ }, { pattern: '/example', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C14_example_example }],
       backendRoutes: [{ pattern: '/backend/blog/[id]', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C15_example_blog__id_ }, { pattern: '/backend/example', requireAuth: (M17_example_example.metadata)?.requireAuth, requireRoles: (M17_example_example.metadata)?.requireRoles, title: (M17_example_example.metadata)?.pageTitle ?? (M17_example_example.metadata)?.title, group: (M17_example_example.metadata)?.pageGroup ?? (M17_example_example.metadata)?.group, visible: (M17_example_example.metadata)?.visible, enabled: (M17_example_example.metadata)?.enabled, Component: C16_example_example }],
       apis: [{ path: '/example/blog/[id]', requireAuth: R18_example_blog__id_.metadata?.requireAuth, requireRoles: R18_example_blog__id_.metadata?.requireRoles, handlers: R18_example_blog__id_ }],

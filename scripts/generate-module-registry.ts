@@ -256,7 +256,7 @@ function scan() {
 
     moduleDecls.push(`{
       id: '${modId}',
-      ${infoImportName ? `info: ${infoImportName}.metadata ?? ${infoImportName}.default,` : ''}
+      ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
       ${frontendRoutes.length ? `frontendRoutes: [${frontendRoutes.join(', ')}],` : ''}
       ${backendRoutes.length ? `backendRoutes: [${backendRoutes.join(', ')}],` : ''}
       ${apis.length ? `apis: [${apis.join(', ')}],` : ''}

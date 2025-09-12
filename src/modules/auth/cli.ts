@@ -97,7 +97,8 @@ const setupApp: ModuleCli = {
       console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles owner,admin]')
       return
     }
-    const em = await getEm()
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
     // 1) Create tenant and organization
     const tenant = em.create(Tenant, { name: `${orgName} Tenant` })
     await em.persistAndFlush(tenant)

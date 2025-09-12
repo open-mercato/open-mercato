@@ -2,19 +2,19 @@ import { Entity, PrimaryKey, Property, ManyToOne, OneToMany, Collection } from '
 
 @Entity({ tableName: 'tenants' })
 export class Tenant {
-  @PrimaryKey()
+  @PrimaryKey({ type: 'int' })
   id!: number
 
-  @Property()
+  @Property({ type: 'text' })
   name!: string
 
-  @Property({ name: 'is_active', default: true })
+  @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 
-  @Property({ name: 'created_at', onCreate: () => new Date() })
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', onUpdate: () => new Date() })
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 
   @OneToMany(() => Organization, (o) => o.tenant)
@@ -23,22 +23,21 @@ export class Tenant {
 
 @Entity({ tableName: 'organizations' })
 export class Organization {
-  @PrimaryKey()
+  @PrimaryKey({ type: 'int' })
   id!: number
 
   @ManyToOne(() => Tenant)
   tenant!: Tenant
 
-  @Property()
+  @Property({ type: 'text' })
   name!: string
 
-  @Property({ name: 'is_active', default: true })
+  @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 
-  @Property({ name: 'created_at', onCreate: () => new Date() })
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', onUpdate: () => new Date() })
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 }
-

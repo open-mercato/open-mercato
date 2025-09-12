@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import 'reflect-metadata'
 import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 
@@ -22,4 +23,3 @@ export async function getEm() {
   const orm = await getOrm()
   return orm.em.fork({ clear: true })
 }
-

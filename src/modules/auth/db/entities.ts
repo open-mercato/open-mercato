@@ -3,7 +3,7 @@ import { Tenant, Organization } from '@/modules/directory/db/entities'
 
 @Entity({ tableName: 'users' })
 export class User {
-  @PrimaryKey()
+  @PrimaryKey({ type: 'int' })
   id!: number
 
   @ManyToOne(() => Tenant)
@@ -12,40 +12,40 @@ export class User {
   @ManyToOne(() => Organization)
   organization!: Organization
 
-  @Property({ unique: true })
+  @Property({ type: 'text', unique: true })
   email!: string
 
-  @Property({ nullable: true })
+  @Property({ type: 'text', nullable: true })
   name?: string
 
-  @Property({ name: 'password_hash', nullable: true })
+  @Property({ name: 'password_hash', type: 'text', nullable: true })
   passwordHash?: string | null
 
-  @Property({ name: 'is_confirmed', default: false })
-  isConfirmed: boolean = false
+  @Property({ name: 'is_confirmed', type: 'boolean', default: true })
+  isConfirmed: boolean = true
 
-  @Property({ name: 'last_login_at', nullable: true })
+  @Property({ name: 'last_login_at', type: Date, nullable: true })
   lastLoginAt?: Date
 
-  @Property({ name: 'created_at', onCreate: () => new Date() })
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
 
 @Entity({ tableName: 'roles' })
 export class Role {
-  @PrimaryKey()
+  @PrimaryKey({ type: 'int' })
   id!: number
 
-  @Property({ unique: true })
+  @Property({ type: 'text', unique: true })
   name!: string
 
-  @Property({ name: 'created_at', onCreate: () => new Date() })
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
 
 @Entity({ tableName: 'user_roles' })
 export class UserRole {
-  @PrimaryKey()
+  @PrimaryKey({ type: 'int' })
   id!: number
 
   @ManyToOne(() => User)
@@ -54,49 +54,48 @@ export class UserRole {
   @ManyToOne(() => Role)
   role!: Role
 
-  @Property({ name: 'created_at', onCreate: () => new Date() })
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
 
 @Entity({ tableName: 'sessions' })
 export class Session {
-  @PrimaryKey()
+  @PrimaryKey({ type: 'int' })
   id!: number
 
   @ManyToOne(() => User)
   user!: User
 
-  @Property({ unique: true })
+  @Property({ type: 'text', unique: true })
   token!: string
 
-  @Property({ name: 'expires_at' })
+  @Property({ name: 'expires_at', type: Date })
   expiresAt!: Date
 
-  @Property({ name: 'created_at', onCreate: () => new Date() })
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'last_used_at', nullable: true })
+  @Property({ name: 'last_used_at', type: Date, nullable: true })
   lastUsedAt?: Date
 }
 
 @Entity({ tableName: 'password_resets' })
 export class PasswordReset {
-  @PrimaryKey()
+  @PrimaryKey({ type: 'int' })
   id!: number
 
   @ManyToOne(() => User)
   user!: User
 
-  @Property({ unique: true })
+  @Property({ type: 'text', unique: true })
   token!: string
 
-  @Property({ name: 'expires_at' })
+  @Property({ name: 'expires_at', type: Date })
   expiresAt!: Date
 
-  @Property({ name: 'used_at', nullable: true })
+  @Property({ name: 'used_at', type: Date, nullable: true })
   usedAt?: Date
 
-  @Property({ name: 'created_at', onCreate: () => new Date() })
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
-

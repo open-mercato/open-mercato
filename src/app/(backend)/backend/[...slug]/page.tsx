@@ -2,8 +2,9 @@ import { notFound, redirect } from 'next/navigation'
 import { findBackendMatch } from '@/modules/registry'
 import { getAuthFromCookies } from '@/lib/auth/server'
 
-export default async function BackendCatchAll({ params }: { params: { slug: string[] } }) {
-  const pathname = '/backend/' + (params.slug?.join('/') ?? '')
+export default async function BackendCatchAll({ params }: { params: Promise<{ slug: string[] }> }) {
+  const p = await params
+  const pathname = '/backend/' + (p.slug?.join('/') ?? '')
   const match = findBackendMatch(pathname)
   if (!match) return notFound()
   if (match.route.requireAuth) {
