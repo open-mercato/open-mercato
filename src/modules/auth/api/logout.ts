@@ -13,7 +13,9 @@ export async function POST(req: Request) {
   if (sessToken) {
     try { const c = await createRequestContainer(); const auth = c.resolve<AuthService>('authService'); await auth.deleteSessionByToken(sessToken) } catch {}
   }
-  const res = NextResponse.redirect('/login')
+  const url = new URL(req.url)
+  const toAbs = (p: string) => new URL(p, url.origin).toString()
+  const res = NextResponse.redirect(toAbs('/login'))
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   res.cookies.set('session_token', '', { path: '/', maxAge: 0 })
   return res
