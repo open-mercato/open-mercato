@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { modules } from '@/modules/registry'
 import { getAuthFromCookies } from '@/lib/auth/server'
+import { headers } from 'next/headers'
 
 function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1)
@@ -13,7 +14,10 @@ function deriveTitleFromPath(p: string) {
 
 export default async function BackendLayout({ children }: { children: React.ReactNode }) {
   const auth = await getAuthFromCookies()
-  const items: { group: string; title: string; href: string }[] = []
+  const h = await headers()
+  const path = h.get('x-next-url') || ''
+  const ctx = { auth, path }
+  const entries: { group: string; title: string; href: string; enabled: boolean }[] = []
   for (const m of modules) {
     const groupDefault = capitalize(m.id)
     for (const r of m.backendRoutes ?? []) {
@@ -21,11 +25,14 @@ export default async function BackendLayout({ children }: { children: React.Reac
       if (!href || href.includes('[')) continue // skip dynamic in menu
       const title = r.title || deriveTitleFromPath(href)
       const group = r.group || groupDefault
-      items.push({ group, title, href })
+      const visible = r.visible ? await Promise.resolve(r.visible(ctx)) : true
+      if (!visible) continue
+      const enabled = r.enabled ? await Promise.resolve(r.enabled(ctx)) : true
+      entries.push({ group, title, href, enabled })
     }
   }
-  items.sort((a, b) => (a.group === b.group ? a.title.localeCompare(b.title) : a.group.localeCompare(b.group)))
-  const groups = Array.from(new Set(items.map(i => i.group)))
+  entries.sort((a, b) => (a.group === b.group ? a.title.localeCompare(b.title) : a.group.localeCompare(b.group)))
+  const groups = Array.from(new Set(entries.map(i => i.group)))
 
   return (
     <div className="min-h-svh grid grid-cols-[240px_1fr]">
@@ -36,8 +43,8 @@ export default async function BackendLayout({ children }: { children: React.Reac
             <div key={g}>
               <div className="text-xs uppercase text-muted-foreground mb-2">{g}</div>
               <div className="flex flex-col gap-1">
-                {items.filter(i => i.group === g).map(i => (
-                  <Link key={i.href} href={i.href} className="text-sm hover:underline">
+                {entries.filter(i => i.group === g).map(i => (
+                  <Link key={i.href} href={i.href} className={`text-sm hover:underline ${i.enabled ? '' : 'pointer-events-none opacity-50'}`} aria-disabled={!i.enabled}>
                     {i.title}
                   </Link>
                 ))}
@@ -85,4 +92,3 @@ function UserMenuClient({ email }) {
     </details>
   )
 }
-

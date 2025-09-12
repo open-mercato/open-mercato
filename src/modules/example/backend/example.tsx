@@ -1,10 +1,5 @@
 "use client"
 import { useT } from '@/lib/i18n/context'
-
-export const requireAuth = true
-export const requireRoles = ['admin']
-export const pageTitle = 'Example Admin'
-export const pageGroup = 'Example'
 export default function ExampleAdminPage() {
   const t = useT()
   return (

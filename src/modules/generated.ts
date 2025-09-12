@@ -3,20 +3,22 @@ import type { ErpModule } from './registry'
 import C0_auth_reset__token_ from '@/modules/auth/frontend/reset/[token]/page'
 import C1_auth_login from '@/modules/auth/frontend/login'
 import C2_auth_reset from '@/modules/auth/frontend/reset'
-import C3_auth_index from '@/modules/auth/backend//page'
-import * as R4_auth_login from '@/modules/auth/api/login'
-import * as R5_auth_logout from '@/modules/auth/api/logout'
-import * as R6_auth_reset_confirm from '@/modules/auth/api/reset/confirm'
-import * as R7_auth_reset from '@/modules/auth/api/reset'
-import * as R8_auth_session_refresh from '@/modules/auth/api/session/refresh'
+import * as M4_auth_index from '@/modules/auth/backend/page.meta'
+import C3_auth_index from '@/modules/auth/backend/page'
+import * as R5_auth_login from '@/modules/auth/api/login'
+import * as R6_auth_logout from '@/modules/auth/api/logout'
+import * as R7_auth_reset_confirm from '@/modules/auth/api/reset/confirm'
+import * as R8_auth_reset from '@/modules/auth/api/reset'
+import * as R9_auth_session_refresh from '@/modules/auth/api/session/refresh'
 import CLI_auth from '@/modules/auth/cli'
 import T_auth_en from '@/modules/auth/i18n/en.json'
 import T_auth_pl from '@/modules/auth/i18n/pl.json'
-import C9_example_blog__id_ from '@/modules/example/frontend/blog/[id]/page'
-import C10_example_example from '@/modules/example/frontend/example'
-import C11_example_blog__id_ from '@/modules/example/backend/blog/[id]/page'
-import C12_example_example from '@/modules/example/backend/example'
-import * as R13_example_blog__id_ from '@/modules/example/api/blog/[id]/route'
+import C10_example_blog__id_ from '@/modules/example/frontend/blog/[id]/page'
+import C11_example_example from '@/modules/example/frontend/example'
+import C12_example_blog__id_ from '@/modules/example/backend/blog/[id]/page'
+import * as M14_example_example from '@/modules/example/backend/example.meta'
+import C13_example_example from '@/modules/example/backend/example'
+import * as R15_example_blog__id_ from '@/modules/example/api/blog/[id]/route'
 import CLI_example from '@/modules/example/cli'
 import T_example_en from '@/modules/example/i18n/en.json'
 import T_example_pl from '@/modules/example/i18n/pl.json'
@@ -24,17 +26,17 @@ import T_example_pl from '@/modules/example/i18n/pl.json'
 export const modules: ErpModule[] = [
   {
       id: 'auth',
-      frontendRoutes: [{ pattern: '/reset/[token]',   Component: C0_auth_reset__token_ }, { pattern: '/login',   Component: C1_auth_login }, { pattern: '/reset',   Component: C2_auth_reset }],
-      backendRoutes: [{ pattern: '/backend/auth', requireAuth: true,  title: "Users & Roles", group: "Auth", Component: C3_auth_index }],
-      apis: [{ path: '/auth/login',   handlers: R4_auth_login }, { path: '/auth/logout',   handlers: R5_auth_logout }, { path: '/auth/reset/confirm',   handlers: R6_auth_reset_confirm }, { path: '/auth/reset',   handlers: R7_auth_reset }, { path: '/auth/session/refresh',   handlers: R8_auth_session_refresh }],
+      frontendRoutes: [{ pattern: '/reset/[token]', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C0_auth_reset__token_ }, { pattern: '/login', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C1_auth_login }, { pattern: '/reset', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C2_auth_reset }],
+      backendRoutes: [{ pattern: '/backend/auth', requireAuth: (M4_auth_index.metadata)?.requireAuth, requireRoles: (M4_auth_index.metadata)?.requireRoles, title: (M4_auth_index.metadata)?.pageTitle ?? (M4_auth_index.metadata)?.title, group: (M4_auth_index.metadata)?.pageGroup ?? (M4_auth_index.metadata)?.group, visible: (M4_auth_index.metadata)?.visible, enabled: (M4_auth_index.metadata)?.enabled, Component: C3_auth_index }],
+      apis: [{ path: '/auth/login', requireAuth: R5_auth_login.metadata?.requireAuth, requireRoles: R5_auth_login.metadata?.requireRoles, handlers: R5_auth_login }, { path: '/auth/logout', requireAuth: R6_auth_logout.metadata?.requireAuth, requireRoles: R6_auth_logout.metadata?.requireRoles, handlers: R6_auth_logout }, { path: '/auth/reset/confirm', requireAuth: R7_auth_reset_confirm.metadata?.requireAuth, requireRoles: R7_auth_reset_confirm.metadata?.requireRoles, handlers: R7_auth_reset_confirm }, { path: '/auth/reset', requireAuth: R8_auth_reset.metadata?.requireAuth, requireRoles: R8_auth_reset.metadata?.requireRoles, handlers: R8_auth_reset }, { path: '/auth/session/refresh', requireAuth: R9_auth_session_refresh.metadata?.requireAuth, requireRoles: R9_auth_session_refresh.metadata?.requireRoles, handlers: R9_auth_session_refresh }],
       cli: CLI_auth,
       translations: { 'en': T_auth_en as Record<string,string>, 'pl': T_auth_pl as Record<string,string> },
     },
   {
       id: 'example',
-      frontendRoutes: [{ pattern: '/blog/[id]',   Component: C9_example_blog__id_ }, { pattern: '/example',   Component: C10_example_example }],
-      backendRoutes: [{ pattern: '/backend/blog/[id]', requireAuth: true,    Component: C11_example_blog__id_ }, { pattern: '/backend/example', requireAuth: true, requireRoles: ["admin"], title: "Example Admin", group: "Example", Component: C12_example_example }],
-      apis: [{ path: '/example/blog/[id]', requireAuth: true, requireRoles: ["admin"], handlers: R13_example_blog__id_ }],
+      frontendRoutes: [{ pattern: '/blog/[id]', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C10_example_blog__id_ }, { pattern: '/example', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C11_example_example }],
+      backendRoutes: [{ pattern: '/backend/blog/[id]', requireAuth: (undefined)?.requireAuth, requireRoles: (undefined)?.requireRoles, title: (undefined)?.pageTitle ?? (undefined)?.title, group: (undefined)?.pageGroup ?? (undefined)?.group, visible: (undefined)?.visible, enabled: (undefined)?.enabled, Component: C12_example_blog__id_ }, { pattern: '/backend/example', requireAuth: (M14_example_example.metadata)?.requireAuth, requireRoles: (M14_example_example.metadata)?.requireRoles, title: (M14_example_example.metadata)?.pageTitle ?? (M14_example_example.metadata)?.title, group: (M14_example_example.metadata)?.pageGroup ?? (M14_example_example.metadata)?.group, visible: (M14_example_example.metadata)?.visible, enabled: (M14_example_example.metadata)?.enabled, Component: C13_example_example }],
+      apis: [{ path: '/example/blog/[id]', requireAuth: R15_example_blog__id_.metadata?.requireAuth, requireRoles: R15_example_blog__id_.metadata?.requireRoles, handlers: R15_example_blog__id_ }],
       cli: CLI_example,
       translations: { 'en': T_example_en as Record<string,string>, 'pl': T_example_pl as Record<string,string> },
     }

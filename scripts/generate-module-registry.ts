@@ -28,44 +28,7 @@ function scan() {
     let cliImportName: string | null = null
     const translations: string[] = []
 
-    function fileHasRequireAuth(absPath: string) {
-      try {
-        const src = fs.readFileSync(absPath, 'utf8')
-        return /export\s+const\s+requireAuth\s*=\s*true\b/.test(src)
-      } catch {
-        return false
-      }
-    }
-    function fileRequireRoles(absPath: string): string[] | null {
-      try {
-        const src = fs.readFileSync(absPath, 'utf8')
-        const m = src.match(/export\s+const\s+requireRoles\s*=\s*\[([^\]]*)\]/)
-        if (!m) return null
-        const inner = m[1]
-        const roles = Array.from(inner.matchAll(/['\"]([^'\"]+)['\"]/g)).map((x) => x[1]).filter(Boolean)
-        return roles.length ? roles : []
-      } catch {
-        return null
-      }
-    }
-    function filePageTitle(absPath: string): string | null {
-      try {
-        const src = fs.readFileSync(absPath, 'utf8')
-        const m = src.match(/export\s+const\s+(pageTitle|title)\s*=\s*['\"]([^'\"]+)['\"]/)
-        return m ? m[2] : null
-      } catch {
-        return null
-      }
-    }
-    function filePageGroup(absPath: string): string | null {
-      try {
-        const src = fs.readFileSync(absPath, 'utf8')
-        const m = src.match(/export\s+const\s+(pageGroup|group)\s*=\s*['\"]([^'\"]+)['\"]/)
-        return m ? m[2] : null
-      } catch {
-        return null
-      }
-    }
+    // Metadata is read at runtime from a named export `metadata`.
 
     // Pages: frontend
     const feDir = path.join(modDir, 'frontend')
@@ -85,11 +48,18 @@ function scan() {
         const importName = `C${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
         const importPath = `@/modules/${modId}/frontend/${[...segs].join('/')}/page`
         const routePath = '/' + (segs.join('/') || '')
-        const absPath = path.join(feDir, ...segs, 'page.tsx')
-        const ra = fileHasRequireAuth(absPath)
-        const rr = fileRequireRoles(absPath)
+        // Sidecar metadata: page.meta.ts or meta.ts
+        const metaCandidates = [path.join(feDir, ...segs, 'page.meta.ts'), path.join(feDir, ...segs, 'meta.ts')]
+        const metaPath = metaCandidates.find(p => fs.existsSync(p))
+        let metaExpr = 'undefined'
+        if (metaPath) {
+          const metaImportName = `M${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
+          const metaImportPath = `@/modules/${modId}/frontend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
+          imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
+          metaExpr = `${metaImportName}.metadata`
+        }
         imports.push(`import ${importName} from '${importPath}'`)
-        frontendRoutes.push(`{ pattern: '${routePath||'/'}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} Component: ${importName} }`)
+        frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
       }
       // Back-compat: direct files like login.tsx -> /login
       for (const rel of found.filter(f => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
@@ -100,11 +70,20 @@ function scan() {
         const importName = `C${importId++}_${toVar(modId)}_${toVar(routeSegs.join('_')||'index')}`
         const importPath = `@/modules/${modId}/frontend/${[...segs, name].join('/')}`
         const routePath = '/' + (routeSegs.join('/') || '')
-        const absPath = path.join(feDir, ...segs, name + '.tsx')
-        const ra = fileHasRequireAuth(absPath)
-        const rr = fileRequireRoles(absPath)
+        // Sidecar metadata: <file>.meta.ts or meta.ts in same folder
+        const metaCandidates = [path.join(feDir, ...segs, name + '.meta.ts'), path.join(feDir, ...segs, 'meta.ts')]
+        const metaPath = metaCandidates.find(p => fs.existsSync(p))
+        let metaExpr = 'undefined'
+        if (metaPath) {
+          const metaImportName = `M${importId++}_${toVar(modId)}_${toVar(routeSegs.join('_')||'index')}`
+          const metaBase = path.basename(metaPath)
+          const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
+          const metaImportPath = `@/modules/${modId}/frontend/${[...segs, metaImportSub].join('/')}`
+          imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
+          metaExpr = `${metaImportName}.metadata`
+        }
         imports.push(`import ${importName} from '${importPath}'`)
-        frontendRoutes.push(`{ pattern: '${routePath||'/'}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} Component: ${importName} }`)
+        frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
       }
     }
 
@@ -132,13 +111,18 @@ function scan() {
         const importPath = segs.length
           ? `@/modules/${modId}/backend/${segs.join('/')}/page`
           : `@/modules/${modId}/backend/page`
-        const absPath = path.join(beDir, ...segs, 'page.tsx')
-        const ra = fileHasRequireAuth(absPath)
-        const title = filePageTitle(absPath)
-        const group = filePageGroup(absPath)
-        const rr = fileRequireRoles(absPath)
+        // Sidecar meta
+        const metaCandidates = [path.join(beDir, ...segs, 'page.meta.ts'), path.join(beDir, ...segs, 'meta.ts')]
+        const metaPath = metaCandidates.find(p => fs.existsSync(p))
+        let metaExpr = 'undefined'
+        if (metaPath) {
+          const metaImportName = `M${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
+          const metaImportPath = `@/modules/${modId}/backend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
+          imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
+          metaExpr = `${metaImportName}.metadata`
+        }
         imports.push(`import ${importName} from '${importPath}'`)
-        backendRoutes.push(`{ pattern: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} ${title ? `title: ${JSON.stringify(title)},` : ''} ${group ? `group: ${JSON.stringify(group)},` : ''} Component: ${importName} }`)
+        backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
       }
       // Back-compat: direct files like example.tsx -> /backend/example
       for (const rel of found.filter(f => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
@@ -148,13 +132,19 @@ function scan() {
         const routePath = '/backend/' + [...segs, name].join('/')
         const importName = `C${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_')||'index')}`
         const importPath = `@/modules/${modId}/backend/${[...segs, name].join('/')}`
-        const absPath = path.join(beDir, ...segs, name + '.tsx')
-        const ra = fileHasRequireAuth(absPath)
-        const title = filePageTitle(absPath)
-        const group = filePageGroup(absPath)
-        const rr = fileRequireRoles(absPath)
+        const metaCandidates = [path.join(beDir, ...segs, name + '.meta.ts'), path.join(beDir, ...segs, 'meta.ts')]
+        const metaPath = metaCandidates.find(p => fs.existsSync(p))
+        let metaExpr = 'undefined'
+        if (metaPath) {
+          const metaImportName = `M${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_')||'index')}`
+          const metaBase = path.basename(metaPath)
+          const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
+          const metaImportPath = `@/modules/${modId}/backend/${[...segs, metaImportSub].join('/')}`
+          imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
+          metaExpr = `${metaImportName}.metadata`
+        }
         imports.push(`import ${importName} from '${importPath}'`)
-        backendRoutes.push(`{ pattern: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} ${title ? `title: ${JSON.stringify(title)},` : ''} ${group ? `group: ${JSON.stringify(group)},` : ''} Component: ${importName} }`)
+        backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
       }
     }
 
@@ -175,11 +165,8 @@ function scan() {
         const routePath = '/' + [modId, ...segs].filter(Boolean).join('/')
         const importName = `R${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
         const importPath = `@/modules/${modId}/api/${[...segs].join('/')}/route`
-        const absPath = path.join(apiDir, ...segs, 'route.ts')
-        const ra = fileHasRequireAuth(absPath)
-        const rr = fileRequireRoles(absPath)
         imports.push(`import * as ${importName} from '${importPath}'`)
-        apis.push(`{ path: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} handlers: ${importName} }`)
+        apis.push(`{ path: '${routePath}', requireAuth: ${importName}.metadata?.requireAuth, requireRoles: ${importName}.metadata?.requireRoles, handlers: ${importName} }`)
       }
 
       // APIs: Next-style single files: api/**/*.ts (excluding route.ts and legacy method dirs)
@@ -204,11 +191,8 @@ function scan() {
         const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
         const importName = `R${importId++}_${toVar(modId)}_${toVar(fullSegs.join('_')||'index')}`
         const importPath = `@/modules/${modId}/api/${fullSegs.join('/')}`
-        const absPath = path.join(apiDir, ...segs, file)
-        const ra = fileHasRequireAuth(absPath)
-        const rr = fileRequireRoles(absPath)
         imports.push(`import * as ${importName} from '${importPath}'`)
-        apis.push(`{ path: '${routePath}', ${ra ? 'requireAuth: true,' : ''} ${rr ? `requireRoles: ${JSON.stringify(rr)},` : ''} handlers: ${importName} }`)
+        apis.push(`{ path: '${routePath}', requireAuth: ${importName}.metadata?.requireAuth, requireRoles: ${importName}.metadata?.requireRoles, handlers: ${importName} }`)
       }
       // Back-compat: legacy per-method structure
       const methods: HttpMethod[] = ['GET','POST','PUT','PATCH','DELETE']
@@ -231,8 +215,9 @@ function scan() {
           const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
           const importName = `H${importId++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
           const importPath = `@/modules/${modId}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
-          imports.push(`import ${importName} from '${importPath}'`)
-          apis.push(`{ method: '${method}', path: '${routePath}', handler: ${importName} }`)
+          const metaName = `RM${importId++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
+          imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
+          apis.push(`{ method: '${method}', path: '${routePath}', handler: ${importName}, requireAuth: ${metaName}.metadata?.requireAuth, requireRoles: ${metaName}.metadata?.requireRoles }`)
         }
       }
     }
