@@ -1,4 +1,4 @@
-🚀 Open Mercato
+# 🚀 Open Mercato
 
 Open Mercato is a new‑era, AI‑supportive ERP foundation framework for service‑ and product‑based companies — built to power bookings, operations, and growth. It’s modular, extensible, and designed for teams that want strong defaults with room to customize everything.
 
