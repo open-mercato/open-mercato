@@ -1,5 +1,5 @@
 import type { ModuleCli } from '@/modules/registry'
-import { getEm } from '@/lib/db/mikro'
+import { createRequestContainer } from '@/lib/di/container'
 import { hash } from 'bcryptjs'
 import { User, Role, UserRole } from '@/modules/auth/db/entities'
 import { Tenant, Organization } from '@/modules/directory/db/entities'
@@ -21,7 +21,8 @@ const addUser: ModuleCli = {
       console.error('Usage: erp auth add-user --email <email> --password <password> --organizationId <id> [--roles customer,employee]')
       return
     }
-    const em = await getEm()
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
     const org = await em.findOneOrFail(Organization, { id: Number(organizationId) }, { populate: ['tenant'] })
     const u = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organization: org, tenant: org.tenant })
     await em.persistAndFlush(u)
@@ -42,7 +43,8 @@ const seedRoles: ModuleCli = {
   command: 'seed-roles',
   async run() {
     const defaults = ['customer', 'employee', 'admin', 'owner']
-    const em = await getEm()
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
     for (const name of defaults) {
       const existing = await em.findOne(Role, { name })
       if (!existing) { await em.persistAndFlush(em.create(Role, { name })); console.log('Inserted role', name) }
@@ -67,7 +69,8 @@ const addOrganization: ModuleCli = {
       console.error('Usage: erp auth add-org --name <organization name>')
       return
     }
-    const em = await getEm()
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
     // Create tenant implicitly for simplicity
     const tenant = em.create(Tenant, { name: `${name} Tenant` })
     await em.persistAndFlush(tenant)

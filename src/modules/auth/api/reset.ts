@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { NextResponse } from 'next/server'
-import { getEm } from '@/lib/db/mikro'
-import { requestPasswordReset } from '@/modules/auth/services/authService'
+import { createRequestContainer } from '@/lib/di/container'
+import { AuthService } from '@/modules/auth/services/authService'
 import crypto from 'node:crypto'
 import { sendEmail } from '@/lib/email/send'
 import ResetPasswordEmail from '@/emails/ResetPasswordEmail'
@@ -13,8 +13,9 @@ export async function POST(req: Request) {
   const email = String(form.get('email') ?? '')
   const parsed = schema.safeParse({ email })
   if (!parsed.success) return NextResponse.json({ ok: true }) // do not reveal
-  const em = await getEm()
-  const resReq = await requestPasswordReset(em as any, parsed.data.email)
+  const c = await createRequestContainer()
+  const auth = c.resolve<AuthService>('authService')
+  const resReq = await auth.requestPasswordReset(parsed.data.email)
   if (!resReq) return NextResponse.json({ ok: true })
   const { user, token } = resReq
   const url = new URL(req.url)

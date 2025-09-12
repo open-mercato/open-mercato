@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "modules:entities": "tsx scripts/generate-module-entities.ts",
-    "modules:prepare": "tsx scripts/generate-module-registry.ts && tsx scripts/generate-module-entities.ts",
+    "modules:di": "tsx scripts/generate-module-di.ts",
+    "modules:prepare": "tsx scripts/generate-module-registry.ts && tsx scripts/generate-module-entities.ts && tsx scripts/generate-module-di.ts",
     "dev": "yarn run modules:prepare && next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
@@ -26,6 +27,7 @@
     "@mikro-orm/core": "^6.3.7",
     "@mikro-orm/migrations": "^6.3.7",
     "@mikro-orm/postgresql": "^6.3.7",
+    "awilix": "^8.0.1",
     "lucide-react": "^0.543.0",
     "next": "15.5.2",
     "pg": "^8.16.3",

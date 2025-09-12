@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getEm } from '@/lib/db/mikro'
-import { refreshFromSessionToken } from '@/modules/auth/services/authService'
+import { createRequestContainer } from '@/lib/di/container'
+import { AuthService } from '@/modules/auth/services/authService'
 import { signJwt } from '@/lib/auth/jwt'
 
 function parseCookie(req: Request, name: string): string | null {
@@ -15,8 +15,9 @@ export async function GET(req: Request) {
   const toAbs = (p: string) => new URL(p, url.origin).toString()
   const token = parseCookie(req, 'session_token')
   if (!token) return NextResponse.redirect(toAbs('/login?redirect=' + encodeURIComponent(redirectTo)))
-  const em = await getEm()
-  const ctx = await refreshFromSessionToken(em as any, token)
+  const c = await createRequestContainer()
+  const auth = c.resolve<AuthService>('authService')
+  const ctx = await auth.refreshFromSessionToken(token)
   if (!ctx) return NextResponse.redirect(toAbs('/login?redirect=' + encodeURIComponent(redirectTo)))
   const { user, roles } = ctx
   const jwt = signJwt({ sub: String(user.id), tenantId: String(user.tenant.id), orgId: String(user.organization.id), email: user.email, roles })

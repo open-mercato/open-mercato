@@ -19,8 +19,8 @@ function scan() {
     const modId = mod.name
     const dbDir = path.join(modulesRoot, modId, 'db')
     if (!fs.existsSync(dbDir)) continue
-    // prefer entities.ts, fallback to schema.ts for compatibility
-    const candidates = ['entities.ts', 'schema.ts']
+    // prefer override, then entities.ts, then schema.ts for compatibility
+    const candidates = ['entities.override.ts', 'entities.ts', 'schema.ts']
     const found = candidates.map(f => path.join(dbDir, f)).find(p => fs.existsSync(p))
     if (!found) continue
     const importName = `E_${toVar(modId)}_${n++}`
@@ -40,4 +40,3 @@ export const entities = [
 
 scan()
 console.log('Generated', path.relative(process.cwd(), outFile))
-
