@@ -14,7 +14,7 @@
     "prebuild": "npm run modules:prepare",
     "db:generate": "tsx scripts/mikro-modules.ts generate",
     "db:migrate": "tsx scripts/mikro-modules.ts apply",
-    "erp": "tsx src/cli/erp.ts"
+    "mercato": "tsx src/cli/mercato.ts"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.7",

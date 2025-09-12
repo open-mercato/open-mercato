@@ -18,7 +18,7 @@ const addUser: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org)
     const rolesCsv = (args.roles ?? '').trim()
     if (!email || !password || !organizationId) {
-      console.error('Usage: erp auth add-user --email <email> --password <password> --organizationId <id> [--roles customer,employee]')
+      console.error('Usage: mercato auth add-user --email <email> --password <password> --organizationId <id> [--roles customer,employee]')
       return
     }
     const { resolve } = await createRequestContainer()
@@ -66,7 +66,7 @@ const addOrganization: ModuleCli = {
     }
     const name = args.name || args.orgName
     if (!name) {
-      console.error('Usage: erp auth add-org --name <organization name>')
+      console.error('Usage: mercato auth add-org --name <organization name>')
       return
     }
     const { resolve } = await createRequestContainer()
@@ -94,7 +94,7 @@ const setupApp: ModuleCli = {
     const password = args.password
     const rolesCsv = (args.roles ?? 'owner,admin').trim()
     if (!orgName || !email || !password) {
-      console.error('Usage: erp auth setup --orgName <name> --email <email> --password <password> [--roles owner,admin]')
+      console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles owner,admin]')
       return
     }
     const em = await getEm()

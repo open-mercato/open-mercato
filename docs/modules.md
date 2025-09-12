@@ -1,6 +1,6 @@
-# ERP Modules: Authoring and Usage
+# Modules: Authoring and Usage
 
-This ERP supports modular features delivered as either:
+This app supports modular features delivered as either:
 - Core modules in `src/modules/*` (plural, snake_case)
 - External npm packages that export the same interface
 
@@ -18,9 +18,9 @@ This ERP supports modular features delivered as either:
 Create `src/modules/<module>/index.ts` exporting `metadata`:
 
 ```ts
-import type { ErpModuleInfo } from '@/modules/registry'
+import type { ModuleInfo } from '@/modules/registry'
 
-export const metadata: ErpModuleInfo = {
+export const metadata: ModuleInfo = {
   name: '<module-id>',
   title: 'Human readable title',
   version: '0.1.0',
@@ -66,18 +66,18 @@ export function register(container: AppContainer) {
 
 ### CLI
 - Optional: add `src/modules/<module>/cli.ts` default export `(argv) => void|Promise<void>`.
-- The root CLI `erp` dispatches to module CLIs: `npm run erp -- <module> ...`.
+- The root CLI `mercato` dispatches to module CLIs: `npm run mercato -- <module> ...`.
 
 ## Adding an External Module
 1. Install the npm package (must be ESM compatible) into `node_modules`.
 2. Expose a pseudo-tree under `src/modules/<module>` via a postinstall script or a wrapper package; or copy its files into `src/modules/<module>`.
 3. Ensure it ships its MikroORM entities under `/db/entities.ts` so migrations generate.
-4. Run `npm run modules:generate` to refresh the registry.
+4. Run `npm run modules:prepare` to refresh the registry, entities, and DI.
 
 ## Translations (i18n)
 - Base app dictionaries: `src/i18n/<locale>.json` (e.g., `en`, `pl`).
 - Module dictionaries: `src/modules/<module>/i18n/<locale>.json`.
-- The generator auto-imports module JSON and adds them to `ErpModule.translations`.
+- The generator auto-imports module JSON and adds them to `Module.translations`.
 - Layout merges base + all module dictionaries for the current locale and provides:
   - `useT()` hook for client components (`@/lib/i18n/context`).
   - `loadDictionary(locale)` for server components (`@/lib/i18n/server`).

@@ -4,7 +4,7 @@ import { modules } from '@/modules/registry'
 async function main() {
   const [, , modName, cmdName, ...rest] = process.argv
   if (!modName) {
-    console.log('Usage: erp <module> <command> [args]')
+    console.log('Usage: mercato <module> <command> [args]')
     const list = modules
       .filter((m) => m.cli && m.cli.length)
       .map((m) => `${m.id}: ${m.cli!.map((c) => c.command).join(', ')}`)
@@ -36,3 +36,4 @@ main().catch((e) => {
   console.error(e)
   process.exit(1)
 })
+

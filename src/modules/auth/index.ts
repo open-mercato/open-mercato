@@ -1,6 +1,6 @@
-import type { ErpModuleInfo } from '@/modules/registry'
+import type { ModuleInfo } from '@/modules/registry'
 
-export const metadata: ErpModuleInfo = {
+export const metadata: ModuleInfo = {
   name: 'auth',
   title: 'Authentication & Accounts',
   version: '0.1.0',
@@ -8,4 +8,3 @@ export const metadata: ErpModuleInfo = {
   author: 'EHR Team',
   license: 'Proprietary',
 }
-

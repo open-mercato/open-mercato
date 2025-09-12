@@ -40,7 +40,7 @@ export type ModuleCli = {
   run: (argv: string[]) => Promise<void> | void
 }
 
-export type ErpModuleInfo = {
+export type ModuleInfo = {
   name?: string
   title?: string
   version?: string
@@ -51,9 +51,9 @@ export type ErpModuleInfo = {
   copyright?: string
 }
 
-export type ErpModule = {
+export type Module = {
   id: string // plural snake_case (special cases: 'auth', 'example')
-  info?: ErpModuleInfo
+  info?: ModuleInfo
   backendRoutes?: ModuleRoute[]
   frontendRoutes?: ModuleRoute[]
   apis?: ModuleApi[]
