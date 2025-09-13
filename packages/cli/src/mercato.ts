@@ -11,11 +11,16 @@ export async function run(argv = process.argv) {
   const all = modules.slice()
   if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
 
-  const banner = '🧩 Mercato CLI'
+  const banner = '🧩 Open Mercato CLI'
+  const header = [
+    '╔═══════════════════════╗',
+    `║  ${banner.padEnd(21)}║`,
+    '╚═══════════════════════╝',
+  ].join('\n')
+  console.log(header)
   const pad = (s: string) => `  ${s}`
 
   if (!modName) {
-    console.log(`${banner}\n`)
     console.log(pad('Usage: ✨ mercato <module> <command> [args]'))
     const list = all
       .filter((m) => m.cli && m.cli.length)
@@ -39,7 +44,6 @@ export async function run(argv = process.argv) {
     return 1
   }
   if (!cmdName) {
-    console.log(`${banner}\n`)
     console.log(pad(`Commands for "${modName}": ${mod.cli.map((c) => c.command).join(', ')}`))
     return 1
   }

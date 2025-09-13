@@ -19,7 +19,7 @@
     "prebuild": "npm run modules:prepare",
     "db:generate": "tsx scripts/mikro-modules.ts generate",
     "db:migrate": "tsx scripts/mikro-modules.ts apply",
-    "mercato": "tsx src/cli/mercato.ts",
+    "mercato": "tsx packages/cli/src/bin.ts",
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch"
   },
