@@ -44,20 +44,25 @@ function scan() {
       const found: string[] = []
       const walk = (dir: string, rel: string[] = []) => {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) walk(path.join(dir, e.name), [...rel, e.name])
+          if (e.isDirectory()) {
+            if (e.name === '__tests__' || e.name === '__mocks__') continue
+            walk(path.join(dir, e.name), [...rel, e.name])
+          }
           else if (e.isFile() && e.name.endsWith('.tsx')) found.push([...rel, e.name].join('/'))
         }
       }
       if (fs.existsSync(fePkg)) walk(fePkg)
       if (fs.existsSync(feApp)) walk(feApp)
+      const files = Array.from(new Set(found))
       // Next-style page.tsx
-      for (const rel of found.filter(f => f.endsWith('/page.tsx') || f === 'page.tsx')) {
+      for (const rel of files.filter(f => f.endsWith('/page.tsx') || f === 'page.tsx')) {
         const segs = rel.split('/')
         segs.pop()
         const importName = `C${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
         const appFile = path.join(feApp, ...segs, 'page.tsx')
         const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/frontend/${[...segs].join('/')}/page`
+        const sub = segs.length ? `${segs.join('/')}/page` : 'page'
+        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/frontend/${sub}`
         const routePath = '/' + (segs.join('/') || '')
         const metaCandidates = [
           path.join(fromApp ? feApp : fePkg, ...segs, 'page.meta.ts'),
@@ -75,7 +80,7 @@ function scan() {
         frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
       }
       // Back-compat direct files
-      for (const rel of found.filter(f => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
+      for (const rel of files.filter(f => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
         const segs = rel.split('/')
         const file = segs.pop()!
         const name = file.replace(/\.tsx$/, '')
@@ -111,20 +116,25 @@ function scan() {
       const found: string[] = []
       const walk = (dir: string, rel: string[] = []) => {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) walk(path.join(dir, e.name), [...rel, e.name])
+          if (e.isDirectory()) {
+            if (e.name === '__tests__' || e.name === '__mocks__') continue
+            walk(path.join(dir, e.name), [...rel, e.name])
+          }
           else if (e.isFile() && e.name.endsWith('.tsx')) found.push([...rel, e.name].join('/'))
         }
       }
       if (fs.existsSync(bePkg)) walk(bePkg)
       if (fs.existsSync(beApp)) walk(beApp)
+      const files = Array.from(new Set(found))
       // Next-style
-      for (const rel of found.filter(f => f.endsWith('/page.tsx') || f === 'page.tsx')) {
+      for (const rel of files.filter(f => f.endsWith('/page.tsx') || f === 'page.tsx')) {
         const segs = rel.split('/')
         segs.pop()
         const importName = `B${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
         const appFile = path.join(beApp, ...segs, 'page.tsx')
         const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/backend/${[...segs].join('/')}/page`
+        const sub = segs.length ? `${segs.join('/')}/page` : 'page'
+        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/backend/${sub}`
         const basePath = segs.join('/') || modId
         const routePath = '/backend/' + basePath
         const metaCandidates = [
@@ -143,7 +153,7 @@ function scan() {
         backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
       }
       // Direct files
-      for (const rel of found.filter(f => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
+      for (const rel of files.filter(f => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
         const segs = rel.split('/')
         const file = segs.pop()!
         const name = file.replace(/\.tsx$/, '')
@@ -179,13 +189,17 @@ function scan() {
       const routeFiles: string[] = []
       const walk = (dir: string, rel: string[] = []) => {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) walk(path.join(dir, e.name), [...rel, e.name])
+          if (e.isDirectory()) {
+            if (e.name === '__tests__' || e.name === '__mocks__') continue
+            walk(path.join(dir, e.name), [...rel, e.name])
+          }
           else if (e.isFile() && e.name === 'route.ts') routeFiles.push([...rel, e.name].join('/'))
         }
       }
       if (fs.existsSync(apiPkg)) walk(apiPkg)
       if (fs.existsSync(apiApp)) walk(apiApp)
-      for (const rel of routeFiles) {
+      const routeList = Array.from(new Set(routeFiles))
+      for (const rel of routeList) {
         const segs = rel.split('/')
         segs.pop()
         const reqSegs = [modId, ...segs]
@@ -205,15 +219,18 @@ function scan() {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
           if (e.isDirectory()) {
             if (methodNames.has(e.name.toLowerCase())) continue
+            if (e.name === '__tests__' || e.name === '__mocks__') continue
             walkPlain(path.join(dir, e.name), [...rel, e.name])
           } else if (e.isFile() && e.name.endsWith('.ts') && e.name !== 'route.ts') {
+            if (/\.(test|spec)\.ts$/.test(e.name)) continue
             plainFiles.push([...rel, e.name].join('/'))
           }
         }
       }
       if (fs.existsSync(apiPkg)) walkPlain(apiPkg)
       if (fs.existsSync(apiApp)) walkPlain(apiApp)
-      for (const rel of plainFiles) {
+      const plainList = Array.from(new Set(plainFiles))
+      for (const rel of plainList) {
         const segs = rel.split('/')
         const file = segs.pop()!
         const pathWithoutExt = file.replace(/\.ts$/, '')
@@ -236,12 +253,19 @@ function scan() {
         const apiFiles: string[] = []
         const walk2 = (dir: string, rel: string[] = []) => {
           for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (e.isDirectory()) walk2(path.join(dir, e.name), [...rel, e.name])
-            else if (e.isFile() && e.name.endsWith('.ts')) apiFiles.push([...rel, e.name].join('/'))
+            if (e.isDirectory()) {
+              if (e.name === '__tests__' || e.name === '__mocks__') continue
+              walk2(path.join(dir, e.name), [...rel, e.name])
+            }
+            else if (e.isFile() && e.name.endsWith('.ts')) {
+              if (/\.(test|spec)\.ts$/.test(e.name)) continue
+              apiFiles.push([...rel, e.name].join('/'))
+            }
           }
         }
         walk2(methodDir)
-        for (const rel of apiFiles) {
+        const methodList = Array.from(new Set(apiFiles))
+        for (const rel of methodList) {
           const segs = rel.split('/')
           const file = segs.pop()!
           const pathWithoutExt = file.replace(/\.ts$/, '')
