@@ -1,9 +1,0 @@
-import { asClass } from 'awilix'
-import type { AppContainer } from '@/lib/di/container'
-import { AuthService } from '@/modules/auth/services/authService'
-
-export function register(container: AppContainer) {
-  // Register or override core auth service
-  container.register({ authService: asClass(AuthService).scoped() })
-}
-

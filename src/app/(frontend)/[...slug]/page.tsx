@@ -1,11 +1,12 @@
 import { notFound, redirect } from 'next/navigation'
-import { findFrontendMatch } from '@/modules/registry'
+import { findFrontendMatch } from '@mercato-shared/modules/registry'
+import { modules } from '@/generated/modules.generated'
 import { getAuthFromCookies } from '@/lib/auth/server'
 
 export default async function SiteCatchAll({ params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const match = findFrontendMatch(pathname)
+  const match = findFrontendMatch(modules, pathname)
   if (!match) return notFound()
   if (match.route.requireAuth) {
     const auth = await getAuthFromCookies()

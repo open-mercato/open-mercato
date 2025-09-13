@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { findApi } from '@/modules/registry'
+import { findApi } from '@mercato-shared/modules/registry'
+import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const api = findApi('GET', pathname)
+  const api = findApi(modules, 'GET', pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   if (api.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const api = findApi('POST', pathname)
+  const api = findApi(modules, 'POST', pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   if (api.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const api = findApi('PUT', pathname)
+  const api = findApi(modules, 'PUT', pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   if (api.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -44,7 +45,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const api = findApi('PATCH', pathname)
+  const api = findApi(modules, 'PATCH', pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   if (api.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -57,7 +58,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ sl
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const api = findApi('DELETE', pathname)
+  const api = findApi(modules, 'DELETE', pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   if (api.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

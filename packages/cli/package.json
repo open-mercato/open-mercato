@@ -1,0 +1,13 @@
+{
+  "name": "@mercato-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./mercato": "./src/mercato.ts",
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "mercato": "./dist/bin.js"
+  }
+}

@@ -2,12 +2,16 @@
   "name": "ehr",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "modules:entities": "tsx scripts/generate-module-entities.ts",
     "modules:di": "tsx scripts/generate-module-di.ts",
     "modules:prepare": "tsx scripts/generate-module-registry.ts && tsx scripts/generate-module-entities.ts && tsx scripts/generate-module-di.ts",
     "dev": "yarn run modules:prepare && next dev --turbopack",
     "build": "next build --turbopack",
+    "build:packages": "tsc -p packages/core/tsconfig.build.json && tsc -p packages/example/tsconfig.build.json && tsc -p packages/cli/tsconfig.build.json",
     "start": "next start",
     "lint": "eslint",
     "modules:generate": "tsx scripts/generate-module-registry.ts",
