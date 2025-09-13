@@ -42,3 +42,6 @@ next-env.d.ts
 
 
 /**/migrations/*
+# Generated module files
+/src/generated/
+/generated/

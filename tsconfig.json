@@ -22,7 +22,15 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@/lib/*": ["./packages/shared/src/lib/*"],
+      "@/types/*": ["./packages/shared/src/types/*"],
+      "@mercato-core/*": ["./packages/core/src/*"],
+      "@mercato-example/*": ["./packages/example/src/*"],
+      "@mercato-cli/*": ["./packages/cli/src/*"],
+      "@mercato-shared/*": ["./packages/shared/src/*"],
+      "@/modules/registry": ["./packages/shared/src/modules/registry.ts"]
+      ,"@/generated/*": ["./generated/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

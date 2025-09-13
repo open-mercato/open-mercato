@@ -1,33 +1,44 @@
 #!/usr/bin/env tsx
 import fs from 'node:fs'
 import path from 'node:path'
+import { loadEnabledModules, moduleFsRoots, moduleImportBase } from './shared/modules-config'
 
-const modulesRoot = path.resolve('src/modules')
-const outFile = path.join(modulesRoot, 'entities.generated.ts')
+const outFile = path.resolve('generated/entities.generated.ts')
 
 function toVar(s: string) {
   return s.replace(/[^a-zA-Z0-9_]/g, '_')
 }
 
 function scan() {
-  const entries = fs.readdirSync(modulesRoot, { withFileTypes: true })
-  const mods = entries.filter(e => e.isDirectory() && !e.name.startsWith('.'))
+  const mods = loadEnabledModules()
   const imports: string[] = []
   const entityRefs: string[] = []
   let n = 0
-  for (const mod of mods) {
-    const modId = mod.name
-    const dataDir = path.join(modulesRoot, modId, 'data')
-    const dbDir = path.join(modulesRoot, modId, 'db') // legacy fallback
-    const baseDir = fs.existsSync(dataDir) ? dataDir : (fs.existsSync(dbDir) ? dbDir : null)
-    if (!baseDir) continue
-    // prefer override, then entities.ts, then schema.ts for compatibility
+  for (const entry of mods) {
+    const modId = entry.id
+    const roots = moduleFsRoots(entry)
+    const imp = moduleImportBase(entry)
+    // prefer app override data/, fallback to core data/, then legacy db/
+    const appData = path.join(roots.appBase, 'data')
+    const pkgData = path.join(roots.pkgBase, 'data')
+    const appDb = path.join(roots.appBase, 'db')
+    const pkgDb = path.join(roots.pkgBase, 'db')
+    const bases = [appData, pkgData, appDb, pkgDb]
     const candidates = ['entities.override.ts', 'entities.ts', 'schema.ts']
-    const found = candidates.map(f => path.join(baseDir, f)).find(p => fs.existsSync(p))
+    let found: { base: string; file: string } | null = null
+    for (const base of bases) {
+      for (const f of candidates) {
+        const p = path.join(base, f)
+        if (fs.existsSync(p)) { found = { base, file: f }; break }
+      }
+      if (found) break
+    }
     if (!found) continue
     const importName = `E_${toVar(modId)}_${n++}`
-    const sub = path.basename(path.dirname(found)) // 'data' or 'db'
-    const relImport = `@/modules/${modId}/${sub}/${path.basename(found).replace(/\.ts$/, '')}`
+    const sub = path.basename(found.base) // 'data' or 'db'
+    const fromApp = found.base.startsWith(roots.appBase)
+    const baseImport = fromApp ? imp.appBase : imp.pkgBase
+    const relImport = `${baseImport}/${sub}/${found.file.replace(/\.ts$/, '')}`
     imports.push(`import * as ${importName} from '${relImport}'`)
     entityRefs.push(`...Object.values(${importName}).filter(v => typeof v === 'function') as any[]`)
   }

@@ -5,21 +5,29 @@ import fs from 'node:fs'
 import { MikroORM } from '@mikro-orm/core'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
-
-const modulesRoot = path.resolve('src/modules')
+import { loadEnabledModules, moduleFsRoots, type ModuleEntry } from './shared/modules-config'
 
 type Cmd = 'generate' | 'apply'
 
-async function loadModuleEntities(modId: string) {
-  // Prefer data/, fallback to legacy db/
-  const bases = [path.join(modulesRoot, modId, 'data'), path.join(modulesRoot, modId, 'db')]
+async function loadModuleEntities(entry: ModuleEntry) {
+  const modId = entry.id
+  // Prefer app overrides, then core; data/, fallback to legacy db/
+  const roots = moduleFsRoots(entry)
+  const bases = [
+    path.join(roots.appBase, 'data'),
+    path.join(roots.pkgBase, 'data'),
+    path.join(roots.appBase, 'db'),
+    path.join(roots.pkgBase, 'db'),
+  ]
   const candidates = ['entities.ts', 'schema.ts']
   for (const base of bases) {
     for (const f of candidates) {
       const p = path.join(base, f)
       if (fs.existsSync(p)) {
         const sub = path.basename(base)
-        const mod = await import(pathToImport(`@/modules/${modId}/${sub}/${f.replace(/\.ts$/, '')}`))
+        const fromApp = base.startsWith(roots.appBase)
+        const importBase = fromApp ? `@/app/modules/${modId}` : `${entry.from || '@mercato-core'}/modules/${modId}`
+        const mod = await import(pathToImport(`${importBase}/${sub}/${f.replace(/\.ts$/, '')}`))
         const entities = Object.values(mod).filter(v => typeof v === 'function')
         if (entities.length) return entities as any[]
       }
@@ -36,21 +44,21 @@ function getClientUrl() {
   return url
 }
 
-function sortModules(mods: string[]) {
+function sortModules(mods: ModuleEntry[]) {
   // Ensure 'directory' runs first, as others may reference its tables
-  return mods.slice().sort((a, b) => (a === 'directory' ? -1 : b === 'directory' ? 1 : a.localeCompare(b)))
+  return mods.slice().sort((a, b) => (a.id === 'directory' ? -1 : b.id === 'directory' ? 1 : a.id.localeCompare(b.id)))
 }
 
 async function run(cmd: Cmd) {
-  const modules = fs.readdirSync(modulesRoot, { withFileTypes: true })
-    .filter(e => e.isDirectory() && !e.name.startsWith('.'))
-    .map(e => e.name)
+  const modules = loadEnabledModules()
   const ordered = sortModules(modules)
   const results: string[] = []
-  for (const modId of ordered) {
-    const entities = await loadModuleEntities(modId)
+  for (const entry of ordered) {
+    const modId = entry.id
+    const entities = await loadModuleEntities(entry)
     if (!entities.length) continue
-    const migrationsPath = path.join(modulesRoot, modId, 'migrations')
+    // Always write migrations into app overlay to avoid mutating core packages
+    const migrationsPath = path.join('src/modules', modId, 'migrations')
     fs.mkdirSync(migrationsPath, { recursive: true })
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,

@@ -1,25 +1,31 @@
 #!/usr/bin/env tsx
 import fs from 'node:fs'
 import path from 'node:path'
+import { loadEnabledModules, moduleFsRoots, moduleImportBase } from './shared/modules-config'
 
-const modulesRoot = path.resolve('src/modules')
-const outFile = path.join(modulesRoot, 'di.generated.ts')
+const outFile = path.resolve('generated/di.generated.ts')
 
 function toVar(s: string) { return s.replace(/[^a-zA-Z0-9_]/g, '_') }
 
 function scan() {
-  const entries = fs.readdirSync(modulesRoot, { withFileTypes: true })
-  const mods = entries.filter(e => e.isDirectory() && !e.name.startsWith('.'))
+  const mods = loadEnabledModules()
   const imports: string[] = []
   const registrars: string[] = []
   let i = 0
-  for (const mod of mods) {
-    const modId = mod.name
-    const diPath = path.join(modulesRoot, modId, 'di.ts')
-    if (fs.existsSync(diPath)) {
-      const importName = `D_${toVar(modId)}_${i++}`
-      const relImport = `@/modules/${modId}/di`
-      imports.push(`import * as ${importName} from '${relImport}'`)
+  for (const entry of mods) {
+    const modId = entry.id
+    const roots = moduleFsRoots(entry)
+    const imp = moduleImportBase(entry)
+    const appDi = path.join(roots.appBase, 'di.ts')
+    const pkgDi = path.join(roots.pkgBase, 'di.ts')
+    const useApp = fs.existsSync(appDi)
+    const usePkg = fs.existsSync(pkgDi)
+    const importName = `D_${toVar(modId)}_${i++}`
+    if (useApp) {
+      imports.push(`import * as ${importName} from '${imp.appBase}/di'`)
+      registrars.push(`${importName}.register`)
+    } else if (usePkg) {
+      imports.push(`import * as ${importName} from '${imp.pkgBase}/di'`)
       registrars.push(`${importName}.register`)
     }
   }
@@ -35,4 +41,3 @@ export const diRegistrars = [
 
 scan()
 console.log('Generated', path.relative(process.cwd(), outFile))
-

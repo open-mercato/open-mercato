@@ -42,6 +42,11 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 - `yarn dev`
 - Open http://localhost:3000
 
+## Documentation
+- <a href="./docs/tutorials/first-app.md">Quickstart tutorial</a>
+- <a href="./docs/tutorials/testing.md">Writing unit tests</a>
+- <a href="./docs/modules.md">Modules authoring and usage</a>
+
 ## Architecture Overview
 
 - 🧩 Modules: Each feature lives under `src/modules/<module>` with auto‑discovered frontend/backend pages, APIs, CLI, i18n, and DB entities.
