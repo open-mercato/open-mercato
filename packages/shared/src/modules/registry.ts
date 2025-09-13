@@ -11,6 +11,9 @@ export type ModuleRoute = {
   requireRoles?: string[]
   title?: string
   group?: string
+  icon?: string
+  order?: number
+  navHidden?: boolean
   visible?: (ctx: { path?: string; auth?: any }) => boolean | Promise<boolean>
   enabled?: (ctx: { path?: string; auth?: any }) => boolean | Promise<boolean>
   Component: (props: any) => ReactNode | Promise<ReactNode>

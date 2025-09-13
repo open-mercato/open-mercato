@@ -29,6 +29,7 @@
       "@mercato-example/*": ["./packages/example/src/*"],
       "@mercato-cli/*": ["./packages/cli/src/*"],
       "@mercato-shared/*": ["./packages/shared/src/*"],
+      "@mercato-ui": ["./packages/ui/src/index.ts"],
       "@mercato-ui/*": ["./packages/ui/src/*"],
       "@/modules/registry": ["./packages/shared/src/modules/registry.ts"]
       ,"@/generated/*": ["./generated/*"]
