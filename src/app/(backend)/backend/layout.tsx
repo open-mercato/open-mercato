@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { modules } from '@/modules/registry'
+import { modules } from '@/generated/modules.generated'
 import { getAuthFromCookies } from '@/lib/auth/server'
 import { headers } from 'next/headers'
 

@@ -280,7 +280,7 @@ function scan() {
       if (coreHas && appHas) {
         const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
         const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-        imports.push(`import ${cName} from '${imps.coreBase}/i18n/${locale}.json'`)
+        imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
         imports.push(`import ${aName} from '${imps.appBase}/i18n/${locale}.json'`)
         translations.push(`'${locale}': { ...( ${cName} as Record<string,string> ), ...( ${aName} as Record<string,string> ) }`)
       } else if (appHas) {
@@ -289,7 +289,7 @@ function scan() {
         translations.push(`'${locale}': ${aName} as Record<string,string>`)
       } else if (coreHas) {
         const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
-        imports.push(`import ${cName} from '${imps.coreBase}/i18n/${locale}.json'`)
+        imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
         translations.push(`'${locale}': ${cName} as Record<string,string>`)
       }
     }

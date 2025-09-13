@@ -1,4 +1,4 @@
-import { modules } from '@/modules/registry'
+import { modules } from '@/generated/modules.generated'
 
 export async function run(argv = process.argv) {
   const [, , modName, cmdName, ...rest] = argv

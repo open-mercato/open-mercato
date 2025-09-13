@@ -57,6 +57,12 @@ export function register(container: AppContainer) {
   - Frontend: `src/app/(frontend)/[[...slug]]/page.tsx`
   - Backend: `src/app/(backend)/backend/[[...slug]]/page.tsx`
 
+#### Override Example
+- Package page: `@mercato-example/modules/example/frontend/blog/[id]/page.tsx`
+- App override: `src/modules/example/frontend/blog/[id]/page.tsx`
+  - If present, the app file is used instead of the package file.
+  - Remove the app file to fall back to the package implementation.
+
 ### API Endpoints (Auto-discovery + Overrides)
 - Implement defaults under `@mercato-core/modules/<module>/api/...`.
 - Override by adding `src/modules/<module>/api/...`.
