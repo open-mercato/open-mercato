@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { I18nProvider } from '@/lib/i18n/context'
-import { ThemeProvider, FrontendLayout } from '@mercato-ui'
+import { ThemeProvider, FrontendLayout, QueryProvider } from '@mercato-ui'
 import { detectLocale, loadDictionary } from '@/lib/i18n/server'
 import AuthFooter from '@/components/AuthFooter'
 
@@ -33,7 +33,9 @@ export default async function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
         <I18nProvider locale={locale} dict={dict}>
           <ThemeProvider>
-            <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
+            <QueryProvider>
+              <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
+            </QueryProvider>
           </ThemeProvider>
         </I18nProvider>
       </body>

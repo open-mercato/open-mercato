@@ -3,6 +3,7 @@ import { getAuthFromCookies } from '@/lib/auth/server'
 import { headers } from 'next/headers'
 import { AppShell } from '@mercato-ui/backend/AppShell'
 import { buildAdminNav } from '@mercato-ui/backend/utils/nav'
+import { UserMenu } from '@mercato-ui/backend/UserMenu'
 
 export default async function BackendLayout({ children }: { children: React.ReactNode }) {
   const auth = await getAuthFromCookies()
@@ -17,7 +18,7 @@ export default async function BackendLayout({ children }: { children: React.Reac
   }))
 
   return (
-    <AppShell productName="EHR Admin" email={auth?.email} groups={groups}>
+    <AppShell productName="EHR Admin" email={auth?.email} groups={groups} rightHeaderSlot={<UserMenu email={auth?.email} />}> 
       {children}
     </AppShell>
   )

@@ -1,8 +1,9 @@
 "use client"
 import * as React from 'react'
 import { Page, PageHeader, PageBody } from '@mercato-ui/backend/Page'
-import { DataTable, type DataTableColumn } from '@mercato-ui/backend/DataTable'
+import { DataTable } from '@mercato-ui/backend/DataTable'
 import { Button } from '@mercato-ui/primitives/button'
+import type { ColumnDef } from '@tanstack/react-table'
 
 type ProductRow = {
   id: string
@@ -13,12 +14,12 @@ type ProductRow = {
   status: string
 }
 
-const columns: DataTableColumn<ProductRow>[] = [
-  { key: 'product', header: 'Product' },
-  { key: 'collection', header: 'Collection' },
-  { key: 'channels', header: 'Sales Channels' },
-  { key: 'variants', header: 'Variants' },
-  { key: 'status', header: 'Status' },
+const columns: ColumnDef<ProductRow>[] = [
+  { accessorKey: 'product', header: 'Product' },
+  { accessorKey: 'collection', header: 'Collection' },
+  { accessorKey: 'channels', header: 'Sales Channels' },
+  { accessorKey: 'variants', header: 'Variants' },
+  { accessorKey: 'status', header: 'Status' },
 ]
 
 const demoData: ProductRow[] = [
@@ -40,9 +41,8 @@ export default function ExampleProductsListPage() {
     <Page>
       <PageHeader title="Products" actions={toolbar} />
       <PageBody>
-        <DataTable columns={columns} data={rows} onRowClick={() => {}} toolbar={<Button variant="outline">Add filter</Button>} />
+        <DataTable columns={columns} data={rows} toolbar={<Button variant="outline">Add filter</Button>} />
       </PageBody>
     </Page>
   )
 }
-

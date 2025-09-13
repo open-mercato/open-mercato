@@ -42,9 +42,14 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
             <div className="font-semibold">{productName}</div>
           </div>
           <div className="flex items-center gap-2 text-sm">
-            {rightHeaderSlot}
-            <Separator className="w-px h-5 mx-1" />
-            <span className="opacity-80">{email || 'User'}</span>
+            {rightHeaderSlot ? (
+              rightHeaderSlot
+            ) : (
+              <>
+                <Separator className="w-px h-5 mx-1" />
+                <span className="opacity-80">{email || 'User'}</span>
+              </>
+            )}
           </div>
         </header>
         <main className="p-6">{children}</main>
@@ -52,4 +57,3 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
     </div>
   )
 }
-
