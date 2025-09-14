@@ -1,5 +1,5 @@
 import * as React from 'react'
-limport { useReactTable, getCoreRowModel, flexRender, type ColumnDef } from '@tanstack/react-table'
+import { useReactTable, getCoreRowModel, flexRender, type ColumnDef } from '@tanstack/react-table'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 
 export type DataTableProps<T> = {
