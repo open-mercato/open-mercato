@@ -11,5 +11,7 @@ export async function bootstrap(container: AwilixContainer) {
   try {
     const subs = modules.flatMap((m) => m.subscribers || [])
     if (subs.length) (container.resolve as any)('eventBus').registerModuleSubscribers(subs)
-  } catch {}
+  } catch (err) {
+    console.error("Failed to register module subscribers:", err);
+  }
 }
