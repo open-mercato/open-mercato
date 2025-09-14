@@ -1,5 +1,5 @@
 {
-  "name": "@mercato-example",
+  "name": "@mercato/example",
   "version": "0.1.0",
   "private": true,
   "type": "module",
