@@ -32,9 +32,10 @@ export type EventStrategy = {
   on: (event: string, handler: SubscriberHandler) => void
   registerModuleSubscribers: (subs: SubscriberDescriptor[]) => void
   processOffline: (opts?: { limit?: number }) => Promise<{ processed: number; lastId?: number }>
+  clearQueue: () => Promise<{ removed: number }>
+  clearProcessed: () => Promise<{ removed: number; lastId?: number }>
 }
 
 export type EventBus = EventStrategy & {
   emitEvent: (event: string, payload: EventPayload, opts?: { persistent?: boolean }) => Promise<void>
 }
-

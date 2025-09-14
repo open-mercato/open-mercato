@@ -51,9 +51,28 @@ export function createRedisStrategy(url = process.env.REDIS_URL || process.env.E
     return { processed, lastId: newLast }
   }
 
+  async function clearQueue() {
+    await ready
+    let removed = 0
+    if (client.zRemRangeByScore) removed = await client.zRemRangeByScore(keyQueue, '-inf', '+inf')
+    else if (client.zremrangebyscore) removed = await client.zremrangebyscore(keyQueue, '-inf', '+inf')
+    else throw new Error('Redis client does not support zremrangebyscore')
+    return { removed }
+  }
+
+  async function clearProcessed() {
+    await ready
+    const lastProcessedRaw = client.get ? await client.get(keyProcessed) : await client.get(keyProcessed)
+    const lastProcessed = Number(lastProcessedRaw || 0)
+    let removed = 0
+    if (client.zRemRangeByScore) removed = await client.zRemRangeByScore(keyQueue, '-inf', lastProcessed)
+    else if (client.zremrangebyscore) removed = await client.zremrangebyscore(keyQueue, '-inf', lastProcessed)
+    else throw new Error('Redis client does not support zremrangebyscore')
+    return { removed, lastId: lastProcessed }
+  }
+
   function on(_event: string, _handler: any) {}
   function registerModuleSubscribers(_subs: any[]) {}
 
-  return { emit, on, registerModuleSubscribers, processOffline }
+  return { emit, on, registerModuleSubscribers, processOffline, clearQueue, clearProcessed }
 }
-

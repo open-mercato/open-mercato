@@ -34,6 +34,13 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     await strategy.emit({ event, payload, persistent: opts2?.persistent })
   }
 
-  return { emit: strategy.emit, on, registerModuleSubscribers, processOffline: strategy.processOffline, emitEvent }
+  return {
+    emit: strategy.emit,
+    on,
+    registerModuleSubscribers,
+    processOffline: strategy.processOffline,
+    clearQueue: strategy.clearQueue,
+    clearProcessed: strategy.clearProcessed,
+    emitEvent,
+  }
 }
-

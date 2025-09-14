@@ -74,6 +74,21 @@ export function createLocalStrategy(baseDir = path.resolve('.events'), deliver?:
     return { processed: slice.length, lastId }
   }
 
-  return { emit, on, registerModuleSubscribers, processOffline }
-}
+  async function clearQueue() {
+    const list = readQueue()
+    writeQueue([])
+    return { removed: list.length }
+  }
 
+  async function clearProcessed() {
+    const state = readState()
+    const since = state.lastProcessedId || 0
+    const list = readQueue()
+    const keep = list.filter((e) => e.id > since)
+    const removed = list.length - keep.length
+    writeQueue(keep)
+    return { removed, lastId: since }
+  }
+
+  return { emit, on, registerModuleSubscribers, processOffline, clearQueue, clearProcessed }
+}

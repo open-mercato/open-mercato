@@ -76,6 +76,16 @@ npm run mercato events process -- --limit=500
 
 The process uses the DI container, so subscriber handlers can resolve services.
 
+Clear queues:
+
+```
+# Remove all queued events (persistent storage)
+npm run mercato events clear
+
+# Remove only events already processed (based on last processed id)
+npm run mercato events clear-processed
+```
+
 ## Notes
 
 - Subscribers are executed online on `emitEvent`, and also available for offline replay when persistent.

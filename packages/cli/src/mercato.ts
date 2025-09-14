@@ -25,6 +25,44 @@ export async function run(argv = process.argv) {
           console.log(`Processed ${res.processed} events${res.lastId ? `, lastId=${res.lastId}` : ''}`)
         },
       },
+      {
+        command: 'clear',
+        run: async () => {
+          const container = await createRequestContainer()
+          const bus = container.resolve<any>('eventBus')
+          const res = await bus.clearQueue()
+          console.log(`Cleared queue, removed ${res.removed} events`)
+        },
+      },
+      {
+        command: 'clear-processed',
+        run: async () => {
+          const container = await createRequestContainer()
+          const bus = container.resolve<any>('eventBus')
+          const res = await bus.clearProcessed()
+          console.log(`Cleared processed events, removed ${res.removed}${res.lastId ? ` up to id=${res.lastId}` : ''}`)
+        },
+      },
+      {
+        command: 'emit',
+        run: async (args: string[]) => {
+          const eventName = args[0]
+          if (!eventName) {
+            console.error('Usage: mercato events emit <event> [jsonPayload] [--persistent|-p]')
+            return
+          }
+          const persistent = args.includes('--persistent') || args.includes('-p')
+          const payloadArg = args[1] && !args[1].startsWith('--') ? args[1] : undefined
+          let payload: any = {}
+          if (payloadArg) {
+            try { payload = JSON.parse(payloadArg) } catch { payload = payloadArg }
+          }
+          const container = await createRequestContainer()
+          const bus = container.resolve<any>('eventBus')
+          await bus.emitEvent(eventName, payload, { persistent })
+          console.log(`Emitted "${eventName}"${persistent ? ' (persistent)' : ''}`)
+        },
+      },
     ],
   } as any)
   if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
