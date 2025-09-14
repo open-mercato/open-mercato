@@ -14,12 +14,14 @@ This repository is designed for extensibility. Agents should leverage the module
   - Backend pages under `src/modules/<module>/backend/<path>.tsx` → `/backend/<path>`
   - Special case: `src/modules/<module>/backend/page.tsx` → `/backend/<module>`
   - API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
+  - Subscribers under `src/modules/<module>/subscribers/*.ts` exporting default handler and `metadata` with `{ event: string, persistent?: boolean, id?: string }`
   - Optional CLI at `src/modules/<module>/cli.ts` default export
   - Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
   - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
 - Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
 - Generators build:
   - `src/modules/generated.ts` (routes/APIs/CLIs + info)
+  - subscribers are included in `modules.generated.ts` under each module entry
   - `src/modules/entities.generated.ts` (MikroORM entities)
   - `src/modules/di.generated.ts` (DI registrars)
   - Run `npm run modules:prepare` or rely on `predev`/`prebuild`.

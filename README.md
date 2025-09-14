@@ -9,6 +9,7 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 - 🗃️ Per‑module entities and migrations via MikroORM
 - 🧱 Strong multi‑tenant model (tenants + organizations)
 - 🧰 Dependency Injection (Awilix) for service/component overrides
+- 🔔 Event Bus with subscribers (local/redis) + offline processing
 - 🔐 Authentication, roles, sessions included
 - ⚙️ Next.js app router, TypeScript, zod, bcryptjs
 
@@ -46,6 +47,12 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 - <a href="./docs/tutorials/first-app.md">Quickstart tutorial</a>
 - <a href="./docs/tutorials/testing.md">Writing unit tests</a>
 - <a href="./docs/modules.md">Modules authoring and usage</a>
+- <a href="./docs/events-and-subscribers.md">Events & subscribers</a>
+
+**CLI**
+- auth: add-user, seed-roles, add-org, setup
+- events: process, emit, clear, clear-processed
+- example: hello
 
 ## Architecture Overview
 

@@ -25,6 +25,7 @@ function scan() {
     const apis: string[] = []
     let cliImportName: string | null = null
     const translations: string[] = []
+    const subscribers: string[] = []
     let infoImportName: string | null = null
 
     // Module metadata: index.ts (overrideable)
@@ -318,6 +319,40 @@ function scan() {
       }
     }
 
+    // Subscribers: src/modules/<module>/subscribers/*.ts
+    const subApp = path.join(roots.appBase, 'subscribers')
+    const subPkg = path.join(roots.pkgBase, 'subscribers')
+    if (fs.existsSync(subApp) || fs.existsSync(subPkg)) {
+      const found: string[] = []
+      const walk = (dir: string, rel: string[] = []) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (e.isDirectory()) {
+            if (e.name === '__tests__' || e.name === '__mocks__') continue
+            walk(path.join(dir, e.name), [...rel, e.name])
+          } else if (e.isFile() && e.name.endsWith('.ts')) {
+            if (/\.(test|spec)\.ts$/.test(e.name)) continue
+            found.push([...rel, e.name].join('/'))
+          }
+        }
+      }
+      if (fs.existsSync(subPkg)) walk(subPkg)
+      if (fs.existsSync(subApp)) walk(subApp)
+      const files = Array.from(new Set(found))
+      for (const rel of files) {
+        const segs = rel.split('/')
+        const file = segs.pop()!
+        const name = file.replace(/\.ts$/, '')
+        const importName = `Subscriber${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_')||'index')}`
+        const metaName = `SubscriberMeta${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_')||'index')}`
+        const appFile = path.join(subApp, ...segs, `${name}.ts`)
+        const fromApp = fs.existsSync(appFile)
+        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/subscribers/${[...segs, name].join('/')}`
+        imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
+        const sid = [modId, ...segs, name].filter(Boolean).join(':')
+        subscribers.push(`{ id: (${metaName}.metadata?.id || '${sid}'), event: ${metaName}.metadata?.event, persistent: ${metaName}.metadata?.persistent, handler: ${importName} }`)
+      }
+    }
+
     moduleDecls.push(`{
       id: '${modId}',
       ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
@@ -326,6 +361,7 @@ function scan() {
       ${apis.length ? `apis: [${apis.join(', ')}],` : ''}
       ${cliImportName ? `cli: ${cliImportName},` : ''}
       ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
+      ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
     }`)
   }
 
