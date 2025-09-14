@@ -42,7 +42,9 @@ export function createRedisStrategy(url = process.env.REDIS_URL || process.env.E
         if (deliver) await deliver(entry.event, entry.payload)
         newLast = entry.id
         processed++
-      } catch {}
+      } catch (err) {
+        console.error('Failed to process event from Redis queue:', { error: err, raw });
+      }
     }
     if (newLast !== lastProcessed) {
       if (client.set) await client.set(keyProcessed, String(newLast))
