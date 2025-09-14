@@ -76,7 +76,7 @@ export async function run(argv = process.argv) {
   console.log(header)
   const pad = (s: string) => `  ${s}`
 
-  if (!modName) {
+  if (!modName || modName === 'help' || modName === '--help' || modName === '-h') {
     console.log(pad('Usage: ✨ mercato <module> <command> [args]'))
     const list = all
       .filter((m) => m.cli && m.cli.length)

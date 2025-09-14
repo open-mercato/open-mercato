@@ -49,6 +49,11 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 - <a href="./docs/modules.md">Modules authoring and usage</a>
 - <a href="./docs/events-and-subscribers.md">Events & subscribers</a>
 
+**CLI**
+- auth: add-user, seed-roles, add-org, setup
+- events: process, emit, clear, clear-processed
+- example: hello
+
 ## Architecture Overview
 
 - 🧩 Modules: Each feature lives under `src/modules/<module>` with auto‑discovered frontend/backend pages, APIs, CLI, i18n, and DB entities.
