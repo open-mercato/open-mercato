@@ -58,6 +58,14 @@ export type Module = {
   apis?: ModuleApi[]
   cli?: ModuleCli[]
   translations?: Record<string, Record<string, string>>
+  // Auto-discovered event subscribers
+  subscribers?: Array<{
+    id: string
+    event: string
+    persistent?: boolean
+    // Imported function reference; will be registered into event bus
+    handler: (payload: any, ctx: any) => Promise<void> | void
+  }>
 }
 
 function normPath(s: string) {

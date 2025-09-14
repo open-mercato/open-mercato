@@ -1,4 +1,5 @@
 import { modules } from '@/generated/modules.generated'
+import { createRequestContainer } from '@/lib/di/container'
 
 export async function run(argv = process.argv) {
   const [, , modName, cmdName, ...rest] = argv
@@ -9,6 +10,23 @@ export async function run(argv = process.argv) {
     if (Array.isArray(app?.default)) appCli = app.default
   } catch {}
   const all = modules.slice()
+  // Built-in CLI module: events
+  all.push({
+    id: 'events',
+    cli: [
+      {
+        command: 'process',
+        run: async (args: string[]) => {
+          const limitArg = args.find((a) => a.startsWith('--limit='))
+          const limit = limitArg ? Number(limitArg.split('=')[1]) : undefined
+          const container = await createRequestContainer()
+          const bus = container.resolve<any>('eventBus')
+          const res = await bus.processOffline({ limit })
+          console.log(`Processed ${res.processed} events${res.lastId ? `, lastId=${res.lastId}` : ''}`)
+        },
+      },
+    ],
+  } as any)
   if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
 
   const banner = '🧩 Open Mercato CLI'
