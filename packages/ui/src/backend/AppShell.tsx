@@ -46,7 +46,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
               rightHeaderSlot
             ) : (
               <>
-                <Separator className="w-px h-5 mx-1" />
+                <Separator orientation="vertical" className="w-px h-5 mx-1" />
                 <span className="opacity-80">{email || 'User'}</span>
               </>
             )}
