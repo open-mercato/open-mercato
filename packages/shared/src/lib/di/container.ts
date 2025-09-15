@@ -2,6 +2,7 @@ import { createContainer, asValue, AwilixContainer, InjectionMode } from 'awilix
 import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { diRegistrars } from '@/generated/di.generated'
+import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 
 export type AppContainer = AwilixContainer
 
@@ -12,6 +13,7 @@ export async function createRequestContainer(): Promise<AppContainer> {
   // Core registrations
   container.register({
     em: asValue(em),
+    queryEngine: asValue(new BasicQueryEngine(em)),
   })
   // Allow modules to override/extend
   for (const reg of diRegistrars) {

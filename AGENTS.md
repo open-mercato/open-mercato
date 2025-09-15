@@ -18,6 +18,10 @@ This repository is designed for extensibility. Agents should leverage the module
   - Optional CLI at `src/modules/<module>/cli.ts` default export
   - Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
   - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
+- Extensions and fields:
+  - Per-module entity extensions: declare in `src/modules/<module>/data/extensions.ts` as `export const extensions: EntityExtension[]`.
+  - Per-module static custom fields: declare in `src/modules/<module>/data/fields.ts` as `export const fieldSets: CustomFieldSet[]`.
+  - Generators add these to `modules.generated.ts` so they’re available at runtime.
 - Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
 - Generators build:
   - `src/modules/generated.ts` (routes/APIs/CLIs + info)
@@ -57,3 +61,8 @@ This repository is designed for extensibility. Agents should leverage the module
  - Prefer small, reusable libraries and utilities with minimal or no external dependencies where it makes sense.
  - Favor functional programming (pure functions, data-first utilities) over classes.
  - Write any necessary code comments in English.
+
+## What’s new (data model evolution)
+- Keep modules separated and isomorphic: when extending another module’s data, add a separate extension entity and declare a link in `data/extensions.ts` (do not mutate core entities). Pattern mirrors Medusa’s module links.
+- Custom fields: users can add/remove/modify fields per entity without schema forks. We store definitions and values in a dedicated `custom_fields` module (EAV). A future admin UI will let users manage fields, and generic list/detail pages will consume them for filtering and forms.
+- Query layer: access via DI (`queryEngine`) to fetch base entities with optional extensions and/or custom fields using a unified API for filtering, fields selection, pagination, and sorting.

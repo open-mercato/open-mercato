@@ -70,10 +70,15 @@ export function register(container: AppContainer) {
 
 ### Database Schema and Migrations (MikroORM)
 - Place entities in `@open-mercato/core/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts`).
-- To override or extend entities, add `src/modules/<module>/data/entities.override.ts`.
+- To extend another module's entity, prefer a separate extension entity in your module and declare the link in `data/extensions.ts` (see Data Extensibility doc). Avoid mutating core entities to stay upgrade-safe.
+- If absolutely necessary to override entire entities, add `src/modules/<module>/data/entities.override.ts`.
 - Generate combined module registry and entities: `npm run modules:prepare`.
 - Generate migrations for enabled modules: `npm run db:generate` → writes to `src/modules/<module>/migrations`.
 - Apply migrations for enabled modules: `npm run db:migrate`.
+
+See also:
+- Data extensibility (extensions + custom fields): `docs/data-extensibility.md`
+- Unified query layer (filters, paging, fields): `docs/query-layer.md`
 
 ### Validation (zod)
 - Put validators alongside entities in `src/modules/<module>/data/validators.ts`.
