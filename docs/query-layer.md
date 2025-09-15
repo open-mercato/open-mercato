@@ -17,7 +17,7 @@ export async function listUsers(container: AppContainer) {
   return await query.query('auth:user', {
     fields: ['id','email','name','cf:vip'],
     includeExtensions: true,
-    includeCustomFields: ['vip','industry'],
+    includeCustomFields: ['vip','industry'], // explicit cf keys currently supported
     filters: [
       { field: 'cf:vip', op: 'eq', value: true },
       { field: 'email', op: 'ilike', value: '%@acme.com' },
@@ -40,9 +40,8 @@ export async function listUsers(container: AppContainer) {
 - `organizationId`: scoping for multi-tenant.
 
 ## Implementation notes
-- Default implementation `BasicQueryEngine` ships as a placeholder. It supports base-table filters/sort/paging and reserves space for joining extensions and custom fields.
+- Default implementation `BasicQueryEngine` supports base-table filters/sort/paging and now projects cf:* fields and honors filters on them for explicitly requested keys.
 - When we iterate:
   - Read `modules.generated.ts` to discover `entityExtensions` and plan joins.
   - Join `custom_field_values` to surface `cf:*` fields and filter by them efficiently (indexes included).
   - Provide per-entity adapters if conventions differ from table naming.
-

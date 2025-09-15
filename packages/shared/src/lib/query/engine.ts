@@ -22,7 +22,7 @@ export class BasicQueryEngine implements QueryEngine {
         q = q.where('organization_id', opts.organizationId)
       }
     }
-    // Filters (base fields only for now; custom fields and extensions handled later)
+    // Filters (base fields handled here; cf:* handled later)
     for (const f of opts.filters || []) {
       const col = f.field.startsWith('cf:') ? null : f.field
       if (!col) continue
@@ -51,6 +51,69 @@ export class BasicQueryEngine implements QueryEngine {
       const cols = opts.fields.filter((f) => !f.startsWith('cf:'))
       if (cols.length) q = q.select(cols as any)
     }
+    // Custom fields: project requested cf:* keys and apply cf filters
+    const cfKeys = new Set<string>()
+    for (const f of opts.fields || []) if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
+    for (const f of opts.filters || []) if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
+    const entityId = entity
+    const orgId = opts.organizationId
+    const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, '_')
+    const knex = (this.em as any).getConnection().getKnex()
+    const baseIdExpr = knex.raw('??::text', [`${table}.id`])
+    const cfValueExprByKey: Record<string, any> = {}
+    for (const key of cfKeys) {
+      const defAlias = `cfd_${sanitize(key)}`
+      const valAlias = `cfv_${sanitize(key)}`
+      // Join definitions for kind resolution
+      q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function () {
+        this.on(`${defAlias}.entity_id`, '=', knex.raw('?', [entityId]))
+          .andOn(`${defAlias}.key`, '=', knex.raw('?', [key]))
+          .andOn(`${defAlias}.is_active`, '=', knex.raw('true'))
+        if (orgId != null) this.andOn(`${defAlias}.organization_id`, '=', knex.raw('?', [orgId]))
+      })
+      // Join values with record match
+      q = q.leftJoin({ [valAlias]: 'custom_field_values' }, function () {
+        this.on(`${valAlias}.entity_id`, '=', knex.raw('?', [entityId]))
+          .andOn(`${valAlias}.field_key`, '=', knex.raw('?', [key]))
+          .andOn(`${valAlias}.record_id`, '=', baseIdExpr)
+        if (orgId != null) this.andOn(`${valAlias}.organization_id`, '=', knex.raw('?', [orgId]))
+      })
+      // CASE expression to surface typed value as a single column
+      const valueExpr = knex.raw(
+        `CASE ${defAlias}.kind
+           WHEN 'integer' THEN ${valAlias}.value_int
+           WHEN 'float' THEN ${valAlias}.value_float
+           WHEN 'boolean' THEN ${valAlias}.value_bool
+           WHEN 'multiline' THEN ${valAlias}.value_multiline
+           ELSE ${valAlias}.value_text
+         END`
+      )
+      cfValueExprByKey[key] = valueExpr
+      // Select if requested in fields
+      if ((opts.fields || []).some((f) => f === `cf:${key}`)) {
+        q = q.select({ [sanitize(`cf:${key}`)]: valueExpr })
+      }
+    }
+    // Apply cf:* filters
+    for (const f of opts.filters || []) {
+      if (!f.field.startsWith('cf:')) continue
+      const key = f.field.slice(3)
+      const expr = cfValueExprByKey[key]
+      if (!expr) continue
+      switch (f.op) {
+        case 'eq': q = q.where(expr, '=', f.value); break
+        case 'ne': q = q.where(expr, '!=', f.value); break
+        case 'gt': q = q.where(expr, '>', f.value); break
+        case 'gte': q = q.where(expr, '>=', f.value); break
+        case 'lt': q = q.where(expr, '<', f.value); break
+        case 'lte': q = q.where(expr, '<=', f.value); break
+        case 'in': q = q.whereIn(expr as any, f.value ?? []); break
+        case 'nin': q = q.whereNotIn(expr as any, f.value ?? []); break
+        case 'like': q = q.where(expr, 'like', f.value); break
+        case 'ilike': q = q.where(expr, 'ilike', f.value); break
+        case 'exists': f.value ? q = q.whereNotNull(expr) : q = q.whereNull(expr); break
+      }
+    }
     // Pagination
     const page = opts.page?.page ?? 1
     const pageSize = opts.page?.pageSize ?? 20
@@ -67,4 +130,3 @@ export class BasicQueryEngine implements QueryEngine {
     return !!exists
   }
 }
-

@@ -9,19 +9,25 @@ This doc outlines how modules extend each other’s data (without forking schema
 
 ## Module-to-Module Extensions
 - Instead of modifying core entities, create a new entity in your module that links to the base entity.
-- Declare the link in `src/modules/<module>/data/extensions.ts`:
+- Declare the link in `src/modules/<module>/data/extensions.ts` using a small DSL (Medusa-like):
 
 ```ts
-import type { EntityExtension } from '@open-mercato/shared/modules/entities'
+import { defineLink, entityId, linkable } from '@/modules/dsl'
 
-export const extensions: EntityExtension[] = [
-  {
-    base: 'auth:user',
-    extension: 'my_module:user_profile',
-    join: { baseKey: 'id', extensionKey: 'user_id' },
-    cardinality: 'one-to-one',
-    description: 'Adds profile fields to users',
-  },
+// Option A: refer using explicit entityId()
+export default [
+  defineLink(
+    entityId('auth', 'user'),
+    entityId('my_module', 'user_profile'),
+    { join: { baseKey: 'id', extensionKey: 'user_id' }, cardinality: 'one-to-one', description: 'Adds profile fields to users' }
+  )
+]
+
+// Option B: use linkable() helper (similar to Medusa’s Module.linkable)
+const Auth = { linkable: linkable('auth', ['user']) }
+const My = { linkable: linkable('my_module', ['user_profile']) }
+export const extensions = [
+  defineLink(Auth.linkable.user, My.linkable.user_profile, { join: { baseKey: 'id', extensionKey: 'user_id' } })
 ]
 ```
 
@@ -33,20 +39,16 @@ export const extensions: EntityExtension[] = [
   - `custom_field_defs` — definitions (per entity id and organization)
   - `custom_field_values` — values (per entity record and organization)
 
-- Modules can ship initial field sets in `data/fields.ts`:
+- Modules can ship initial field sets in `data/fields.ts` using the DSL:
 
 ```ts
-import type { CustomFieldSet } from '@open-mercato/shared/modules/entities'
+import { defineFields, entityId, cf } from '@/modules/dsl'
 
-export const fieldSets: CustomFieldSet[] = [
-  {
-    entity: 'directory:organization',
-    fields: [
-      { key: 'industry', kind: 'select', options: ['SaaS','Retail','Agency'], filterable: true },
-      { key: 'vip', kind: 'boolean', filterable: true },
-    ],
-    source: 'my_module',
-  },
+export default [
+  defineFields(entityId('directory','organization'), [
+    cf.select('industry', ['SaaS','Retail','Agency'], { filterable: true }),
+    cf.boolean('vip', { filterable: true }),
+  ], 'my_module')
 ]
 ```
 
@@ -65,4 +67,3 @@ export const fieldSets: CustomFieldSet[] = [
 ## Migrations
 - Add your extension entity as normal.
 - The `custom_fields` module migrations are generated like any other module.
-

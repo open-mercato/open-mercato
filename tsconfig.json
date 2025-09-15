@@ -33,6 +33,7 @@
       "@open-mercato/ui": ["./packages/ui/src/index.ts"],
       "@open-mercato/ui/*": ["./packages/ui/src/*"],
       "@/modules/registry": ["./packages/shared/src/modules/registry.ts"],
+      "@/modules/dsl": ["./packages/shared/src/modules/dsl.ts"],
       "@/modules/entities": ["./packages/shared/src/modules/entities.ts"],
       "@/generated/*": ["./generated/*"]
     }

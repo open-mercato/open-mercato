@@ -22,6 +22,9 @@ This repository is designed for extensibility. Agents should leverage the module
   - Per-module entity extensions: declare in `src/modules/<module>/data/extensions.ts` as `export const extensions: EntityExtension[]`.
   - Per-module static custom fields: declare in `src/modules/<module>/data/fields.ts` as `export const fieldSets: CustomFieldSet[]`.
   - Generators add these to `modules.generated.ts` so they’re available at runtime.
+  - Prefer using the DSL helpers from `@/modules/dsl`:
+    - `defineLink()` with `entityId()` or `linkable()` for module-to-module extensions.
+    - `defineFields()` with `cf.*` helpers for field sets.
 - Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
 - Generators build:
   - `src/modules/generated.ts` (routes/APIs/CLIs + info)
