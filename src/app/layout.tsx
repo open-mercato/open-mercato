@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { I18nProvider } from '@/lib/i18n/context'
-import { ThemeProvider, FrontendLayout, QueryProvider } from '@mercato-ui'
+import { ThemeProvider, FrontendLayout, QueryProvider } from '@open-mercato/ui'
 import { detectLocale, loadDictionary } from '@/lib/i18n/server'
 import AuthFooter from '@/components/AuthFooter'
 

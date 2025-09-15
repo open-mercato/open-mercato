@@ -1,7 +1,7 @@
 # Modules: Authoring and Usage
 
 This app supports modular features delivered as either:
-- Core modules published as `@mercato-core` (monorepo package)
+- Core modules published as `@open-mercato/core` (monorepo package)
  - App-level overrides under `src/modules/*` (take precedence)
 - External npm packages that export the same interface
 
@@ -17,7 +17,7 @@ This app supports modular features delivered as either:
 - Provide optional metadata and DI registrar to integrate with the container and module listing.
 
 ### Metadata (index.ts)
-Create `@mercato-core/modules/<module>/index.ts` exporting `metadata` (or override via `src/modules/<module>/index.ts`):
+Create `@open-mercato/core/modules/<module>/index.ts` exporting `metadata` (or override via `src/modules/<module>/index.ts`):
 
 ```ts
 import type { ModuleInfo } from '@/modules/registry'
@@ -35,7 +35,7 @@ export const metadata: ModuleInfo = {
 Generators expose `modulesInfo` for listing.
 
 ### Dependency Injection (di.ts)
-Create `@mercato-core/modules/<module>/di.ts` exporting `register(container)` to add/override services and components. To override/extend, add `src/modules/<module>/di.ts`.
+Create `@open-mercato/core/modules/<module>/di.ts` exporting `register(container)` to add/override services and components. To override/extend, add `src/modules/<module>/di.ts`.
 
 ```ts
 import { asClass, asValue } from 'awilix'
@@ -48,7 +48,7 @@ export function register(container: AppContainer) {
 ```
 
 ### Routes (Auto-discovery + Overrides)
-- Put default pages under `@mercato-core/modules/<module>`.
+- Put default pages under `@open-mercato/core/modules/<module>`.
 - Override any page by placing a file at the same relative path in `src/modules/<module>`.
   - Frontend: `src/modules/<module>/frontend/<path>.tsx` → overrides `/<path>`
   - Backend: `src/modules/<module>/backend/<path>.tsx` → overrides `/backend/<path>`
@@ -58,18 +58,18 @@ export function register(container: AppContainer) {
   - Backend: `src/app/(backend)/backend/[[...slug]]/page.tsx`
 
 #### Override Example
-- Package page: `@mercato-example/modules/example/frontend/blog/[id]/page.tsx`
+- Package page: `@open-mercato/example/modules/example/frontend/blog/[id]/page.tsx`
 - App override: `src/modules/example/frontend/blog/[id]/page.tsx`
   - If present, the app file is used instead of the package file.
   - Remove the app file to fall back to the package implementation.
 
 ### API Endpoints (Auto-discovery + Overrides)
-- Implement defaults under `@mercato-core/modules/<module>/api/...`.
+- Implement defaults under `@open-mercato/core/modules/<module>/api/...`.
 - Override by adding `src/modules/<module>/api/...`.
 - The app exposes a catch-all API route in `src/app/api/[...slug]/route.ts` and dispatches by method + path.
 
 ### Database Schema and Migrations (MikroORM)
-- Place entities in `@mercato-core/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts`).
+- Place entities in `@open-mercato/core/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts`).
 - To override or extend entities, add `src/modules/<module>/data/entities.override.ts`.
 - Generate combined module registry and entities: `npm run modules:prepare`.
 - Generate migrations for enabled modules: `npm run db:generate` → writes to `src/modules/<module>/migrations`.
@@ -131,11 +131,11 @@ export default async function Page() {
 
 ## Enabling Modules
 - Edit `src/modules.ts` and list modules to load, e.g.:
-  - `{ id: 'auth', from: '@mercato-core' }`, `{ id: 'directory', from: '@mercato-core' }`, `{ id: 'example', from: '@mercato-example' }`.
+  - `{ id: 'auth', from: '@open-mercato/core' }`, `{ id: 'directory', from: '@open-mercato/core' }`, `{ id: 'example', from: '@open-mercato/example' }`.
 - Generators and migrations only include these modules.
 
 ## Monorepo, Overrides, and Module Config
-- Core modules live in `@mercato-core` and example in `@mercato-example`.
+- Core modules live in `@open-mercato/core` and example in `@open-mercato/example`.
 - App-level overrides live under `src/modules/<module>/...` and take precedence over package files with the same relative path.
 - Enable modules explicitly in `src/modules.ts`.
 - Generators (`modules:prepare`) and migrations (`db:*`) only include enabled modules.

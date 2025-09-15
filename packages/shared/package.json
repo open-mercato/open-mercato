@@ -1,5 +1,5 @@
 {
-  "name": "@mercato/shared",
+  "name": "@open-mercato/shared",
   "version": "0.1.0",
   "private": true,
   "type": "module",

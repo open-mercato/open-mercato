@@ -1,3 +1,2 @@
-// Barrel for @mercato-example (placeholder)
+// Barrel for @open-mercato/example (placeholder)
 export {}
-

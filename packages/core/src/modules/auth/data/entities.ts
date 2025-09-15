@@ -1,5 +1,5 @@
 import { Entity, PrimaryKey, Property, ManyToOne, Unique } from '@mikro-orm/core'
-import { Tenant, Organization } from '@mercato-core/modules/directory/data/entities'
+import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 @Entity({ tableName: 'users' })
 export class User {

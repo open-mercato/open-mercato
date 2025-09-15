@@ -1,5 +1,5 @@
 {
-  "name": "@mercato-events",
+  "name": "@open-mercato/events",
   "version": "0.1.0",
   "private": true,
   "main": "src/index.ts",

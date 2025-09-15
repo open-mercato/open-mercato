@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { AuthService } from '@mercato-core/modules/auth/services/authService'
+import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 
 function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''

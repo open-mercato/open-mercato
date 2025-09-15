@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { POST } from '@mercato-core/modules/auth/api/login'
+import { POST } from '@open-mercato/core/modules/auth/api/login'
 
 jest.mock('@/lib/di/container', () => ({
   createRequestContainer: async () => ({

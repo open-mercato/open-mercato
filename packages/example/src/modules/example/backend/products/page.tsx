@@ -1,8 +1,8 @@
 "use client"
 import * as React from 'react'
-import { Page, PageHeader, PageBody } from '@mercato-ui/backend/Page'
-import { DataTable } from '@mercato-ui/backend/DataTable'
-import { Button } from '@mercato-ui/primitives/button'
+import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { Button } from '@open-mercato/ui/primitives/button'
 import type { ColumnDef } from '@tanstack/react-table'
 
 type ProductRow = {

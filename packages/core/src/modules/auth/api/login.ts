@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
-import { userLoginSchema } from '@mercato-core/modules/auth/data/validators'
+import { userLoginSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { createRequestContainer } from '@/lib/di/container'
-import { AuthService } from '@mercato-core/modules/auth/services/authService'
+import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { signJwt } from '@/lib/auth/jwt'
 
 // validation comes from userLoginSchema

@@ -5,6 +5,6 @@ export const metadata: ModuleInfo = {
   title: 'Authentication & Accounts',
   version: '0.1.0',
   description: 'User accounts, sessions, roles and password resets.',
-  author: 'EHR Team',
+  author: 'Open Mercato Team',
   license: 'Proprietary',
 }

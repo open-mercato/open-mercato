@@ -26,7 +26,7 @@ async function loadModuleEntities(entry: ModuleEntry) {
       if (fs.existsSync(p)) {
         const sub = path.basename(base)
         const fromApp = base.startsWith(roots.appBase)
-        const importBase = fromApp ? `@/app/modules/${modId}` : `${entry.from || '@mercato-core'}/modules/${modId}`
+        const importBase = fromApp ? `@/app/modules/${modId}` : `${entry.from || '@open-mercato/core'}/modules/${modId}`
         const mod = await import(pathToImport(`${importBase}/${sub}/${f.replace(/\.ts$/, '')}`))
         const entities = Object.values(mod).filter(v => typeof v === 'function')
         if (entities.length) return entities as any[]

@@ -1,6 +1,6 @@
 import { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
-import { User, Role, UserRole, Session, PasswordReset } from '@mercato-core/modules/auth/data/entities'
+import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import crypto from 'node:crypto'
 
 export class AuthService {

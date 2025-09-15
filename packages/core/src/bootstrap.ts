@@ -1,6 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import { asValue } from 'awilix'
-import { createEventBus } from '@mercato-events/index'
+import { createEventBus } from '@open-mercato/events/index'
 import { modules } from '@/generated/modules.generated'
 
 export async function bootstrap(container: AwilixContainer) {

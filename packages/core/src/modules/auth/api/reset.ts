@@ -1,9 +1,9 @@
-import { requestPasswordResetSchema } from '@mercato-core/modules/auth/data/validators'
+import { requestPasswordResetSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { AuthService } from '@mercato-core/modules/auth/services/authService'
+import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { sendEmail } from '@/lib/email/send'
-import ResetPasswordEmail from '@mercato-core/modules/auth/emails/ResetPasswordEmail'
+import ResetPasswordEmail from '@open-mercato/core/modules/auth/emails/ResetPasswordEmail'
 
 // validation via requestPasswordResetSchema
 

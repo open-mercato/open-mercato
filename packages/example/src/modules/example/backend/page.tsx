@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { Page, PageHeader, PageBody } from '@mercato-ui/backend/Page'
+import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
 import Link from 'next/link'
 
 export default function ExampleAdminIndex() {
@@ -20,4 +20,3 @@ export default function ExampleAdminIndex() {
     </Page>
   )
 }
-
