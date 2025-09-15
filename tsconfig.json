@@ -26,14 +26,23 @@
       "@/lib/*": ["./packages/shared/src/lib/*"],
       "@/types/*": ["./packages/shared/src/types/*"],
       "@open-mercato/core/*": ["./packages/core/src/*"],
+      "@open-mercato/core/datamodel/entities": ["./packages/core/generated/entities.ids.generated.ts"],
+      "@open-mercato/core/generated/*": ["./packages/core/generated/*"],
       "@open-mercato/example/*": ["./packages/example/src/*"],
+      "@open-mercato/example/datamodel/entities": ["./packages/example/generated/entities.ids.generated.ts"],
+      "@open-mercato/example/generated/*": ["./packages/example/generated/*"],
       "@open-mercato/cli/*": ["./packages/cli/src/*"],
+      "@open-mercato/cli/generated/*": ["./packages/cli/generated/*"],
       "@open-mercato/events/*": ["./packages/events/src/*"],
+      "@open-mercato/events/generated/*": ["./packages/events/generated/*"],
       "@open-mercato/shared/*": ["./packages/shared/src/*"],
+      "@open-mercato/shared/generated/*": ["./packages/shared/generated/*"],
       "@open-mercato/ui": ["./packages/ui/src/index.ts"],
       "@open-mercato/ui/*": ["./packages/ui/src/*"],
-      "@/modules/registry": ["./packages/shared/src/modules/registry.ts"]
-      ,"@/generated/*": ["./generated/*"]
+      "@/modules/registry": ["./packages/shared/src/modules/registry.ts"],
+      "@/modules/dsl": ["./packages/shared/src/modules/dsl.ts"],
+      "@/modules/entities": ["./packages/shared/src/modules/entities.ts"],
+      "@/generated/*": ["./generated/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

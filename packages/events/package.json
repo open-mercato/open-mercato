@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "main": "src/index.ts",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "ioredis": "^5.4.1"
+  }
 }

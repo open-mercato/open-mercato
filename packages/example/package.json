@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./modules/*": "./src/modules/*",
+    "./datamodel/entities": "./generated/entities.ids.generated.ts",
     ".": "./src/index.js"
   }
 }

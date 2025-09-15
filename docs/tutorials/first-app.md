@@ -120,7 +120,7 @@ export function register(container: AppContainer) {
 ## 9) Entities and Migrations
 - Place package entities in `packages/<pkg>/src/modules/<module>/data/entities.ts`.
 - To override/extend in the app: `src/modules/<module>/data/entities.override.ts`.
-- Generate migrations: `yarn db:generate` (writes to `src/modules/<module>/migrations`).
+- Generate migrations: `yarn db:generate` (writes to `packages/<pkg>/src/modules/<module>/migrations`; app-local modules write to `src/modules/<module>/migrations`).
 - Apply migrations: `yarn db:migrate`.
 
 ## 10) CLI Commands

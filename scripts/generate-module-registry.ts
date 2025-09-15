@@ -27,6 +27,8 @@ function scan() {
     const translations: string[] = []
     const subscribers: string[] = []
     let infoImportName: string | null = null
+    let extensionsImportName: string | null = null
+    let fieldsImportName: string | null = null
 
     // Module metadata: index.ts (overrideable)
     const appIndex = path.join(roots.appBase, 'index.ts')
@@ -107,6 +109,34 @@ function scan() {
         }
         imports.push(`import ${importName} from '${importPath}'`)
         frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
+      }
+    }
+
+    // Entity extensions: src/modules/<module>/data/extensions.ts
+    {
+      const appFile = path.join(roots.appBase, 'data', 'extensions.ts')
+      const pkgFile = path.join(roots.pkgBase, 'data', 'extensions.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `X_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${imps.appBase}/data/extensions` : `${imps.pkgBase}/data/extensions`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        extensionsImportName = importName
+      }
+    }
+
+    // Custom field declarations: src/modules/<module>/data/fields.ts
+    {
+      const appFile = path.join(roots.appBase, 'data', 'fields.ts')
+      const pkgFile = path.join(roots.pkgBase, 'data', 'fields.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `F_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${imps.appBase}/data/fields` : `${imps.pkgBase}/data/fields`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        fieldsImportName = importName
       }
     }
 
@@ -362,6 +392,8 @@ function scan() {
       ${cliImportName ? `cli: ${cliImportName},` : ''}
       ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
       ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
+      ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as any) || [],` : ''}
+      ${fieldsImportName ? `customFieldSets: ((${fieldsImportName}.default ?? ${fieldsImportName}.fieldSets) as any) || [],` : ''}
     }`)
   }
 

@@ -1,0 +1,80 @@
+# Entity Extensions and Custom Fields
+
+This doc outlines how modules extend each other’s data (without forking schemas) and how users add custom fields at runtime.
+
+## Goals
+- Keep modules isolated and upgrade-safe.
+- Allow one module to add data to another module’s entity via separate extension entities.
+- Allow end users to define custom fields (text/multiline/integer/float/boolean/select) per entity and filter by them.
+
+## Module-to-Module Extensions
+- Instead of modifying core entities, create a new entity in your module that links to the base entity.
+- Declare the link in `src/modules/<module>/data/extensions.ts` using a small DSL (Medusa-like):
+
+```ts
+import { defineLink, entityId, linkable } from '@/modules/dsl'
+
+// Option A: refer using explicit entityId()
+export default [
+  defineLink(
+    entityId('auth', 'user'),
+    entityId('my_module', 'user_profile'),
+    { join: { baseKey: 'id', extensionKey: 'user_id' }, cardinality: 'one-to-one', description: 'Adds profile fields to users' }
+  )
+]
+
+// Option B: use linkable() helper (similar to Medusa’s Module.linkable)
+const Auth = { linkable: linkable('auth', ['user']) }
+const My = { linkable: linkable('my_module', ['user_profile']) }
+export const extensions = [
+  defineLink(Auth.linkable.user, My.linkable.user_profile, { join: { baseKey: 'id', extensionKey: 'user_id' } })
+]
+```
+
+- Keep the extension entity in `data/entities.ts` of your module, with a FK to the base entity id.
+- Generators include `entityExtensions` in `modules.generated.ts` for discovery.
+
+## Custom Fields (EAV)
+- Core module `custom_fields` ships two tables:
+  - `custom_field_defs` — definitions (per entity id and organization)
+  - `custom_field_values` — values (per entity record and organization)
+
+- Modules can ship initial field sets in `data/fields.ts` using the DSL:
+
+```ts
+import { defineFields, entityId, cf } from '@/modules/dsl'
+
+export default [
+  defineFields(entityId('directory','organization'), [
+    cf.select('industry', ['SaaS','Retail','Agency'], { filterable: true }),
+    cf.boolean('vip', { filterable: true }),
+  ], 'my_module')
+]
+```
+
+- Users will manage custom fields via an admin UI (next task). The UI will:
+  - Let users pick an entity and define fields.
+  - Enforce tenant scoping and basic validations.
+  - Generate filters and form controls dynamically.
+
+### Seeding definitions from modules
+
+- Global custom fields are auto-seeded after `npm run db:migrate`.
+- To seed per-organization definitions (or re-seed), run the CLI:
+
+```
+yarn mercato custom_fields install --org 1
+```
+
+Why not migrations? Migrations are module-scoped, run in isolation, and should alter schema deterministically. Field sets aggregate across all enabled modules at the app level and may target specific organizations; executing them in each module’s migration would cause duplication, ordering problems, and environment coupling. Use the CLI to seed or re-seed idempotently whenever modules change.
+
+## Multi-tenant
+- Definitions and values include `organization_id` and must be filtered by it when relevant.
+
+## Validation and Types
+- Base entities continue to use zod validators and MikroORM classes.
+- Custom fields are validated dynamically based on their kind and options.
+
+## Migrations
+- Add your extension entity as normal.
+- The `custom_fields` module migrations are generated like any other module.

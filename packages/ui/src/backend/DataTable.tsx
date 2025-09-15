@@ -1,15 +1,31 @@
 import * as React from 'react'
-import { useReactTable, getCoreRowModel, flexRender, type ColumnDef } from '@tanstack/react-table'
+import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState } from '@tanstack/react-table'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 
 export type DataTableProps<T> = {
   columns: ColumnDef<T, any>[]
   data: T[]
   toolbar?: React.ReactNode
+  sortable?: boolean
+  sorting?: SortingState
+  onSortingChange?: (s: SortingState) => void
 }
 
-export function DataTable<T>({ columns, data, toolbar }: DataTableProps<T>) {
-  const table = useReactTable<T>({ data, columns, getCoreRowModel: getCoreRowModel() })
+export function DataTable<T>({ columns, data, toolbar, sortable, sorting: sortingProp, onSortingChange }: DataTableProps<T>) {
+  const [sorting, setSorting] = React.useState<SortingState>(sortingProp ?? [])
+  const table = useReactTable<T>({
+    data,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    ...(sortable ? { getSortedRowModel: getSortedRowModel() } : {}),
+    state: { sorting },
+    onSortingChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(sorting) : updater
+      setSorting(next)
+      onSortingChange?.(next)
+    },
+  })
+  React.useEffect(() => { if (sortingProp) setSorting(sortingProp) }, [sortingProp])
   return (
     <div className="rounded-lg border bg-card">
       <div className="flex items-center justify-between px-4 py-3 border-b">
@@ -23,7 +39,18 @@ export function DataTable<T>({ columns, data, toolbar }: DataTableProps<T>) {
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (
                   <TableHead key={header.id}>
-                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                    {header.isPlaceholder ? null : (
+                      <button
+                        type="button"
+                        className={`inline-flex items-center gap-1 ${sortable && header.column.getCanSort?.() ? 'cursor-pointer select-none' : ''}`}
+                        onClick={() => sortable && header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {sortable && header.column.getIsSorted?.() ? (
+                          <span className="text-xs text-muted-foreground">{header.column.getIsSorted() === 'asc' ? '▲' : '▼'}</span>
+                        ) : null}
+                      </button>
+                    )}
                   </TableHead>
                 ))}
               </TableRow>

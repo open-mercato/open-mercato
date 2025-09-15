@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { MikroORM } from '@mikro-orm/core'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
-import { loadEnabledModules, moduleFsRoots, type ModuleEntry } from './shared/modules-config'
+import { loadEnabledModules, moduleFsRoots, moduleImportBase, type ModuleEntry } from './shared/modules-config'
 
 type Cmd = 'generate' | 'apply'
 
@@ -26,7 +26,8 @@ async function loadModuleEntities(entry: ModuleEntry) {
       if (fs.existsSync(p)) {
         const sub = path.basename(base)
         const fromApp = base.startsWith(roots.appBase)
-        const importBase = fromApp ? `@/app/modules/${modId}` : `${entry.from || '@open-mercato/core'}/modules/${modId}`
+        const imps = moduleImportBase(entry)
+        const importBase = fromApp ? imps.appBase : imps.pkgBase
         const mod = await import(pathToImport(`${importBase}/${sub}/${f.replace(/\.ts$/, '')}`))
         const entities = Object.values(mod).filter(v => typeof v === 'function')
         if (entities.length) return entities as any[]
@@ -57,8 +58,25 @@ async function run(cmd: Cmd) {
     const modId = entry.id
     const entities = await loadModuleEntities(entry)
     if (!entities.length) continue
-    // Always write migrations into app overlay to avoid mutating core packages
-    const migrationsPath = path.join('src/modules', modId, 'migrations')
+    // Write migrations into the module's package when available; fallback to app overlay for @app modules
+    const from = entry.from || '@open-mercato/core'
+    let pkgModRoot: string
+    if (from === '@open-mercato/core') {
+      pkgModRoot = path.join('packages/core/src/modules', modId)
+    } else if (/^@open-mercato\//.test(from)) {
+      const segs = from.split('/')
+      if (segs.length > 1 && segs[1]) {
+        pkgModRoot = path.join(`packages/${segs[1]}/src/modules`, modId)
+      } else {
+        // fallback for malformed @open-mercato/ value
+        pkgModRoot = path.join('packages/core/src/modules', modId)
+      }
+    } else if (from === '@app') {
+      pkgModRoot = path.join('src/modules', modId)
+    } else {
+      pkgModRoot = path.join('packages/core/src/modules', modId)
+    }
+    const migrationsPath = path.join(pkgModRoot, 'migrations')
     fs.mkdirSync(migrationsPath, { recursive: true })
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,

@@ -66,6 +66,10 @@ export type Module = {
     // Imported function reference; will be registered into event bus
     handler: (payload: any, ctx: any) => Promise<void> | void
   }>
+  // Optional: per-module declared entity extensions and custom fields (static)
+  // These are discovered from data/extensions.ts and data/fields.ts
+  entityExtensions?: import('./entities').EntityExtension[]
+  customFieldSets?: import('./entities').CustomFieldSet[]
 }
 
 function normPath(s: string) {
