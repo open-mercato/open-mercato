@@ -7,13 +7,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 // Extensions and custom fields will be added iteratively.
 
 export class BasicQueryEngine implements QueryEngine {
-  constructor(private em: EntityManager) {}
+  constructor(private em: EntityManager, private getKnexFn?: () => any) {}
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
     // Heuristic: map '<module>:user' -> table 'users'
     const [, name] = entity.split(':')
     const table = name.endsWith('s') ? name : `${name}s`
-    const knex = (this.em as any).getConnection().getKnex()
+    const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
 
     let q = knex(table)
     // Multi-tenant guard when present in schema
@@ -40,27 +40,36 @@ export class BasicQueryEngine implements QueryEngine {
         case 'exists': f.value ? q = q.whereNotNull(col) : q = q.whereNull(col); break
       }
     }
-    // Sorting
-    for (const s of opts.sort || []) {
-      const col = s.field.startsWith('cf:') ? null : s.field
-      if (!col) continue
-      q = q.orderBy(col, s.dir ?? 'asc')
-    }
-    // Selection
+    // Selection (base columns only here; cf:* handled later)
     if (opts.fields && opts.fields.length) {
       const cols = opts.fields.filter((f) => !f.startsWith('cf:'))
       if (cols.length) q = q.select(cols as any)
     }
-    // Custom fields: project requested cf:* keys and apply cf filters
-    const cfKeys = new Set<string>()
-    for (const f of opts.fields || []) if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
-    for (const f of opts.filters || []) if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
+
+    // Resolve which custom fields to include
     const entityId = entity
     const orgId = opts.organizationId
     const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, '_')
-    const knex = (this.em as any).getConnection().getKnex()
     const baseIdExpr = knex.raw('??::text', [`${table}.id`])
+    const cfKeys = new Set<string>()
+    // Explicit in fields/filters
+    for (const f of opts.fields || []) if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
+    for (const f of opts.filters || []) if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
+    // includeCustomFields: boolean | string[]
+    if (opts.includeCustomFields === true) {
+      // Read all defs for this entity and org/global
+      const rows = await knex('custom_field_defs')
+        .select('key')
+        .where({ entity_id: entityId, is_active: true })
+        .modify((qb) => { if (orgId != null) qb.andWhere({ organization_id: orgId }) })
+      for (const r of rows) cfKeys.add(r.key)
+    } else if (Array.isArray(opts.includeCustomFields)) {
+      for (const k of opts.includeCustomFields) cfKeys.add(k)
+    }
+
+    // Custom fields: project requested cf:* keys and apply cf filters
     const cfValueExprByKey: Record<string, any> = {}
+    const cfSelectedAliases: string[] = []
     for (const key of cfKeys) {
       const defAlias = `cfd_${sanitize(key)}`
       const valAlias = `cfv_${sanitize(key)}`
@@ -78,8 +87,7 @@ export class BasicQueryEngine implements QueryEngine {
           .andOn(`${valAlias}.record_id`, '=', baseIdExpr)
         if (orgId != null) this.andOn(`${valAlias}.organization_id`, '=', knex.raw('?', [orgId]))
       })
-      // CASE expression to surface typed value as a single column
-      const valueExpr = knex.raw(
+      const caseExpr = knex.raw(
         `CASE ${defAlias}.kind
            WHEN 'integer' THEN ${valAlias}.value_int
            WHEN 'float' THEN ${valAlias}.value_float
@@ -88,13 +96,16 @@ export class BasicQueryEngine implements QueryEngine {
            ELSE ${valAlias}.value_text
          END`
       )
-      cfValueExprByKey[key] = valueExpr
-      // Select if requested in fields
-      if ((opts.fields || []).some((f) => f === `cf:${key}`)) {
-        q = q.select({ [sanitize(`cf:${key}`)]: valueExpr })
+      cfValueExprByKey[key] = caseExpr
+      const alias = sanitize(`cf:${key}`)
+      // Project as aggregated to avoid duplicates when multi values exist
+      if ((opts.fields || []).includes(`cf:${key}`) || opts.includeCustomFields === true || (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.includes(key))) {
+        q = q.select(knex.raw(`max(${caseExpr.toString()}) as ??`, [alias]))
+        cfSelectedAliases.push(alias)
       }
     }
-    // Apply cf:* filters
+
+    // Apply cf:* filters (on raw expressions)
     for (const f of opts.filters || []) {
       if (!f.field.startsWith('cf:')) continue
       const key = f.field.slice(3)
@@ -114,16 +125,57 @@ export class BasicQueryEngine implements QueryEngine {
         case 'exists': f.value ? q = q.whereNotNull(expr) : q = q.whereNull(expr); break
       }
     }
+
+    // Entity extensions joins (no selection yet; enables future filters/projections)
+    if (opts.includeExtensions) {
+      const allMods = (await import('@/generated/modules.generated')).modules as any[]
+      const allExts = allMods.flatMap((m) => (m as any).entityExtensions || [])
+      const exts = allExts.filter((e: any) => e.base === entity)
+      const chosen = Array.isArray(opts.includeExtensions)
+        ? exts.filter((e: any) => (opts.includeExtensions as string[]).includes(e.extension))
+        : exts
+      for (const e of chosen) {
+        const [, extName] = (e.extension as string).split(':')
+        const extTable = extName.endsWith('s') ? extName : `${extName}s`
+        const alias = `ext_${sanitize(extName)}`
+        q = q.leftJoin({ [alias]: extTable }, function () {
+          this.on(`${alias}.${e.join.extensionKey}`, '=', knex.raw('??', [`${table}.${e.join.baseKey}`]))
+        })
+      }
+    }
+
+    // Sorting: base fields and cf:* (use aggregated alias for cf)
+    for (const s of opts.sort || []) {
+      if (s.field.startsWith('cf:')) {
+        const key = s.field.slice(3)
+        const alias = sanitize(`cf:${key}`)
+        // Ensure included in projection to sort by
+        if (!cfSelectedAliases.includes(alias)) {
+          const expr = cfValueExprByKey[key]
+          if (expr) {
+            q = q.select(knex.raw(`max(${expr.toString()}) as ??`, [alias]))
+            cfSelectedAliases.push(alias)
+          }
+        }
+        q = q.orderBy(alias, s.dir ?? 'asc')
+      } else {
+        q = q.orderBy(s.field, s.dir ?? 'asc')
+      }
+    }
     // Pagination
     const page = opts.page?.page ?? 1
     const pageSize = opts.page?.pageSize ?? 20
-    const [{ count }] = await q.clone().count<{ count: string }[]>({ c: '*' })
+    // Deduplicate if we joined CFs or extensions by grouping on base id
+    if ((opts.includeExtensions && (Array.isArray(opts.includeExtensions) ? (opts.includeExtensions.length > 0) : true)) || Object.keys(cfValueExprByKey).length > 0) {
+      q = q.groupBy(`${table}.id`)
+    }
+    const [{ count }] = await q.clone().countDistinct<{ count: string }[]>(`${table}.id as count`)
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)
     return { items, page, pageSize, total: Number(count) }
   }
 
   private async columnExists(table: string, column: string): Promise<boolean> {
-    const knex = (this.em as any).getConnection().getKnex()
+    const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
     const exists = await knex('information_schema.columns')
       .where({ table_name: table, column_name: column })
       .first()

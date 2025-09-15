@@ -82,6 +82,8 @@ export default async function Home() {
           <span className="text-muted-foreground">·</span>
           <a className="underline" href="/backend/example">Example Admin</a>
           <span className="text-muted-foreground">·</span>
+          <a className="underline" href="/backend/todos">Example Todos with Custom Fields</a>
+          <span className="text-muted-foreground">·</span>
           <a className="underline" href="/blog/123">Example Blog Post</a>
         </div>
       </section>

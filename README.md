@@ -36,7 +36,7 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 4) Database migrations (per‑module)
 
 - Generate: `yarn db:generate`
-- Apply: `yarn db:migrate`
+- Apply: `yarn db:migrate` (also seeds global custom fields)
 
 5) Seed roles and bootstrap an organization + admin user
 
@@ -63,6 +63,7 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 - auth: add-user, seed-roles, add-org, setup
 - events: process, emit, clear, clear-processed
 - example: hello
+- custom_fields: seed-defs (upsert module-declared field definitions; use --global or --org <id>)
 
 ## Architecture Overview
 

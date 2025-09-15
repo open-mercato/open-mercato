@@ -16,8 +16,8 @@ export async function listUsers(container: AppContainer) {
   const query = container.resolve('queryEngine') as import('@open-mercato/shared/lib/query/types').QueryEngine
   return await query.query('auth:user', {
     fields: ['id','email','name','cf:vip'],
-    includeExtensions: true,
-    includeCustomFields: ['vip','industry'], // explicit cf keys currently supported
+    includeExtensions: true, // joins registered extensions
+    includeCustomFields: true, // auto-discovers keys via custom_field_defs
     filters: [
       { field: 'cf:vip', op: 'eq', value: true },
       { field: 'email', op: 'ilike', value: '%@acme.com' },
@@ -42,6 +42,6 @@ export async function listUsers(container: AppContainer) {
 ## Implementation notes
 - Default implementation `BasicQueryEngine` supports base-table filters/sort/paging and now projects cf:* fields and honors filters on them for explicitly requested keys.
 - When we iterate:
-  - Read `modules.generated.ts` to discover `entityExtensions` and plan joins.
-  - Join `custom_field_values` to surface `cf:*` fields and filter by them efficiently (indexes included).
+  - Read `modules.generated.ts` to discover `entityExtensions` and join them.
+  - Join `custom_field_values` to surface `cf:*` fields and filter/sort them efficiently; aggregate when multiple values exist.
   - Provide per-entity adapters if conventions differ from table naming.
