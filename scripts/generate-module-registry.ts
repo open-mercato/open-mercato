@@ -342,8 +342,8 @@ function scan() {
         const segs = rel.split('/')
         const file = segs.pop()!
         const name = file.replace(/\.ts$/, '')
-        const importName = `S${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_')||'index')}`
-        const metaName = `SM${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_')||'index')}`
+        const importName = `Subscriber${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_')||'index')}`
+        const metaName = `SubscriberMeta${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_')||'index')}`
         const appFile = path.join(subApp, ...segs, `${name}.ts`)
         const fromApp = fs.existsSync(appFile)
         const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/subscribers/${[...segs, name].join('/')}`
