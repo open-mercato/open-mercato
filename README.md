@@ -86,7 +86,7 @@ Notes:
 - auth: add-user, seed-roles, add-org, setup
 - events: process, emit, clear, clear-processed
 - example: hello
-- custom_fields: seed-defs (upsert module-declared field definitions; use --global or --org <id>)
+- custom_fields: install (upsert module-declared field definitions; use --global or --org ,<id>), add-field
 
 ## Architecture Overview
 

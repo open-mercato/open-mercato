@@ -21,14 +21,14 @@ function parseArgs(rest: string[]) {
 }
 
 const seedDefs: ModuleCli = {
-  command: 'seed-defs',
+  command: 'install',
   async run(rest) {
     const args = parseArgs(rest)
     const orgIdArg = (args.org as string) || (args.organizationId as string)
     const globalFlag = Boolean(args.global)
     const dry = Boolean(args['dry-run'] || args.dry)
     if (!globalFlag && !orgIdArg) {
-      console.error('Usage: mercato custom_fields seed-defs [--global] [--org <id>] [--dry-run]')
+      console.error('Usage: mercato custom_fields install [--global] [--org <id>] [--dry-run]')
       return
     }
     const targetOrgId = globalFlag ? null : Number(orgIdArg)
@@ -168,5 +168,5 @@ const addField: ModuleCli = {
   },
 }
 
-// Keep default export stable (seed-defs first for help listing)
+// Keep default export stable (install first for help listing)
 export default [seedDefs, addField]

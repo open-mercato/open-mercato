@@ -21,7 +21,7 @@ This example extends the `example` module with a new `Todo` entity, declares cus
    - `npm run db:migrate`
 
 3) Seed field definitions for your organization
-   - `npm run mercato -- custom_fields seed-defs -- --org <orgId>`
+   - `npm run mercato -- custom_fields install -- --org <orgId>`
 
 4) Seed todos and their custom field values (scoped to org; optional tenant)
    - `npm run mercato -- example seed-todos -- --org <orgId> [--tenant <tenantId>]`

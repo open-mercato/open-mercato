@@ -63,7 +63,7 @@ export default [
 - To seed per-organization definitions (or re-seed), run the CLI:
 
 ```
-yarn mercato custom_fields seed-defs --org 1
+yarn mercato custom_fields install --org 1
 ```
 
 Why not migrations? Migrations are module-scoped, run in isolation, and should alter schema deterministically. Field sets aggregate across all enabled modules at the app level and may target specific organizations; executing them in each module’s migration would cause duplication, ordering problems, and environment coupling. Use the CLI to seed or re-seed idempotently whenever modules change.
