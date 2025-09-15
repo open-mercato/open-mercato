@@ -1,19 +1,9 @@
 import type { EventStrategy } from '../types'
-
+import { Redis  } from 'ioredis'
 type RedisClient = any
 
 export function createRedisStrategy(url = process.env.REDIS_URL || process.env.EVENTS_REDIS_URL, deliver?: (event: string, payload: any) => Promise<void>): EventStrategy {
   if (!url) throw new Error('REDIS_URL or EVENTS_REDIS_URL must be set for redis events strategy')
-  let Redis: any
-  try {
-    Redis = require('ioredis')
-  } catch (e1) {
-    try {
-      Redis = require('redis')
-    } catch (e2) {
-      throw new Error('Install "ioredis" or "redis" to use redis strategy')
-    }
-  }
   const client: RedisClient = Redis.createClient ? Redis.createClient({ url }) : new Redis(url)
   const ready = (async () => { if (client.connect) await client.connect() })()
 
