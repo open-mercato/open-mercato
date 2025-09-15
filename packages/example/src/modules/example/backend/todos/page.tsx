@@ -17,16 +17,6 @@ type TodoRow = {
   cf_blocked?: boolean | null
 }
 
-const columns: ColumnDef<TodoRow>[] = [
-  { accessorKey: 'id', header: 'ID' },
-  { accessorKey: 'title', header: 'Title' },
-  { accessorKey: 'tenant_id', header: 'Tenant' },
-  { accessorKey: 'organization_id', header: 'Org' },
-  { accessorKey: 'is_done', header: 'Done' },
-  { accessorKey: 'cf_priority', header: 'Priority' },
-  { accessorKey: 'cf_severity', header: 'Severity' },
-  { accessorKey: 'cf_blocked', header: 'Blocked' },
-]
 
 export default async function ExampleTodosPage() {
   const container = await createRequestContainer()
