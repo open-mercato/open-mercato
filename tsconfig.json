@@ -28,6 +28,7 @@
       "@mercato-core/*": ["./packages/core/src/*"],
       "@mercato-example/*": ["./packages/example/src/*"],
       "@mercato-cli/*": ["./packages/cli/src/*"],
+      "@mercato-events/*": ["./packages/events/src/*"],
       "@mercato-shared/*": ["./packages/shared/src/*"],
       "@mercato-ui": ["./packages/ui/src/index.ts"],
       "@mercato-ui/*": ["./packages/ui/src/*"],
