@@ -3,6 +3,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { CustomFieldDef } from '@open-mercato/core/modules/custom_fields/data/entities'
 import { setRecordCustomFields } from '@open-mercato/core/modules/custom_fields/lib/helpers'
+import { E } from '@/generated/entities.ids.generated'
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}
@@ -39,7 +40,7 @@ const seedTodos: ModuleCli = {
     const em = resolve('em') as any
 
     // Ensure custom field definitions exist for example:todo
-    const entityId = 'example:todo'
+    const entityId = E.example.todo
     const defs = [
       { key: 'priority', kind: 'integer', configJson: { label: 'Priority', description: '1 (low) to 5 (high)', defaultValue: 3, filterable: true } },
       { key: 'severity', kind: 'select', configJson: { label: 'Severity', options: ['low', 'medium', 'high'], defaultValue: 'medium', filterable: true } },

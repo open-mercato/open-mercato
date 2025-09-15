@@ -16,10 +16,11 @@ export class BasicQueryEngine implements QueryEngine {
     const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
 
     let q = knex(table)
+    const qualify = (col: string) => `${table}.${col}`
     // Multi-tenant guard when present in schema
     if (opts.organizationId) {
       if (await this.columnExists(table, 'organization_id')) {
-        q = q.where('organization_id', opts.organizationId)
+        q = q.where(qualify('organization_id'), opts.organizationId)
       }
     }
     // Filters (base fields handled here; cf:* handled later)
@@ -27,23 +28,30 @@ export class BasicQueryEngine implements QueryEngine {
       const col = f.field.startsWith('cf:') ? null : f.field
       if (!col) continue
       switch (f.op) {
-        case 'eq': q = q.where(col, f.value); break
-        case 'ne': q = q.whereNot(col, f.value); break
-        case 'gt': q = q.where(col, '>', f.value); break
-        case 'gte': q = q.where(col, '>=', f.value); break
-        case 'lt': q = q.where(col, '<', f.value); break
-        case 'lte': q = q.where(col, '<=', f.value); break
-        case 'in': q = q.whereIn(col, f.value ?? []); break
-        case 'nin': q = q.whereNotIn(col, f.value ?? []); break
-        case 'like': q = q.where(col, 'like', f.value); break
-        case 'ilike': q = q.where(col, 'ilike', f.value); break
-        case 'exists': f.value ? q = q.whereNotNull(col) : q = q.whereNull(col); break
+        case 'eq': q = q.where(qualify(col), f.value); break
+        case 'ne': q = q.whereNot(qualify(col), f.value); break
+        case 'gt': q = q.where(qualify(col), '>', f.value); break
+        case 'gte': q = q.where(qualify(col), '>=', f.value); break
+        case 'lt': q = q.where(qualify(col), '<', f.value); break
+        case 'lte': q = q.where(qualify(col), '<=', f.value); break
+        case 'in': q = q.whereIn(qualify(col), f.value ?? []); break
+        case 'nin': q = q.whereNotIn(qualify(col), f.value ?? []); break
+        case 'like': q = q.where(qualify(col), 'like', f.value); break
+        case 'ilike': q = q.where(qualify(col), 'ilike', f.value); break
+        case 'exists': f.value ? q = q.whereNotNull(qualify(col)) : q = q.whereNull(qualify(col)); break
       }
     }
     // Selection (base columns only here; cf:* handled later)
     if (opts.fields && opts.fields.length) {
       const cols = opts.fields.filter((f) => !f.startsWith('cf:'))
-      if (cols.length) q = q.select(cols as any)
+      if (cols.length) {
+        // Qualify and alias to base names to avoid ambiguity
+        const baseSelects = cols.map((c) => knex.raw('?? as ??', [qualify(c), c]))
+        q = q.select(baseSelects)
+      }
+    } else {
+      // Default to selecting only base table columns to avoid ambiguity when joining
+      q = q.select(knex.raw('??.*', [table]))
     }
 
     // Resolve which custom fields to include
@@ -87,13 +95,14 @@ export class BasicQueryEngine implements QueryEngine {
           .andOn(`${valAlias}.record_id`, '=', baseIdExpr)
         if (orgId != null) this.andOn(`${valAlias}.organization_id`, '=', knex.raw('?', [orgId]))
       })
+      // Force a common SQL type across branches to avoid Postgres CASE type conflicts
       const caseExpr = knex.raw(
         `CASE ${defAlias}.kind
-           WHEN 'integer' THEN ${valAlias}.value_int
-           WHEN 'float' THEN ${valAlias}.value_float
-           WHEN 'boolean' THEN ${valAlias}.value_bool
-           WHEN 'multiline' THEN ${valAlias}.value_multiline
-           ELSE ${valAlias}.value_text
+           WHEN 'integer' THEN (${valAlias}.value_int)::text
+           WHEN 'float' THEN (${valAlias}.value_float)::text
+           WHEN 'boolean' THEN (${valAlias}.value_bool)::text
+           WHEN 'multiline' THEN (${valAlias}.value_multiline)::text
+           ELSE (${valAlias}.value_text)::text
          END`
       )
       cfValueExprByKey[key] = caseExpr
@@ -159,7 +168,7 @@ export class BasicQueryEngine implements QueryEngine {
         }
         q = q.orderBy(alias, s.dir ?? 'asc')
       } else {
-        q = q.orderBy(s.field, s.dir ?? 'asc')
+        q = q.orderBy(qualify(s.field), s.dir ?? 'asc')
       }
     }
     // Pagination
@@ -169,9 +178,16 @@ export class BasicQueryEngine implements QueryEngine {
     if ((opts.includeExtensions && (Array.isArray(opts.includeExtensions) ? (opts.includeExtensions.length > 0) : true)) || Object.keys(cfValueExprByKey).length > 0) {
       q = q.groupBy(`${table}.id`)
     }
-    const [{ count }] = await q.clone().countDistinct<{ count: string }[]>(`${table}.id as count`)
+    const countRow = await q
+      .clone()
+      .clearSelect()
+      .clearOrder()
+      .clearGroup()
+      .countDistinct<{ count: string }>(`${table}.id as count`)
+      .first()
+    const total = Number((countRow as any)?.count ?? 0)
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)
-    return { items, page, pageSize, total: Number(count) }
+    return { items, page, pageSize, total }
   }
 
   private async columnExists(table: string, column: string): Promise<boolean> {

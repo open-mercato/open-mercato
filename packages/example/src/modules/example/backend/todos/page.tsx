@@ -4,6 +4,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { getAuthFromCookies } from '@/lib/auth/server'
 import type { ColumnDef } from '@tanstack/react-table'
 import TodosTable from './TodosTable'
+import { E } from '@/generated/entities.ids.generated'
 
 type TodoRow = {
   id: number
@@ -33,7 +34,7 @@ export default async function ExampleTodosPage() {
   const auth = await getAuthFromCookies()
   const orgId = auth?.orgId ? Number(auth.orgId) : undefined
   // Pull base columns and CF columns (aliased as cf:*) using the query engine
-  const res = await queryEngine.query('example:todo', {
+  const res = await queryEngine.query(E.example.todo, {
     organizationId: orgId,
     fields: ['id', 'title', 'tenant_id', 'organization_id', 'is_done', 'cf:priority', 'cf:severity', 'cf:blocked'],
     sort: [{ field: 'id', dir: 'asc' }],
@@ -60,4 +61,3 @@ export default async function ExampleTodosPage() {
     </Page>
   )
 }
-
