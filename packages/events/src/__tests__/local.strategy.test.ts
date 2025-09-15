@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { createEventBus } from '@mercato-events/index'
+import { createEventBus } from '@open-mercato/events/index'
 
 function readJson(p: string) { return JSON.parse(fs.readFileSync(p, 'utf8')) }
 

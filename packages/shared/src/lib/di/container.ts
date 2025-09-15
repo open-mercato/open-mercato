@@ -1,5 +1,5 @@
 import { createContainer, asValue, AwilixContainer, InjectionMode } from 'awilix'
-import { getOrm } from '@mercato-shared/lib/db/mikro'
+import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { diRegistrars } from '@/generated/di.generated'
 

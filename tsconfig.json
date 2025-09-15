@@ -25,13 +25,13 @@
       "@/*": ["./src/*"],
       "@/lib/*": ["./packages/shared/src/lib/*"],
       "@/types/*": ["./packages/shared/src/types/*"],
-      "@mercato-core/*": ["./packages/core/src/*"],
-      "@mercato-example/*": ["./packages/example/src/*"],
-      "@mercato-cli/*": ["./packages/cli/src/*"],
-      "@mercato-events/*": ["./packages/events/src/*"],
-      "@mercato-shared/*": ["./packages/shared/src/*"],
-      "@mercato-ui": ["./packages/ui/src/index.ts"],
-      "@mercato-ui/*": ["./packages/ui/src/*"],
+      "@open-mercato/core/*": ["./packages/core/src/*"],
+      "@open-mercato/example/*": ["./packages/example/src/*"],
+      "@open-mercato/cli/*": ["./packages/cli/src/*"],
+      "@open-mercato/events/*": ["./packages/events/src/*"],
+      "@open-mercato/shared/*": ["./packages/shared/src/*"],
+      "@open-mercato/ui": ["./packages/ui/src/index.ts"],
+      "@open-mercato/ui/*": ["./packages/ui/src/*"],
       "@/modules/registry": ["./packages/shared/src/modules/registry.ts"]
       ,"@/generated/*": ["./generated/*"]
     }

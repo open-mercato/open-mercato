@@ -18,7 +18,7 @@ This guide shows how to write and run unit tests for Open Mercato using Jest + t
 - `@/generated/*` → `generated/*`
 - `@/lib/*` → `packages/shared/src/lib/*`
 - `@/types/*` → `packages/shared/src/types/*`
-- `@mercato-core/*`, `@mercato-example/*`, `@mercato-cli/*`, `@mercato-shared/*`
+- `@open-mercato/core/*`, `@open-mercato/example/*`, `@open-mercato/cli/*`, `@open-mercato/shared/*`
 - Fallback: `@/*` → `src/*`
 
 See `jest.config.cjs: moduleNameMapper` for the full mapping.
@@ -31,7 +31,7 @@ Keep service tests fast by stubbing the EM (or other gateways) with minimal meth
 
 ```ts
 // packages/core/src/modules/auth/services/__tests__/authService.test.ts
-import { AuthService } from '@mercato-core/modules/auth/services/authService'
+import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 
 describe('AuthService', () => {
   it('hashes password on create', async () => {
@@ -54,7 +54,7 @@ Import handlers and call them directly. Mock the DI container so handlers get fa
 
 ```ts
 // packages/core/src/modules/auth/api/__tests__/login.test.ts
-import { POST } from '@mercato-core/modules/auth/api/login'
+import { POST } from '@open-mercato/core/modules/auth/api/login'
 
 jest.mock('@/lib/di/container', () => ({
   createRequestContainer: async () => ({
@@ -92,7 +92,7 @@ Tips:
 Plain utilities are simple to test:
 
 ```ts
-import { someUtil } from '@mercato-shared/lib/utils'
+import { someUtil } from '@open-mercato/shared/lib/utils'
 
 test('someUtil', () => {
   expect(someUtil('x')).toBe('X')

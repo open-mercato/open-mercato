@@ -1,8 +1,8 @@
 import { Button } from '@/components/ui/button'
 import { getEm } from '@/lib/db/mikro'
 import { modules } from '@/generated/modules.generated'
-import { User } from '@mercato-core/modules/auth/data/entities'
-import { Tenant, Organization } from '@mercato-core/modules/directory/data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 function FeatureBadge({ label }: { label: string }) {
   return (

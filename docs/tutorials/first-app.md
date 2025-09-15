@@ -39,7 +39,7 @@ This tutorial walks you through:
 ```
 packages/my-module/package.json
 {
-  "name": "@mercato-my-module",
+  "name": "@open-mercato/my-module",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -67,22 +67,22 @@ packages/my-module/src/modules/my_module/
 
 Example `index.ts`:
 ```
-import type { ModuleInfo } from '@mercato-shared/modules/registry'
+import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 export const metadata: ModuleInfo = { id: 'my_module', title: 'My Module', version: '0.1.0' } as any
 ```
 
 3. Add a TS alias so imports resolve:
 
-- In `tsconfig.json` paths add: "@mercato-my-module/*": ["./packages/my-module/src/*"]
+- In `tsconfig.json` paths add: "@open-mercato/my-module/*": ["./packages/my-module/src/*"]
 
 4. Enable the module in `src/modules.ts`:
 
 ```
 export const enabledModules = [
-  { id: 'auth', from: '@mercato-core' },
-  { id: 'directory', from: '@mercato-core' },
-  { id: 'example', from: '@mercato-example' },
-  { id: 'my_module', from: '@mercato-my-module' },
+  { id: 'auth', from: '@open-mercato/core' },
+  { id: 'directory', from: '@open-mercato/core' },
+  { id: 'example', from: '@open-mercato/example' },
+  { id: 'my_module', from: '@open-mercato/my-module' },
 ]
 ```
 
@@ -100,7 +100,7 @@ To customize login without touching core, create the override file in the app ov
 src/modules/auth/frontend/login.tsx
 ```
 
-This file overrides the package page `@mercato-core/modules/auth/frontend/login.tsx`.
+This file overrides the package page `@open-mercato/core/modules/auth/frontend/login.tsx`.
 Delete it to fall back to the package implementation.
 
 ## 8) Override Services (DI)

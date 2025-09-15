@@ -25,31 +25,38 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
   - `JWT_SECRET=some-strong-secret`
 
 2) Install dependencies
+
 - `yarn install`
 
 3) Prepare modules (registry, entities, DI)
+
 - `yarn modules:prepare`
 
 4) Database migrations (per‑module)
+
 - Generate: `yarn db:generate`
 - Apply: `yarn db:migrate`
 
 5) Seed roles and bootstrap an organization + admin user
+
 - Seed default roles: `yarn mercato auth seed-roles`
 - Setup tenant/org/admin:
   - `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles owner,admin`
 
 6) Run the app
+
 - `yarn dev`
 - Open http://localhost:3000
 
 ## Documentation
+
 - <a href="./docs/tutorials/first-app.md">Quickstart tutorial</a>
 - <a href="./docs/tutorials/testing.md">Writing unit tests</a>
 - <a href="./docs/modules.md">Modules authoring and usage</a>
 - <a href="./docs/events-and-subscribers.md">Events & subscribers</a>
 
-**CLI**
+### CLI
+
 - auth: add-user, seed-roles, add-org, setup
 - events: process, emit, clear, clear-processed
 - example: hello

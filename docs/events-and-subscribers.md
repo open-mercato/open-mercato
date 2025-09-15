@@ -8,7 +8,7 @@ This adds a Medusa-style event/subscriber system with module auto-discovery, DI 
   - `export const metadata = { event: string, persistent?: boolean, id?: string }`
   - `export default async function(payload, ctx) { /* ... */ }`
     - `ctx.resolve(name)` resolves services from Awilix per-request container.
-- Subscribers discovered at build via `modules:prepare` and registered into a global Event Bus via the core bootstrap (`@mercato-core/bootstrap`), which your app calls from `src/di.ts`.
+- Subscribers discovered at build via `modules:prepare` and registered into a global Event Bus via the core bootstrap (`@open-mercato/core/bootstrap`), which your app calls from `src/di.ts`.
 - Emit events programmatically via `eventBus.emitEvent(event, payload, { persistent? })`.
 - Two strategies:
   - Local: online delivery + optional persistence to `.events/queue.json` with state in `.events/state.json`.

@@ -1,4 +1,4 @@
-import { AuthService } from '@mercato-core/modules/auth/services/authService'
+import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 
 function makeEm() {
   const calls: any[] = []

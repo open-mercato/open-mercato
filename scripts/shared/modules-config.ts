@@ -1,7 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 
-export type ModuleEntry = { id: string; from?: '@mercato-core' | '@app' | string }
+export type ModuleEntry = { id: string; from?: '@open-mercato/core' | '@app' | string }
 
 export function loadEnabledModules(): ModuleEntry[] {
   const cfgPath = path.resolve('src/modules.ts')
@@ -21,9 +21,9 @@ export function loadEnabledModules(): ModuleEntry[] {
 }
 
 function pkgDirFor(from?: string) {
-  if (!from || from === '@mercato-core') return path.resolve('packages/core/src/modules')
-  // Support other local packages like '@mercato-example' => packages/example/src/modules
-  const m = from.match(/^@mercato-(.+)$/)
+  if (!from || from === '@open-mercato/core') return path.resolve('packages/core/src/modules')
+  // Support other local packages like '@open-mercato/example' => packages/example/src/modules
+  const m = from.match(/^@open-mercato\/(.+)$/)
   if (m) return path.resolve(`packages/${m[1]}/src/modules`)
   // Fallback to core modules path
   return path.resolve('packages/core/src/modules')
@@ -38,6 +38,6 @@ export function moduleFsRoots(entry: ModuleEntry) {
 
 export function moduleImportBase(entry: ModuleEntry) {
   // Prefer @app overrides at import-time; fall back to provided package alias
-  const from = entry.from || '@mercato-core'
+  const from = entry.from || '@open-mercato/core'
   return { appBase: `@/modules/${entry.id}`, pkgBase: `${from}/modules/${entry.id}` }
 }

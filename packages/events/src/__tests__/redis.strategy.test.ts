@@ -4,7 +4,7 @@ jest.mock('ioredis', () => ({
   createClient: () => new (class { async connect(){} async incr(){ return 1 } async zAdd(){ return 1 } async zRangeByScore(){ return [] } async set(){} async get(){ return '0' } async zRemRangeByScore(){ return 0 } })(),
 }), { virtual: true })
 
-import { createEventBus } from '@mercato-events/index'
+import { createEventBus } from '@open-mercato/events/index'
 
 describe('Event bus - redis strategy (mocked)', () => {
   const prevEnv = { ...process.env }

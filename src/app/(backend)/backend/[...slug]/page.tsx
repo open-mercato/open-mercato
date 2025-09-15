@@ -1,5 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
-import { findBackendMatch } from '@mercato-shared/modules/registry'
+import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromCookies } from '@/lib/auth/server'
 

@@ -1,8 +1,8 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import { hash } from 'bcryptjs'
-import { User, Role, UserRole } from '@mercato-core/modules/auth/data/entities'
-import { Tenant, Organization } from '@mercato-core/modules/directory/data/entities'
+import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 const addUser: ModuleCli = {
   command: 'add-user',

@@ -1,7 +1,7 @@
-import { confirmPasswordResetSchema } from '@mercato-core/modules/auth/data/validators'
+import { confirmPasswordResetSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { AuthService } from '@mercato-core/modules/auth/services/authService'
+import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 
 // validation via confirmPasswordResetSchema
 

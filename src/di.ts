@@ -1,5 +1,5 @@
 import type { AppContainer } from '@/lib/di/container'
-import { bootstrap } from '@mercato-core/bootstrap'
+import { bootstrap } from '@open-mercato/core/bootstrap'
 
 // App-level DI overrides/registrations.
 // This runs after core defaults and module DI registrars.
