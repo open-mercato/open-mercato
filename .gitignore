@@ -45,3 +45,4 @@ next-env.d.ts
 # Generated module files
 /src/generated/
 /generated/
+packages/*/generated/

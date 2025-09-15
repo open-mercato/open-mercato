@@ -1,5 +1,5 @@
 import { defineFields, cf } from '@/modules/dsl'
-import { E } from '@/generated/entities.ids.generated'
+import { E } from '@open-mercato/example/generated/entities.ids.generated'
 import type { CustomFieldSet } from '@/modules/entities'
 
 // Custom fields for the example Todo entity (entityId: 'example:todo')
