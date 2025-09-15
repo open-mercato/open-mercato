@@ -178,14 +178,18 @@ export class BasicQueryEngine implements QueryEngine {
     if ((opts.includeExtensions && (Array.isArray(opts.includeExtensions) ? (opts.includeExtensions.length > 0) : true)) || Object.keys(cfValueExprByKey).length > 0) {
       q = q.groupBy(`${table}.id`)
     }
-    const countRow = await q
-      .clone()
-      .clearSelect()
-      .clearOrder()
-      .clearGroup()
-      .countDistinct<{ count: string }>(`${table}.id as count`)
-      .first()
-    const total = Number((countRow as any)?.count ?? 0)
+    const countClone: any = q.clone()
+    if (typeof countClone.clearSelect === 'function') countClone.clearSelect()
+    if (typeof countClone.clearOrder === 'function') countClone.clearOrder()
+    if (typeof countClone.clearGroup === 'function') countClone.clearGroup()
+    let total = 0
+    if (typeof countClone.countDistinct === 'function') {
+      const res = await countClone.countDistinct<{ count: string }>(`${table}.id as count`)
+      const row = Array.isArray(res)
+        ? res[0]
+        : (typeof res?.first === 'function' ? await res.first() : res)
+      total = Number((row as any)?.count ?? 0)
+    }
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)
     return { items, page, pageSize, total }
   }
