@@ -61,10 +61,21 @@ async function run(cmd: Cmd) {
     // Write migrations into the module's package when available; fallback to app overlay for @app modules
     const from = entry.from || '@open-mercato/core'
     let pkgModRoot: string
-    if (from === '@open-mercato/core') pkgModRoot = path.join('packages/core/src/modules', modId)
-    else if (/^@open-mercato\//.test(from)) pkgModRoot = path.join(`packages/${from.split('/')[1]}/src/modules`, modId)
-    else if (from === '@app') pkgModRoot = path.join('src/modules', modId)
-    else pkgModRoot = path.join('packages/core/src/modules', modId)
+    if (from === '@open-mercato/core') {
+      pkgModRoot = path.join('packages/core/src/modules', modId)
+    } else if (/^@open-mercato\//.test(from)) {
+      const segs = from.split('/')
+      if (segs.length > 1 && segs[1]) {
+        pkgModRoot = path.join(`packages/${segs[1]}/src/modules`, modId)
+      } else {
+        // fallback for malformed @open-mercato/ value
+        pkgModRoot = path.join('packages/core/src/modules', modId)
+      }
+    } else if (from === '@app') {
+      pkgModRoot = path.join('src/modules', modId)
+    } else {
+      pkgModRoot = path.join('packages/core/src/modules', modId)
+    }
     const migrationsPath = path.join(pkgModRoot, 'migrations')
     fs.mkdirSync(migrationsPath, { recursive: true })
     const orm = await MikroORM.init<PostgreSqlDriver>({
