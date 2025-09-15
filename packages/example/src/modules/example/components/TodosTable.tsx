@@ -35,18 +35,16 @@ export default function TodosTable({ rows }: { rows: TodoRow[] }) {
   const [tenantId, setTenantId] = React.useState<string>('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'id', desc: false }])
 
+  // Helper function to filter boolean values
+  const filterBoolean = (filterValue: boolean | undefined, actualValue: boolean | undefined | null) =>
+    filterValue == null || filterValue === actualValue;
+
   const filtered = React.useMemo(() => {
     return rows.filter((r) => {
       if (title && !r.title.toLowerCase().includes(title.toLowerCase())) return false
       if (severity && (r.cf_severity || '') !== severity) return false
-      if (done !== undefined && done !== null) {
-        if (done === true && r.is_done !== true) return false
-        if (done === false && r.is_done === true) return false
-      }
-      if (blocked !== undefined && blocked !== null) {
-        if (blocked === true && r.cf_blocked !== true) return false
-        if (blocked === false && r.cf_blocked === true) return false
-      }
+      if (!filterBoolean(done, r.is_done)) return false
+      if (!filterBoolean(blocked, r.cf_blocked)) return false
       if (orgId) {
         const v = r.organization_id == null ? '' : String(r.organization_id)
         if (v !== orgId) return false
