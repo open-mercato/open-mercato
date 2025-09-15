@@ -11,6 +11,7 @@ module.exports = {
     '^@mercato-core/(.*)$': '<rootDir>/packages/core/src/$1',
     '^@mercato-example/(.*)$': '<rootDir>/packages/example/src/$1',
     '^@mercato-cli/(.*)$': '<rootDir>/packages/cli/src/$1',
+    '^@mercato-events/(.*)$': '<rootDir>/packages/events/src/$1',
     '^@mercato-shared/(.*)$': '<rootDir>/packages/shared/src/$1',
     '^@/(.*)$': '<rootDir>/src/$1',
   },

@@ -86,6 +86,35 @@ npm run mercato events clear
 npm run mercato events clear-processed
 ```
 
+## Emit via CLI
+
+Quickly emit an event from the terminal (useful for testing subscribers or seeding flows):
+
+```
+npm run mercato events emit <event> [jsonPayload] [--persistent|-p]
+```
+
+Examples:
+
+```
+# Simple event without payload (non-persistent)
+npm run mercato events emit example.event
+
+# Emit with JSON payload (remember to quote it)
+npm run mercato events emit order.created '{"id":123,"total":42.5}'
+
+# Emit a persistent event so it is recorded and can be replayed
+npm run mercato events emit order.created '{"id":124}' --persistent
+
+# Shorthand for persistent flag
+npm run mercato events emit order.created '{"id":125}' -p
+```
+
+Notes:
+- Payload is parsed as JSON when possible; otherwise treated as a string.
+- Persistent events are delivered online and also stored (local/Redis) for offline processing.
+- The CLI uses the DI container, so subscribers can resolve services via `ctx.resolve`.
+
 ## Notes
 
 - Subscribers are executed online on `emitEvent`, and also available for offline replay when persistent.
