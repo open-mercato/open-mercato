@@ -82,3 +82,4 @@ export default function TodosTable({ rows }: { rows: TodoRow[] }) {
 
   return <DataTable columns={columns} data={filtered} toolbar={toolbar} sortable sorting={sorting} onSortingChange={setSorting} />
 }
+

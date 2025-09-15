@@ -7,6 +7,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - JS/TS fields and identifiers: camelCase.
 - Database tables and columns: snake_case; table names plural.
 - Keep code minimal and focused; avoid side effects across modules.
+- Avoid adding code in the `src/` - try to put it in a proper package in the `packages` folder - `src` is a boilerplate for users app
 
 ## Extensibility Contract
 - Auto-discovery:

@@ -49,6 +49,29 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 - `yarn dev`
 - Open http://localhost:3000
 
+## Example: Todos with Custom Fields
+
+The example module ships a simple Todos demo that showcases custom fields and the unified query layer.
+
+Steps:
+
+1) Ensure migrations are applied and global custom fields are seeded
+- `yarn db:migrate` (runs migrations and seeds global custom fields)
+
+2) Create an organization and admin user
+- `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles owner,admin`
+- Note the printed `organizationId` (use it below)
+
+3) Seed example Todos (entity + per‑org custom field definitions + sample data)
+- `yarn mercato example seed-todos --org <organizationId>`
+- Optional tenant scoping: `--tenant <tenantId>`
+
+4) Open the Todos page
+- Visit `/backend/example/todos` to filter/sort on base fields and custom fields (e.g., priority, severity, blocked).
+
+Notes:
+- The Todos page uses `queryEngine` to select and sort `cf:*` fields. Custom field definitions must exist for the current organization; the seeding command ensures they do.
+
 ## Documentation
 
 - <a href="./docs/tutorials/first-app.md">Quickstart tutorial</a>

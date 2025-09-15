@@ -73,7 +73,7 @@ export function register(container: AppContainer) {
 - To extend another module's entity, prefer a separate extension entity in your module and declare the link in `data/extensions.ts` (see Data Extensibility doc). Avoid mutating core entities to stay upgrade-safe.
 - If absolutely necessary to override entire entities, add `src/modules/<module>/data/entities.override.ts`.
 - Generate combined module registry and entities: `npm run modules:prepare`.
-- Generate migrations for enabled modules: `npm run db:generate` → writes to `src/modules/<module>/migrations`.
+- Generate migrations for enabled modules: `npm run db:generate` → writes into each module's package: `packages/<pkg>/src/modules/<module>/migrations` (falls back to `src/modules/<module>/migrations` only for app-local modules).
 - Apply migrations for enabled modules: `npm run db:migrate`.
 
 See also:
