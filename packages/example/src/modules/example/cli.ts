@@ -3,7 +3,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { CustomFieldDef } from '@open-mercato/core/modules/custom_fields/data/entities'
 import { setRecordCustomFields } from '@open-mercato/core/modules/custom_fields/lib/helpers'
-import { E } from '@open-mercato/example/generated/entities.ids.generated'
+import { E } from '@open-mercato/example/datamodel/entities'
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}

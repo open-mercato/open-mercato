@@ -4,12 +4,7 @@
   "private": true,
   "main": "src/index.ts",
   "type": "module",
-  "peerDependencies": {
-    "ioredis": "^5.4.1",
-    "redis": "^4.6.12"
-  },
-  "peerDependenciesMeta": {
-    "ioredis": { "optional": true },
-    "redis": { "optional": true }
+  "dependencies": {
+    "ioredis": "^5.4.1"
   }
 }

@@ -3,8 +3,8 @@ import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { getAuthFromCookies } from '@/lib/auth/server'
 import type { ColumnDef } from '@tanstack/react-table'
-import TodosTable from './TodosTable'
-import { E } from '@open-mercato/example/generated/entities.ids.generated'
+import TodosTable from '../../components/TodosTable'
+import { E } from '@open-mercato/example/datamodel/entities'
 
 type TodoRow = {
   id: number
