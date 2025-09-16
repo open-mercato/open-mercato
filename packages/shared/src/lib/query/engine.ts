@@ -183,9 +183,9 @@ export class BasicQueryEngine implements QueryEngine {
     if (typeof countClone.clearSelect === 'function') countClone.clearSelect()
     if (typeof countClone.clearOrder === 'function') countClone.clearOrder()
     if (typeof countClone.clearGroup === 'function') countClone.clearGroup()
-    const countRow = await (countClone
+    const countRow = await countClone
       .countDistinct<{ count: string }>(`${table}.id as count`)
-      .first())
+      .first()
     const total = Number((countRow as any)?.count ?? 0)
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)
     return { items, page, pageSize, total }

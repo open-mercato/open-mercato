@@ -14,7 +14,7 @@ function createFakeKnex() {
   }
   function raw(sql: string, params?: any[]) { return { toString: () => sql, sql, params } }
   function builderFor(table: string) {
-    const ops = { table, wheres: [] as any[], joins: [] as any[], selects: [] as any[], orderBys: [] as any[], groups: [] as any[], limits: 0, offsets: 0 }
+    const ops = { table, wheres: [] as any[], joins: [] as any[], selects: [] as any[], orderBys: [] as any[], groups: [] as any[], limits: 0, offsets: 0, isCountDistinct: false }
     const b: any = {
       _ops: ops,
       select: function (...cols: any[]) { ops.selects.push(cols); return this },
@@ -38,9 +38,16 @@ function createFakeKnex() {
       limit: function (n: number) { ops.limits = n; return this },
       offset: function (n: number) { ops.offsets = n; return this },
       clone: function () { return this },
-      countDistinct: async function () { return [{ count: '0' }] },
+      countDistinct: function () { ops.isCountDistinct = true; return this },
       count: async function () { return [{ count: '0' }] },
-      first: async function () { const rows = data[table] || []; return rows[0] },
+      first: async function () { 
+        // If this is called after countDistinct, return count data
+        if (ops.isCountDistinct) {
+          return { count: '0' }
+        }
+        const rows = data[table] || []; 
+        return rows[0] 
+      },
       modify: function (fn: Function) { fn({ andWhere: (obj: any) => ops.wheres.push(['andWhere', obj]) }); return this },
       then: function (resolve: any) { const res = data[table] || []; return Promise.resolve(resolve(res)) },
     }
