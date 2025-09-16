@@ -57,6 +57,30 @@ export function register(container: AppContainer) {
   - Frontend: `src/app/(frontend)/[[...slug]]/page.tsx`
   - Backend: `src/app/(backend)/backend/[[...slug]]/page.tsx`
 
+#### Page Metadata
+- You can attach per-page metadata that the generator uses for navigation and access control.
+- Preferred files next to the page:
+  - `page.meta.ts` (for Next-style `page.tsx`)
+  - `<name>.meta.ts` (for direct files)
+  - `meta.ts` (folder-level, applies to the page in the same folder)
+ - Alternatively, for server components, export metadata directly from the page module (typed for IDE autocomplete):
+   ```ts
+   import type { PageMetadata } from '@open-mercato/shared/modules/registry'
+   export const metadata: PageMetadata = { /* ... */ }
+   ```
+- Recognized fields (used where applicable):
+  - `requireAuth: boolean`
+  - `requireRoles: readonly string[]`
+  - `title` or `pageTitle: string`
+  - `group` or `pageGroup: string`
+  - `order` or `pageOrder: number`
+  - `icon: string` (backend Next-style pages)
+  - `navHidden: boolean` (hide from admin nav)
+  - `visible?: (ctx) => boolean|Promise<boolean>`
+  - `enabled?: (ctx) => boolean|Promise<boolean>`
+
+Precedence: if a `*.meta.ts` file is present it is used; otherwise, the generator will look for `export const metadata` in the page module (server-only).
+
 #### Override Example
 - Package page: `@open-mercato/example/modules/example/frontend/blog/[id]/page.tsx`
 - App override: `src/modules/example/frontend/blog/[id]/page.tsx`
@@ -75,6 +99,7 @@ export function register(container: AppContainer) {
 - Generate combined module registry and entities: `npm run modules:prepare`.
 - Generate migrations for enabled modules: `npm run db:generate` → writes into each module's package: `packages/<pkg>/src/modules/<module>/migrations` (falls back to `src/modules/<module>/migrations` only for app-local modules).
 - Apply migrations for enabled modules: `npm run db:migrate`.
+- Clean up migrations and snapshots for fresh start: `npm run db:greenfield` → removes all existing migration files and snapshots from all modules.
 
 See also:
 - Data extensibility (extensions + custom fields): `docs/data-extensibility.md`
@@ -124,6 +149,19 @@ export default async function Page() {
   return <h1>{t('backend.title')}</h1>
 }
 ```
+
+## Module Isomorphism
+Modules must be **isomorphic** (self-contained) to ensure proper isolation and migration generation:
+
+- **No cross-module database references**: Modules cannot import entities from other modules or use `@ManyToOne`/`@OneToMany` relationships across module boundaries.
+- **Use foreign key fields instead**: Instead of direct entity relationships, use simple `@Property` fields for foreign keys (e.g., `tenantId`, `organizationId`).
+- **Independent migrations**: Each module generates its own migrations containing only its own tables and constraints.
+- **Runtime relationships**: Handle cross-module relationships at the application layer, not the database schema level.
+
+This ensures that:
+- Modules can be developed, tested, and deployed independently
+- Migration generation works correctly without cross-module dependencies
+- The system remains modular and extensible
 
 ## Multi-tenant
 - Core module `directory` defines `tenants` and `organizations`.

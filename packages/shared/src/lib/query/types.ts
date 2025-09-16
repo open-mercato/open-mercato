@@ -2,6 +2,11 @@ import type { EntityId } from '@/modules/entities'
 
 export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists'
 
+export enum SortDir {
+  Asc = 'asc',
+  Desc = 'desc',
+}
+
 export type FieldSelector = string // base field or custom field key (prefixed with 'cf:')
 
 export type Filter = {
@@ -10,7 +15,7 @@ export type Filter = {
   value?: any
 }
 
-export type Sort = { field: FieldSelector; dir?: 'asc' | 'desc' }
+export type Sort = { field: FieldSelector; dir?: SortDir }
 
 export type Page = { page?: number; pageSize?: number }
 
@@ -21,7 +26,8 @@ export type QueryOptions = {
   filters?: Filter[]
   sort?: Sort[]
   page?: Page
-  organizationId?: number // enforce multi-tenant scope
+  organizationId?: string // enforce multi-tenant scope
+  tenantId?: string // enforce tenant scope
 }
 
 export type QueryResult<T = any> = {
@@ -34,4 +40,3 @@ export type QueryResult<T = any> = {
 export interface QueryEngine {
   query<T = any>(entity: EntityId, opts?: QueryOptions): Promise<QueryResult<T>>
 }
-

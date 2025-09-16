@@ -1,12 +1,18 @@
 #!/usr/bin/env tsx
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { loadEnabledModules, moduleFsRoots, moduleImportBase } from './shared/modules-config'
 
 const outFile = path.resolve('generated/entities.generated.ts')
+const checksumFile = path.resolve('generated/entities.generated.checksum')
 
 function toVar(s: string) {
   return s.replace(/[^a-zA-Z0-9_]/g, '_')
+}
+
+function calculateChecksum(content: string): string {
+  return crypto.createHash('md5').update(content).digest('hex')
 }
 
 function scan() {
@@ -49,8 +55,23 @@ export const entities = [
   ${entityRefs.join(',\n  ')}
 ]
 `
-  fs.writeFileSync(outFile, output)
+  
+  // Check if content has changed
+  const newChecksum = calculateChecksum(output)
+  let shouldWrite = true
+  
+  if (fs.existsSync(checksumFile)) {
+    const existingChecksum = fs.readFileSync(checksumFile, 'utf8').trim()
+    if (existingChecksum === newChecksum) {
+      shouldWrite = false
+    }
+  }
+  
+  if (shouldWrite) {
+    fs.writeFileSync(outFile, output)
+    fs.writeFileSync(checksumFile, newChecksum)
+    console.log('Generated', path.relative(process.cwd(), outFile))
+  }
 }
 
 scan()
-console.log('Generated', path.relative(process.cwd(), outFile))

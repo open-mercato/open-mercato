@@ -14,6 +14,9 @@ This repository is designed for extensibility. Agents should leverage the module
   - Frontend pages under `src/modules/<module>/frontend/<path>.tsx` → `/<path>`
   - Backend pages under `src/modules/<module>/backend/<path>.tsx` → `/backend/<path>`
   - Special case: `src/modules/<module>/backend/page.tsx` → `/backend/<module>`
+  - Page metadata:
+    - Prefer colocated `page.meta.ts`, `<name>.meta.ts`, or folder `meta.ts`.
+    - Alternatively, server components may `export const metadata` from the page file itself.
   - API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
   - Subscribers under `src/modules/<module>/subscribers/*.ts` exporting default handler and `metadata` with `{ event: string, persistent?: boolean, id?: string }`
   - Optional CLI at `src/modules/<module>/cli.ts` default export
@@ -40,7 +43,14 @@ This repository is designed for extensibility. Agents should leverage the module
 ## Database Naming
 - Tables: plural snake_case (e.g., `users`, `user_roles`, `example_items`).
 - Common columns: `id`, `created_at`, `updated_at`, `is_active`, `organization_id` when applicable.
-- Prefer integer PKs (`serial`) and explicit FKs; use junction tables for many-to-many.
+- Prefer UUID PKs (`uuid`) and explicit FKs; use junction tables for many-to-many.
+
+## Module Isomorphism Rules
+- **NO direct relationships between modules**: Modules must remain isomorphic and independent.
+- **NO @ManyToOne/@OneToMany relationships across modules**: Use foreign key IDs instead.
+- **Fetch related data separately**: When you need data from another module, fetch it with separate queries using the foreign key IDs.
+- **Example**: Instead of `user.tenant` relationship, use `user.tenantId` and fetch tenant separately with `em.findOne('Tenant', { id: user.tenantId })`.
+- This ensures modules can be developed, tested, and deployed independently.
 
 ## Multi-tenant Rules
 - Always include and filter by `organization_id` for tenant-scoped entities.

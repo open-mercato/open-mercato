@@ -30,12 +30,17 @@ const seedTodos: ModuleCli = {
   async run(rest) {
     const args = parseArgs(rest)
     const orgIdArg = args.org || args.organizationId
+    const tenantIdArg = args.tenant || args.tenantId
     if (!orgIdArg) {
-      console.error('Usage: mercato example seed-todos --org <organizationId> [--tenant <tenantId>]')
+      console.error('Usage: mercato example seed-todos --org <organizationId> --tenant <tenantId>')
       return
     }
-    const orgId = Number(orgIdArg)
-    const tenantId = args.tenant ? Number(args.tenant) : undefined
+    if (!tenantIdArg) {
+      console.error('Usage: mercato example seed-todos --org <organizationId> --tenant <tenantId>')
+      return
+    }
+    const orgId = orgIdArg as string
+    const tenantId = tenantIdArg as string
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
 
@@ -47,11 +52,12 @@ const seedTodos: ModuleCli = {
       { key: 'blocked', kind: 'boolean', configJson: { label: 'Blocked', defaultValue: false, filterable: true } },
     ]
     for (const d of defs) {
-      const existing = await em.findOne(CustomFieldDef, { entityId, organizationId: orgId, key: d.key })
+      const existing = await em.findOne(CustomFieldDef, { entityId, organizationId: orgId, tenantId: tenantId, key: d.key })
       if (!existing) {
         await em.persistAndFlush(em.create(CustomFieldDef, {
           entityId,
           organizationId: orgId,
+          tenantId: tenantId,
           key: d.key,
           kind: d.kind,
           configJson: d.configJson,
@@ -80,6 +86,7 @@ const seedTodos: ModuleCli = {
         entityId,
         recordId,
         organizationId: orgId,
+        tenantId: tenantId,
         values: {
           priority: makePriority(i),
           severity: makeSeverity(i),
@@ -87,7 +94,7 @@ const seedTodos: ModuleCli = {
         },
       })
     }
-    console.log(`Seeded 10 todos with custom fields for org=${orgId}${tenantId ? `, tenant=${tenantId}` : ''}`)
+    console.log(`Seeded 10 todos with custom fields for org=${orgId}, tenant=${tenantId}`)
   },
 }
 

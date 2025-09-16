@@ -1,11 +1,30 @@
 import { CustomFieldDef } from '@open-mercato/core/modules/custom_fields/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 
 async function loadDefs() {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
   const defs = await em.find(CustomFieldDef, {}, { orderBy: { entityId: 'asc', key: 'asc' } as any })
-  return defs
+  
+  // Get unique organization IDs from the definitions
+  const orgIds = [...new Set(defs.map(d => d.organizationId).filter(Boolean))]
+  
+  // Fetch organization names
+  const organizations = orgIds.length > 0 
+    ? await em.find(Organization, { id: { $in: orgIds } })
+    : []
+  
+  // Create a map of organization ID to name
+  const orgMap = new Map(organizations.map(org => [org.id, org.name]))
+  
+  // Add organization name to each definition
+  const defsWithOrgNames = defs.map(def => ({
+    ...def,
+    organizationName: def.organizationId ? orgMap.get(def.organizationId) || def.organizationId : 'global'
+  }))
+  
+  return defsWithOrgNames
 }
 
 export default async function DefinitionsPage() {
@@ -23,7 +42,7 @@ export default async function DefinitionsPage() {
             {defs.map((d) => (
               <tr key={`${d.entityId}:${d.organizationId ?? 'global'}:${d.key}`} className="border-b">
                 <td className="py-2 pr-4">{d.entityId}</td>
-                <td className="py-2 pr-4">{d.organizationId ?? 'global'}</td>
+                <td className="py-2 pr-4">{d.organizationName}</td>
                 <td className="py-2 pr-4">{d.key}</td>
                 <td className="py-2 pr-4">{d.kind}</td>
                 <td className="py-2 pr-4">{d.isActive ? 'yes' : 'no'}</td>

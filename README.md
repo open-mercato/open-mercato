@@ -25,6 +25,13 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
   - `DATABASE_URL=postgres://user:password@localhost:5432/mercato`
   - `JWT_SECRET=some-strong-secret`
 
+2) Quick setup (recommended)
+
+- `yarn init` - Automatically installs dependencies, prepares modules, runs migrations, and creates admin user
+- Customize admin user: `yarn init --org="My Company" --email="admin@mycompany.com" --password="mypassword" --roles="owner,admin"`
+
+**OR** Manual setup:
+
 2) Install dependencies
 
 - `yarn install`
@@ -63,20 +70,139 @@ Steps:
 - Note the printed `organizationId` (use it below)
 
 3) Seed example Todos (entity + per‑org custom field definitions + sample data)
-- `yarn mercato example seed-todos --org <organizationId>`
-- Optional tenant scoping: `--tenant <tenantId>`
+- `yarn mercato example seed-todos --org <organizationId> --tenant <tenantId>`
 
 4) Open the Todos page
 - Visit `/backend/example/todos` to filter/sort on base fields and custom fields (e.g., priority, severity, blocked).
+
+## CLI Commands
+
+### Quick Setup Commands
+
+#### `yarn init` - Complete App Initialization
+One-command setup that prepares the entire application:
+```bash
+# Basic setup with defaults
+yarn init
+
+# Custom setup
+yarn init --org="My Company" --email="admin@mycompany.com" --password="mypassword" --roles="owner,admin"
+```
+
+**What it does:**
+- Installs dependencies
+- Prepares modules (registry, entities, DI)
+- Generates database migrations
+- Applies migrations
+- Seeds default roles
+- Creates admin user
+- Seeds example todos
+- Displays success message with admin credentials
+
+#### `yarn greenfield` - Clean Slate Setup
+Removes all migrations, snapshots, and checksum files for a fresh start:
+```bash
+yarn greenfield
+```
+
+**What it cleans:**
+- Migration files (`Migration*.ts`)
+- Snapshot files (`*.json` containing "snapshot")
+- Checksum files (`*.checksum`)
+- All modules (auth, custom_fields, directory, example)
+
+### Database Commands
+
+#### `yarn db:generate` - Generate Migrations
+Generates database migrations for all modules:
+```bash
+yarn db:generate
+```
+
+#### `yarn db:migrate` - Apply Migrations
+Applies all pending migrations and seeds global custom fields:
+```bash
+yarn db:migrate
+```
+
+### Auth Module Commands
+
+#### `yarn mercato auth setup` - Create Organization & Admin
+Creates a tenant, organization, and admin user:
+```bash
+yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles owner,admin
+```
+
+#### `yarn mercato auth list-orgs` - List Organizations
+Lists all organizations in the system:
+```bash
+yarn mercato auth list-orgs
+```
+
+#### `yarn mercato auth list-tenants` - List Tenants
+Lists all tenants in the system:
+```bash
+yarn mercato auth list-tenants
+```
+
+#### `yarn mercato auth list-users` - List Users
+Lists all users with filtering options:
+```bash
+# List all users
+yarn mercato auth list-users
+
+# Filter by organization
+yarn mercato auth list-users --org <organizationId>
+
+# Filter by tenant
+yarn mercato auth list-users --tenant <tenantId>
+```
+
+#### `yarn mercato auth add-user` - Add User
+Adds a new user to an organization:
+```bash
+yarn mercato auth add-user --email user@example.com --password secret --organizationId <orgId> --roles customer,employee
+```
+
+#### `yarn mercato auth seed-roles` - Seed Default Roles
+Creates default roles (customer, employee, admin, owner):
+```bash
+yarn mercato auth seed-roles
+```
+
+### Example Module Commands
+
+#### `yarn mercato example seed-todos` - Seed Example Data
+Creates sample todos with custom fields:
+```bash
+yarn mercato example seed-todos --org <organizationId> --tenant <tenantId>
+```
+
+**Required parameters:**
+- `--org <organizationId>` - organization ID
+- `--tenant <tenantId>` - tenant ID
+
+### Other Commands
+
+#### `yarn modules:prepare` - Prepare Modules
+Generates module registry, entities, and DI configuration:
+```bash
+yarn modules:prepare
+```
 
 Notes:
 - The Todos page uses `queryEngine` to select and sort `cf:*` fields. Custom field definitions must exist for the current organization; the seeding command ensures they do.
 
 ## Documentation
 
+### Getting Started
 - <a href="./docs/tutorials/first-app.md">Quickstart tutorial</a>
 - <a href="./docs/tutorials/testing.md">Writing unit tests</a>
+- <a href="./docs/tutorials/api-data-fetching.md">API Data Fetching Tutorial</a>
+
+### Core Concepts
 - <a href="./docs/modules.md">Modules authoring and usage</a>
+- <a href="./docs/routes-and-pages.md">Creating Routes and Pages</a>
 - <a href="./docs/data-extensibility.md">Entity extensions and custom fields</a>
 - <a href="./docs/query-layer.md">Unified query layer (filters, paging, fields)</a>
 - <a href="./docs/events-and-subscribers.md">Events & subscribers</a>

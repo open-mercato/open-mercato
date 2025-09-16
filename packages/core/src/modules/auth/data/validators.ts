@@ -20,8 +20,8 @@ export const confirmPasswordResetSchema = z.object({
 export const userCreateSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
-  tenantId: z.number().int().positive().optional(),
-  organizationId: z.number().int().positive(),
+  tenantId: z.string().uuid().optional(),
+  organizationId: z.string().uuid(),
   rolesCsv: z.string().optional(),
 })
 

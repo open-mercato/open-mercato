@@ -1,8 +1,27 @@
-jest.mock('ioredis', () => ({
-  __esModule: true,
-  default: class { async connect(){} async incr(){ return 1 } async zAdd(){ return 1 } async zRangeByScore(){ return [] } async set(){} async get(){ return '0' } async zRemRangeByScore(){ return 0 } },
-  createClient: () => new (class { async connect(){} async incr(){ return 1 } async zAdd(){ return 1 } async zRangeByScore(){ return [] } async set(){} async get(){ return '0' } async zRemRangeByScore(){ return 0 } })(),
-}), { virtual: true })
+jest.mock('ioredis', () => {
+  const MockRedis = class { 
+    constructor() {
+      this.status = 'ready'
+    }
+    status = 'ready'
+    async connect(){ 
+      this.status = 'ready'
+      return this
+    } 
+    async incr(){ return 1 } 
+    async zAdd(){ return 1 } 
+    async zRangeByScore(){ return [] } 
+    async set(){} 
+    async get(){ return '0' } 
+    async zRemRangeByScore(){ return 0 } 
+  }
+  
+  return {
+    __esModule: true,
+    default: MockRedis,
+    Redis: MockRedis
+  }
+}, { virtual: true })
 
 import { createEventBus } from '@open-mercato/events/index'
 

@@ -3,16 +3,20 @@ import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
 // Definitions of custom fields scoped to an entity type and organization
 @Entity({ tableName: 'custom_field_defs' })
 export class CustomFieldDef {
-  @PrimaryKey({ type: 'int' })
-  id!: number
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
   // Entity identifier: '<module>:<entity>'
   @Property({ name: 'entity_id', type: 'text' })
   entityId!: string
 
   // Organization scope (nullable for global)
-  @Property({ name: 'organization_id', type: 'int', nullable: true })
-  organizationId?: number | null
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  // Tenant scope (nullable for global)
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
 
   // Unique key within entity scope
   @Property({ type: 'text' })
@@ -40,8 +44,8 @@ export class CustomFieldDef {
 // Values for custom fields (EAV); recordId is a text to support any PK
 @Entity({ tableName: 'custom_field_values' })
 export class CustomFieldValue {
-  @PrimaryKey({ type: 'int' })
-  id!: number
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
   @Property({ name: 'entity_id', type: 'text' })
   entityId!: string
@@ -50,8 +54,11 @@ export class CustomFieldValue {
   @Property({ name: 'record_id', type: 'text' })
   recordId!: string
 
-  @Property({ name: 'organization_id', type: 'int', nullable: true })
-  organizationId?: number | null
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
 
   // Field key for lookup; resolves to a CustomFieldDef
   @Property({ name: 'field_key', type: 'text' })

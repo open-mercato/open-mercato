@@ -1,16 +1,15 @@
 import { Entity, PrimaryKey, Property, ManyToOne, Unique } from '@mikro-orm/core'
-import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 @Entity({ tableName: 'users' })
 export class User {
-  @PrimaryKey({ type: 'int' })
-  id!: number
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
-  @ManyToOne(() => Tenant)
-  tenant!: Tenant
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
 
-  @ManyToOne(() => Organization)
-  organization!: Organization
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
 
   @Property({ type: 'text', unique: true })
   email!: string
@@ -33,8 +32,8 @@ export class User {
 
 @Entity({ tableName: 'roles' })
 export class Role {
-  @PrimaryKey({ type: 'int' })
-  id!: number
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
   @Property({ type: 'text', unique: true })
   name!: string
@@ -45,8 +44,8 @@ export class Role {
 
 @Entity({ tableName: 'user_roles' })
 export class UserRole {
-  @PrimaryKey({ type: 'int' })
-  id!: number
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
   @ManyToOne(() => User)
   user!: User
@@ -60,8 +59,8 @@ export class UserRole {
 
 @Entity({ tableName: 'sessions' })
 export class Session {
-  @PrimaryKey({ type: 'int' })
-  id!: number
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
   @ManyToOne(() => User)
   user!: User
@@ -81,8 +80,8 @@ export class Session {
 
 @Entity({ tableName: 'password_resets' })
 export class PasswordReset {
-  @PrimaryKey({ type: 'int' })
-  id!: number
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
   @ManyToOne(() => User)
   user!: User

@@ -2,8 +2,8 @@ import { Entity, PrimaryKey, Property, ManyToOne, OneToMany, Collection } from '
 
 @Entity({ tableName: 'tenants' })
 export class Tenant {
-  @PrimaryKey({ type: 'int' })
-  id!: number
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
   @Property({ type: 'text' })
   name!: string
@@ -23,8 +23,8 @@ export class Tenant {
 
 @Entity({ tableName: 'organizations' })
 export class Organization {
-  @PrimaryKey({ type: 'int' })
-  id!: number
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
   @ManyToOne(() => Tenant)
   tenant!: Tenant

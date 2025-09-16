@@ -14,6 +14,9 @@ export default function ExampleAdminIndex() {
             <li>
               <Link className="underline" href="/backend/products">Products list</Link>
             </li>
+            <li>
+              <Link className="underline" href="/backend/todos">Todos list</Link>
+            </li>
           </ul>
         </div>
       </PageBody>

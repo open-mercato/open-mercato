@@ -36,8 +36,8 @@ export const extensions = [
 
 ## Custom Fields (EAV)
 - Core module `custom_fields` ships two tables:
-  - `custom_field_defs` — definitions (per entity id and organization)
-  - `custom_field_values` — values (per entity record and organization)
+  - `custom_field_defs` — definitions (per entity id, organization, and tenant)
+  - `custom_field_values` — values (per entity record, organization, and tenant)
 
 - Modules can ship initial field sets in `data/fields.ts` using the DSL:
 
@@ -63,13 +63,13 @@ export default [
 - To seed per-organization definitions (or re-seed), run the CLI:
 
 ```
-yarn mercato custom_fields install --org 1
+yarn mercato custom_fields install --org <orgId> --tenant <tenantId>
 ```
 
 Why not migrations? Migrations are module-scoped, run in isolation, and should alter schema deterministically. Field sets aggregate across all enabled modules at the app level and may target specific organizations; executing them in each module’s migration would cause duplication, ordering problems, and environment coupling. Use the CLI to seed or re-seed idempotently whenever modules change.
 
 ## Multi-tenant
-- Definitions and values include `organization_id` and must be filtered by it when relevant.
+- Definitions and values include both `organization_id` and `tenant_id` and must be filtered by both when relevant.
 
 ## Validation and Types
 - Base entities continue to use zod validators and MikroORM classes.

@@ -25,13 +25,15 @@ const seedDefs: ModuleCli = {
   async run(rest) {
     const args = parseArgs(rest)
     const orgIdArg = (args.org as string) || (args.organizationId as string)
+    const tenantIdArg = (args.tenant as string) || (args.tenantId as string)
     const globalFlag = Boolean(args.global)
     const dry = Boolean(args['dry-run'] || args.dry)
     if (!globalFlag && !orgIdArg) {
-      console.error('Usage: mercato custom_fields install [--global] [--org <id>] [--dry-run]')
+      console.error('Usage: mercato custom_fields install [--global] [--org <id>] [--tenant <id>] [--dry-run]')
       return
     }
-    const targetOrgId = globalFlag ? null : Number(orgIdArg)
+    const targetOrgId = globalFlag ? null : (orgIdArg as string)
+    const targetTenantId = globalFlag ? null : (tenantIdArg as string)
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
 
@@ -47,7 +49,7 @@ const seedDefs: ModuleCli = {
     let created = 0, updated = 0
     for (const s of sets) {
       for (const f of s.fields) {
-        const where = { entityId: s.entity, organizationId: targetOrgId, key: f.key }
+        const where = { entityId: s.entity, organizationId: targetOrgId, tenantId: targetTenantId, key: f.key }
         const existing = await em.findOne(CustomFieldDef, where)
         const configJson: any = {}
         if (f.options) configJson.options = f.options
@@ -62,6 +64,7 @@ const seedDefs: ModuleCli = {
           if (!dry) await em.persistAndFlush(em.create(CustomFieldDef, {
             entityId: s.entity,
             organizationId: targetOrgId,
+            tenantId: targetTenantId,
             key: f.key,
             kind: f.kind,
             configJson,
@@ -103,7 +106,8 @@ const addField: ModuleCli = {
 
       const entityId = (args.entity as string) || (args.e as string) || await ask('Entity ID (e.g., example:todo)')
       const isGlobal = args.global ? true : await askBool('Global (no organization)?', false)
-      const orgId = isGlobal ? null : Number((args.org as string) || (args.organizationId as string) || await ask('Organization ID'))
+      const orgId = isGlobal ? null : ((args.org as string) || (args.organizationId as string) || await ask('Organization ID'))
+      const tenantId = isGlobal ? null : ((args.tenant as string) || (args.tenantId as string) || await ask('Tenant ID'))
       const key = (args.key as string) || await ask('Field key (snake_case)')
       let kind = (args.kind as string) || await ask("Kind (text|multiline|integer|float|boolean|select)", 'text')
       kind = kind.toLowerCase()
@@ -131,7 +135,7 @@ const addField: ModuleCli = {
       const filterable = args.filterable !== undefined ? Boolean(args.filterable) : await askBool('Filterable?', true)
       const indexed = args.indexed !== undefined ? Boolean(args.indexed) : await askBool('Indexed?', false)
 
-      const where = { entityId, organizationId: orgId, key }
+      const where = { entityId, organizationId: orgId, tenantId: tenantId, key }
       const existing = await em.findOne(CustomFieldDef, where)
       const configJson: any = {}
       if (options) configJson.options = options
@@ -147,18 +151,19 @@ const addField: ModuleCli = {
         await em.persistAndFlush(em.create(CustomFieldDef, {
           entityId,
           organizationId: orgId,
+          tenantId: tenantId,
           key,
           kind,
           configJson,
           isActive: true,
         }))
-        console.log(`Created custom field: ${entityId}.${key} (${kind})${orgId == null ? ' [global]' : ` [org=${orgId}]`}`)
+        console.log(`Created custom field: ${entityId}.${key} (${kind})${orgId == null ? ' [global]' : ` [org=${orgId}, tenant=${tenantId}]`}`)
       } else {
         existing.kind = kind as any
         existing.configJson = configJson
         existing.isActive = true
         await em.flush()
-        console.log(`Updated custom field: ${entityId}.${key} (${kind})${orgId == null ? ' [global]' : ` [org=${orgId}]`}`)
+        console.log(`Updated custom field: ${entityId}.${key} (${kind})${orgId == null ? ' [global]' : ` [org=${orgId}, tenant=${tenantId}]`}`)
       }
     } catch (e: any) {
       console.error('Failed:', e?.message || e)

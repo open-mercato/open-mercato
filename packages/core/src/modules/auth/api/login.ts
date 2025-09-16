@@ -37,7 +37,13 @@ export async function POST(req: Request) {
   }
   await auth.updateLastLoginAt(user)
   const userRoleNames = await auth.getUserRoles(user)
-  const token = signJwt({ sub: String(user.id), tenantId: String(user.tenant.id), orgId: String(user.organization.id), email: user.email, roles: userRoleNames })
+  const token = signJwt({ 
+    sub: String(user.id), 
+    tenantId: user.tenantId ? String(user.tenantId) : null, 
+    orgId: user.organizationId ? String(user.organizationId) : null, 
+    email: user.email, 
+    roles: userRoleNames 
+  })
   const res = NextResponse.json({ ok: true, token, redirect: '/backend' })
   res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   if (remember) {

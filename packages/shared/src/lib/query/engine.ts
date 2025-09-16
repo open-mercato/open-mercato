@@ -2,6 +2,7 @@ import type { QueryEngine, QueryOptions, QueryResult } from './types'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
+
 // Minimal default implementation placeholder.
 // For now, only supports basic base-entity querying by table name inferred from EntityId ('<module>:<entity>' -> '<entities>') via convention.
 // Extensions and custom fields will be added iteratively.
@@ -21,6 +22,12 @@ export class BasicQueryEngine implements QueryEngine {
     if (opts.organizationId) {
       if (await this.columnExists(table, 'organization_id')) {
         q = q.where(qualify('organization_id'), opts.organizationId)
+      }
+    }
+    // Tenant guard when present in schema
+    if (opts.tenantId) {
+      if (await this.columnExists(table, 'tenant_id')) {
+        q = q.where(qualify('tenant_id'), opts.tenantId)
       }
     }
     // Filters (base fields handled here; cf:* handled later)
@@ -182,14 +189,10 @@ export class BasicQueryEngine implements QueryEngine {
     if (typeof countClone.clearSelect === 'function') countClone.clearSelect()
     if (typeof countClone.clearOrder === 'function') countClone.clearOrder()
     if (typeof countClone.clearGroup === 'function') countClone.clearGroup()
-    let total = 0
-    if (typeof countClone.countDistinct === 'function') {
-      const res = await countClone.countDistinct<{ count: string }>(`${table}.id as count`)
-      const row = Array.isArray(res)
-        ? res[0]
-        : (typeof res?.first === 'function' ? await res.first() : res)
-      total = Number((row as any)?.count ?? 0)
-    }
+    const countRow = await countClone
+      .countDistinct<{ count: string }>(`${table}.id as count`)
+      .first()
+    const total = Number((countRow as any)?.count ?? 0)
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)
     return { items, page, pageSize, total }
   }
