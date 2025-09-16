@@ -146,8 +146,8 @@ const listOrganizations: ModuleCli = {
     
     for (const org of orgs) {
       const created = org.createdAt ? new Date(org.createdAt).toLocaleDateString() : 'N/A'
-      const id = org.id?.substring(0, 8) + '...' || 'N/A'
-      const tenantId = org.tenant?.id?.substring(0, 8) + '...' || 'N/A'
+      const id = org.id || 'N/A'
+      const tenantId = org.tenant?.id || 'N/A'
       const name = (org.name || 'Unnamed').padEnd(23)
       console.log(`${id.padEnd(35)} | ${name} | ${tenantId.padEnd(35)} | ${created}`)
     }
@@ -173,7 +173,7 @@ const listTenants: ModuleCli = {
     
     for (const tenant of tenants) {
       const created = tenant.createdAt ? new Date(tenant.createdAt).toLocaleDateString() : 'N/A'
-      const id = tenant.id?.substring(0, 8) + '...' || 'N/A'
+      const id = tenant.id || 'N/A'
       const name = (tenant.name || 'Unnamed').padEnd(23)
       console.log(`${id.padEnd(35)} | ${name} | ${created}`)
     }
@@ -233,7 +233,7 @@ const listUsers: ModuleCli = {
         tenantName = tenant?.name?.substring(0, 19) + '...' || user.tenantId.substring(0, 8) + '...'
       }
       
-      const id = user.id?.substring(0, 8) + '...' || 'N/A'
+      const id = user.id || 'N/A'
       const email = (user.email || 'N/A').padEnd(23)
       const name = (user.name || 'Unnamed').padEnd(23)
       
