@@ -186,9 +186,9 @@ async function runGreenfield() {
       } else {
         results.push(`${modId}: already clean`)
       }
-            } else {
-              results.push(`${modId}: no migrations directory`)
-            }
+      } else {
+        results.push(`${modId}: no migrations directory`)
+      }
             
             // Clean up checksum files using glob pattern
             const generatedDir = 'generated'
