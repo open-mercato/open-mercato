@@ -30,8 +30,13 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
 
 # vercel
 .vercel
@@ -50,6 +55,9 @@ packages/*/generated/
 # package build outputs
 packages/*/dist/
 packages/**/dist/
+
+# runtime/event state
+.events/
 
 # prevent accidental check-in of transpiled JS alongside TS sources
 src/**/*.js
