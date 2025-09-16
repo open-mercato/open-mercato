@@ -92,8 +92,13 @@ async function run(cmd: Cmd) {
       migrations: {
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
+        tableName: `mikro_orm_migrations_${modId}`,
+      },
+      schemaGenerator: {
+        disableForeignKeys: true,
       },
     })
+    
     const migrator = orm.getMigrator() as Migrator
     if (cmd === 'generate') {
       const diff = await migrator.createMigration()
