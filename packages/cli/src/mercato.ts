@@ -3,6 +3,73 @@ import { createRequestContainer } from '@/lib/di/container'
 
 export async function run(argv = process.argv) {
   const [, , modName, cmdName, ...rest] = argv
+  
+  // Handle init command directly
+  if (modName === 'init') {
+    const { execSync } = await import('child_process')
+    
+    console.log('🚀 Initializing Open Mercato app...\n')
+    
+    try {
+      // Step 1: Install dependencies
+      console.log('📦 Installing dependencies...')
+      execSync('yarn install', { stdio: 'inherit' })
+      console.log('✅ Dependencies installed\n')
+      
+      // Step 2: Prepare modules
+      console.log('🔧 Preparing modules (registry, entities, DI)...')
+      execSync('yarn modules:prepare', { stdio: 'inherit' })
+      console.log('✅ Modules prepared\n')
+      
+      // Step 3: Generate migrations
+      console.log('🗄️  Generating database migrations...')
+      execSync('yarn db:generate', { stdio: 'inherit' })
+      console.log('✅ Migrations generated\n')
+      
+      // Step 4: Apply migrations
+      console.log('📊 Applying database migrations...')
+      execSync('yarn db:migrate', { stdio: 'inherit' })
+      console.log('✅ Migrations applied\n')
+      
+      // Step 5: Seed roles
+      console.log('👥 Seeding default roles...')
+      execSync('yarn mercato auth seed-roles', { stdio: 'inherit' })
+      console.log('✅ Roles seeded\n')
+      
+      // Step 6: Setup admin user
+      const orgName = rest.find(arg => arg.startsWith('--org='))?.split('=')[1] || 'Acme Corp'
+      const email = rest.find(arg => arg.startsWith('--email='))?.split('=')[1] || 'admin@acme.com'
+      const password = rest.find(arg => arg.startsWith('--password='))?.split('=')[1] || 'secret'
+      const roles = rest.find(arg => arg.startsWith('--roles='))?.split('=')[1] || 'owner,admin'
+      
+      console.log('👤 Setting up admin user...')
+      execSync(`yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`, { stdio: 'inherit' })
+      console.log('✅ Admin user created\n')
+      
+      // Success message with admin info
+      console.log('🎉 App initialization complete!\n')
+      console.log('╔══════════════════════════════════════════════════════════════╗')
+      console.log('║  🚀 You\'re now ready to start development!                ║')
+      console.log('║                                                              ║')
+      console.log('║  Start the dev server:                                       ║')
+      console.log('║    yarn dev                                                  ║')
+      console.log('║                                                              ║')
+      console.log('║  Your admin user:                                            ║')
+      console.log(`║    📧 Email: ${email.padEnd(50)} ║`)
+      console.log(`║    🔑 Password: ${password.padEnd(44)} ║`)
+      console.log(`║    🏢 Organization: ${orgName.padEnd(40)} ║`)
+      console.log(`║    👑 Roles: ${roles.padEnd(47)} ║`)
+      console.log('║                                                              ║')
+      console.log('║  Happy coding! 🎯                                          ║')
+      console.log('╚══════════════════════════════════════════════════════════════╝')
+      
+      return 0
+    } catch (error: any) {
+      console.error('❌ Initialization failed:', error.message)
+      return 1
+    }
+  }
+  
   // Load optional app-level CLI commands
   let appCli: any[] = []
   try {
@@ -10,6 +77,81 @@ export async function run(argv = process.argv) {
     if (Array.isArray(app?.default)) appCli = app.default
   } catch {}
   const all = modules.slice()
+  // Built-in CLI module: init
+  all.push({
+    id: 'init',
+    cli: [
+      {
+        command: 'init',
+        run: async (args: string[]) => {
+          const { execSync } = await import('child_process')
+          const { promisify } = await import('util')
+          const exec = promisify(execSync)
+          
+          console.log('🚀 Initializing Open Mercato app...\n')
+          
+          try {
+            // Step 1: Install dependencies
+            console.log('📦 Installing dependencies...')
+            execSync('yarn install', { stdio: 'inherit' })
+            console.log('✅ Dependencies installed\n')
+            
+            // Step 2: Prepare modules
+            console.log('🔧 Preparing modules (registry, entities, DI)...')
+            execSync('yarn modules:prepare', { stdio: 'inherit' })
+            console.log('✅ Modules prepared\n')
+            
+            // Step 3: Generate migrations
+            console.log('🗄️  Generating database migrations...')
+            execSync('yarn db:generate', { stdio: 'inherit' })
+            console.log('✅ Migrations generated\n')
+            
+            // Step 4: Apply migrations
+            console.log('📊 Applying database migrations...')
+            execSync('yarn db:migrate', { stdio: 'inherit' })
+            console.log('✅ Migrations applied\n')
+            
+            // Step 5: Seed roles
+            console.log('👥 Seeding default roles...')
+            execSync('yarn mercato auth seed-roles', { stdio: 'inherit' })
+            console.log('✅ Roles seeded\n')
+            
+            // Step 6: Setup admin user
+            const orgName = args.find(arg => arg.startsWith('--org='))?.split('=')[1] || 'Acme Corp'
+            const email = args.find(arg => arg.startsWith('--email='))?.split('=')[1] || 'admin@acme.com'
+            const password = args.find(arg => arg.startsWith('--password='))?.split('=')[1] || 'secret'
+            const roles = args.find(arg => arg.startsWith('--roles='))?.split('=')[1] || 'owner,admin'
+            
+            console.log('👤 Setting up admin user...')
+            execSync(`yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`, { stdio: 'inherit' })
+            console.log('✅ Admin user created\n')
+            
+            // Success message with admin info
+            console.log('🎉 App initialization complete!\n')
+            console.log('╔══════════════════════════════════════════════════════════════╗')
+            console.log('║  🚀 You\'re now ready to start development!                ║')
+            console.log('║                                                              ║')
+            console.log('║  Start the dev server:                                       ║')
+            console.log('║    yarn dev                                                  ║')
+            console.log('║                                                              ║')
+            console.log('║  Your admin user:                                            ║')
+            console.log(`║    📧 Email: ${email.padEnd(50)} ║`)
+            console.log(`║    🔑 Password: ${password.padEnd(44)} ║`)
+            console.log(`║    🏢 Organization: ${orgName.padEnd(40)} ║`)
+            console.log(`║    👑 Roles: ${roles.padEnd(47)} ║`)
+            console.log('║                                                              ║')
+            console.log('║  Happy coding! 🎯                                          ║')
+            console.log('╚══════════════════════════════════════════════════════════════╝')
+            
+          } catch (error: any) {
+            console.error('❌ Initialization failed:', error.message)
+            throw error
+          }
+        },
+      },
+    ],
+  } as any)
+  
   // Built-in CLI module: events
   all.push({
     id: 'events',

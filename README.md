@@ -25,6 +25,13 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
   - `DATABASE_URL=postgres://user:password@localhost:5432/mercato`
   - `JWT_SECRET=some-strong-secret`
 
+2) Quick setup (recommended)
+
+- `yarn init` - Automatically installs dependencies, prepares modules, runs migrations, and creates admin user
+- Customize admin user: `yarn init --org="My Company" --email="admin@mycompany.com" --password="mypassword" --roles="owner,admin"`
+
+**OR** Manual setup:
+
 2) Install dependencies
 
 - `yarn install`
