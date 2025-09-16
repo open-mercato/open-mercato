@@ -84,9 +84,9 @@ export async function setRecordCustomFields(
     const def = defsByKey?.[fieldKey]
     const column: keyof CustomFieldValue = def ? columnFromKind(def.kind) : columnFromJsValue(raw)
 
-    let cf = await em.findOne(CustomFieldValue, { entityId, recordId, organizationId, fieldKey })
+    let cf = await em.findOne(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
     if (!cf) {
-      cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, fieldKey, createdAt: new Date() })
+      cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
       toPersist.push(cf)
     }
     clearValueColumns(cf)

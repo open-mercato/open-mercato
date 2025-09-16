@@ -52,11 +52,12 @@ const seedTodos: ModuleCli = {
       { key: 'blocked', kind: 'boolean', configJson: { label: 'Blocked', defaultValue: false, filterable: true } },
     ]
     for (const d of defs) {
-      const existing = await em.findOne(CustomFieldDef, { entityId, organizationId: Number(orgId), key: d.key })
+      const existing = await em.findOne(CustomFieldDef, { entityId, organizationId: orgId, tenantId: tenantId, key: d.key })
       if (!existing) {
         await em.persistAndFlush(em.create(CustomFieldDef, {
           entityId,
-          organizationId: Number(orgId),
+          organizationId: orgId,
+          tenantId: tenantId,
           key: d.key,
           kind: d.kind,
           configJson: d.configJson,
@@ -84,7 +85,8 @@ const seedTodos: ModuleCli = {
       await setRecordCustomFields(em, {
         entityId,
         recordId,
-        organizationId: Number(orgId),
+        organizationId: orgId,
+        tenantId: tenantId,
         values: {
           priority: makePriority(i),
           severity: makeSeverity(i),
