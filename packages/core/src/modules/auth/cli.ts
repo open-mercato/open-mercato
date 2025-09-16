@@ -23,7 +23,7 @@ const addUser: ModuleCli = {
     }
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    const org = await em.findOneOrFail(Organization, { id: Number(organizationId) }, { populate: ['tenant'] })
+    const org = await em.findOneOrFail(Organization, { id: organizationId }, { populate: ['tenant'] })
     const u = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organization: org, tenant: org.tenant })
     await em.persistAndFlush(u)
     if (rolesCsv) {

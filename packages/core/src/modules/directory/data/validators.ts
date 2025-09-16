@@ -6,7 +6,7 @@ export const tenantCreateSchema = z.object({
 })
 
 export const organizationCreateSchema = z.object({
-  tenantId: z.number().int().positive(),
+  tenantId: z.string().uuid(),
   name: z.string().min(1).max(200),
   isActive: z.boolean().optional(),
 })

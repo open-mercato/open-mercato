@@ -99,6 +99,7 @@ Precedence: if a `*.meta.ts` file is present it is used; otherwise, the generato
 - Generate combined module registry and entities: `npm run modules:prepare`.
 - Generate migrations for enabled modules: `npm run db:generate` → writes into each module's package: `packages/<pkg>/src/modules/<module>/migrations` (falls back to `src/modules/<module>/migrations` only for app-local modules).
 - Apply migrations for enabled modules: `npm run db:migrate`.
+- Clean up migrations and snapshots for fresh start: `npm run db:greenfield` → removes all existing migration files and snapshots from all modules.
 
 See also:
 - Data extensibility (extensions + custom fields): `docs/data-extensibility.md`
@@ -148,6 +149,19 @@ export default async function Page() {
   return <h1>{t('backend.title')}</h1>
 }
 ```
+
+## Module Isomorphism
+Modules must be **isomorphic** (self-contained) to ensure proper isolation and migration generation:
+
+- **No cross-module database references**: Modules cannot import entities from other modules or use `@ManyToOne`/`@OneToMany` relationships across module boundaries.
+- **Use foreign key fields instead**: Instead of direct entity relationships, use simple `@Property` fields for foreign keys (e.g., `tenantId`, `organizationId`).
+- **Independent migrations**: Each module generates its own migrations containing only its own tables and constraints.
+- **Runtime relationships**: Handle cross-module relationships at the application layer, not the database schema level.
+
+This ensures that:
+- Modules can be developed, tested, and deployed independently
+- Migration generation works correctly without cross-module dependencies
+- The system remains modular and extensible
 
 ## Multi-tenant
 - Core module `directory` defines `tenants` and `organizations`.

@@ -31,7 +31,7 @@ const seedDefs: ModuleCli = {
       console.error('Usage: mercato custom_fields install [--global] [--org <id>] [--dry-run]')
       return
     }
-    const targetOrgId = globalFlag ? null : Number(orgIdArg)
+    const targetOrgId = globalFlag ? null : (orgIdArg as string)
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
 
@@ -103,7 +103,7 @@ const addField: ModuleCli = {
 
       const entityId = (args.entity as string) || (args.e as string) || await ask('Entity ID (e.g., example:todo)')
       const isGlobal = args.global ? true : await askBool('Global (no organization)?', false)
-      const orgId = isGlobal ? null : Number((args.org as string) || (args.organizationId as string) || await ask('Organization ID'))
+      const orgId = isGlobal ? null : ((args.org as string) || (args.organizationId as string) || await ask('Organization ID'))
       const key = (args.key as string) || await ask('Field key (snake_case)')
       let kind = (args.kind as string) || await ask("Kind (text|multiline|integer|float|boolean|select)", 'text')
       kind = kind.toLowerCase()

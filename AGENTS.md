@@ -43,7 +43,7 @@ This repository is designed for extensibility. Agents should leverage the module
 ## Database Naming
 - Tables: plural snake_case (e.g., `users`, `user_roles`, `example_items`).
 - Common columns: `id`, `created_at`, `updated_at`, `is_active`, `organization_id` when applicable.
-- Prefer integer PKs (`serial`) and explicit FKs; use junction tables for many-to-many.
+- Prefer UUID PKs (`uuid`) and explicit FKs; use junction tables for many-to-many.
 
 ## Multi-tenant Rules
 - Always include and filter by `organization_id` for tenant-scoped entities.

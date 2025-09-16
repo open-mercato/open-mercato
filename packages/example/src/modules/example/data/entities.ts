@@ -2,8 +2,8 @@ import { Entity, PrimaryKey, Property } from '@mikro-orm/core'
 
 @Entity({ tableName: 'example_items' })
 export class ExampleItem {
-  @PrimaryKey({ type: 'int' })
-  id!: number
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
   @Property({ type: 'text' })
   title!: string
@@ -15,17 +15,17 @@ export class ExampleItem {
 // Demo Todo entity used by the example module's backend page
 @Entity({ tableName: 'todos' })
 export class Todo {
-  @PrimaryKey({ type: 'int' })
-  id!: number
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
   @Property({ type: 'text' })
   title!: string
 
-  @Property({ name: 'tenant_id', type: 'int', nullable: true })
-  tenantId?: number | null
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
 
-  @Property({ name: 'organization_id', type: 'int', nullable: true })
-  organizationId?: number | null
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
 
   @Property({ name: 'is_done', type: 'boolean', default: false })
   isDone: boolean = false

@@ -34,8 +34,8 @@ const seedTodos: ModuleCli = {
       console.error('Usage: mercato example seed-todos --org <organizationId> [--tenant <tenantId>]')
       return
     }
-    const orgId = Number(orgIdArg)
-    const tenantId = args.tenant ? Number(args.tenant) : undefined
+    const orgId = orgIdArg as string
+    const tenantId = args.tenant as string | undefined
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
 

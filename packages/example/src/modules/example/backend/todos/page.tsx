@@ -10,11 +10,11 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 
 type TodoRow = {
-  id: number
+  id: string
   title: string
   is_done?: boolean
-  tenant_id?: number | null
-  organization_id?: number | null
+  tenant_id?: string | null
+  organization_id?: string | null
   cf_priority?: number | null
   cf_severity?: string | null
   cf_blocked?: boolean | null
@@ -25,7 +25,7 @@ export default async function ExampleTodosPage() {
   const container = await createRequestContainer()
   const queryEngine = container.resolve<QueryEngine>('queryEngine')
   const auth = await getAuthFromCookies()
-  const orgId = auth?.orgId ? Number(auth.orgId) : undefined
+  const orgId = auth?.orgId
   // Pull base columns and CF columns (aliased as cf:*) using the query engine
   const res = await queryEngine.query(E.example.todo, {
     organizationId: orgId,

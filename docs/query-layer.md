@@ -28,7 +28,7 @@ export async function listUsers(container: AppContainer) {
     ],
     sort: [{ field: email, dir: SortDir.Asc }],
     page: { page: 1, pageSize: 25 },
-    organizationId: 1,
+    organizationId: 'uuid-string-here',
   })
 }
 ```

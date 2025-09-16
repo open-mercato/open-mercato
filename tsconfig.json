@@ -7,8 +7,8 @@
     "strict": true,
     "noEmit": true,
     // Safety net: if someone forces emit at repo root, keep JS out of src/
-    "outDir": ".tsbuild",
-    "tsBuildInfoFile": ".tsbuild/tsconfig.tsbuildinfo",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
