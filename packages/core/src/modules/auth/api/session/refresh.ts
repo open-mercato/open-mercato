@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   const ctx = await auth.refreshFromSessionToken(token)
   if (!ctx) return NextResponse.redirect(toAbs('/login?redirect=' + encodeURIComponent(redirectTo)))
   const { user, roles } = ctx
-  const jwt = signJwt({ sub: String(user.id), tenantId: String(user.tenant.id), orgId: String(user.organization.id), email: user.email, roles })
+  const jwt = signJwt({ sub: String(user.id), tenantId: String(user.tenantId), orgId: String(user.organizationId), email: user.email, roles })
   const res = NextResponse.redirect(toAbs(redirectTo))
   res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   return res

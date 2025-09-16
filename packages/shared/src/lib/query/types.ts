@@ -26,7 +26,8 @@ export type QueryOptions = {
   filters?: Filter[]
   sort?: Sort[]
   page?: Page
-  organizationId?: number // enforce multi-tenant scope
+  organizationId?: string // enforce multi-tenant scope
+  tenantId?: string // enforce tenant scope
 }
 
 export type QueryResult<T = any> = {

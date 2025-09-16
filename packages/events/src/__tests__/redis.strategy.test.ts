@@ -1,6 +1,13 @@
 jest.mock('ioredis', () => {
   const MockRedis = class { 
-    async connect(){} 
+    constructor() {
+      this.status = 'ready'
+    }
+    status = 'ready'
+    async connect(){ 
+      this.status = 'ready'
+      return this
+    } 
     async incr(){ return 1 } 
     async zAdd(){ return 1 } 
     async zRangeByScore(){ return [] } 
@@ -12,9 +19,7 @@ jest.mock('ioredis', () => {
   return {
     __esModule: true,
     default: MockRedis,
-    Redis: {
-      createClient: () => new MockRedis()
-    }
+    Redis: MockRedis
   }
 }, { virtual: true })
 

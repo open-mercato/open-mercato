@@ -1,10 +1,14 @@
 /** @jest-environment node */
 import { POST } from '@open-mercato/core/modules/auth/api/login'
+:import { randomUUID } from 'crypto'
+
+const tenantId = randomUUID()
+const orgId = randomUUID()
 
 jest.mock('@/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (_: string) => ({
-      findUserByEmail: async (email: string) => ({ id: 1, email, passwordHash: 'hash', tenant: { id: 1 }, organization: { id: 1 } }),
+      findUserByEmail: async (email: string) => ({ id: 1, email, passwordHash: 'hash', tenantId: tenantId, organizationId: orgId }),
       verifyPassword: async () => true,
       getUserRoles: async () => ['admin'],
       updateLastLoginAt: async () => undefined,

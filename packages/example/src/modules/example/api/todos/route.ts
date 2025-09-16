@@ -6,6 +6,12 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { z } from 'zod'
 
+// Simple UUID validation
+function isValidUUID(uuid: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  return uuidRegex.test(uuid)
+}
+
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
@@ -16,7 +22,6 @@ const querySchema = z.object({
   isDone: z.coerce.boolean().optional(),
   isBlocked: z.coerce.boolean().optional(),
   organizationId: z.string().uuid().optional(),
-  tenantId: z.string().uuid().optional(),
 })
 
 export const metadata = {
@@ -44,8 +49,18 @@ export async function GET(request: Request) {
     const queryEngine = container.resolve<QueryEngine>('queryEngine')
     const auth = await getAuthFromCookies()
     
-    if (!auth?.orgId) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+    if (!auth?.orgId || !auth?.tenantId) {
+      console.error('Missing auth context:', { orgId: auth?.orgId, tenantId: auth?.tenantId })
+      return new Response(JSON.stringify({ error: 'Unauthorized - missing organization or tenant context' }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+
+    // Validate that tenantId is a valid UUID
+    if (typeof auth.tenantId !== 'string' || !isValidUUID(auth.tenantId)) {
+      console.error('Invalid tenantId:', auth.tenantId)
+      return new Response(JSON.stringify({ error: 'Invalid tenant context - tenant ID is required' }), {
         status: 401,
         headers: { 'content-type': 'application/json' },
       })
@@ -60,46 +75,36 @@ export async function GET(request: Request) {
     const sortDir = validatedQuery.sortDir === 'desc' ? SortDir.Desc : SortDir.Asc
 
     // Build filter conditions
-    const filters: any = {}
+    const filters: any[] = []
+    
     if (validatedQuery.title) {
-      filters.title = { $ilike: `%${validatedQuery.title}%` }
+      filters.push({ field: 'title', op: 'ilike', value: `%${validatedQuery.title}%` })
     }
     if (validatedQuery.isDone !== undefined) {
-      filters.is_done = validatedQuery.isDone
+      filters.push({ field: 'is_done', op: 'eq', value: validatedQuery.isDone })
     }
     if (validatedQuery.organizationId) {
-      filters.organization_id = validatedQuery.organizationId
+      filters.push({ field: 'organization_id', op: 'eq', value: validatedQuery.organizationId })
     }
-    if (validatedQuery.tenantId) {
-      filters.tenant_id = validatedQuery.tenantId
+    if (validatedQuery.severity) {
+      filters.push({ field: 'cf:severity', op: 'eq', value: validatedQuery.severity })
+    }
+    if (validatedQuery.isBlocked !== undefined) {
+      filters.push({ field: 'cf:blocked', op: 'eq', value: validatedQuery.isBlocked })
     }
 
     // Query todos with custom fields
     const res = await queryEngine.query(E.example.todo, {
       organizationId: auth.orgId,
+      tenantId: auth.tenantId,
       fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked'],
       sort: [{ field: sortField, dir: sortDir }],
       page: { page: validatedQuery.page, pageSize: validatedQuery.pageSize },
       filters,
     })
 
-    // Apply custom field filters after query (since query engine doesn't support CF filters yet)
-    let filteredItems = res.items as any[]
-    
-    if (validatedQuery.severity) {
-      filteredItems = filteredItems.filter(item => 
-        (item['cf:severity'] ?? item.cf_severity) === validatedQuery.severity
-      )
-    }
-    
-    if (validatedQuery.isBlocked !== undefined) {
-      filteredItems = filteredItems.filter(item => 
-        (item['cf:blocked'] ?? item.cf_blocked) === validatedQuery.isBlocked
-      )
-    }
-
     // Map to response format
-    const todos = filteredItems.map((item) => ({
+    const todos = res.items.map((item) => ({
       id: item.id,
       title: item.title,
       tenant_id: item.tenant_id,

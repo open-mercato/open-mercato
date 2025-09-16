@@ -24,7 +24,7 @@ const addUser: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     const org = await em.findOneOrFail(Organization, { id: organizationId }, { populate: ['tenant'] })
-    const u = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organization: org, tenant: org.tenant })
+    const u = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organizationId: org.id, tenantId: org.tenant.id })
     await em.persistAndFlush(u)
     if (rolesCsv) {
       const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
@@ -113,7 +113,7 @@ const setupApp: ModuleCli = {
       }
     }
     // 3) Create user in organization
-    const user = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organization: org, tenant })
+    const user = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organizationId: org.id, tenantId: tenant.id })
     await em.persistAndFlush(user)
     // 4) Assign roles if any
     if (rolesCsv) {

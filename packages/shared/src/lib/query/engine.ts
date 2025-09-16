@@ -24,6 +24,12 @@ export class BasicQueryEngine implements QueryEngine {
         q = q.where(qualify('organization_id'), opts.organizationId)
       }
     }
+    // Tenant guard when present in schema
+    if (opts.tenantId) {
+      if (await this.columnExists(table, 'tenant_id')) {
+        q = q.where(qualify('tenant_id'), opts.tenantId)
+      }
+    }
     // Filters (base fields handled here; cf:* handled later)
     for (const f of opts.filters || []) {
       const col = f.field.startsWith('cf:') ? null : f.field
