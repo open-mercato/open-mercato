@@ -195,9 +195,14 @@ Notes:
 
 ## Documentation
 
+### Getting Started
 - <a href="./docs/tutorials/first-app.md">Quickstart tutorial</a>
 - <a href="./docs/tutorials/testing.md">Writing unit tests</a>
+- <a href="./docs/tutorials/api-data-fetching.md">API Data Fetching Tutorial</a>
+
+### Core Concepts
 - <a href="./docs/modules.md">Modules authoring and usage</a>
+- <a href="./docs/routes-and-pages.md">Creating Routes and Pages</a>
 - <a href="./docs/data-extensibility.md">Entity extensions and custom fields</a>
 - <a href="./docs/query-layer.md">Unified query layer (filters, paging, fields)</a>
 - <a href="./docs/events-and-subscribers.md">Events & subscribers</a>
