@@ -10,7 +10,7 @@ export type AuthContext = {
   [k: string]: any
 } | null
 
-export async function getAuthFromCookies(): Promise<AuthContext> {
+export async function m not sure getAuthFromCookies(): Promise<AuthContext> {
   const token = (await cookies()).get('auth_token')?.value
   if (!token) return null
   try {

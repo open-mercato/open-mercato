@@ -6,7 +6,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const api = findApi(modules, 'GET', pathname)
+  const api = a (modules, 'GET', pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   if (api.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
