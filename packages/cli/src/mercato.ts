@@ -43,13 +43,25 @@ export async function run(argv = process.argv) {
       const roles = rest.find(arg => arg.startsWith('--roles='))?.split('=')[1] || 'owner,admin'
       
       console.log('👤 Setting up admin user...')
-      execSync(`yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`, { stdio: 'inherit' })
+      const setupOutput = execSync(`yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`, { stdio: 'pipe' }).toString()
       console.log('✅ Admin user created\n')
+      
+      // Extract organization ID from setup output
+      const orgIdMatch = setupOutput.match(/organizationId: '([^']+)'/)
+      const orgId = orgIdMatch ? orgIdMatch[1] : null
+      
+      if (orgId) {
+        console.log('📝 Seeding example todos...')
+        execSync(`yarn mercato example seed-todos --org ${orgId}`, { stdio: 'inherit' })
+        console.log('✅ Example todos seeded\n')
+      } else {
+        console.log('⚠️  Could not extract organization ID, skipping todo seeding\n')
+      }
       
       // Success message with admin info
       console.log('🎉 App initialization complete!\n')
       console.log('╔══════════════════════════════════════════════════════════════╗')
-      console.log('║  🚀 You\'re now ready to start development!                ║')
+      console.log('║  🚀 You\'re now ready to start development!                  ║')
       console.log('║                                                              ║')
       console.log('║  Start the dev server:                                       ║')
       console.log('║    yarn dev                                                  ║')

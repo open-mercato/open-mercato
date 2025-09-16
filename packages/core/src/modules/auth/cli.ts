@@ -127,5 +127,120 @@ const setupApp: ModuleCli = {
   },
 }
 
+const listOrganizations: ModuleCli = {
+  command: 'list-orgs',
+  async run() {
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
+    const orgs = await em.find(Organization, {}, { populate: ['tenant'] })
+    
+    if (orgs.length === 0) {
+      console.log('No organizations found')
+      return
+    }
+    
+    console.log(`Found ${orgs.length} organization(s):`)
+    console.log('')
+    console.log('ID                                   | Name                    | Tenant ID                            | Created')
+    console.log('-------------------------------------|-------------------------|-------------------------------------|-------------------')
+    
+    for (const org of orgs) {
+      const created = org.createdAt ? new Date(org.createdAt).toLocaleDateString() : 'N/A'
+      const id = org.id?.substring(0, 8) + '...' || 'N/A'
+      const tenantId = org.tenant?.id?.substring(0, 8) + '...' || 'N/A'
+      const name = (org.name || 'Unnamed').padEnd(23)
+      console.log(`${id.padEnd(35)} | ${name} | ${tenantId.padEnd(35)} | ${created}`)
+    }
+  },
+}
+
+const listTenants: ModuleCli = {
+  command: 'list-tenants',
+  async run() {
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
+    const tenants = await em.find(Tenant, {})
+    
+    if (tenants.length === 0) {
+      console.log('No tenants found')
+      return
+    }
+    
+    console.log(`Found ${tenants.length} tenant(s):`)
+    console.log('')
+    console.log('ID                                   | Name                    | Created')
+    console.log('-------------------------------------|-------------------------|-------------------')
+    
+    for (const tenant of tenants) {
+      const created = tenant.createdAt ? new Date(tenant.createdAt).toLocaleDateString() : 'N/A'
+      const id = tenant.id?.substring(0, 8) + '...' || 'N/A'
+      const name = (tenant.name || 'Unnamed').padEnd(23)
+      console.log(`${id.padEnd(35)} | ${name} | ${created}`)
+    }
+  },
+}
+
+const listUsers: ModuleCli = {
+  command: 'list-users',
+  async run(rest) {
+    const args: Record<string, string> = {}
+    for (let i = 0; i < rest.length; i += 2) {
+      const k = rest[i]?.replace(/^--/, '')
+      const v = rest[i + 1]
+      if (k) args[k] = v
+    }
+    
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
+    
+    // Build query with optional filters
+    const where: any = {}
+    if (args.organizationId || args.orgId || args.org) {
+      where.organizationId = args.organizationId || args.orgId || args.org
+    }
+    if (args.tenantId || args.tenant) {
+      where.tenantId = args.tenantId || args.tenant
+    }
+    
+    const users = await em.find(User, where)
+    
+    if (users.length === 0) {
+      console.log('No users found')
+      return
+    }
+    
+    console.log(`Found ${users.length} user(s):`)
+    console.log('')
+    console.log('ID                                   | Email                   | Name                    | Organization ID      | Tenant ID            | Roles')
+    console.log('-------------------------------------|-------------------------|-------------------------|---------------------|---------------------|-------------------')
+    
+    for (const user of users) {
+      // Get user roles separately
+      const userRoles = await em.find(UserRole, { user: user.id }, { populate: ['role'] })
+      const roles = userRoles.map(ur => ur.role?.name).filter(Boolean).join(', ') || 'None'
+      
+      // Get organization and tenant names if IDs exist
+      let orgName = 'N/A'
+      let tenantName = 'N/A'
+      
+      if (user.organizationId) {
+        const org = await em.findOne(Organization, { id: user.organizationId })
+        orgName = org?.name?.substring(0, 19) + '...' || user.organizationId.substring(0, 8) + '...'
+      }
+      
+      if (user.tenantId) {
+        const tenant = await em.findOne(Tenant, { id: user.tenantId })
+        tenantName = tenant?.name?.substring(0, 19) + '...' || user.tenantId.substring(0, 8) + '...'
+      }
+      
+      const id = user.id?.substring(0, 8) + '...' || 'N/A'
+      const email = (user.email || 'N/A').padEnd(23)
+      const name = (user.name || 'Unnamed').padEnd(23)
+      
+      console.log(`${id.padEnd(35)} | ${email} | ${name} | ${orgName.padEnd(19)} | ${tenantName.padEnd(19)} | ${roles}`)
+    }
+  },
+}
+
 // Export the full CLI list
-export default [addUser, seedRoles, addOrganization, setupApp]
+export default [addUser, seedRoles, addOrganization, setupApp, listOrganizations, listTenants, listUsers]

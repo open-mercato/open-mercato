@@ -20,7 +20,7 @@
     "prebuild": "npm run modules:prepare",
     "db:generate": "tsx scripts/mikro-modules.ts generate",
     "db:migrate": "npm run modules:prepare && tsx scripts/mikro-modules.ts apply && tsx packages/cli/src/bin.ts custom_fields install --global",
-    "db:greenfield": "tsx scripts/mikro-modules.ts greenfield",
+    "greenfield": "tsx scripts/mikro-modules.ts greenfield",
     "db:custom_fields:install": "tsx packages/cli/src/bin.ts custom_fields install",
     "init": "tsx packages/cli/src/bin.ts init",
     "premercato": "npm run modules:prepare",

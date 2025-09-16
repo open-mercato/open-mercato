@@ -186,9 +186,24 @@ async function runGreenfield() {
       } else {
         results.push(`${modId}: already clean`)
       }
-    } else {
-      results.push(`${modId}: no migrations directory`)
-    }
+            } else {
+              results.push(`${modId}: no migrations directory`)
+            }
+            
+            // Clean up checksum files using glob pattern
+            const generatedDir = 'generated'
+            if (fs.existsSync(generatedDir)) {
+              const files = fs.readdirSync(generatedDir)
+              const checksumFiles = files.filter(file => file.endsWith('.checksum'))
+              
+              for (const file of checksumFiles) {
+                fs.unlinkSync(path.join(generatedDir, file))
+              }
+              
+              if (checksumFiles.length > 0) {
+                results.push(`${modId}: cleaned ${checksumFiles.length} checksum files`)
+              }
+            }
   }
   
   console.log(results.join('\n'))
