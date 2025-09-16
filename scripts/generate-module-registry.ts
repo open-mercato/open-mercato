@@ -1,11 +1,17 @@
 #!/usr/bin/env tsx
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { loadEnabledModules, moduleFsRoots, moduleImportBase } from './shared/modules-config'
 
 type HttpMethod = 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'
 
 const outFile = path.resolve('generated/modules.generated.ts')
+const checksumFile = path.resolve('generated/modules.generated.checksum')
+
+function calculateChecksum(content: string): string {
+  return crypto.createHash('md5').update(content).digest('hex')
+}
 
 function toVar(s: string) { return s.replace(/[^a-zA-Z0-9_]/g, '_') }
 
@@ -430,8 +436,23 @@ export const modules: Module[] = [
 ]
 export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
 `
-  fs.writeFileSync(outFile, output)
+  
+  // Check if content has changed
+  const newChecksum = calculateChecksum(output)
+  let shouldWrite = true
+  
+  if (fs.existsSync(checksumFile)) {
+    const existingChecksum = fs.readFileSync(checksumFile, 'utf8').trim()
+    if (existingChecksum === newChecksum) {
+      shouldWrite = false
+    }
+  }
+  
+  if (shouldWrite) {
+    fs.writeFileSync(outFile, output)
+    fs.writeFileSync(checksumFile, newChecksum)
+    console.log('Generated', path.relative(process.cwd(), outFile))
+  }
 }
 
 scan()
-console.log('Generated', path.relative(process.cwd(), outFile))

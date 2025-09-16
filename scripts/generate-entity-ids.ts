@@ -1,12 +1,18 @@
 #!/usr/bin/env tsx
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import ts from 'typescript'
 import { loadEnabledModules, moduleFsRoots, moduleImportBase } from './shared/modules-config'
 
 type GroupKey = '@app' | '@open-mercato/core' | '@open-mercato/example' | string
 
 const OUT_CONSOLIDATED = path.resolve('generated/entities.ids.generated.ts')
+const checksumFile = path.resolve('generated/entities.ids.generated.checksum')
+
+function calculateChecksum(content: string): string {
+  return crypto.createHash('md5').update(content).digest('hex')
+}
 
 function toVar(s: string) { return s.replace(/[^a-zA-Z0-9_]/g, '_') }
 function toSnake(s: string) { return s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/\W+/g, '_').replace(/_{2,}/g, '_').replace(/^_+|_+$/g, '').toLowerCase() }
@@ -201,8 +207,24 @@ export const E = ${JSON.stringify(consolidated, null, 2)} as const
 export type KnownModuleId = keyof typeof M
 export type KnownEntities = typeof E
 `
-  ensureDir(OUT_CONSOLIDATED)
-  fs.writeFileSync(OUT_CONSOLIDATED, consolidatedSrc)
+  
+  // Check if content has changed
+  const newChecksum = calculateChecksum(consolidatedSrc)
+  let shouldWrite = true
+  
+  if (fs.existsSync(checksumFile)) {
+    const existingChecksum = fs.readFileSync(checksumFile, 'utf8').trim()
+    if (existingChecksum === newChecksum) {
+      shouldWrite = false
+    }
+  }
+  
+  if (shouldWrite) {
+    ensureDir(OUT_CONSOLIDATED)
+    fs.writeFileSync(OUT_CONSOLIDATED, consolidatedSrc)
+    fs.writeFileSync(checksumFile, newChecksum)
+    console.log('Generated', path.relative(process.cwd(), OUT_CONSOLIDATED))
+  }
 
   // Write per-group outputs
   const groups = Object.keys(grouped) as GroupKey[]
@@ -235,7 +257,7 @@ export type KnownEntities = typeof E
 }
 
 scan().then(() => {
-  console.log('Generated', path.relative(process.cwd(), OUT_CONSOLIDATED))
+  // Only log if something was actually generated
 }).catch((e) => {
   console.error('Failed to generate entity ids:', e)
   process.exit(1)
