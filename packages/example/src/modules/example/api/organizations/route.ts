@@ -5,8 +5,22 @@ import { id, name } from '@open-mercato/core/datamodel/entities/organization'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 
 export const metadata = {
-  requireAuth: true,
-  requireRoles: ['admin'] as const,
+  GET: {
+    requireAuth: true,
+    requireRoles: ['admin']
+  },
+  POST: {
+    requireAuth: true,
+    requireRoles: ['admin', 'superuser']
+  },
+  PUT: {
+    requireAuth: true,
+    requireRoles: ['admin']
+  },
+  DELETE: {
+    requireAuth: true,
+    requireRoles: ['admin', 'superuser']
+  }
 }
 
 export async function GET(request: Request) {

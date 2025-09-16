@@ -270,7 +270,7 @@ function scan() {
         const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api/${segs.join('/')}/route`
         const routePath = '/' + reqSegs.filter(Boolean).join('/')
         imports.push(`import * as ${importName} from '${importPath}'`)
-        apis.push(`{ path: '${routePath}', requireAuth: ${importName}.metadata?.requireAuth, requireRoles: ${importName}.metadata?.requireRoles, handlers: ${importName} }`)
+        apis.push(`{ path: '${routePath}', metadata: ${importName}.metadata, handlers: ${importName} }`)
       }
 
       // Single files
@@ -302,7 +302,7 @@ function scan() {
         const fromApp = fs.existsSync(appFile)
         const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api/${fullSegs.join('/')}`
         imports.push(`import * as ${importName} from '${importPath}'`)
-        apis.push(`{ path: '${routePath}', requireAuth: ${importName}.metadata?.requireAuth, requireRoles: ${importName}.metadata?.requireRoles, handlers: ${importName} }`)
+        apis.push(`{ path: '${routePath}', metadata: ${importName}.metadata, handlers: ${importName} }`)
       }
       // Legacy per-method
       const methods: HttpMethod[] = ['GET','POST','PUT','PATCH','DELETE']
@@ -337,7 +337,7 @@ function scan() {
           const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
           const metaName = `RM${importId++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
           imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
-          apis.push(`{ method: '${method}', path: '${routePath}', handler: ${importName}, requireAuth: ${metaName}.metadata?.requireAuth, requireRoles: ${metaName}.metadata?.requireRoles }`)
+          apis.push(`{ method: '${method}', path: '${routePath}', handler: ${importName}, metadata: ${metaName}.metadata }`)
         }
       }
     }
