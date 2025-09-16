@@ -30,7 +30,38 @@ This example extends the `example` module with a new `Todo` entity, declares cus
    - Go to `/backend/example/todos` (also linked on the home page under Quick Links).
 
 ## Notes
-- The page uses the query engine with `organizationId` set from auth and `fields: ['id','title','tenant_id','organization_id','is_done','cf:priority','cf:severity','cf:blocked']` so custom fields are joined and projected.
-- You can filter or sort on base fields today; custom-field filters are supported as `filters: [{ field: 'cf:priority', op: 'gte', value: 3 }]` when building queries in code.
+- The page uses the query engine with `organizationId` set from auth and fields imported from `@open-mercato/example/datamodel/entities/todo` like `[id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked']` so custom fields are joined and projected.
+- You can filter or sort on base fields today; custom-field filters are supported as `filters: [{ field: 'cf:priority', op: 'gte', value: 3 }]` when building queries in code. For sorting, prefer the `SortDir` enum: `sort: [{ field: id, dir: SortDir.Asc }]`.
 - To scope by tenant, add `organization_id` to your entities and pass `organizationId` in query options. The example entity omits it for simplicity.
   - In this example, the `todos` table includes `tenant_id` and `organization_id`, and the page filters by `organizationId` from the authenticated user.
+
+### Optional page metadata
+You can co-locate admin navigation and access control metadata with the page.
+
+Add next to the page file:
+
+```ts
+// packages/example/src/modules/example/backend/todos/page.meta.ts
+import type { PageMetadata } from '@open-mercato/shared/modules/registry'
+export const metadata: PageMetadata = {
+  requireAuth: true,
+  pageTitle: 'Todos',
+  pageGroup: 'Example',
+  pageOrder: 20,
+}
+```
+
+Or, since this page is a server component, export `metadata` from the page itself:
+
+```ts
+// packages/example/src/modules/example/backend/todos/page.tsx
+import type { PageMetadata } from '@open-mercato/shared/modules/registry'
+export const metadata: PageMetadata = {
+  requireAuth: true,
+  pageTitle: 'Todos',
+  pageGroup: 'Example',
+}
+export default async function Page() { /* ... */ }
+```
+
+If both exist, the separate `*.meta.ts` file takes precedence.

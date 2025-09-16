@@ -39,6 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.tsbuild/
 
 
 /**/migrations/*
@@ -46,3 +47,12 @@ next-env.d.ts
 /src/generated/
 /generated/
 packages/*/generated/
+# package build outputs
+packages/*/dist/
+packages/**/dist/
+
+# prevent accidental check-in of transpiled JS alongside TS sources
+src/**/*.js
+src/**/*.jsx
+packages/*/src/**/*.js
+packages/*/src/**/*.jsx

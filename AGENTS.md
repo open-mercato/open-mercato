@@ -14,6 +14,9 @@ This repository is designed for extensibility. Agents should leverage the module
   - Frontend pages under `src/modules/<module>/frontend/<path>.tsx` → `/<path>`
   - Backend pages under `src/modules/<module>/backend/<path>.tsx` → `/backend/<path>`
   - Special case: `src/modules/<module>/backend/page.tsx` → `/backend/<module>`
+  - Page metadata:
+    - Prefer colocated `page.meta.ts`, `<name>.meta.ts`, or folder `meta.ts`.
+    - Alternatively, server components may `export const metadata` from the page file itself.
   - API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
   - Subscribers under `src/modules/<module>/subscribers/*.ts` exporting default handler and `metadata` with `{ event: string, persistent?: boolean, id?: string }`
   - Optional CLI at `src/modules/<module>/cli.ts` default export

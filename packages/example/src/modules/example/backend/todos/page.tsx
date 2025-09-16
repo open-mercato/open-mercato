@@ -5,6 +5,9 @@ import { getAuthFromCookies } from '@/lib/auth/server'
 import type { ColumnDef } from '@tanstack/react-table'
 import TodosTable from '../../components/TodosTable'
 import { E } from '@open-mercato/example/datamodel/entities'
+import { id, title, tenant_id, organization_id, is_done } from '@open-mercato/example/datamodel/entities/todo'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { SortDir } from '@open-mercato/shared/lib/query/types'
 
 type TodoRow = {
   id: number
@@ -20,14 +23,14 @@ type TodoRow = {
 
 export default async function ExampleTodosPage() {
   const container = await createRequestContainer()
-  const queryEngine = container.resolve<any>('queryEngine')
+  const queryEngine = container.resolve<QueryEngine>('queryEngine')
   const auth = await getAuthFromCookies()
   const orgId = auth?.orgId ? Number(auth.orgId) : undefined
   // Pull base columns and CF columns (aliased as cf:*) using the query engine
   const res = await queryEngine.query(E.example.todo, {
     organizationId: orgId,
-    fields: ['id', 'title', 'tenant_id', 'organization_id', 'is_done', 'cf:priority', 'cf:severity', 'cf:blocked'],
-    sort: [{ field: 'id', dir: 'asc' }],
+    fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked'],
+    sort: [{ field: id, dir: SortDir.Asc }],
     page: { page: 1, pageSize: 50 },
   })
   // Map to rows expected by DataTable (cf:* are projected as columns with "cf_" prefix)

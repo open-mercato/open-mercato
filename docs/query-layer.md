@@ -11,18 +11,22 @@ The query layer provides a consistent API to fetch data across base entities, mo
 
 ```ts
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { E } from '@open-mercato/core/datamodel/entities'
+import { id, email, name } from '@open-mercato/core/datamodel/entities/user'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { SortDir } from '@open-mercato/shared/lib/query/types'
 
 export async function listUsers(container: AppContainer) {
-  const query = container.resolve('queryEngine') as import('@open-mercato/shared/lib/query/types').QueryEngine
-  return await query.query('auth:user', {
-    fields: ['id','email','name','cf:vip'],
+  const query = container.resolve<QueryEngine>('queryEngine')
+  return await query.query(E.auth.user, {
+    fields: [id, email, name, 'cf:vip'],
     includeExtensions: true, // joins registered extensions
     includeCustomFields: true, // auto-discovers keys via custom_field_defs
     filters: [
       { field: 'cf:vip', op: 'eq', value: true },
-      { field: 'email', op: 'ilike', value: '%@acme.com' },
+      { field: email, op: 'ilike', value: '%@acme.com' },
     ],
-    sort: [{ field: 'email', dir: 'asc' }],
+    sort: [{ field: email, dir: SortDir.Asc }],
     page: { page: 1, pageSize: 25 },
     organizationId: 1,
   })
@@ -31,11 +35,11 @@ export async function listUsers(container: AppContainer) {
 
 ## Model
 - `entity`: an `EntityId` string of the form `<module>:<entity>`; used to resolve the base table and registered extensions.
-- `fields`: base columns and/or custom fields prefixed as `cf:<key>`.
+- `fields`: base columns and/or custom fields prefixed as `cf:<key>`. Prefer importing base columns from `@open-mercato/<pkg>/datamodel/entities/<entity>` (e.g., `import { id, email } from '@open-mercato/core/datamodel/entities/user'`).
 - `includeExtensions`: `true` to include all linked extension entities; or `string[]` of extension entity ids.
 - `includeCustomFields`: `true` to include all CFs; or `string[]` of keys.
 - `filters`: support base fields and `cf:<key>`.
-- `sort`: base fields initially; extended to `cf:<key>` as we iterate.
+- `sort`: base fields and `cf:<key>`. Use generated field constants and `SortDir` (e.g., `{ field: email, dir: SortDir.Asc }`).
 - `page`: paging options.
 - `organizationId`: scoping for multi-tenant.
 

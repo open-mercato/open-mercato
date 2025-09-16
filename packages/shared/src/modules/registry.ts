@@ -1,5 +1,27 @@
 import type { ReactNode } from 'react'
 
+// Context passed to dynamic metadata guards
+export type RouteVisibilityContext = { path?: string; auth?: any }
+
+// Metadata you can export from page.meta.ts or directly from a server page
+export type PageMetadata = {
+  requireAuth?: boolean
+  requireRoles?: readonly string[]
+  // Titles and grouping (aliases supported)
+  title?: string
+  pageTitle?: string
+  group?: string
+  pageGroup?: string
+  // Ordering and visuals
+  order?: number
+  pageOrder?: number
+  icon?: string
+  navHidden?: boolean
+  // Dynamic flags
+  visible?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
+  enabled?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
+}
+
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export type ApiHandler = (req: Request, ctx?: any) => Promise<Response> | Response
@@ -14,8 +36,8 @@ export type ModuleRoute = {
   icon?: string
   order?: number
   navHidden?: boolean
-  visible?: (ctx: { path?: string; auth?: any }) => boolean | Promise<boolean>
-  enabled?: (ctx: { path?: string; auth?: any }) => boolean | Promise<boolean>
+  visible?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
+  enabled?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
   Component: (props: any) => ReactNode | Promise<ReactNode>
 }
 

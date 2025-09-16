@@ -57,6 +57,30 @@ export function register(container: AppContainer) {
   - Frontend: `src/app/(frontend)/[[...slug]]/page.tsx`
   - Backend: `src/app/(backend)/backend/[[...slug]]/page.tsx`
 
+#### Page Metadata
+- You can attach per-page metadata that the generator uses for navigation and access control.
+- Preferred files next to the page:
+  - `page.meta.ts` (for Next-style `page.tsx`)
+  - `<name>.meta.ts` (for direct files)
+  - `meta.ts` (folder-level, applies to the page in the same folder)
+ - Alternatively, for server components, export metadata directly from the page module (typed for IDE autocomplete):
+   ```ts
+   import type { PageMetadata } from '@open-mercato/shared/modules/registry'
+   export const metadata: PageMetadata = { /* ... */ }
+   ```
+- Recognized fields (used where applicable):
+  - `requireAuth: boolean`
+  - `requireRoles: readonly string[]`
+  - `title` or `pageTitle: string`
+  - `group` or `pageGroup: string`
+  - `order` or `pageOrder: number`
+  - `icon: string` (backend Next-style pages)
+  - `navHidden: boolean` (hide from admin nav)
+  - `visible?: (ctx) => boolean|Promise<boolean>`
+  - `enabled?: (ctx) => boolean|Promise<boolean>`
+
+Precedence: if a `*.meta.ts` file is present it is used; otherwise, the generator will look for `export const metadata` in the page module (server-only).
+
 #### Override Example
 - Package page: `@open-mercato/example/modules/example/frontend/blog/[id]/page.tsx`
 - App override: `src/modules/example/frontend/blog/[id]/page.tsx`

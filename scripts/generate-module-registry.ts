@@ -62,6 +62,7 @@ function scan() {
         const segs = rel.split('/')
         segs.pop()
         const importName = `C${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
+        const pageModName = `CM${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
         const appFile = path.join(feApp, ...segs, 'page.tsx')
         const fromApp = fs.existsSync(appFile)
         const sub = segs.length ? `${segs.join('/')}/page` : 'page'
@@ -78,8 +79,13 @@ function scan() {
           const metaImportPath = `${fromApp ? imps.appBase : imps.pkgBase}/frontend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
           imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
           metaExpr = `${metaImportName}.metadata`
+          // Only import default page when meta file exists
+          imports.push(`import ${importName} from '${importPath}'`)
+        } else {
+          // Fallback: metadata exported from the page module itself
+          metaExpr = `${pageModName}['metadata']`
+          imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
-        imports.push(`import ${importName} from '${importPath}'`)
         frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
       }
       // Back-compat direct files
@@ -89,6 +95,7 @@ function scan() {
         const name = file.replace(/\.tsx$/, '')
         const routeSegs = [...segs, name].filter(Boolean)
         const importName = `C${importId++}_${toVar(modId)}_${toVar(routeSegs.join('_')||'index')}`
+        const pageModName = `CM${importId++}_${toVar(modId)}_${toVar(routeSegs.join('_')||'index')}`
         const appFile = path.join(feApp, ...segs, `${name}.tsx`)
         const fromApp = fs.existsSync(appFile)
         const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/frontend/${[...segs, name].join('/')}`
@@ -106,8 +113,13 @@ function scan() {
           const metaImportPath = `${fromApp ? imps.appBase : imps.pkgBase}/frontend/${[...segs, metaImportSub].join('/')}`
           imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
           metaExpr = `${metaImportName}.metadata`
+          // Only import default page when meta file exists
+          imports.push(`import ${importName} from '${importPath}'`)
+        } else {
+          // Fallback: metadata exported from the page module itself
+          metaExpr = `${pageModName}['metadata']`
+          imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
-        imports.push(`import ${importName} from '${importPath}'`)
         frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
       }
     }
@@ -162,6 +174,7 @@ function scan() {
         const segs = rel.split('/')
         segs.pop()
         const importName = `B${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
+        const pageModName = `BM${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
         const appFile = path.join(beApp, ...segs, 'page.tsx')
         const fromApp = fs.existsSync(appFile)
         const sub = segs.length ? `${segs.join('/')}/page` : 'page'
@@ -179,8 +192,13 @@ function scan() {
           const metaImportPath = `${fromApp ? imps.appBase : imps.pkgBase}/backend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
           imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
           metaExpr = `${metaImportName}.metadata`
+          // Only import default page when meta file exists
+          imports.push(`import ${importName} from '${importPath}'`)
+        } else {
+          // Fallback: metadata exported from the page module itself
+          metaExpr = `${pageModName}['metadata']`
+          imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
-        imports.push(`import ${importName} from '${importPath}'`)
         backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
       }
       // Direct files
@@ -189,6 +207,7 @@ function scan() {
         const file = segs.pop()!
         const name = file.replace(/\.tsx$/, '')
         const importName = `B${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_')||'index')}`
+        const pageModName = `BM${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_')||'index')}`
         const appFile = path.join(beApp, ...segs, `${name}.tsx`)
         const fromApp = fs.existsSync(appFile)
         const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/backend/${[...segs, name].join('/')}`
@@ -206,8 +225,13 @@ function scan() {
           const metaImportPath = `${fromApp ? imps.appBase : imps.pkgBase}/backend/${[...segs, metaImportSub].join('/')}`
           imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
           metaExpr = `${metaImportName}.metadata`
+          // Only import default page when meta file exists
+          imports.push(`import ${importName} from '${importPath}'`)
+        } else {
+          // Fallback: metadata exported from the page module itself
+          metaExpr = `${pageModName}['metadata']`
+          imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
-        imports.push(`import ${importName} from '${importPath}'`)
         backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
       }
     }
