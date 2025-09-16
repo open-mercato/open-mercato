@@ -70,8 +70,7 @@ Steps:
 - Note the printed `organizationId` (use it below)
 
 3) Seed example Todos (entity + per‑org custom field definitions + sample data)
-- `yarn mercato example seed-todos --org <organizationId>`
-- Optional tenant scoping: `--tenant <tenantId>`
+- `yarn mercato example seed-todos --org <organizationId> --tenant <tenantId>`
 
 4) Open the Todos page
 - Visit `/backend/example/todos` to filter/sort on base fields and custom fields (e.g., priority, severity, blocked).
@@ -176,11 +175,12 @@ yarn mercato auth seed-roles
 #### `yarn mercato example seed-todos` - Seed Example Data
 Creates sample todos with custom fields:
 ```bash
-yarn mercato example seed-todos --org <organizationId>
+yarn mercato example seed-todos --org <organizationId> --tenant <tenantId>
 ```
 
-**Optional parameters:**
-- `--tenant <tenantId>` - scope to specific tenant
+**Required parameters:**
+- `--org <organizationId>` - organization ID
+- `--tenant <tenantId>` - tenant ID
 
 ### Other Commands
 

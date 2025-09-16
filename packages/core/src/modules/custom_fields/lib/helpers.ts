@@ -6,7 +6,8 @@ type Primitive = string | number | boolean | null | undefined
 export type SetRecordCustomFieldsOptions = {
   entityId: string
   recordId: string
-  organizationId?: number | null
+  organizationId?: string | null
+  tenantId?: string | null
   values: Record<string, Primitive>
   // When true (default), try to use field definitions to decide storage column
   preferDefs?: boolean
@@ -52,6 +53,7 @@ export async function setRecordCustomFields(
 ): Promise<void> {
   const { entityId, recordId, values } = opts
   const organizationId = opts.organizationId ?? null
+  const tenantId = opts.tenantId ?? null
   const preferDefs = opts.preferDefs !== false
 
   let defsByKey: Record<string, CustomFieldDef> | undefined
@@ -59,12 +61,15 @@ export async function setRecordCustomFields(
     const defs = await em.find(CustomFieldDef, {
       entityId,
       organizationId: { $in: [organizationId, null] as any },
+      tenantId: { $in: [tenantId, null] as any },
     })
-    // Prefer org-specific over global if duplicates
+    // Prefer org+tenant-specific over global if duplicates
     defsByKey = {}
     for (const d of defs) {
       const existing = defsByKey[d.key]
-      if (!existing || (existing.organizationId == null && d.organizationId != null)) {
+      if (!existing || 
+          (existing.organizationId == null && d.organizationId != null) ||
+          (existing.tenantId == null && d.tenantId != null)) {
         defsByKey[d.key] = d
       }
     }

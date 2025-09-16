@@ -185,10 +185,6 @@ export default function TodosTable() {
     </div>
   )
 
-  if (isLoading) {
-    return <div>Loading...</div>
-  }
-
   if (error) {
     return <div>Error: {error.message}</div>
   }
@@ -208,6 +204,7 @@ export default function TodosTable() {
         totalPages: todosData?.totalPages || 0,
         onPageChange: setPage,
       }}
+      isLoading={isLoading}
     />
   )
 }

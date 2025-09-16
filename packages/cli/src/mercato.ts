@@ -46,16 +46,19 @@ export async function run(argv = process.argv) {
       const setupOutput = execSync(`yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`, { stdio: 'pipe' }).toString()
       console.log('✅ Admin user created\n')
       
-      // Extract organization ID from setup output
+
+      // Extract organization ID and tenant ID from setup output
       const orgIdMatch = setupOutput.match(/organizationId: '([^']+)'/)
+      const tenantIdMatch = setupOutput.match(/tenantId: '([^']+)'/)
       const orgId = orgIdMatch ? orgIdMatch[1] : null
+      const tenantId = tenantIdMatch ? tenantIdMatch[1] : null
       
-      if (orgId) {
+      if (orgId && tenantId) {
         console.log('📝 Seeding example todos...')
-        execSync(`yarn mercato example seed-todos --org ${orgId}`, { stdio: 'inherit' })
+        execSync(`yarn mercato example seed-todos --org ${orgId} --tenant ${tenantId}`, { stdio: 'inherit' })
         console.log('✅ Example todos seeded\n')
       } else {
-        console.log('⚠️  Could not extract organization ID, skipping todo seeding\n')
+        console.log('⚠️  Could not extract organization ID or tenant ID, skipping todo seeding\n')
       }
       
       // Success message with admin info

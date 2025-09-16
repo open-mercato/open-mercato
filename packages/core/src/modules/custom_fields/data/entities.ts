@@ -14,6 +14,10 @@ export class CustomFieldDef {
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
 
+  // Tenant scope (nullable for global)
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
   // Unique key within entity scope
   @Property({ type: 'text' })
   @Index({ name: 'cf_defs_entity_key_idx' })
@@ -52,6 +56,9 @@ export class CustomFieldValue {
 
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
 
   // Field key for lookup; resolves to a CustomFieldDef
   @Property({ name: 'field_key', type: 'text' })

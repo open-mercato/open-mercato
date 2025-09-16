@@ -23,8 +23,8 @@ This example extends the `example` module with a new `Todo` entity, declares cus
 3) Seed field definitions for your organization
    - `npm run mercato -- custom_fields install -- --org <orgId>`
 
-4) Seed todos and their custom field values (scoped to org; optional tenant)
-   - `npm run mercato -- example seed-todos -- --org <orgId> [--tenant <tenantId>]`
+4) Seed todos and their custom field values (scoped to org and tenant)
+   - `npm run mercato -- example seed-todos -- --org <orgId> --tenant <tenantId>`
 
 5) Open the page
    - Go to `/backend/example/todos` (also linked on the home page under Quick Links).
@@ -32,7 +32,7 @@ This example extends the `example` module with a new `Todo` entity, declares cus
 ## Notes
 - The page uses the query engine with `organizationId` set from auth and fields imported from `@open-mercato/example/datamodel/entities/todo` like `[id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked']` so custom fields are joined and projected.
 - You can filter or sort on base fields today; custom-field filters are supported as `filters: [{ field: 'cf:priority', op: 'gte', value: 3 }]` when building queries in code. For sorting, prefer the `SortDir` enum: `sort: [{ field: id, dir: SortDir.Asc }]`.
-- To scope by tenant, add `organization_id` to your entities and pass `organizationId` in query options. The example entity omits it for simplicity.
+- The example entity includes both `organization_id` and `tenant_id` for proper multi-tenant scoping. All queries must include both `organizationId` and `tenantId` in query options.
   - In this example, the `todos` table includes `tenant_id` and `organization_id`, and the page filters by `organizationId` from the authenticated user.
 
 ### Optional page metadata
