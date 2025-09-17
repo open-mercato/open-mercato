@@ -30,8 +30,16 @@ export class BasicQueryEngine implements QueryEngine {
         q = q.where(qualify('tenant_id'), opts.tenantId)
       }
     }
+    // Default soft-delete guard: exclude rows with deleted_at when column exists
+    if (!opts.withDeleted && await this.columnExists(table, 'deleted_at')) {
+      q = q.whereNull(qualify('deleted_at'))
+    }
+
+    // Normalize filters: accept array or Mongo-style object
+    const arrayFilters = this.normalizeFilters(opts.filters)
+
     // Filters (base fields handled here; cf:* handled later)
-    for (const f of opts.filters || []) {
+    for (const f of arrayFilters) {
       const col = f.field.startsWith('cf:') ? null : f.field
       if (!col) continue
       switch (f.op) {
@@ -69,8 +77,8 @@ export class BasicQueryEngine implements QueryEngine {
     const baseIdExpr = knex.raw('??::text', [`${table}.id`])
     const cfKeys = new Set<string>()
     // Explicit in fields/filters
-    for (const f of opts.fields || []) if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
-    for (const f of opts.filters || []) if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
+    for (const f of (opts.fields || [])) if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
+    for (const f of arrayFilters) if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
     // includeCustomFields: boolean | string[]
     if (opts.includeCustomFields === true) {
       // Read all defs for this entity and org/global
@@ -128,7 +136,7 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     // Apply cf:* filters (on raw expressions)
-    for (const f of opts.filters || []) {
+    for (const f of arrayFilters) {
       if (!f.field.startsWith('cf:')) continue
       const key = f.field.slice(3)
       const expr = cfValueExprByKey[key]
@@ -210,5 +218,37 @@ export class BasicQueryEngine implements QueryEngine {
       .where({ table_name: table, column_name: column })
       .first()
     return !!exists
+  }
+
+  private normalizeFilters(filters?: QueryOptions['filters']): { field: string; op: any; value?: any }[] {
+    if (!filters) return []
+    const normalizeField = (k: string) => k.startsWith('cf_') ? `cf:${k.slice(3)}` : k
+    if (Array.isArray(filters)) return (filters as any[]).map((f) => ({ ...f, field: normalizeField(String((f as any).field)) }))
+    const out: { field: string; op: any; value?: any }[] = []
+    const obj = filters as Record<string, any>
+    const add = (field: string, op: any, value?: any) => out.push({ field, op, value })
+    for (const [rawKey, rawVal] of Object.entries(obj)) {
+      const field = normalizeField(rawKey)
+      if (rawVal !== null && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
+        for (const [opKey, opVal] of Object.entries(rawVal)) {
+          switch (opKey) {
+            case '$eq': add(field, 'eq', opVal); break
+            case '$ne': add(field, 'ne', opVal); break
+            case '$gt': add(field, 'gt', opVal); break
+            case '$gte': add(field, 'gte', opVal); break
+            case '$lt': add(field, 'lt', opVal); break
+            case '$lte': add(field, 'lte', opVal); break
+            case '$in': add(field, 'in', opVal); break
+            case '$nin': add(field, 'nin', opVal); break
+            case '$like': add(field, 'like', opVal); break
+            case '$ilike': add(field, 'ilike', opVal); break
+            case '$exists': add(field, 'exists', opVal); break
+          }
+        }
+      } else {
+        add(field, 'eq', rawVal)
+      }
+    }
+    return out
   }
 }

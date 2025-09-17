@@ -31,7 +31,8 @@ This example extends the `example` module with a new `Todo` entity, declares cus
 
 ## Notes
 - The page uses the query engine with `organizationId` set from auth and fields imported from `@open-mercato/example/datamodel/entities/todo` like `[id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked']` so custom fields are joined and projected.
-- You can filter or sort on base fields today; custom-field filters are supported as `filters: [{ field: 'cf:priority', op: 'gte', value: 3 }]` when building queries in code. For sorting, prefer the `SortDir` enum: `sort: [{ field: id, dir: SortDir.Asc }]`.
+- You can filter or sort on base fields today; custom-field filters are supported as `filters: [{ field: 'cf:priority', op: 'gte', value: 3 }]` or, using the Mongo-style object syntax: `filters: { 'cf:priority': { $gte: 3 } }`. For sorting, prefer the `SortDir` enum: `sort: [{ field: id, dir: SortDir.Asc }]`.
+- Soft delete: if the `todos` table has `deleted_at`, results exclude soft-deleted rows by default. Pass `withDeleted: true` to include them.
 - The example entity includes both `organization_id` and `tenant_id` for proper multi-tenant scoping. All queries must include both `organizationId` and `tenantId` in query options.
   - In this example, the `todos` table includes `tenant_id` and `organization_id`, and the page filters by `organizationId` from the authenticated user.
 

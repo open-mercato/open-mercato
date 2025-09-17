@@ -2,7 +2,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromCookies } from '@/lib/auth/server'
 import { E } from '@open-mercato/example/datamodel/entities'
 import { id, title, tenant_id, organization_id, is_done } from '@open-mercato/example/datamodel/entities/todo'
-import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, Where } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { z } from 'zod'
 
@@ -21,6 +21,7 @@ const querySchema = z.object({
   severity: z.string().optional(),
   isDone: z.coerce.boolean().optional(),
   isBlocked: z.coerce.boolean().optional(),
+  withDeleted: z.coerce.boolean().optional().default(false),
   organizationId: z.string().uuid().optional(),
 })
 
@@ -74,24 +75,23 @@ export async function GET(request: Request) {
     const sortField = validatedQuery.sortField === 'id' ? id : validatedQuery.sortField
     const sortDir = validatedQuery.sortDir === 'desc' ? SortDir.Desc : SortDir.Asc
 
-    // Build filter conditions
-    const filters: any[] = []
-    
-    if (validatedQuery.title) {
-      filters.push({ field: 'title', op: 'ilike', value: `%${validatedQuery.title}%` })
+    // Build typed object-style filters
+    type TodoFields = {
+      id: string
+      title: string
+      is_done: boolean
+      tenant_id: string | null
+      organization_id: string | null
+      'cf:priority': number
+      'cf:severity': string
+      'cf:blocked': boolean
     }
-    if (validatedQuery.isDone !== undefined) {
-      filters.push({ field: 'is_done', op: 'eq', value: validatedQuery.isDone })
-    }
-    if (validatedQuery.organizationId) {
-      filters.push({ field: 'organization_id', op: 'eq', value: validatedQuery.organizationId })
-    }
-    if (validatedQuery.severity) {
-      filters.push({ field: 'cf:severity', op: 'eq', value: validatedQuery.severity })
-    }
-    if (validatedQuery.isBlocked !== undefined) {
-      filters.push({ field: 'cf:blocked', op: 'eq', value: validatedQuery.isBlocked })
-    }
+    const filters: Where<TodoFields> = {}
+    if (validatedQuery.title) filters.title = { $ilike: `%${validatedQuery.title}%` }
+    if (validatedQuery.isDone !== undefined) filters.is_done = validatedQuery.isDone
+    if (validatedQuery.organizationId) filters.organization_id = validatedQuery.organizationId
+    if (validatedQuery.severity) filters['cf:severity'] = validatedQuery.severity
+    if (validatedQuery.isBlocked !== undefined) filters['cf:blocked'] = validatedQuery.isBlocked
 
     // Query todos with custom fields
     const res = await queryEngine.query(E.example.todo, {
@@ -101,6 +101,7 @@ export async function GET(request: Request) {
       sort: [{ field: sortField, dir: sortDir }],
       page: { page: validatedQuery.page, pageSize: validatedQuery.pageSize },
       filters,
+      withDeleted: validatedQuery.withDeleted,
     })
 
     // Map to response format

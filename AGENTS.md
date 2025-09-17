@@ -42,7 +42,7 @@ This repository is designed for extensibility. Agents should leverage the module
 
 ## Database Naming
 - Tables: plural snake_case (e.g., `users`, `user_roles`, `example_items`).
-- Common columns: `id`, `created_at`, `updated_at`, `is_active`, `organization_id` when applicable.
+- Common columns: `id`, `created_at`, `updated_at`, `deleted_at`, `is_active`, `organization_id`, `tenant_id` when applicable.
 - Prefer UUID PKs (`uuid`) and explicit FKs; use junction tables for many-to-many.
 
 ## Module Isomorphism Rules
@@ -80,3 +80,4 @@ This repository is designed for extensibility. Agents should leverage the module
 - Keep modules separated and isomorphic: when extending another module’s data, add a separate extension entity and declare a link in `data/extensions.ts` (do not mutate core entities). Pattern mirrors Medusa’s module links.
 - Custom fields: users can add/remove/modify fields per entity without schema forks. We store definitions and values in a dedicated `custom_fields` module (EAV). A future admin UI will let users manage fields, and generic list/detail pages will consume them for filtering and forms.
 - Query layer: access via DI (`queryEngine`) to fetch base entities with optional extensions and/or custom fields using a unified API for filtering, fields selection, pagination, and sorting.
+  - Soft delete: entities should include `deleted_at timestamptz null`. The query engine excludes rows with non-null `deleted_at` by default; pass `withDeleted: true` to include them.
