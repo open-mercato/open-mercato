@@ -71,7 +71,7 @@ export async function run(argv = process.argv) {
       console.log('║    yarn dev                                                  ║')
       console.log('║                                                              ║')
       console.log('║  Your admin user:                                            ║')
-      console.log(`║    📧 Email: ${email.padEnd(44)} ║`)
+      console.log(`║    📧 Email: ${email.padEnd(47)} ║`)
       console.log(`║    🔑 Password: ${password.padEnd(44)} ║`)
       console.log(`║    🏢 Organization: ${orgName.padEnd(40)} ║`)
       console.log(`║    👑 Roles: ${roles.padEnd(47)} ║`)
