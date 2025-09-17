@@ -5,6 +5,8 @@ import { id, title, tenant_id, organization_id, is_done } from '@open-mercato/ex
 import type { QueryEngine, Where } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { z } from 'zod'
+import { Todo } from '@open-mercato/example/modules/example/data/entities'
+import { setRecordCustomFields } from '@open-mercato/core/modules/custom_fields/lib/helpers'
 
 // Simple UUID validation
 function isValidUUID(uuid: string): boolean {
@@ -27,6 +29,16 @@ const querySchema = z.object({
   createdFrom: z.string().optional(),
   createdTo: z.string().optional(),
   labelsIn: z.string().optional(),
+  format: z.enum(['json', 'csv']).optional().default('json'),
+})
+
+const createSchema = z.object({
+  title: z.string().min(1),
+  is_done: z.boolean().optional().default(false),
+  cf_priority: z.number().int().min(1).max(5).optional(),
+  cf_severity: z.enum(['low', 'medium', 'high']).optional(),
+  cf_blocked: z.boolean().optional(),
+  cf_labels: z.array(z.string()).optional(),
 })
 
 export const metadata = {
@@ -75,8 +87,19 @@ export async function GET(request: Request) {
     const queryParams = Object.fromEntries(url.searchParams.entries())
     const validatedQuery = querySchema.parse(queryParams)
 
-    // Build sort configuration
-    const sortField = validatedQuery.sortField === 'id' ? id : validatedQuery.sortField
+    // Build sort configuration, include mapping for custom fields
+    const sortFieldMap: Record<string, any> = {
+      id,
+      title,
+      tenant_id,
+      organization_id,
+      is_done,
+      cf_priority: 'cf:priority',
+      cf_severity: 'cf:severity',
+      cf_blocked: 'cf:blocked',
+      cf_labels: 'cf:labels',
+    }
+    const sortField = sortFieldMap[validatedQuery.sortField] ?? validatedQuery.sortField
     const sortDir = validatedQuery.sortDir === 'desc' ? SortDir.Desc : SortDir.Asc
 
     // Build typed object-style filters
@@ -148,6 +171,25 @@ export async function GET(request: Request) {
       cf_labels: toArray(item['cf:labels'] ?? (item as any).cf_labels),
     }))
 
+    if (validatedQuery.format === 'csv') {
+      // Build CSV
+      const headers = ['id','title','is_done','organization_id','tenant_id','cf_priority','cf_severity','cf_blocked','cf_labels']
+      const escape = (v: any) => {
+        if (v == null) return ''
+        const s = Array.isArray(v) ? v.join('|') : String(v)
+        const needsQuotes = s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')
+        return needsQuotes ? '"' + s.replace(/"/g, '""') + '"' : s
+      }
+      const rows = todos.map(t => headers.map(h => escape((t as any)[h])).join(','))
+      const csv = [headers.join(','), ...rows].join('\n')
+      return new Response(csv, {
+        headers: {
+          'content-type': 'text/csv; charset=utf-8',
+          'content-disposition': 'attachment; filename="todos.csv"',
+        },
+      })
+    }
+
     return new Response(JSON.stringify({
       items: todos,
       total: res.total,
@@ -159,6 +201,57 @@ export async function GET(request: Request) {
     })
   } catch (error) {
     console.error('Error fetching todos:', error)
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const container = await createRequestContainer()
+    const auth = await getAuthFromCookies()
+    if (!auth?.orgId || !auth?.tenantId) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'content-type': 'application/json' } })
+    }
+    const body = await request.json().catch(() => ({}))
+    const input = createSchema.parse(body)
+
+    const em = container.resolve('em') as any
+
+    // Create base Todo
+    const todo = em.create(Todo, {
+      title: input.title,
+      isDone: !!input.is_done,
+      organizationId: auth.orgId,
+      tenantId: auth.tenantId,
+    })
+    await em.persistAndFlush(todo)
+
+    // Set custom fields (only provided ones)
+    const values: Record<string, any> = {}
+    if (input.cf_priority !== undefined) values.priority = input.cf_priority
+    if (input.cf_severity !== undefined) values.severity = input.cf_severity
+    if (input.cf_blocked !== undefined) values.blocked = input.cf_blocked
+    if (input.cf_labels !== undefined) values.labels = input.cf_labels
+
+    if (Object.keys(values).length > 0) {
+      await setRecordCustomFields(em, {
+        entityId: E.example.todo,
+        recordId: String(todo.id),
+        organizationId: auth.orgId,
+        tenantId: auth.tenantId,
+        values,
+      })
+    }
+
+    return new Response(JSON.stringify({ id: String(todo.id) }), {
+      status: 201,
+      headers: { 'content-type': 'application/json' },
+    })
+  } catch (error) {
+    console.error('Error creating todo:', error)
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'content-type': 'application/json' },
