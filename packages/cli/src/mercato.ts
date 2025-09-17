@@ -1,5 +1,6 @@
-import { modules } from '@/generated/modules.generated'
-import { createRequestContainer } from '@/lib/di/container'
+// Note: Avoid top-level imports of generated files or DI container.
+// Some commands (e.g., `init`) must run before generation occurs.
+// We'll lazy-load modules and DI only when required by a specific command.
 
 export async function run(argv = process.argv) {
   const [, , modName, cmdName, ...rest] = argv
@@ -85,7 +86,10 @@ export async function run(argv = process.argv) {
     }
   }
   
-  // Load optional app-level CLI commands
+  // Load modules lazily, after init handling
+  const { modules } = await import('@/generated/modules.generated')
+  
+  // Load optional app-level CLI commands lazily
   let appCli: any[] = []
   try {
     const app = await import('@/cli') as any
@@ -102,6 +106,7 @@ export async function run(argv = process.argv) {
         run: async (args: string[]) => {
           const limitArg = args.find((a) => a.startsWith('--limit='))
           const limit = limitArg ? Number(limitArg.split('=')[1]) : undefined
+          const { createRequestContainer } = await import('@/lib/di/container')
           const container = await createRequestContainer()
           const bus = container.resolve<any>('eventBus')
           const res = await bus.processOffline({ limit })
@@ -111,6 +116,7 @@ export async function run(argv = process.argv) {
       {
         command: 'clear',
         run: async () => {
+          const { createRequestContainer } = await import('@/lib/di/container')
           const container = await createRequestContainer()
           const bus = container.resolve<any>('eventBus')
           const res = await bus.clearQueue()
@@ -120,6 +126,7 @@ export async function run(argv = process.argv) {
       {
         command: 'clear-processed',
         run: async () => {
+          const { createRequestContainer } = await import('@/lib/di/container')
           const container = await createRequestContainer()
           const bus = container.resolve<any>('eventBus')
           const res = await bus.clearProcessed()
@@ -140,6 +147,7 @@ export async function run(argv = process.argv) {
           if (payloadArg) {
             try { payload = JSON.parse(payloadArg) } catch { payload = payloadArg }
           }
+          const { createRequestContainer } = await import('@/lib/di/container')
           const container = await createRequestContainer()
           const bus = container.resolve<any>('eventBus')
           await bus.emitEvent(eventName, payload, { persistent })
