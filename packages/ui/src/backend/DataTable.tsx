@@ -24,6 +24,19 @@ export type DataTableProps<T> = {
 }
 
 export function DataTable<T>({ columns, data, toolbar, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading }: DataTableProps<T>) {
+  // Map column meta.priority (1..6) to Tailwind responsive visibility
+  // 1 => always visible, 2 => hidden <sm, 3 => hidden <md, 4 => hidden <lg, 5 => hidden <xl, 6 => hidden <2xl
+  const responsiveClass = (priority?: number) => {
+    switch (priority) {
+      case 2: return 'hidden sm:table-cell'
+      case 3: return 'hidden md:table-cell'
+      case 4: return 'hidden lg:table-cell'
+      case 5: return 'hidden xl:table-cell'
+      case 6: return 'hidden 2xl:table-cell'
+      default: return '' // priority 1 or undefined: always visible
+    }
+  }
+
   const [sorting, setSorting] = React.useState<SortingState>(sortingProp ?? [])
   const table = useReactTable<T>({
     data,
@@ -88,7 +101,7 @@ export function DataTable<T>({ columns, data, toolbar, sortable, sorting: sortin
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (
-                  <TableHead key={header.id}>
+                  <TableHead key={header.id} className={responsiveClass((header.column.columnDef as any)?.meta?.priority)}>
                     {header.isPlaceholder ? null : (
                       <button
                         type="button"
@@ -120,7 +133,9 @@ export function DataTable<T>({ columns, data, toolbar, sortable, sorting: sortin
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                    <TableCell key={cell.id} className={responsiveClass((cell.column.columnDef as any)?.meta?.priority)}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
                   ))}
                 </TableRow>
               ))

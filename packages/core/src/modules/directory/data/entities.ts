@@ -17,6 +17,9 @@ export class Tenant {
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
   @OneToMany(() => Organization, (o) => o.tenant)
   organizations = new Collection<Organization>(this)
 }
@@ -40,5 +43,7 @@ export class Organization {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
-}
 
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

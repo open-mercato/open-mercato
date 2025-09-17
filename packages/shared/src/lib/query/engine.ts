@@ -30,8 +30,16 @@ export class BasicQueryEngine implements QueryEngine {
         q = q.where(qualify('tenant_id'), opts.tenantId)
       }
     }
+    // Default soft-delete guard: exclude rows with deleted_at when column exists
+    if (!opts.withDeleted && await this.columnExists(table, 'deleted_at')) {
+      q = q.whereNull(qualify('deleted_at'))
+    }
+
+    // Normalize filters: accept array or Mongo-style object
+    const arrayFilters = this.normalizeFilters(opts.filters)
+
     // Filters (base fields handled here; cf:* handled later)
-    for (const f of opts.filters || []) {
+    for (const f of arrayFilters) {
       const col = f.field.startsWith('cf:') ? null : f.field
       if (!col) continue
       switch (f.op) {
@@ -69,8 +77,8 @@ export class BasicQueryEngine implements QueryEngine {
     const baseIdExpr = knex.raw('??::text', [`${table}.id`])
     const cfKeys = new Set<string>()
     // Explicit in fields/filters
-    for (const f of opts.fields || []) if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
-    for (const f of opts.filters || []) if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
+    for (const f of (opts.fields || [])) if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
+    for (const f of arrayFilters) if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
     // includeCustomFields: boolean | string[]
     if (opts.includeCustomFields === true) {
       // Read all defs for this entity and org/global
@@ -78,8 +86,10 @@ export class BasicQueryEngine implements QueryEngine {
         .select('key')
         .where({ entity_id: entityId, is_active: true })
         .modify((qb) => {
-          if (tenantId != null) qb.andWhere({ tenant_id: tenantId })
-          if (orgId != null) qb.andWhere({ organization_id: orgId })
+          if (tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantId }).orWhereNull('tenant_id'))
+          else qb.whereNull('tenant_id')
+          if (orgId != null) qb.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
+          else qb.whereNull('organization_id')
         })
       for (const r of rows) cfKeys.add(r.key)
     } else if (Array.isArray(opts.includeCustomFields)) {
@@ -93,12 +103,20 @@ export class BasicQueryEngine implements QueryEngine {
       const defAlias = `cfd_${sanitize(key)}`
       const valAlias = `cfv_${sanitize(key)}`
       // Join definitions for kind resolution
-      q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function () {
+      q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function (this: any) {
         this.on(`${defAlias}.entity_id`, '=', knex.raw('?', [entityId]))
           .andOn(`${defAlias}.key`, '=', knex.raw('?', [key]))
           .andOn(`${defAlias}.is_active`, '=', knex.raw('true'))
-        if (tenantId != null) this.andOn(`${defAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
-        if (orgId != null) this.andOn(`${defAlias}.organization_id`, '=', knex.raw('?', [orgId]))
+        if (tenantId != null) this.andOn(function (this: any) {
+          this.on(`${defAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
+              .orOn(knex.raw('?? is null', [`${defAlias}.tenant_id`]))
+        })
+        else this.andOn(knex.raw('?? is null', [`${defAlias}.tenant_id`]))
+        if (orgId != null) this.andOn(function (this: any) {
+          this.on(`${defAlias}.organization_id`, '=', knex.raw('?', [orgId]))
+              .orOn(knex.raw('?? is null', [`${defAlias}.organization_id`]))
+        })
+        else this.andOn(knex.raw('?? is null', [`${defAlias}.organization_id`]))
       })
       // Join values with record match
       q = q.leftJoin({ [valAlias]: 'custom_field_values' }, function () {
@@ -122,13 +140,20 @@ export class BasicQueryEngine implements QueryEngine {
       const alias = sanitize(`cf:${key}`)
       // Project as aggregated to avoid duplicates when multi values exist
       if ((opts.fields || []).includes(`cf:${key}`) || opts.includeCustomFields === true || (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.includes(key))) {
-        q = q.select(knex.raw(`max(${caseExpr.toString()}) as ??`, [alias]))
+        // Use bool_or over config_json->>multi so it's valid under GROUP BY
+        const isMulti = knex.raw(`bool_or(coalesce((${defAlias}.config_json->>'multi')::boolean, false))`)
+        const expr = `CASE WHEN ${isMulti.toString()}
+                THEN array_remove(array_agg(DISTINCT ${caseExpr.toString()}), NULL)
+                ELSE array[max(${caseExpr.toString()})]
+           END`
+        // Expose as text[]; callers may treat singletons as scalars
+        q = q.select(knex.raw(`${expr} as ??`, [alias]))
         cfSelectedAliases.push(alias)
       }
     }
 
     // Apply cf:* filters (on raw expressions)
-    for (const f of opts.filters || []) {
+    for (const f of arrayFilters) {
       if (!f.field.startsWith('cf:')) continue
       const key = f.field.slice(3)
       const expr = cfValueExprByKey[key]
@@ -210,5 +235,37 @@ export class BasicQueryEngine implements QueryEngine {
       .where({ table_name: table, column_name: column })
       .first()
     return !!exists
+  }
+
+  private normalizeFilters(filters?: QueryOptions['filters']): { field: string; op: any; value?: any }[] {
+    if (!filters) return []
+    const normalizeField = (k: string) => k.startsWith('cf_') ? `cf:${k.slice(3)}` : k
+    if (Array.isArray(filters)) return (filters as any[]).map((f) => ({ ...f, field: normalizeField(String((f as any).field)) }))
+    const out: { field: string; op: any; value?: any }[] = []
+    const obj = filters as Record<string, any>
+    const add = (field: string, op: any, value?: any) => out.push({ field, op, value })
+    for (const [rawKey, rawVal] of Object.entries(obj)) {
+      const field = normalizeField(rawKey)
+      if (rawVal !== null && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
+        for (const [opKey, opVal] of Object.entries(rawVal)) {
+          switch (opKey) {
+            case '$eq': add(field, 'eq', opVal); break
+            case '$ne': add(field, 'ne', opVal); break
+            case '$gt': add(field, 'gt', opVal); break
+            case '$gte': add(field, 'gte', opVal); break
+            case '$lt': add(field, 'lt', opVal); break
+            case '$lte': add(field, 'lte', opVal); break
+            case '$in': add(field, 'in', opVal); break
+            case '$nin': add(field, 'nin', opVal); break
+            case '$like': add(field, 'like', opVal); break
+            case '$ilike': add(field, 'ilike', opVal); break
+            case '$exists': add(field, 'exists', opVal); break
+          }
+        }
+      } else {
+        add(field, 'eq', rawVal)
+      }
+    }
+    return out
   }
 }

@@ -2,13 +2,14 @@ import type { EntityManager } from '@mikro-orm/core'
 import { CustomFieldDef, CustomFieldValue } from '../data/entities'
 
 type Primitive = string | number | boolean | null | undefined
+type PrimitiveOrArray = Primitive | Primitive[]
 
 export type SetRecordCustomFieldsOptions = {
   entityId: string
   recordId: string
   organizationId?: string | null
   tenantId?: string | null
-  values: Record<string, Primitive>
+  values: Record<string, PrimitiveOrArray>
   // When true (default), try to use field definitions to decide storage column
   preferDefs?: boolean
 }
@@ -82,7 +83,31 @@ export async function setRecordCustomFields(
     if (raw === undefined) continue
 
     const def = defsByKey?.[fieldKey]
-    const column: keyof CustomFieldValue = def ? columnFromKind(def.kind) : columnFromJsValue(raw)
+    const isArray = Array.isArray(raw)
+    // When array: remove existing values for key and create multiple rows
+    if (isArray) {
+      const arr = raw as Primitive[]
+      // Clear existing for this key
+      const existing = await em.find(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
+      if (existing.length) existing.forEach((e) => em.remove(e))
+      for (const val of arr) {
+        const col: keyof CustomFieldValue = def ? columnFromKind(def.kind) : columnFromJsValue(val)
+        const cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
+        clearValueColumns(cf)
+        switch (col) {
+          case 'valueText': cf.valueText = val == null ? null : String(val); break
+          case 'valueMultiline': cf.valueMultiline = val == null ? null : String(val); break
+          case 'valueInt': cf.valueInt = val == null ? null : Number(val); break
+          case 'valueFloat': cf.valueFloat = val == null ? null : Number(val); break
+          case 'valueBool': cf.valueBool = val == null ? null : Boolean(val); break
+          default: cf.valueText = val == null ? null : String(val); break
+        }
+        toPersist.push(cf)
+      }
+      continue
+    }
+
+    const column: keyof CustomFieldValue = def ? columnFromKind(def.kind) : columnFromJsValue(raw as Primitive)
 
     let cf = await em.findOne(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
     if (!cf) {
@@ -92,22 +117,22 @@ export async function setRecordCustomFields(
     clearValueColumns(cf)
     switch (column) {
       case 'valueText':
-        cf.valueText = raw == null ? null : String(raw)
+        cf.valueText = (raw as Primitive) == null ? null : String(raw as Primitive)
         break
       case 'valueMultiline':
-        cf.valueMultiline = raw == null ? null : String(raw)
+        cf.valueMultiline = (raw as Primitive) == null ? null : String(raw as Primitive)
         break
       case 'valueInt':
-        cf.valueInt = raw == null ? null : Number(raw)
+        cf.valueInt = (raw as Primitive) == null ? null : Number(raw as Primitive)
         break
       case 'valueFloat':
-        cf.valueFloat = raw == null ? null : Number(raw)
+        cf.valueFloat = (raw as Primitive) == null ? null : Number(raw as Primitive)
         break
       case 'valueBool':
-        cf.valueBool = raw == null ? null : Boolean(raw)
+        cf.valueBool = (raw as Primitive) == null ? null : Boolean(raw as Primitive)
         break
       default:
-        cf.valueText = raw == null ? null : String(raw)
+        cf.valueText = (raw as Primitive) == null ? null : String(raw as Primitive)
         break
     }
   }

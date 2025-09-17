@@ -65,18 +65,18 @@ export async function run(argv = process.argv) {
       // Success message with admin info
       console.log('🎉 App initialization complete!\n')
       console.log('╔══════════════════════════════════════════════════════════════╗')
-      console.log('║  🚀 You\'re now ready to start development!                  ║')
+      console.log('║  🚀 You\'re now ready to start development!                   ║')
       console.log('║                                                              ║')
       console.log('║  Start the dev server:                                       ║')
       console.log('║    yarn dev                                                  ║')
       console.log('║                                                              ║')
       console.log('║  Your admin user:                                            ║')
-      console.log(`║    📧 Email: ${email.padEnd(50)} ║`)
+      console.log(`║    📧 Email: ${email.padEnd(47)} ║`)
       console.log(`║    🔑 Password: ${password.padEnd(44)} ║`)
       console.log(`║    🏢 Organization: ${orgName.padEnd(40)} ║`)
       console.log(`║    👑 Roles: ${roles.padEnd(47)} ║`)
       console.log('║                                                              ║')
-      console.log('║  Happy coding! 🎯                                          ║')
+      console.log('║  Happy coding!                                               ║')
       console.log('╚══════════════════════════════════════════════════════════════╝')
       
       return 0

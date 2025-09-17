@@ -99,30 +99,52 @@ const setupApp: ModuleCli = {
     }
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
+
+    // Normalize roles once
+    const roleNames = rolesCsv
+      ? rolesCsv.split(',').map((s) => s.trim()).filter(Boolean)
+      : []
+
+    // Ensure roles exist upfront (idempotent)
+    for (const name of roleNames) {
+      let role = await em.findOne(Role, { name })
+      if (!role) { role = em.create(Role, { name }); await em.persistAndFlush(role) }
+    }
+
+    // If user already exists, reuse existing org/tenant and ensure roles
+    const existingUser = await em.findOne(User, { email })
+    if (existingUser) {
+      // Assign any missing roles
+      if (roleNames.length) {
+        const currentUserRoles = await em.find(UserRole, { user: existingUser.id }, { populate: ['role'] })
+        const currentRoleNames = new Set(currentUserRoles.map((ur) => ur.role?.name).filter(Boolean) as string[])
+        for (const name of roleNames) {
+          if (!currentRoleNames.has(name)) {
+            const role = await em.findOneOrFail(Role, { name })
+            await em.persistAndFlush(em.create(UserRole, { user: existingUser, role }))
+          }
+        }
+      }
+      console.log('Setup complete:', { tenantId: existingUser.tenantId, organizationId: existingUser.organizationId, userId: existingUser.id })
+      return
+    }
+
     // 1) Create tenant and organization
     const tenant = em.create(Tenant, { name: `${orgName} Tenant` })
     await em.persistAndFlush(tenant)
     const org = em.create(Organization, { name: orgName, tenant })
     await em.persistAndFlush(org)
-    // 2) Ensure roles exist
-    if (rolesCsv) {
-      const roleNames = rolesCsv.split(',').map((s) => s.trim()).filter(Boolean)
-      for (const name of roleNames) {
-        let role = await em.findOne(Role, { name })
-        if (!role) { role = em.create(Role, { name }); await em.persistAndFlush(role) }
-      }
-    }
-    // 3) Create user in organization
+
+    // 2) Create user in organization
     const user = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organizationId: org.id, tenantId: tenant.id })
     await em.persistAndFlush(user)
-    // 4) Assign roles if any
-    if (rolesCsv) {
-      const roleNames = rolesCsv.split(',').map((s) => s.trim()).filter(Boolean)
-      for (const name of roleNames) {
-        const role = await em.findOneOrFail(Role, { name })
-        await em.persistAndFlush(em.create(UserRole, { user, role }))
-      }
+
+    // 3) Assign roles if any
+    for (const name of roleNames) {
+      const role = await em.findOneOrFail(Role, { name })
+      await em.persistAndFlush(em.create(UserRole, { user, role }))
     }
+
     console.log('Setup complete:', { tenantId: tenant.id, organizationId: org.id, userId: user.id })
   },
 }

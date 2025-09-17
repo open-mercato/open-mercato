@@ -2,7 +2,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromCookies } from '@/lib/auth/server'
 import { E } from '@open-mercato/example/datamodel/entities'
 import { id, title, tenant_id, organization_id, is_done } from '@open-mercato/example/datamodel/entities/todo'
-import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, Where } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { z } from 'zod'
 
@@ -19,9 +19,14 @@ const querySchema = z.object({
   sortDir: z.enum(['asc', 'desc']).optional().default('asc'),
   title: z.string().optional(),
   severity: z.string().optional(),
+  severityIn: z.string().optional(),
   isDone: z.coerce.boolean().optional(),
   isBlocked: z.coerce.boolean().optional(),
+  withDeleted: z.coerce.boolean().optional().default(false),
   organizationId: z.string().uuid().optional(),
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
+  labelsIn: z.string().optional(),
 })
 
 export const metadata = {
@@ -74,36 +79,63 @@ export async function GET(request: Request) {
     const sortField = validatedQuery.sortField === 'id' ? id : validatedQuery.sortField
     const sortDir = validatedQuery.sortDir === 'desc' ? SortDir.Desc : SortDir.Asc
 
-    // Build filter conditions
-    const filters: any[] = []
-    
-    if (validatedQuery.title) {
-      filters.push({ field: 'title', op: 'ilike', value: `%${validatedQuery.title}%` })
+    // Build typed object-style filters
+    type TodoFields = {
+      id: string
+      title: string
+      is_done: boolean
+      tenant_id: string | null
+      organization_id: string | null
+      created_at: Date
+      'cf:priority': number
+      'cf:severity': string
+      'cf:blocked': boolean
+      'cf:labels': string
     }
-    if (validatedQuery.isDone !== undefined) {
-      filters.push({ field: 'is_done', op: 'eq', value: validatedQuery.isDone })
+    const filters: Where<TodoFields> = {}
+    if (validatedQuery.title) filters.title = { $ilike: `%${validatedQuery.title}%` }
+    if (validatedQuery.isDone !== undefined) filters.is_done = validatedQuery.isDone
+    if (validatedQuery.organizationId) filters.organization_id = validatedQuery.organizationId
+    if (validatedQuery.severity) filters['cf:severity'] = validatedQuery.severity
+    if (validatedQuery.severityIn) {
+      const list = validatedQuery.severityIn.split(',').map((s) => s.trim()).filter(Boolean)
+      if (list.length) filters['cf:severity'] = { $in: list as any }
     }
-    if (validatedQuery.organizationId) {
-      filters.push({ field: 'organization_id', op: 'eq', value: validatedQuery.organizationId })
+    if (validatedQuery.labelsIn) {
+      const list = validatedQuery.labelsIn.split(',').map((s) => s.trim()).filter(Boolean)
+      if (list.length) filters['cf:labels'] = { $in: list as any }
     }
-    if (validatedQuery.severity) {
-      filters.push({ field: 'cf:severity', op: 'eq', value: validatedQuery.severity })
-    }
-    if (validatedQuery.isBlocked !== undefined) {
-      filters.push({ field: 'cf:blocked', op: 'eq', value: validatedQuery.isBlocked })
+    if (validatedQuery.isBlocked !== undefined) filters['cf:blocked'] = validatedQuery.isBlocked
+    if (validatedQuery.createdFrom || validatedQuery.createdTo) {
+      const range: any = {}
+      if (validatedQuery.createdFrom) range.$gte = new Date(validatedQuery.createdFrom)
+      if (validatedQuery.createdTo) range.$lte = new Date(validatedQuery.createdTo)
+      filters.created_at = range
     }
 
     // Query todos with custom fields
     const res = await queryEngine.query(E.example.todo, {
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
-      fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked'],
+      fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked', 'cf:labels'],
       sort: [{ field: sortField, dir: sortDir }],
       page: { page: validatedQuery.page, pageSize: validatedQuery.pageSize },
       filters,
+      withDeleted: validatedQuery.withDeleted,
     })
 
     // Map to response format
+    const toArray = (val: any): string[] => {
+      if (Array.isArray(val)) return val as string[]
+      if (typeof val === 'string') {
+        const s = val.trim()
+        const inner = s.startsWith('{') && s.endsWith('}') ? s.slice(1, -1) : s
+        if (!inner) return []
+        return inner.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean)
+      }
+      return val != null ? [String(val)] : []
+    }
+
     const todos = res.items.map((item) => ({
       id: item.id,
       title: item.title,
@@ -111,8 +143,9 @@ export async function GET(request: Request) {
       organization_id: item.organization_id,
       is_done: item.is_done,
       cf_priority: item['cf:priority'] ?? item.cf_priority,
-      cf_severity: item['cf:severity'] ?? item.cf_severity,
+      cf_severity: Array.isArray(item['cf:severity']) ? item['cf:severity'][0] : (item['cf:severity'] ?? item.cf_severity),
       cf_blocked: item['cf:blocked'] ?? item.cf_blocked,
+      cf_labels: toArray(item['cf:labels'] ?? (item as any).cf_labels),
     }))
 
     return new Response(JSON.stringify({
