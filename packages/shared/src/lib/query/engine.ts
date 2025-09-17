@@ -143,7 +143,7 @@ export class BasicQueryEngine implements QueryEngine {
         // Use bool_or over config_json->>multi so it's valid under GROUP BY
         const isMulti = knex.raw(`bool_or(coalesce((${defAlias}.config_json->>'multi')::boolean, false))`)
         const expr = `CASE WHEN ${isMulti.toString()}
-                THEN array_remove(array_agg(${caseExpr.toString()}), NULL)
+                THEN array_remove(array_agg(DISTINCT ${caseExpr.toString()}), NULL)
                 ELSE array[max(${caseExpr.toString()})]
            END`
         // Expose as text[]; callers may treat singletons as scalars

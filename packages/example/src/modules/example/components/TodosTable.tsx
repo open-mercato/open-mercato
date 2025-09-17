@@ -61,7 +61,7 @@ const columns: ColumnDef<TodoRow>[] = [
         </span>
       )
     },
-    meta: { priority: 6 },
+    meta: { priority: 4 },
   },
 ]
 
@@ -89,7 +89,6 @@ export default function TodosTable() {
     if (severity && severity.length) params.set('severityIn', severity.join(','))
     if (done !== undefined) params.set('isDone', done.toString())
     if (blocked !== undefined) params.set('isBlocked', blocked.toString())
-    if (severity && severity.length) params.set('severityIn', severity.join(','))
     if (labels && labels.length) params.set('labelsIn', labels.join(','))
     if (createdFrom) params.set('createdFrom', createdFrom)
     if (createdTo) params.set('createdTo', createdTo)
