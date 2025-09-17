@@ -41,6 +41,7 @@ ${imports.join('\n')}
 export const diRegistrars = [
   ${registrars.join(',\n  ')}
 ].filter(Boolean) as (((c: any) => void)|undefined)[]
+\nexport default diRegistrars
 `
   
   // Check if content has changed
