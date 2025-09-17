@@ -29,7 +29,7 @@ export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Se
   }, [values])
 
   return (
-    <div className={`flex flex-col gap-2 ${className ?? ''}`}>
+    <div className={`flex flex-col gap-2 w-full ${className ?? ''}`}>
       <div className="flex flex-wrap items-center gap-2 w-full">
         {filters.length > 0 && (
           <Button variant="outline" className="h-9" onClick={() => setOpen(true)}>

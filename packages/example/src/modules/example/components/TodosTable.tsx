@@ -232,19 +232,13 @@ export default function TodosTable() {
       title="Todos"
       actions={(
         <>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const url = `/api/example/todos?${queryParams}&format=csv`
-              window.open(url, '_blank')
-            }}
-          >
-            Export
+          <Button variant="outline" size="sm" onClick={() => {
+            const url = `/api/example/todos?${queryParams}&format=csv`
+            window.open(url, '_blank')
+          }}>Export</Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/backend/todos/create">Create</Link>
           </Button>
-          <Link href="/backend/todos/create" className="h-9 inline-flex items-center rounded bg-primary text-primary-foreground px-3 text-sm">
-            Create
-          </Link>
         </>
       )}
       columns={columns} 
