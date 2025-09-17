@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { FilterBar, type FilterDef, type FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type TodoRow = {
   id: string
@@ -30,12 +30,12 @@ type OrganizationsResponse = {
 }
 
 const columns: ColumnDef<TodoRow>[] = [
-  { accessorKey: 'title', header: 'Title' },
-  { accessorKey: 'organization_name', header: 'Organization' },
-  { accessorKey: 'is_done', header: 'Done' },
-  { accessorKey: 'cf_priority', header: 'Priority' },
-  { accessorKey: 'cf_severity', header: 'Severity' },
-  { accessorKey: 'cf_blocked', header: 'Blocked' },
+  { accessorKey: 'title', header: 'Title', meta: { priority: 1 } },
+  { accessorKey: 'organization_name', header: 'Organization', meta: { priority: 3 } },
+  { accessorKey: 'is_done', header: 'Done', meta: { priority: 2 } },
+  { accessorKey: 'cf_priority', header: 'Priority', meta: { priority: 4 } },
+  { accessorKey: 'cf_severity', header: 'Severity', meta: { priority: 5 } },
+  { accessorKey: 'cf_blocked', header: 'Blocked', meta: { priority: 6 } },
 ]
 
 export default function TodosTable() {
@@ -135,54 +135,34 @@ export default function TodosTable() {
     setPage(1)
   }
 
+  const filterDefs: FilterDef[] = [
+    { id: 'severity', label: 'Severity', type: 'select', options: [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+    ] },
+    { id: 'is_done', label: 'Done', type: 'checkbox' },
+    { id: 'cf_blocked', label: 'Blocked', type: 'checkbox' },
+    { id: 'organization_id', label: 'Organization ID', type: 'text', placeholder: 'org_…' },
+    { id: 'tenant_id', label: 'Tenant ID', type: 'text', placeholder: 'ten_…' },
+  ]
+
   const toolbar = (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
-      <input 
-        placeholder="Title contains…" 
-        value={title} 
-        onChange={(e) => setTitle(e.target.value)} 
-        className="h-8 w-[180px] border rounded px-2" 
-      />
-      <select 
-        value={severity ?? ''} 
-        onChange={(e) => setSeverity(e.target.value || undefined)} 
-        className="h-8 w-[140px] border rounded px-2"
-      >
-        <option value="">Severity</option>
-        <option value="low">Low</option>
-        <option value="medium">Medium</option>
-        <option value="high">High</option>
-      </select>
-      <label className="flex items-center gap-2">
-        <input 
-          type="checkbox" 
-          checked={done === true} 
-          onChange={(e) => setDone(e.target.checked ? true : undefined)} 
-        /> Done
-      </label>
-      <label className="flex items-center gap-2">
-        <input 
-          type="checkbox" 
-          checked={blocked === true} 
-          onChange={(e) => setBlocked(e.target.checked ? true : undefined)} 
-        /> Blocked
-      </label>
-      <input 
-        placeholder="Org ID" 
-        value={orgId} 
-        onChange={(e) => setOrgId(e.target.value)} 
-        className="h-8 w-[100px] border rounded px-2" 
-      />
-      <input 
-        placeholder="Tenant ID" 
-        value={tenantId} 
-        onChange={(e) => setTenantId(e.target.value)} 
-        className="h-8 w-[110px] border rounded px-2" 
-      />
-      <Button variant="outline" className="h-8" onClick={handleReset}>
-        Reset
-      </Button>
-    </div>
+    <FilterBar
+      searchValue={title}
+      onSearchChange={(v) => { setTitle(v); setPage(1) }}
+      filters={filterDefs}
+      values={{ severity, is_done: done, cf_blocked: blocked, organization_id: orgId, tenant_id: tenantId }}
+      onApply={(vals: FilterValues) => {
+        setSeverity(vals.severity)
+        setDone(vals.is_done === true ? true : undefined)
+        setBlocked(vals.cf_blocked === true ? true : undefined)
+        setOrgId(vals.organization_id || '')
+        setTenantId(vals.tenant_id || '')
+        setPage(1)
+      }}
+      onClear={() => handleReset()}
+    />
   )
 
   if (error) {
