@@ -47,7 +47,8 @@ export async function GET(request: Request) {
 
     // Query organizations
     const res = await queryEngine.query(E.directory.organization, {
-      organizationId: auth.orgId,
+      tenantId: auth.tenantId || undefined,
+      organizationId: auth.orgId || undefined,
       fields: [id, name],
       filters: [
         { field: 'id', op: 'in', value: organizationIds }

@@ -64,6 +64,7 @@ export class BasicQueryEngine implements QueryEngine {
     // Resolve which custom fields to include
     const entityId = entity
     const orgId = opts.organizationId
+    const tenantId = opts.tenantId
     const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, '_')
     const baseIdExpr = knex.raw('??::text', [`${table}.id`])
     const cfKeys = new Set<string>()
@@ -76,7 +77,10 @@ export class BasicQueryEngine implements QueryEngine {
       const rows = await knex('custom_field_defs')
         .select('key')
         .where({ entity_id: entityId, is_active: true })
-        .modify((qb) => { if (orgId != null) qb.andWhere({ organization_id: orgId }) })
+        .modify((qb) => {
+          if (tenantId != null) qb.andWhere({ tenant_id: tenantId })
+          if (orgId != null) qb.andWhere({ organization_id: orgId })
+        })
       for (const r of rows) cfKeys.add(r.key)
     } else if (Array.isArray(opts.includeCustomFields)) {
       for (const k of opts.includeCustomFields) cfKeys.add(k)
@@ -93,6 +97,7 @@ export class BasicQueryEngine implements QueryEngine {
         this.on(`${defAlias}.entity_id`, '=', knex.raw('?', [entityId]))
           .andOn(`${defAlias}.key`, '=', knex.raw('?', [key]))
           .andOn(`${defAlias}.is_active`, '=', knex.raw('true'))
+        if (tenantId != null) this.andOn(`${defAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
         if (orgId != null) this.andOn(`${defAlias}.organization_id`, '=', knex.raw('?', [orgId]))
       })
       // Join values with record match
@@ -100,6 +105,7 @@ export class BasicQueryEngine implements QueryEngine {
         this.on(`${valAlias}.entity_id`, '=', knex.raw('?', [entityId]))
           .andOn(`${valAlias}.field_key`, '=', knex.raw('?', [key]))
           .andOn(`${valAlias}.record_id`, '=', baseIdExpr)
+        if (tenantId != null) this.andOn(`${valAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
         if (orgId != null) this.andOn(`${valAlias}.organization_id`, '=', knex.raw('?', [orgId]))
       })
       // Force a common SQL type across branches to avoid Postgres CASE type conflicts

@@ -28,6 +28,8 @@ export async function listUsers(container: AppContainer) {
     ],
     sort: [{ field: email, dir: SortDir.Asc }],
     page: { page: 1, pageSize: 25 },
+    tenantId: 'uuid-string-here',
+    // organizationId optional; when provided, both are applied
     organizationId: 'uuid-string-here',
   })
 }
@@ -41,10 +43,11 @@ export async function listUsers(container: AppContainer) {
 - `filters`: support base fields and `cf:<key>`.
 - `sort`: base fields and `cf:<key>`. Use generated field constants and `SortDir` (e.g., `{ field: email, dir: SortDir.Asc }`).
 - `page`: paging options.
-- `organizationId`: scoping for multi-tenant.
+- `tenantId`: primary scoping for multi-tenant.
+- `organizationId`: optional; if provided, combined with `tenantId`.
 
 ## Implementation notes
-- Default implementation `BasicQueryEngine` supports base-table filters/sort/paging and now projects cf:* fields and honors filters on them for explicitly requested keys.
+- Default implementation `BasicQueryEngine` supports base-table filters/sort/paging and now projects cf:* fields and honors filters on them for explicitly requested keys. It applies `tenant_id` conditions when present, and `organization_id` conditions optionally; both are combined when provided.
 - When we iterate:
   - Read `modules.generated.ts` to discover `entityExtensions` and join them.
   - Join `custom_field_values` to surface `cf:*` fields and filter/sort them efficiently; aggregate when multiple values exist.
