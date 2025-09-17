@@ -7,7 +7,7 @@ export type FilterOption = { value: string; label: string }
 export type FilterDef = {
   id: string
   label: string
-  type: 'text' | 'select' | 'checkbox'
+  type: 'text' | 'select' | 'checkbox' | 'dateRange'
   options?: FilterOption[]
   multiple?: boolean
   placeholder?: string
@@ -64,6 +64,28 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
                       value={values[f.id] ?? ''}
                       onChange={(e) => setValue(f.id, e.target.value || undefined)}
                     />
+                  )}
+                  {f.type === 'dateRange' && (
+                    <div className="grid grid-cols-1 gap-2">
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-1">From</div>
+                        <input
+                          type="date"
+                          className="w-full h-9 rounded border px-2"
+                          value={values[f.id]?.from ?? ''}
+                          onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), from: e.target.value || undefined })}
+                        />
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-1">To</div>
+                        <input
+                          type="date"
+                          className="w-full h-9 rounded border px-2"
+                          value={values[f.id]?.to ?? ''}
+                          onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), to: e.target.value || undefined })}
+                        />
+                      </div>
+                    </div>
                   )}
                   {f.type === 'select' && (
                     <div className="space-y-1">
@@ -126,4 +148,3 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
     </>
   )
 }
-

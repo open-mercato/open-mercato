@@ -34,7 +34,12 @@ const columns: ColumnDef<TodoRow>[] = [
   { accessorKey: 'organization_name', header: 'Organization', meta: { priority: 3 } },
   { accessorKey: 'is_done', header: 'Done', meta: { priority: 2 } },
   { accessorKey: 'cf_priority', header: 'Priority', meta: { priority: 4 } },
-  { accessorKey: 'cf_severity', header: 'Severity', meta: { priority: 5 } },
+  {
+    accessorKey: 'cf_severity',
+    header: 'Severity',
+    cell: ({ getValue }) => <span className="text-xs">{String(getValue() ?? '')}</span>,
+    meta: { priority: 5 },
+  },
   { accessorKey: 'cf_blocked', header: 'Blocked', meta: { priority: 6 } },
 ]
 
@@ -43,10 +48,10 @@ export default function TodosTable() {
   const [severity, setSeverity] = React.useState<string | undefined>(undefined)
   const [done, setDone] = React.useState<boolean | undefined>(undefined)
   const [blocked, setBlocked] = React.useState<boolean | undefined>(undefined)
-  const [orgId, setOrgId] = React.useState<string>('')
-  const [tenantId, setTenantId] = React.useState<string>('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
   const [page, setPage] = React.useState(1)
+  const [createdFrom, setCreatedFrom] = React.useState<string | undefined>(undefined)
+  const [createdTo, setCreatedTo] = React.useState<string | undefined>(undefined)
 
   // Build query parameters
   const queryParams = React.useMemo(() => {
@@ -61,11 +66,12 @@ export default function TodosTable() {
     if (severity) params.set('severity', severity)
     if (done !== undefined) params.set('isDone', done.toString())
     if (blocked !== undefined) params.set('isBlocked', blocked.toString())
-    if (orgId) params.set('organizationId', orgId)
-    if (tenantId) params.set('tenantId', tenantId)
-
+    if (createdFrom) params.set('createdFrom', createdFrom)
+    if (createdTo) params.set('createdTo', createdTo)
+    // organization and tenant filters removed per request
+    
     return params.toString()
-  }, [page, sorting, title, severity, done, blocked, orgId, tenantId])
+  }, [page, sorting, title, severity, done, blocked, createdFrom, createdTo])
 
   // Fetch todos
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
@@ -130,8 +136,8 @@ export default function TodosTable() {
     setSeverity(undefined)
     setDone(undefined)
     setBlocked(undefined)
-    setOrgId('')
-    setTenantId('')
+    setCreatedFrom(undefined)
+    setCreatedTo(undefined)
     setPage(1)
   }
 
@@ -143,8 +149,8 @@ export default function TodosTable() {
     ] },
     { id: 'is_done', label: 'Done', type: 'checkbox' },
     { id: 'cf_blocked', label: 'Blocked', type: 'checkbox' },
-    { id: 'organization_id', label: 'Organization ID', type: 'text', placeholder: 'org_…' },
-    { id: 'tenant_id', label: 'Tenant ID', type: 'text', placeholder: 'ten_…' },
+    // Example extra filter type: date range wired to backend
+    { id: 'created_at', label: 'Created Date', type: 'dateRange' },
   ]
 
   const toolbar = (
@@ -152,13 +158,18 @@ export default function TodosTable() {
       searchValue={title}
       onSearchChange={(v) => { setTitle(v); setPage(1) }}
       filters={filterDefs}
-      values={{ severity, is_done: done, cf_blocked: blocked, organization_id: orgId, tenant_id: tenantId }}
+      values={{
+        severity,
+        is_done: done,
+        cf_blocked: blocked,
+        ...(createdFrom || createdTo ? { created_at: { from: createdFrom, to: createdTo } } : {}),
+      }}
       onApply={(vals: FilterValues) => {
         setSeverity(vals.severity)
         setDone(vals.is_done === true ? true : undefined)
         setBlocked(vals.cf_blocked === true ? true : undefined)
-        setOrgId(vals.organization_id || '')
-        setTenantId(vals.tenant_id || '')
+        setCreatedFrom(vals.created_at?.from)
+        setCreatedTo(vals.created_at?.to)
         setPage(1)
       }}
       onClear={() => handleReset()}

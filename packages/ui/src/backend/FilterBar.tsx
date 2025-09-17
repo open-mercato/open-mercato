@@ -16,7 +16,16 @@ export type FilterBarProps = {
 
 export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Search', filters = [], values = {}, onApply, onClear, className }: FilterBarProps) {
   const [open, setOpen] = React.useState(false)
-  const activeCount = React.useMemo(() => Object.values(values).filter((v) => v != null && v !== '' && !(Array.isArray(v) && v.length === 0)).length, [values])
+  const activeCount = React.useMemo(() => {
+    const isActive = (v: any) => {
+      if (v == null) return false
+      if (typeof v === 'string') return v.trim() !== ''
+      if (Array.isArray(v)) return v.length > 0
+      if (typeof v === 'object') return Object.values(v).some((x) => x != null && x !== '')
+      return Boolean(v)
+    }
+    return Object.values(values).filter(isActive).length
+  }, [values])
 
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className ?? ''}`}>
@@ -51,4 +60,3 @@ export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Se
 }
 
 export type { FilterDef, FilterValues } from './FilterOverlay'
-

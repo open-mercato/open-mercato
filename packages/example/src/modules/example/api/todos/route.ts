@@ -23,6 +23,8 @@ const querySchema = z.object({
   isBlocked: z.coerce.boolean().optional(),
   withDeleted: z.coerce.boolean().optional().default(false),
   organizationId: z.string().uuid().optional(),
+  createdFrom: z.string().optional(),
+  createdTo: z.string().optional(),
 })
 
 export const metadata = {
@@ -82,6 +84,7 @@ export async function GET(request: Request) {
       is_done: boolean
       tenant_id: string | null
       organization_id: string | null
+      created_at: Date
       'cf:priority': number
       'cf:severity': string
       'cf:blocked': boolean
@@ -92,6 +95,12 @@ export async function GET(request: Request) {
     if (validatedQuery.organizationId) filters.organization_id = validatedQuery.organizationId
     if (validatedQuery.severity) filters['cf:severity'] = validatedQuery.severity
     if (validatedQuery.isBlocked !== undefined) filters['cf:blocked'] = validatedQuery.isBlocked
+    if (validatedQuery.createdFrom || validatedQuery.createdTo) {
+      const range: any = {}
+      if (validatedQuery.createdFrom) range.$gte = new Date(validatedQuery.createdFrom)
+      if (validatedQuery.createdTo) range.$lte = new Date(validatedQuery.createdTo)
+      filters.created_at = range
+    }
 
     // Query todos with custom fields
     const res = await queryEngine.query(E.example.todo, {
