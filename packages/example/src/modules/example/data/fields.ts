@@ -11,6 +11,8 @@ export const fieldSets: CustomFieldSet[] = [
     // Multi-select labels CF; stored as multiple rows (EAV)
     cf.select('labels', ['frontend', 'backend', 'ops', 'bug', 'feature'], { label: 'Labels', filterable: true, multi: true }),
   ], 'example'),
+
+  
 ]
 
 export default fieldSets

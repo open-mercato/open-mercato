@@ -16,7 +16,7 @@ type TodoRow = {
   cf_priority?: number | null
   cf_severity?: string | null
   cf_blocked?: boolean | null
-  cf_labels?: string | null
+  cf_labels?: string[] | null
 }
 
 type TodosResponse = {
@@ -45,7 +45,24 @@ const columns: ColumnDef<TodoRow>[] = [
   },
   { accessorKey: 'cf_blocked', header: 'Blocked', meta: { priority: 6 },
     cell: ({ getValue }) => <BooleanIcon value={!!getValue()} /> },
-  { accessorKey: 'cf_labels', header: 'Label', meta: { priority: 6 } },
+  {
+    accessorKey: 'cf_labels',
+    header: 'Labels',
+    cell: ({ getValue }) => {
+      const vals = (getValue() as string[] | null) || []
+      if (!Array.isArray(vals) || vals.length === 0) return <span className="text-xs text-muted-foreground">—</span>
+      return (
+        <span className="flex flex-wrap gap-1">
+          {vals.map((v) => (
+            <span key={v} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border bg-accent/20">
+              {v}
+            </span>
+          ))}
+        </span>
+      )
+    },
+    meta: { priority: 6 },
+  },
 ]
 
 export default function TodosTable() {

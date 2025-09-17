@@ -86,8 +86,10 @@ export class BasicQueryEngine implements QueryEngine {
         .select('key')
         .where({ entity_id: entityId, is_active: true })
         .modify((qb) => {
-          if (tenantId != null) qb.andWhere({ tenant_id: tenantId })
-          if (orgId != null) qb.andWhere({ organization_id: orgId })
+          if (tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantId }).orWhereNull('tenant_id'))
+          else qb.whereNull('tenant_id')
+          if (orgId != null) qb.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
+          else qb.whereNull('organization_id')
         })
       for (const r of rows) cfKeys.add(r.key)
     } else if (Array.isArray(opts.includeCustomFields)) {
@@ -101,12 +103,20 @@ export class BasicQueryEngine implements QueryEngine {
       const defAlias = `cfd_${sanitize(key)}`
       const valAlias = `cfv_${sanitize(key)}`
       // Join definitions for kind resolution
-      q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function () {
+      q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function (this: any) {
         this.on(`${defAlias}.entity_id`, '=', knex.raw('?', [entityId]))
           .andOn(`${defAlias}.key`, '=', knex.raw('?', [key]))
           .andOn(`${defAlias}.is_active`, '=', knex.raw('true'))
-        if (tenantId != null) this.andOn(`${defAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
-        if (orgId != null) this.andOn(`${defAlias}.organization_id`, '=', knex.raw('?', [orgId]))
+        if (tenantId != null) this.andOn(function (this: any) {
+          this.on(`${defAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
+              .orOn(knex.raw('?? is null', [`${defAlias}.tenant_id`]))
+        })
+        else this.andOn(knex.raw('?? is null', [`${defAlias}.tenant_id`]))
+        if (orgId != null) this.andOn(function (this: any) {
+          this.on(`${defAlias}.organization_id`, '=', knex.raw('?', [orgId]))
+              .orOn(knex.raw('?? is null', [`${defAlias}.organization_id`]))
+        })
+        else this.andOn(knex.raw('?? is null', [`${defAlias}.organization_id`]))
       })
       // Join values with record match
       q = q.leftJoin({ [valAlias]: 'custom_field_values' }, function () {

@@ -50,6 +50,7 @@ const seedTodos: ModuleCli = {
       { key: 'priority', kind: 'integer', configJson: { label: 'Priority', description: '1 (low) to 5 (high)', defaultValue: 3, filterable: true } },
       { key: 'severity', kind: 'select', configJson: { label: 'Severity', options: ['low', 'medium', 'high'], defaultValue: 'medium', filterable: true } },
       { key: 'blocked', kind: 'boolean', configJson: { label: 'Blocked', defaultValue: false, filterable: true } },
+      { key: 'labels', kind: 'select', configJson: { label: 'Labels', options: ['frontend', 'backend', 'ops', 'bug', 'feature'], multi: true, filterable: true } },
     ]
     for (const d of defs) {
       const existing = await em.findOne(CustomFieldDef, { entityId, organizationId: orgId, tenantId: tenantId, key: d.key })
@@ -74,6 +75,7 @@ const seedTodos: ModuleCli = {
     // Seed 10 todos with custom field values
     const titles = Array.from({ length: 10 }).map((_, i) => `Todo #${i + 1}`)
     const severities = ['low', 'medium', 'high']
+    const labelsOptions = ['frontend', 'backend', 'ops', 'bug', 'feature']
     const makePriority = (i: number) => (i % 5) + 1
     const makeSeverity = (i: number) => severities[i % severities.length]
     const makeBlocked = (i: number) => i % 4 === 0 // every 4th is blocked
@@ -91,6 +93,7 @@ const seedTodos: ModuleCli = {
           priority: makePriority(i),
           severity: makeSeverity(i),
           blocked: makeBlocked(i),
+          labels: [labelsOptions[i % labelsOptions.length], labelsOptions[(i + 2) % labelsOptions.length]].filter((v, idx, arr) => arr.indexOf(v) === idx),
         },
       })
     }
