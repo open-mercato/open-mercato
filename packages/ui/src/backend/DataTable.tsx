@@ -16,6 +16,8 @@ export type DataTableProps<T> = {
   columns: ColumnDef<T, any>[]
   data: T[]
   toolbar?: React.ReactNode
+  title?: React.ReactNode
+  actions?: React.ReactNode
   sortable?: boolean
   sorting?: SortingState
   onSortingChange?: (s: SortingState) => void
@@ -23,7 +25,7 @@ export type DataTableProps<T> = {
   isLoading?: boolean
 }
 
-export function DataTable<T>({ columns, data, toolbar, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading }: DataTableProps<T>) {
+export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading }: DataTableProps<T>) {
   // Map column meta.priority (1..6) to Tailwind responsive visibility
   // 1 => always visible, 2 => hidden <sm, 3 => hidden <md, 4 => hidden <lg, 5 => hidden <xl, 6 => hidden <2xl
   const responsiveClass = (priority?: number) => {
@@ -91,10 +93,19 @@ export function DataTable<T>({ columns, data, toolbar, sortable, sorting: sortin
 
   return (
     <div className="rounded-lg border bg-card">
-      <div className="flex items-center justify-between px-4 py-3 border-b">
-        <div className="text-sm font-medium">&nbsp;</div>
-        <div className="flex items-center gap-2">{toolbar}</div>
-      </div>
+      {(title || actions || toolbar) && (
+        <div className="px-4 py-3 border-b space-y-3">
+          {(title || actions) && (
+            <div className="flex items-center justify-between">
+              <div className="text-base font-semibold leading-tight">
+                {typeof title === 'string' ? <h2 className="text-base font-semibold">{title}</h2> : title}
+              </div>
+              <div className="flex items-center gap-2">{actions}</div>
+            </div>
+          )}
+          {toolbar ? <div className="flex items-center justify-between">{toolbar}</div> : null}
+        </div>
+      )}
       <div className="overflow-auto">
         <Table>
           <TableHeader>

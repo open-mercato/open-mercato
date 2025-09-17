@@ -7,6 +7,7 @@ export type FilterBarProps = {
   searchValue?: string
   onSearchChange?: (v: string) => void
   searchPlaceholder?: string
+  searchAlign?: 'left' | 'right'
   filters?: FilterDef[]
   values?: FilterValues
   onApply?: (values: FilterValues) => void
@@ -14,7 +15,7 @@ export type FilterBarProps = {
   className?: string
 }
 
-export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Search', filters = [], values = {}, onApply, onClear, className }: FilterBarProps) {
+export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Search', searchAlign = 'left', filters = [], values = {}, onApply, onClear, className }: FilterBarProps) {
   const [open, setOpen] = React.useState(false)
   const activeCount = React.useMemo(() => {
     const isActive = (v: any) => {
@@ -29,9 +30,14 @@ export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Se
 
   return (
     <div className={`flex flex-col gap-2 ${className ?? ''}`}>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 w-full">
+        {filters.length > 0 && (
+          <Button variant="outline" className="h-9" onClick={() => setOpen(true)}>
+            Filters{activeCount ? ` ${activeCount}` : ''}
+          </Button>
+        )}
         {onSearchChange && (
-          <div className="relative w-full sm:w-[240px]">
+          <div className={`relative w-full sm:w-[240px] ${searchAlign === 'right' ? 'ml-auto' : ''}`}>
             <input
               value={searchValue ?? ''}
               onChange={(e) => onSearchChange(e.target.value)}
@@ -40,11 +46,6 @@ export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Se
             />
             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground">🔍</span>
           </div>
-        )}
-        {filters.length > 0 && (
-          <Button variant="outline" className="h-9" onClick={() => setOpen(true)}>
-            Filters{activeCount ? ` ${activeCount}` : ''}
-          </Button>
         )}
       </div>
       {/* Active filter chips */}

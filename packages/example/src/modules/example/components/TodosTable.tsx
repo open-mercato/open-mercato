@@ -5,6 +5,8 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { FilterBar, type FilterDef, type FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
+import { Button } from '@open-mercato/ui/primitives/button'
+import Link from 'next/link'
 
 type TodoRow = {
   id: string
@@ -189,6 +191,7 @@ export default function TodosTable() {
     <FilterBar
       searchValue={title}
       onSearchChange={(v) => { setTitle(v); setPage(1) }}
+      searchAlign="right"
       filters={filterDefs}
       values={{
         severity,
@@ -226,6 +229,24 @@ export default function TodosTable() {
 
   return (
     <DataTable 
+      title="Todos"
+      actions={(
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const url = `/api/example/todos?${queryParams}&format=csv`
+              window.open(url, '_blank')
+            }}
+          >
+            Export
+          </Button>
+          <Link href="/backend/todos/create" className="h-9 inline-flex items-center rounded bg-primary text-primary-foreground px-3 text-sm">
+            Create
+          </Link>
+        </>
+      )}
       columns={columns} 
       data={todosWithOrgNames} 
       toolbar={toolbar} 
