@@ -178,6 +178,7 @@ export class BasicQueryEngine implements QueryEngine {
         q = q.orderBy(qualify(s.field), s.dir ?? 'asc')
       }
     }
+
     // Pagination
     const page = opts.page?.page ?? 1
     const pageSize = opts.page?.pageSize ?? 20
