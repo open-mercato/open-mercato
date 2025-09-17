@@ -45,7 +45,7 @@ export default function TodosTable() {
   const [blocked, setBlocked] = React.useState<boolean | undefined>(undefined)
   const [orgId, setOrgId] = React.useState<string>('')
   const [tenantId, setTenantId] = React.useState<string>('')
-  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'id', desc: false }])
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
   const [page, setPage] = React.useState(1)
 
   // Build query parameters
@@ -53,7 +53,7 @@ export default function TodosTable() {
     const params = new URLSearchParams({
       page: page.toString(),
       pageSize: '50',
-      sortField: sorting[0]?.id || 'id',
+      sortField: sorting[0]?.id || 'title',
       sortDir: sorting[0]?.desc ? 'desc' : 'asc',
     })
 
@@ -208,4 +208,3 @@ export default function TodosTable() {
     />
   )
 }
-
