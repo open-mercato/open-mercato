@@ -94,7 +94,7 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
   return (
     <div className="rounded-lg border bg-card">
       {(title || actions || toolbar) && (
-        <div className="px-4 py-3 border-b space-y-3">
+        <div className="px-4 py-3 border-b">
           {(title || actions) && (
             <div className="flex items-center justify-between">
               <div className="text-base font-semibold leading-tight">
@@ -103,7 +103,7 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
               <div className="flex items-center gap-2">{actions}</div>
             </div>
           )}
-          {toolbar ? <div className="flex items-center justify-between">{toolbar}</div> : null}
+          {toolbar ? <div className="mt-3 pt-3 border-t">{toolbar}</div> : null}
         </div>
       )}
       <div className="overflow-auto">

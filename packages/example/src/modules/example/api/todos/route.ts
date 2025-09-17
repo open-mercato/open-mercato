@@ -87,8 +87,19 @@ export async function GET(request: Request) {
     const queryParams = Object.fromEntries(url.searchParams.entries())
     const validatedQuery = querySchema.parse(queryParams)
 
-    // Build sort configuration
-    const sortField = validatedQuery.sortField === 'id' ? id : validatedQuery.sortField
+    // Build sort configuration, include mapping for custom fields
+    const sortFieldMap: Record<string, any> = {
+      id,
+      title,
+      tenant_id,
+      organization_id,
+      is_done,
+      cf_priority: 'cf:priority',
+      cf_severity: 'cf:severity',
+      cf_blocked: 'cf:blocked',
+      cf_labels: 'cf:labels',
+    }
+    const sortField = sortFieldMap[validatedQuery.sortField] ?? validatedQuery.sortField
     const sortDir = validatedQuery.sortDir === 'desc' ? SortDir.Desc : SortDir.Asc
 
     // Build typed object-style filters

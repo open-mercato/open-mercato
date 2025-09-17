@@ -35,7 +35,7 @@ type OrganizationsResponse = {
 
 const columns: ColumnDef<TodoRow>[] = [
   { accessorKey: 'title', header: 'Title', meta: { priority: 1 } },
-  { accessorKey: 'organization_name', header: 'Organization', meta: { priority: 3 } },
+  { accessorKey: 'organization_name', header: 'Organization', enableSorting: false, meta: { priority: 3 } },
   { accessorKey: 'is_done', header: 'Done', meta: { priority: 2 },
     cell: ({ getValue }) => <BooleanIcon value={!!getValue()} /> },
   { accessorKey: 'cf_priority', header: 'Priority', meta: { priority: 4 } },
