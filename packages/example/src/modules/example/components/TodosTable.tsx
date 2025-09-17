@@ -45,7 +45,7 @@ const columns: ColumnDef<TodoRow>[] = [
 
 export default function TodosTable() {
   const [title, setTitle] = React.useState('')
-  const [severity, setSeverity] = React.useState<string | undefined>(undefined)
+  const [severity, setSeverity] = React.useState<string[]>([])
   const [done, setDone] = React.useState<boolean | undefined>(undefined)
   const [blocked, setBlocked] = React.useState<boolean | undefined>(undefined)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
@@ -63,7 +63,7 @@ export default function TodosTable() {
     })
 
     if (title) params.set('title', title)
-    if (severity) params.set('severity', severity)
+    if (severity && severity.length) params.set('severityIn', severity.join(','))
     if (done !== undefined) params.set('isDone', done.toString())
     if (blocked !== undefined) params.set('isBlocked', blocked.toString())
     if (createdFrom) params.set('createdFrom', createdFrom)
@@ -133,7 +133,7 @@ export default function TodosTable() {
 
   const handleReset = () => {
     setTitle('')
-    setSeverity(undefined)
+    setSeverity([])
     setDone(undefined)
     setBlocked(undefined)
     setCreatedFrom(undefined)
@@ -142,7 +142,7 @@ export default function TodosTable() {
   }
 
   const filterDefs: FilterDef[] = [
-    { id: 'severity', label: 'Severity', type: 'select', options: [
+    { id: 'severity', label: 'Severity', type: 'select', multiple: true, options: [
       { value: 'low', label: 'Low' },
       { value: 'medium', label: 'Medium' },
       { value: 'high', label: 'High' },
@@ -165,7 +165,12 @@ export default function TodosTable() {
         ...(createdFrom || createdTo ? { created_at: { from: createdFrom, to: createdTo } } : {}),
       }}
       onApply={(vals: FilterValues) => {
-        setSeverity(vals.severity)
+        const sev = Array.isArray(vals.severity)
+          ? vals.severity
+          : vals.severity
+            ? [vals.severity]
+            : []
+        setSeverity(sev)
         setDone(vals.is_done === true ? true : undefined)
         setBlocked(vals.cf_blocked === true ? true : undefined)
         setCreatedFrom(vals.created_at?.from)

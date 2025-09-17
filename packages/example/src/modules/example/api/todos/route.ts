@@ -19,6 +19,7 @@ const querySchema = z.object({
   sortDir: z.enum(['asc', 'desc']).optional().default('asc'),
   title: z.string().optional(),
   severity: z.string().optional(),
+  severityIn: z.string().optional(),
   isDone: z.coerce.boolean().optional(),
   isBlocked: z.coerce.boolean().optional(),
   withDeleted: z.coerce.boolean().optional().default(false),
@@ -94,6 +95,10 @@ export async function GET(request: Request) {
     if (validatedQuery.isDone !== undefined) filters.is_done = validatedQuery.isDone
     if (validatedQuery.organizationId) filters.organization_id = validatedQuery.organizationId
     if (validatedQuery.severity) filters['cf:severity'] = validatedQuery.severity
+    if (validatedQuery.severityIn) {
+      const list = validatedQuery.severityIn.split(',').map((s) => s.trim()).filter(Boolean)
+      if (list.length) filters['cf:severity'] = { $in: list as any }
+    }
     if (validatedQuery.isBlocked !== undefined) filters['cf:blocked'] = validatedQuery.isBlocked
     if (validatedQuery.createdFrom || validatedQuery.createdTo) {
       const range: any = {}
