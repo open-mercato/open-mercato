@@ -130,7 +130,15 @@ export class BasicQueryEngine implements QueryEngine {
       const alias = sanitize(`cf:${key}`)
       // Project as aggregated to avoid duplicates when multi values exist
       if ((opts.fields || []).includes(`cf:${key}`) || opts.includeCustomFields === true || (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.includes(key))) {
-        q = q.select(knex.raw(`max(${caseExpr.toString()}) as ??`, [alias]))
+        // If definition is marked multi in config_json, return array_agg, else max
+        const multiAgg = knex.raw(
+          `CASE WHEN coalesce((${defAlias}.config_json->>'multi')::boolean, false)
+                THEN array_remove(array_agg(${caseExpr.toString()}), NULL)
+                ELSE array[max(${caseExpr.toString()})]
+           END`
+        )
+        // Expose as text[]; callers may treat singletons as scalars
+        q = q.select(knex.raw(`${multiAgg.toString()} as ??`, [alias]))
         cfSelectedAliases.push(alias)
       }
     }

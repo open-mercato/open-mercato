@@ -8,8 +8,8 @@ export const fieldSets: CustomFieldSet[] = [
     cf.integer('priority', { label: 'Priority', description: '1 (low) to 5 (high)', defaultValue: 3, filterable: true }),
     cf.select('severity', ['low', 'medium', 'high'], { label: 'Severity', defaultValue: 'medium', filterable: true }),
     cf.boolean('blocked', { label: 'Blocked', defaultValue: false, filterable: true }),
-    // Demonstration-only: single-select "labels" to support multi-select filter UI (OR across records)
-    cf.select('labels', ['frontend', 'backend', 'ops', 'bug', 'feature'], { label: 'Labels', filterable: true }),
+    // Multi-select labels CF; stored as multiple rows (EAV)
+    cf.select('labels', ['frontend', 'backend', 'ops', 'bug', 'feature'], { label: 'Labels', filterable: true, multi: true }),
   ], 'example'),
 ]
 

@@ -132,9 +132,9 @@ export async function GET(request: Request) {
       organization_id: item.organization_id,
       is_done: item.is_done,
       cf_priority: item['cf:priority'] ?? item.cf_priority,
-      cf_severity: item['cf:severity'] ?? item.cf_severity,
+      cf_severity: Array.isArray(item['cf:severity']) ? item['cf:severity'][0] : (item['cf:severity'] ?? item.cf_severity),
       cf_blocked: item['cf:blocked'] ?? item.cf_blocked,
-      cf_labels: item['cf:labels'] ?? item.cf_labels,
+      cf_labels: Array.isArray(item['cf:labels']) ? item['cf:labels'][0] : (item['cf:labels'] ?? (item as any).cf_labels),
     }))
 
     return new Response(JSON.stringify({
