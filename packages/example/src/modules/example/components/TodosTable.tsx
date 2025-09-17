@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { FilterBar, type FilterDef, type FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
 
 type TodoRow = {
   id: string
@@ -15,6 +16,7 @@ type TodoRow = {
   cf_priority?: number | null
   cf_severity?: string | null
   cf_blocked?: boolean | null
+  cf_labels?: string | null
 }
 
 type TodosResponse = {
@@ -32,15 +34,18 @@ type OrganizationsResponse = {
 const columns: ColumnDef<TodoRow>[] = [
   { accessorKey: 'title', header: 'Title', meta: { priority: 1 } },
   { accessorKey: 'organization_name', header: 'Organization', meta: { priority: 3 } },
-  { accessorKey: 'is_done', header: 'Done', meta: { priority: 2 } },
+  { accessorKey: 'is_done', header: 'Done', meta: { priority: 2 },
+    cell: ({ getValue }) => <BooleanIcon value={!!getValue()} /> },
   { accessorKey: 'cf_priority', header: 'Priority', meta: { priority: 4 } },
   {
     accessorKey: 'cf_severity',
     header: 'Severity',
-    cell: ({ getValue }) => <span className="text-xs">{String(getValue() ?? '')}</span>,
+    cell: ({ getValue }) => <EnumBadge value={getValue() as any} map={severityPreset} />,
     meta: { priority: 5 },
   },
-  { accessorKey: 'cf_blocked', header: 'Blocked', meta: { priority: 6 } },
+  { accessorKey: 'cf_blocked', header: 'Blocked', meta: { priority: 6 },
+    cell: ({ getValue }) => <BooleanIcon value={!!getValue()} /> },
+  { accessorKey: 'cf_labels', header: 'Label', meta: { priority: 6 } },
 ]
 
 export default function TodosTable() {
@@ -48,6 +53,7 @@ export default function TodosTable() {
   const [severity, setSeverity] = React.useState<string[]>([])
   const [done, setDone] = React.useState<boolean | undefined>(undefined)
   const [blocked, setBlocked] = React.useState<boolean | undefined>(undefined)
+  const [labels, setLabels] = React.useState<string[]>([])
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
   const [page, setPage] = React.useState(1)
   const [createdFrom, setCreatedFrom] = React.useState<string | undefined>(undefined)
@@ -66,12 +72,14 @@ export default function TodosTable() {
     if (severity && severity.length) params.set('severityIn', severity.join(','))
     if (done !== undefined) params.set('isDone', done.toString())
     if (blocked !== undefined) params.set('isBlocked', blocked.toString())
+    if (severity && severity.length) params.set('severityIn', severity.join(','))
+    if (labels && labels.length) params.set('labelsIn', labels.join(','))
     if (createdFrom) params.set('createdFrom', createdFrom)
     if (createdTo) params.set('createdTo', createdTo)
     // organization and tenant filters removed per request
     
     return params.toString()
-  }, [page, sorting, title, severity, done, blocked, createdFrom, createdTo])
+  }, [page, sorting, title, severity, labels, done, blocked, createdFrom, createdTo])
 
   // Fetch todos
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
@@ -138,6 +146,7 @@ export default function TodosTable() {
     setBlocked(undefined)
     setCreatedFrom(undefined)
     setCreatedTo(undefined)
+    setLabels([])
     setPage(1)
   }
 
@@ -149,6 +158,13 @@ export default function TodosTable() {
     ] },
     { id: 'is_done', label: 'Done', type: 'checkbox' },
     { id: 'cf_blocked', label: 'Blocked', type: 'checkbox' },
+    { id: 'labels', label: 'Labels', type: 'select', multiple: true, options: [
+      { value: 'frontend', label: 'Frontend' },
+      { value: 'backend', label: 'Backend' },
+      { value: 'ops', label: 'Ops' },
+      { value: 'bug', label: 'Bug' },
+      { value: 'feature', label: 'Feature' },
+    ] },
     // Example extra filter type: date range wired to backend
     { id: 'created_at', label: 'Created Date', type: 'dateRange' },
   ]
@@ -160,6 +176,7 @@ export default function TodosTable() {
       filters={filterDefs}
       values={{
         severity,
+        labels,
         is_done: done,
         cf_blocked: blocked,
         ...(createdFrom || createdTo ? { created_at: { from: createdFrom, to: createdTo } } : {}),
@@ -171,6 +188,12 @@ export default function TodosTable() {
             ? [vals.severity]
             : []
         setSeverity(sev)
+        const lbls = Array.isArray(vals.labels)
+          ? vals.labels
+          : vals.labels
+            ? [vals.labels]
+            : []
+        setLabels(lbls)
         setDone(vals.is_done === true ? true : undefined)
         setBlocked(vals.cf_blocked === true ? true : undefined)
         setCreatedFrom(vals.created_at?.from)

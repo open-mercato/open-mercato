@@ -26,6 +26,7 @@ const querySchema = z.object({
   organizationId: z.string().uuid().optional(),
   createdFrom: z.string().optional(),
   createdTo: z.string().optional(),
+  labelsIn: z.string().optional(),
 })
 
 export const metadata = {
@@ -89,6 +90,7 @@ export async function GET(request: Request) {
       'cf:priority': number
       'cf:severity': string
       'cf:blocked': boolean
+      'cf:labels': string
     }
     const filters: Where<TodoFields> = {}
     if (validatedQuery.title) filters.title = { $ilike: `%${validatedQuery.title}%` }
@@ -98,6 +100,10 @@ export async function GET(request: Request) {
     if (validatedQuery.severityIn) {
       const list = validatedQuery.severityIn.split(',').map((s) => s.trim()).filter(Boolean)
       if (list.length) filters['cf:severity'] = { $in: list as any }
+    }
+    if (validatedQuery.labelsIn) {
+      const list = validatedQuery.labelsIn.split(',').map((s) => s.trim()).filter(Boolean)
+      if (list.length) filters['cf:labels'] = { $in: list as any }
     }
     if (validatedQuery.isBlocked !== undefined) filters['cf:blocked'] = validatedQuery.isBlocked
     if (validatedQuery.createdFrom || validatedQuery.createdTo) {
@@ -111,7 +117,7 @@ export async function GET(request: Request) {
     const res = await queryEngine.query(E.example.todo, {
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
-      fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked'],
+      fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked', 'cf:labels'],
       sort: [{ field: sortField, dir: sortDir }],
       page: { page: validatedQuery.page, pageSize: validatedQuery.pageSize },
       filters,
@@ -128,6 +134,7 @@ export async function GET(request: Request) {
       cf_priority: item['cf:priority'] ?? item.cf_priority,
       cf_severity: item['cf:severity'] ?? item.cf_severity,
       cf_blocked: item['cf:blocked'] ?? item.cf_blocked,
+      cf_labels: item['cf:labels'] ?? item.cf_labels,
     }))
 
     return new Response(JSON.stringify({
