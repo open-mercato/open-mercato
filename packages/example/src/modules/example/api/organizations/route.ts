@@ -49,9 +49,9 @@ export async function GET(request: Request) {
     const res = await queryEngine.query(E.directory.organization, {
       organizationId: auth.orgId,
       fields: [id, name],
-      filters: {
-        id: { $in: organizationIds }
-      }
+      filters: [
+        { field: 'id', op: 'in', value: organizationIds }
+      ]
     })
 
     const organizations = res.items.map((org: any) => ({

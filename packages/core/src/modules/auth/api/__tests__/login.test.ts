@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { POST } from '@open-mercato/core/modules/auth/api/login'
-:import { randomUUID } from 'crypto'
+import { randomUUID } from 'crypto'
 
 const tenantId = randomUUID()
 const orgId = randomUUID()
