@@ -175,7 +175,7 @@ const RichTextEditorBase = React.forwardRef<HTMLDivElement, RTEProps>(
       </div>
     )
   })
-)
+
 
 const RichTextEditor = React.memo(RichTextEditorBase, (prev, next) => prev.defaultValue === next.defaultValue)
 

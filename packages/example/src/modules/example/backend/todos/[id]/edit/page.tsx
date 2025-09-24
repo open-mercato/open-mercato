@@ -85,7 +85,7 @@ export default function EditTodoPage() {
     <Page>
       <PageBody>
         {loading ? (
-          <div>Loading…</div)
+          <div>Loading…</div>
         ) : err ? (
           <div className="text-red-600">{err}</div>
         ) : (
@@ -116,4 +116,3 @@ export default function EditTodoPage() {
     </Page>
   )
 }
-
