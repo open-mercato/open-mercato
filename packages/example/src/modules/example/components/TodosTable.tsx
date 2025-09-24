@@ -1,8 +1,9 @@
 "use client"
 import * as React from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { FilterBar, type FilterDef, type FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -68,6 +69,7 @@ const columns: ColumnDef<TodoRow>[] = [
 ]
 
 export default function TodosTable() {
+  const queryClient = useQueryClient()
   const [title, setTitle] = React.useState('')
   const [severity, setSeverity] = React.useState<string[]>([])
   const [done, setDone] = React.useState<boolean | undefined>(undefined)
@@ -247,6 +249,28 @@ export default function TodosTable() {
       sortable 
       sorting={sorting} 
       onSortingChange={handleSortingChange}
+      rowActions={(row) => (
+        <RowActions
+          items={[
+            { label: 'Edit', href: `/backend/todos/${row.id}/edit` },
+            {
+              label: 'Delete',
+              destructive: true,
+              onSelect: async () => {
+                if (!window.confirm('Delete this todo?')) return
+                const res = await fetch(`/api/example/todos?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+                if (!res.ok) {
+                  const t = await res.text().catch(() => '')
+                  alert(t || 'Failed to delete')
+                  return
+                }
+                // refresh list
+                queryClient.invalidateQueries({ queryKey: ['todos'] })
+              },
+            },
+          ]}
+        />
+      )}
       pagination={{
         page,
         pageSize: 50,

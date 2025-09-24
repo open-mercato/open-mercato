@@ -36,6 +36,38 @@ This example extends the `example` module with a new `Todo` entity, declares cus
 - The example entity includes both `organization_id` and `tenant_id` for proper multi-tenant scoping. All queries must include both `organizationId` and `tenantId` in query options.
   - In this example, the `todos` table includes `tenant_id` and `organization_id`, and the page filters by `organizationId` from the authenticated user.
 
+### Create form (mobile-friendly)
+The create page (`/backend/example/todos/create`) uses the shared `CrudForm` component for a quick, validated form with custom fields.
+
+Key behaviors:
+- Mobile screens render a fullscreen form with a header and back link.
+  
+- Inline help text per field uses the `description` property.
+
+Example usage:
+
+```tsx
+<CrudForm
+  title="Create Todo"
+  backHref="/backend/todos"
+  schema={todoCreateSchema}
+  fields={fields}
+  submitLabel="Create Todo"
+  cancelHref="/backend/todos"
+  successRedirect="/backend/todos"
+  onSubmit={async (vals) => { /* ... */ }}
+/>
+```
+
+Advanced editors supported out of the box: `tags`, `richtext`, `relation`, plus `custom` renderers for bespoke components. See `docs/ui/crud-form.md` for the full API.
+
+Fields used in the example create page:
+- `cf_labels` (tags): Stored as a multi-select custom field `labels`.
+- `cf_description` (richtext): Stored as `description` (multiline) CF, HTML string.
+- `cf_assignee` (relation-like): Stored as `assignee` text CF (just an ID string). The UI uses an async loader to demonstrate dynamic options.
+
+The API accepts these on create and persists them via the custom fields module.
+
 ### Optional page metadata
 You can co-locate admin navigation and access control metadata with the page.
 

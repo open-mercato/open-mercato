@@ -10,6 +10,9 @@ export const fieldSets: CustomFieldSet[] = [
     cf.boolean('blocked', { label: 'Blocked', defaultValue: false, filterable: true }),
     // Multi-select labels CF; stored as multiple rows (EAV)
     cf.select('labels', ['frontend', 'backend', 'ops', 'bug', 'feature'], { label: 'Labels', filterable: true, multi: true }),
+    cf.multiline('description', { label: 'Description' }),
+    // Store a foreign id as text (no cross-module relation). Fetch related data separately.
+    cf.text('assignee', { label: 'Assignee Id' }),
   ], 'example'),
 
   

@@ -15,6 +15,7 @@ function isValidUUID(uuid: string): boolean {
 }
 
 const querySchema = z.object({
+  id: z.string().uuid().optional(),
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
   sortField: z.string().optional().default('id'),
@@ -39,6 +40,8 @@ const createSchema = z.object({
   cf_severity: z.enum(['low', 'medium', 'high']).optional(),
   cf_blocked: z.boolean().optional(),
   cf_labels: z.array(z.string()).optional(),
+  cf_description: z.string().optional(),
+  cf_assignee: z.string().optional(),
 })
 
 export const metadata = {
@@ -116,6 +119,7 @@ export async function GET(request: Request) {
       'cf:labels': string
     }
     const filters: Where<TodoFields> = {}
+    if (validatedQuery.id) filters.id = validatedQuery.id
     if (validatedQuery.title) filters.title = { $ilike: `%${validatedQuery.title}%` }
     if (validatedQuery.isDone !== undefined) filters.is_done = validatedQuery.isDone
     if (validatedQuery.organizationId) filters.organization_id = validatedQuery.organizationId
@@ -140,7 +144,7 @@ export async function GET(request: Request) {
     const res = await queryEngine.query(E.example.todo, {
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
-      fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked', 'cf:labels'],
+      fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked', 'cf:labels', 'cf:assignee', 'cf:description'],
       sort: [{ field: sortField, dir: sortDir }],
       page: { page: validatedQuery.page, pageSize: validatedQuery.pageSize },
       filters,
@@ -159,17 +163,31 @@ export async function GET(request: Request) {
       return val != null ? [String(val)] : []
     }
 
-    const todos = res.items.map((item) => ({
-      id: item.id,
-      title: item.title,
-      tenant_id: item.tenant_id,
-      organization_id: item.organization_id,
-      is_done: item.is_done,
-      cf_priority: item['cf:priority'] ?? item.cf_priority,
-      cf_severity: Array.isArray(item['cf:severity']) ? item['cf:severity'][0] : (item['cf:severity'] ?? item.cf_severity),
-      cf_blocked: item['cf:blocked'] ?? item.cf_blocked,
-      cf_labels: toArray(item['cf:labels'] ?? (item as any).cf_labels),
-    }))
+    const todos = res.items.map((item) => {
+      const rawSeverity: any = (item as any)['cf:severity'] ?? (item as any).cf_severity
+      const severityVal: any = Array.isArray(rawSeverity) ? rawSeverity[0] : rawSeverity
+      const cf_severity = typeof severityVal === 'string' ? severityVal.toLowerCase() : severityVal
+
+      const rawAssignee: any = (item as any)['cf:assignee'] ?? (item as any).cf_assignee
+      const cf_assignee = Array.isArray(rawAssignee) ? rawAssignee[0] : rawAssignee
+
+      const rawDesc: any = (item as any)['cf:description'] ?? (item as any).cf_description
+      const cf_description = Array.isArray(rawDesc) ? rawDesc[0] : rawDesc
+
+      return {
+        id: item.id,
+        title: item.title,
+        tenant_id: (item as any).tenant_id,
+        organization_id: (item as any).organization_id,
+        is_done: (item as any).is_done,
+        cf_priority: (item as any)['cf:priority'] ?? (item as any).cf_priority,
+        cf_severity,
+        cf_blocked: (item as any)['cf:blocked'] ?? (item as any).cf_blocked,
+        cf_labels: toArray((item as any)['cf:labels'] ?? (item as any).cf_labels),
+        cf_assignee: typeof cf_assignee === 'string' ? cf_assignee : undefined,
+        cf_description: typeof cf_description === 'string' ? cf_description : undefined,
+      }
+    })
 
     if (validatedQuery.format === 'csv') {
       // Build CSV
@@ -235,6 +253,8 @@ export async function POST(request: Request) {
     if (input.cf_severity !== undefined) values.severity = input.cf_severity
     if (input.cf_blocked !== undefined) values.blocked = input.cf_blocked
     if (input.cf_labels !== undefined) values.labels = input.cf_labels
+    if (input.cf_description !== undefined) values.description = input.cf_description
+    if (input.cf_assignee !== undefined) values.assignee = input.cf_assignee
 
     if (Object.keys(values).length > 0) {
       await setRecordCustomFields(em, {
@@ -252,6 +272,104 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error('Error creating todo:', error)
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+}
+
+const updateSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1).optional(),
+  is_done: z.boolean().optional(),
+  cf_priority: z.number().int().min(1).max(5).optional(),
+  cf_severity: z.enum(['low', 'medium', 'high']).optional(),
+  cf_blocked: z.boolean().optional(),
+  cf_labels: z.array(z.string()).optional(),
+  cf_description: z.string().optional(),
+  cf_assignee: z.string().optional(),
+})
+
+export async function PUT(request: Request) {
+  try {
+    const container = await createRequestContainer()
+    const auth = await getAuthFromCookies()
+    if (!auth?.orgId || !auth?.tenantId) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'content-type': 'application/json' } })
+    }
+    const body = await request.json().catch(() => ({}))
+    const input = updateSchema.parse(body)
+
+    const em = container.resolve('em') as any
+    const repo = em.getRepository(Todo)
+    const todo = await repo.findOne({ id: input.id, organizationId: auth.orgId, tenantId: auth.tenantId })
+    if (!todo) {
+      return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { 'content-type': 'application/json' } })
+    }
+
+    if (input.title !== undefined) todo.title = input.title
+    if (input.is_done !== undefined) todo.isDone = !!input.is_done
+    await em.persistAndFlush(todo)
+
+    const values: Record<string, any> = {}
+    if (input.cf_priority !== undefined) values.priority = input.cf_priority
+    if (input.cf_severity !== undefined) values.severity = input.cf_severity
+    if (input.cf_blocked !== undefined) values.blocked = input.cf_blocked
+    if (input.cf_labels !== undefined) values.labels = input.cf_labels
+    if (input.cf_description !== undefined) values.description = input.cf_description
+    if (input.cf_assignee !== undefined) values.assignee = input.cf_assignee
+
+    if (Object.keys(values).length > 0) {
+      await setRecordCustomFields(em, {
+        entityId: E.example.todo,
+        recordId: String(todo.id),
+        organizationId: auth.orgId,
+        tenantId: auth.tenantId,
+        values,
+      })
+    }
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { 'content-type': 'application/json' },
+    })
+  } catch (error) {
+    console.error('Error updating todo:', error)
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const container = await createRequestContainer()
+    const auth = await getAuthFromCookies()
+    if (!auth?.orgId || !auth?.tenantId) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'content-type': 'application/json' } })
+    }
+    const url = new URL(request.url)
+    const idParam = url.searchParams.get('id')
+    if (!idParam || !isValidUUID(idParam)) {
+      return new Response(JSON.stringify({ error: 'ID is required' }), { status: 400, headers: { 'content-type': 'application/json' } })
+    }
+
+    const em = container.resolve('em') as any
+    const repo = em.getRepository(Todo)
+    const todo = await repo.findOne({ id: idParam, organizationId: auth.orgId, tenantId: auth.tenantId })
+    if (!todo) {
+      return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { 'content-type': 'application/json' } })
+    }
+
+    todo.deletedAt = new Date()
+    await em.persistAndFlush(todo)
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { 'content-type': 'application/json' },
+    })
+  } catch (error) {
+    console.error('Error deleting todo:', error)
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'content-type': 'application/json' },
