@@ -5,8 +5,6 @@ import { z } from 'zod'
 import { useRouter } from 'next/navigation'
 import { Button } from '../primitives/button'
 
-export type CrudFieldOption = { value: string; label: string }
-
 export type CrudFieldBase = {
   id: string
   label: string

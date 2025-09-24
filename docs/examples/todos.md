@@ -61,6 +61,13 @@ Example usage:
 
 Advanced editors supported out of the box: `tags`, `richtext`, `relation`, plus `custom` renderers for bespoke components. See `docs/ui/crud-form.md` for the full API.
 
+Fields used in the example create page:
+- `cf_labels` (tags): Stored as a multi-select custom field `labels`.
+- `cf_description` (richtext): Stored as `description` (multiline) CF, HTML string.
+- `cf_assignee` (relation-like): Stored as `assignee` text CF (just an ID string). The UI uses an async loader to demonstrate dynamic options.
+
+The API accepts these on create and persists them via the custom fields module.
+
 ### Optional page metadata
 You can co-locate admin navigation and access control metadata with the page.
 

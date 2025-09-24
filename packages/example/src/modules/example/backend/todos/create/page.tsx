@@ -8,7 +8,17 @@ const todoCreateSchema = z.object({
   is_done: z.boolean().optional().default(false),
   cf_severity: z.enum(['low', 'medium', 'high']).optional(),
   cf_blocked: z.boolean().optional(),
+  cf_labels: z.array(z.string()).optional(),
+  cf_description: z.string().optional(),
+  cf_assignee: z.string().optional(),
 })
+
+const assigneeLoader = async () => {
+  const res = await fetch('/api/example/assignees', { headers: { 'content-type': 'application/json' } })
+  if (!res.ok) throw new Error('Failed to load assignees')
+  const data = await res.json().catch(() => ({ items: [] }))
+  return (data?.items || []) as { value: string; label: string }[]
+}
 
 const fields: CrudField[] = [
   { id: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Write a clear title' },
@@ -16,8 +26,11 @@ const fields: CrudField[] = [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
-  ]},
-  { id: 'cf_blocked', label: 'Blocked', type: 'checkbox' },
+  ], description: 'How severe is this todo?' },
+  { id: 'cf_blocked', label: 'Blocked', type: 'checkbox', description: 'Mark if this is currently blocked' },
+  { id: 'cf_labels', label: 'Labels', type: 'tags', description: 'Add labels, press Enter to confirm' },
+  { id: 'cf_assignee', label: 'Assignee', type: 'relation', placeholder: 'Search people…', description: 'Pick one assignee', loadOptions: assigneeLoader },
+  { id: 'cf_description', label: 'Description', type: 'richtext', description: 'Supports basic formatting' },
   { id: 'is_done', label: 'Done', type: 'checkbox' },
 ]
 

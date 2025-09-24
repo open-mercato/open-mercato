@@ -39,6 +39,8 @@ const createSchema = z.object({
   cf_severity: z.enum(['low', 'medium', 'high']).optional(),
   cf_blocked: z.boolean().optional(),
   cf_labels: z.array(z.string()).optional(),
+  cf_description: z.string().optional(),
+  cf_assignee: z.string().optional(),
 })
 
 export const metadata = {
@@ -235,6 +237,8 @@ export async function POST(request: Request) {
     if (input.cf_severity !== undefined) values.severity = input.cf_severity
     if (input.cf_blocked !== undefined) values.blocked = input.cf_blocked
     if (input.cf_labels !== undefined) values.labels = input.cf_labels
+    if (input.cf_description !== undefined) values.description = input.cf_description
+    if (input.cf_assignee !== undefined) values.assignee = input.cf_assignee
 
     if (Object.keys(values).length > 0) {
       await setRecordCustomFields(em, {
