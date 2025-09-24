@@ -126,16 +126,27 @@ type RTEProps = { value?: string; onChange: (html: string) => void }
 // Markdown editor using @uiw/react-md-editor (client-only)
 type MDProps = { value?: string; onChange: (md: string) => void }
 const MDEditor = dynamic(() => import('@uiw/react-md-editor'), { ssr: false }) as any
-const MarkdownEditor = ({ value = '', onChange }: MDProps) => (
-  <div data-color-mode="light" className="w-full">
-    <MDEditor
-      value={value}
-      height={220}
-      onChange={(v: string | undefined) => onChange(v ?? '')}
-      previewOptions={{ remarkPlugins: [remarkGfm] }}
-    />
-  </div>
-)
+const MarkdownEditor = React.memo(({ value = '', onChange }: MDProps) => {
+  const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const handleChange = React.useCallback((v?: string) => {
+    onChange(v ?? '')
+    // Try to preserve focus after parent re-render
+    requestAnimationFrame(() => {
+      const ta = containerRef.current?.querySelector('textarea') as HTMLTextAreaElement | null
+      ta?.focus()
+    })
+  }, [onChange])
+  return (
+    <div ref={containerRef} data-color-mode="light" className="w-full">
+      <MDEditor
+        value={value}
+        height={220}
+        onChange={handleChange}
+        previewOptions={{ remarkPlugins: [remarkGfm] }}
+      />
+    </div>
+  )
+}, (prev, next) => prev.value === next.value)
 
   // Load dynamic options for fields that require it
   React.useEffect(() => {
@@ -165,122 +176,96 @@ const MarkdownEditor = ({ value = '', onChange }: MDProps) => (
 
   const grid = twoColumn ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'grid grid-cols-1 gap-4'
 
+  type FieldControlProps = {
+    f: CrudField
+    value: any
+    error?: string
+    options: CrudFieldOption[]
+    idx: number
+    setValue: (id: string, v: any) => void
+  }
+
+  const FieldControl = React.useMemo(() => React.memo(function FieldControlImpl({ f, value, error, options, idx, setValue }: FieldControlProps) {
+    return (
+      <div className="space-y-1">
+        <label className="block text-sm font-medium">
+          {f.label}
+          {f.required ? <span className="text-red-600"> *</span> : null}
+        </label>
+        {f.type === 'text' && (
+          <input type="text" className="w-full h-9 rounded border px-2" placeholder={(f as any).placeholder} value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value)} />
+        )}
+        {f.type === 'number' && (
+          <input type="number" className="w-full h-9 rounded border px-2" placeholder={(f as any).placeholder} value={value ?? ''}
+                 onChange={(e) => setValue(f.id, e.target.value === '' ? undefined : Number(e.target.value))} />
+        )}
+        {f.type === 'date' && (
+          <input type="date" className="w-full h-9 rounded border px-2" value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value || undefined)} />
+        )}
+        {f.type === 'textarea' && (
+          <textarea className="w-full rounded border px-2 py-2 min-h-[120px]" placeholder={(f as any).placeholder} value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value)} />
+        )}
+        {f.type === 'richtext' && (
+          <MarkdownEditor value={String(value ?? '')} onChange={(md) => setValue(f.id, md)} />
+        )}
+        {f.type === 'tags' && (
+          <TagsInput value={Array.isArray(value) ? (value as string[]) : []} onChange={(v) => setValue(f.id, v)} placeholder={(f as any).placeholder} />
+        )}
+        {f.type === 'checkbox' && (
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={!!value} onChange={(e) => setValue(f.id, e.target.checked)} />
+            <span className="text-sm text-muted-foreground">Enable</span>
+          </label>
+        )}
+        {f.type === 'select' && (
+          <select className="w-full h-9 rounded border px-2" value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value || undefined)}>
+            <option value="">—</option>
+            {options.map((opt) => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
+          </select>
+        )}
+        {f.type === 'relation' && (
+          <RelationSelect options={options} placeholder={(f as any).placeholder} value={value ?? ''} onChange={(v) => setValue(f.id, v)} />
+        )}
+        {f.type === 'custom' && (
+          <>{(f as any).component({ id: f.id, value, error, autoFocus: idx === 0, setValue: (v: any) => setValue(f.id, v) })}</>
+        )}
+        {(f as any).description ? (
+          <div className="text-xs text-muted-foreground">{(f as any).description}</div>
+        ) : null}
+        {error ? (
+          <div className="text-xs text-red-600">{error}</div>
+        ) : null}
+      </div>
+    )
+  }, (prev, next) => prev.f.id === next.f.id && prev.value === next.value && prev.error === next.error && prev.options === next.options), [])
+
   return (
-    <div className="md:static md:p-0 md:bg-transparent md:h-auto">
-      <div className="fixed inset-0 z-40 bg-background p-0 md:static md:z-auto md:bg-transparent md:p-0 md:block">
-        <div className="flex h-full w-full flex-col md:block">
-          <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 px-4 py-3 md:border-0 md:px-4 md:py-3">
-            {backHref ? (
-              <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-                ← Back
-              </Link>
-            ) : null}
-            {title ? <div className="text-base font-medium">{title}</div> : null}
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto p-4 md:p-0">
-            <form onSubmit={handleSubmit} className="md:rounded-lg md:border md:bg-card md:p-4 space-y-4">
-        <div className={grid}>
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        {backHref ? (
+          <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
+            ← Back
+          </Link>
+        ) : null}
+        {title ? <div className="text-base font-medium">{title}</div> : null}
+      </div>
+      <div>
+        <form onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
+          <div className={grid}>
           {fields.map((f, idx) => (
-            <div key={f.id} className="space-y-1">
-              <label className="block text-sm font-medium">
-                {f.label}
-                {f.required ? <span className="text-red-600"> *</span> : null}
-              </label>
-              {f.type === 'text' && (
-                <input
-                  type="text"
-                  className="w-full h-9 rounded border px-2"
-                  placeholder={f.placeholder}
-                  value={values[f.id] ?? ''}
-                  onChange={(e) => setValue(f.id, e.target.value)}
-                />
-              )}
-              {f.type === 'number' && (
-                <input
-                  type="number"
-                  className="w-full h-9 rounded border px-2"
-                  placeholder={f.placeholder}
-                  value={values[f.id] ?? ''}
-                  onChange={(e) =>
-                    setValue(f.id, e.target.value === '' ? undefined : Number(e.target.value))
-                  }
-                />
-              )}
-              {f.type === 'date' && (
-                <input
-                  type="date"
-                  className="w-full h-9 rounded border px-2"
-                  value={values[f.id] ?? ''}
-                  onChange={(e) => setValue(f.id, e.target.value || undefined)}
-                />
-              )}
-              {f.type === 'textarea' && (
-                <textarea
-                  className="w-full rounded border px-2 py-2 min-h-[120px]"
-                  placeholder={f.placeholder}
-                  value={values[f.id] ?? ''}
-                  onChange={(e) => setValue(f.id, e.target.value)}
-                />
-              )}
-              {f.type === 'richtext' && (
-                <MarkdownEditor
-                  value={String(values[f.id] ?? '')}
-                  onChange={(md) => setValue(f.id, md)}
-                />
-              )}
-              {f.type === 'tags' && (
-                <TagsInput
-                  value={Array.isArray(values[f.id]) ? (values[f.id] as string[]) : []}
-                  onChange={(v) => setValue(f.id, v)}
-                  placeholder={f.placeholder}
-                />
-              )}
-              {f.type === 'checkbox' && (
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={!!values[f.id]}
-                    onChange={(e) => setValue(f.id, e.target.checked)}
-                  />
-                  <span className="text-sm text-muted-foreground">Enable</span>
-                </label>
-              )}
-              {f.type === 'select' && (
-                <select
-                  className="w-full h-9 rounded border px-2"
-                  value={values[f.id] ?? ''}
-                  onChange={(e) => setValue(f.id, e.target.value || undefined)}
-                >
-                  <option value="">—</option>
-                  {(f.options || dynamicOptions[f.id] || []).map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {f.type === 'relation' && (
-                <RelationSelect
-                  options={f.options || dynamicOptions[f.id] || []}
-                  placeholder={f.placeholder}
-                  value={values[f.id] ?? ''}
-                  onChange={(v) => setValue(f.id, v)}
-                />
-              )}
-              {f.type === 'custom' && (
-                <>{f.component({ id: f.id, value: values[f.id], error: errors[f.id], autoFocus: idx === 0, setValue: (v) => setValue(f.id, v) })}</>
-              )}
-              {f.description ? (
-                <div className="text-xs text-muted-foreground">{f.description}</div>
-              ) : null}
-              {errors[f.id] ? (
-                <div className="text-xs text-red-600">{errors[f.id]}</div>
-              ) : null}
-            </div>
+            <FieldControl
+              key={f.id}
+              f={f}
+              value={values[f.id]}
+              error={errors[f.id]}
+              options={f.options || dynamicOptions[f.id] || []}
+              idx={idx}
+              setValue={setValue}
+            />
           ))}
-        </div>
-        {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-        <div className="flex items-center justify-end gap-2">
+          </div>
+          {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
+          <div className="flex items-center justify-end gap-2">
           {cancelHref ? (
             <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
               Cancel
@@ -290,9 +275,7 @@ const MarkdownEditor = ({ value = '', onChange }: MDProps) => (
             {pending ? 'Saving…' : submitLabel}
           </Button>
         </div>
-            </form>
-          </div>
-        </div>
+        </form>
       </div>
     </div>
   )
