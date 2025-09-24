@@ -127,7 +127,15 @@ export function CrudForm<TValues extends Record<string, any>>({
 type RTEProps = { value?: string; onChange: (html: string) => void }
 // Markdown editor using @uiw/react-md-editor (client-only)
 type MDProps = { value?: string; onChange: (md: string) => void }
-const MDEditor = dynamic(() => import('@uiw/react-md-editor'), { ssr: false }) as any
+// Use the correct type for the imported component. If @uiw/react-md-editor exports a type for its props, use it.
+// Otherwise, define a minimal type here.
+type MDEditorProps = {
+  value?: string;
+  height?: number;
+  onChange?: (value?: string) => void;
+  previewOptions?: { remarkPlugins?: any[] };
+};
+const MDEditor = dynamic<MDEditorProps>(() => import('@uiw/react-md-editor'), { ssr: false });
 const MarkdownEditor = React.memo(({ value = '', onChange }: MDProps) => {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const handleChange = React.useCallback((v?: string) => {
