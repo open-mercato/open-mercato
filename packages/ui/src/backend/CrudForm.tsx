@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { z } from 'zod'
 import { useRouter } from 'next/navigation'
 import { Button } from '../primitives/button'
+import dynamic from 'next/dynamic'
+import remarkGfm from 'remark-gfm'
 
 export type CrudFieldBase = {
   id: string
@@ -121,67 +123,19 @@ export function CrudForm<TValues extends Record<string, any>>({
 }
 
 type RTEProps = { value?: string; onChange: (html: string) => void }
-// Simple Markdown editor: returns markdown string, no preview, no deps
+// Markdown editor using @uiw/react-md-editor (client-only)
 type MDProps = { value?: string; onChange: (md: string) => void }
-const MarkdownEditor = ({ value = '', onChange }: MDProps) => {
-  const ref = React.useRef<HTMLTextAreaElement | null>(null)
-
-  const applyWrap = (before: string, after: string = before) => {
-    const el = ref.current
-    if (!el) return
-    const start = el.selectionStart ?? 0
-    const end = el.selectionEnd ?? 0
-    const sel = value.slice(start, end) || 'text'
-    const next = value.slice(0, start) + before + sel + after + value.slice(end)
-    onChange(next)
-    queueMicrotask(() => {
-      const caret = start + before.length + sel.length + after.length
-      el.focus()
-      el.setSelectionRange(caret, caret)
-    })
-  }
-
-  const applyLinePrefix = (prefix: string) => {
-    const el = ref.current
-    if (!el) return
-    const start = el.selectionStart ?? 0
-    const end = el.selectionEnd ?? 0
-    const before = value.slice(0, start)
-    const sel = value.slice(start, end) || ''
-    const after = value.slice(end)
-    const lines = (sel || value).slice(start, end || undefined).split('\n')
-    const transformed = (sel ? sel : value)
-      .slice(start, end || undefined)
-      .split('\n')
-      .map((l) => (l ? `${prefix}${l}` : prefix))
-      .join('\n')
-    const next = sel ? before + transformed + after : value.slice(0, start) + prefix + value.slice(start)
-    onChange(next)
-    queueMicrotask(() => {
-      const caret = start + prefix.length
-      el.focus()
-      el.setSelectionRange(caret, caret)
-    })
-  }
-
-  return (
-    <div className="w-full rounded border">
-      <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => applyWrap('**')}>Bold</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => applyWrap('_')}>Italic</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => applyLinePrefix('# ')}>H1</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => applyLinePrefix('- ')}>List</button>
-      </div>
-      <textarea
-        ref={ref}
-        className="w-full min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Write markdown..."
-      />
-    </div>
-  )
-}
+const MDEditor = dynamic(() => import('@uiw/react-md-editor'), { ssr: false }) as any
+const MarkdownEditor = ({ value = '', onChange }: MDProps) => (
+  <div data-color-mode="light" className="w-full">
+    <MDEditor
+      value={value}
+      height={220}
+      onChange={(v: string | undefined) => onChange(v ?? '')}
+      previewOptions={{ remarkPlugins: [remarkGfm] }}
+    />
+  </div>
+)
 
   // Load dynamic options for fields that require it
   React.useEffect(() => {
