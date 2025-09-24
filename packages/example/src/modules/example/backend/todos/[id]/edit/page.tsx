@@ -37,10 +37,12 @@ const fields: CrudField[] = [
   { id: 'is_done', label: 'Done', type: 'checkbox' },
 ]
 
-export default function EditTodoPage() {
-  const params = useParams<{ id: string }>()
+export default function EditTodoPage(props: { params?: { id?: string | string[] } }) {
+  // Prefer params passed by registry; fallback to Next hook if missing
+  const hookParams = useParams<{ id?: string | string[] }>()
   const router = useRouter()
-  const id = params?.id
+  const idParam = (props?.params?.id ?? hookParams?.id) as string | string[] | undefined
+  const id = Array.isArray(idParam) ? idParam[0] : idParam
   const [initial, setInitial] = React.useState<any | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [err, setErr] = React.useState<string | null>(null)
