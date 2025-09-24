@@ -82,6 +82,14 @@ export function CrudForm<TValues extends Record<string, any>>({
 
   const setValue = (id: string, v: any) => setValues((prev) => ({ ...prev, [id]: v }))
 
+  // Sync when initialValues change (e.g., edit form loads data async)
+  React.useEffect(() => {
+    if (initialValues) {
+      setValues((prev) => ({ ...prev, ...(initialValues as any) }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValues])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormError(null)
@@ -112,72 +120,68 @@ export function CrudForm<TValues extends Record<string, any>>({
   }
 }
 
-type RTEProps = { defaultValue?: string; onChange: (html: string) => void }
-const RichTextEditorBase = React.forwardRef<HTMLDivElement, RTEProps>(
-  function RichTextEditor({ defaultValue, onChange }, ref) {
-    const editorRef = React.useRef<HTMLDivElement | null>(null)
-    const composedRef = (node: HTMLDivElement | null) => {
-      editorRef.current = node
-      if (typeof ref === 'function') ref(node)
-      else if (ref && typeof ref === 'object') (ref as any).current = node
-    }
-    const hasUserInputRef = React.useRef(false)
+type RTEProps = { value?: string; onChange: (html: string) => void }
+// Simple Markdown editor: returns markdown string, no preview, no deps
+type MDProps = { value?: string; onChange: (md: string) => void }
+const MarkdownEditor = ({ value = '', onChange }: MDProps) => {
+  const ref = React.useRef<HTMLTextAreaElement | null>(null)
 
-    React.useLayoutEffect(() => {
-      const el = editorRef.current
-      if (!el) return
-      el.innerHTML = defaultValue ?? ''
-    }, [])
-
-    const exec = (cmd: 'bold' | 'italic' | 'underline') => {
-      const el = editorRef.current
-      if (!el) return
+  const applyWrap = (before: string, after: string = before) => {
+    const el = ref.current
+    if (!el) return
+    const start = el.selectionStart ?? 0
+    const end = el.selectionEnd ?? 0
+    const sel = value.slice(start, end) || 'text'
+    const next = value.slice(0, start) + before + sel + after + value.slice(end)
+    onChange(next)
+    queueMicrotask(() => {
+      const caret = start + before.length + sel.length + after.length
       el.focus()
-      try {
-        document.execCommand(cmd)
-        // update value after command
-        onChange(el.innerHTML)
-      } catch (_) {}
-    }
+      el.setSelectionRange(caret, caret)
+    })
+  }
 
-    return (
-      <div className="w-full rounded border">
-        <div className="flex items-center gap-1 px-2 py-1 border-b">
-          <button type="button" className="px-2 py-0.5 text-sm hover:bg-muted rounded" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>
-            B
-          </button>
-          <button type="button" className="px-2 py-0.5 text-sm italic hover:bg-muted rounded" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>
-            I
-          </button>
-          <button type="button" className="px-2 py-0.5 text-sm underline hover:bg-muted rounded" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>
-            U
-          </button>
-        </div>
-        <div
-          ref={composedRef}
-          className="w-full px-2 py-2 min-h-[140px] prose prose-sm max-w-none focus:outline-none"
-          contentEditable
-          suppressContentEditableWarning
-          onInput={(e) => {
-            hasUserInputRef.current = true
-            onChange((e.target as HTMLDivElement).innerHTML)
-          }}
-          onKeyDown={(e) => {
-            const isMod = e.metaKey || e.ctrlKey
-            if (!isMod) return
-            const key = e.key.toLowerCase()
-            if (key === 'b' || key === 'i' || key === 'u') {
-              e.preventDefault()
-              exec(key === 'b' ? 'bold' : key === 'i' ? 'italic' : 'underline')
-            }
-          }}
-        />
+  const applyLinePrefix = (prefix: string) => {
+    const el = ref.current
+    if (!el) return
+    const start = el.selectionStart ?? 0
+    const end = el.selectionEnd ?? 0
+    const before = value.slice(0, start)
+    const sel = value.slice(start, end) || ''
+    const after = value.slice(end)
+    const lines = (sel || value).slice(start, end || undefined).split('\n')
+    const transformed = (sel ? sel : value)
+      .slice(start, end || undefined)
+      .split('\n')
+      .map((l) => (l ? `${prefix}${l}` : prefix))
+      .join('\n')
+    const next = sel ? before + transformed + after : value.slice(0, start) + prefix + value.slice(start)
+    onChange(next)
+    queueMicrotask(() => {
+      const caret = start + prefix.length
+      el.focus()
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
+  return (
+    <div className="w-full rounded border">
+      <div className="flex items-center gap-1 px-2 py-1 border-b">
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => applyWrap('**')}>Bold</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => applyWrap('_')}>Italic</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => applyLinePrefix('# ')}>H1</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => applyLinePrefix('- ')}>List</button>
       </div>
-    )
-  })
-
-
-const RichTextEditor = React.memo(RichTextEditorBase, (prev, next) => prev.defaultValue === next.defaultValue)
+      <textarea
+        ref={ref}
+        className="w-full min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Write markdown..."
+      />
+    </div>
+  )
+}
 
   // Load dynamic options for fields that require it
   React.useEffect(() => {
@@ -211,7 +215,7 @@ const RichTextEditor = React.memo(RichTextEditorBase, (prev, next) => prev.defau
     <div className="md:static md:p-0 md:bg-transparent md:h-auto">
       <div className="fixed inset-0 z-40 bg-background p-0 md:static md:z-auto md:bg-transparent md:p-0 md:block">
         <div className="flex h-full w-full flex-col md:block">
-          <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 px-4 py-3 md:rounded-t-lg md:border-b md:px-4 md:py-3">
+          <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 px-4 py-3 md:border-0 md:px-4 md:py-3">
             {backHref ? (
               <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
                 ← Back
@@ -265,9 +269,9 @@ const RichTextEditor = React.memo(RichTextEditorBase, (prev, next) => prev.defau
                 />
               )}
               {f.type === 'richtext' && (
-                <RichTextEditor
-                  defaultValue={String((initialValues as any)?.[f.id] ?? '')}
-                  onChange={(html) => setValue(f.id, html)}
+                <MarkdownEditor
+                  value={String(values[f.id] ?? '')}
+                  onChange={(md) => setValue(f.id, md)}
                 />
               )}
               {f.type === 'tags' && (

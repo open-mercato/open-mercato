@@ -144,7 +144,7 @@ export async function GET(request: Request) {
     const res = await queryEngine.query(E.example.todo, {
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
-      fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked', 'cf:labels'],
+      fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked', 'cf:labels', 'cf:assignee', 'cf:description'],
       sort: [{ field: sortField, dir: sortDir }],
       page: { page: validatedQuery.page, pageSize: validatedQuery.pageSize },
       filters,
@@ -163,17 +163,31 @@ export async function GET(request: Request) {
       return val != null ? [String(val)] : []
     }
 
-    const todos = res.items.map((item) => ({
-      id: item.id,
-      title: item.title,
-      tenant_id: item.tenant_id,
-      organization_id: item.organization_id,
-      is_done: item.is_done,
-      cf_priority: item['cf:priority'] ?? item.cf_priority,
-      cf_severity: Array.isArray(item['cf:severity']) ? item['cf:severity'][0] : (item['cf:severity'] ?? item.cf_severity),
-      cf_blocked: item['cf:blocked'] ?? item.cf_blocked,
-      cf_labels: toArray(item['cf:labels'] ?? (item as any).cf_labels),
-    }))
+    const todos = res.items.map((item) => {
+      const rawSeverity: any = (item as any)['cf:severity'] ?? (item as any).cf_severity
+      const severityVal: any = Array.isArray(rawSeverity) ? rawSeverity[0] : rawSeverity
+      const cf_severity = typeof severityVal === 'string' ? severityVal.toLowerCase() : severityVal
+
+      const rawAssignee: any = (item as any)['cf:assignee'] ?? (item as any).cf_assignee
+      const cf_assignee = Array.isArray(rawAssignee) ? rawAssignee[0] : rawAssignee
+
+      const rawDesc: any = (item as any)['cf:description'] ?? (item as any).cf_description
+      const cf_description = Array.isArray(rawDesc) ? rawDesc[0] : rawDesc
+
+      return {
+        id: item.id,
+        title: item.title,
+        tenant_id: (item as any).tenant_id,
+        organization_id: (item as any).organization_id,
+        is_done: (item as any).is_done,
+        cf_priority: (item as any)['cf:priority'] ?? (item as any).cf_priority,
+        cf_severity,
+        cf_blocked: (item as any)['cf:blocked'] ?? (item as any).cf_blocked,
+        cf_labels: toArray((item as any)['cf:labels'] ?? (item as any).cf_labels),
+        cf_assignee: typeof cf_assignee === 'string' ? cf_assignee : undefined,
+        cf_description: typeof cf_description === 'string' ? cf_description : undefined,
+      }
+    })
 
     if (validatedQuery.format === 'csv') {
       // Build CSV
