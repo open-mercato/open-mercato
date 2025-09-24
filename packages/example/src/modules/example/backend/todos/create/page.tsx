@@ -26,6 +26,8 @@ export default function CreateTodoPage() {
     <Page>
       <PageBody>
         <CrudForm
+          title="Create Todo"
+          backHref="/backend/todos"
           schema={todoCreateSchema}
           fields={fields}
           submitLabel="Create Todo"
