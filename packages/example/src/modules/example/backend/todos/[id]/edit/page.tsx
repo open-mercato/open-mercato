@@ -33,7 +33,7 @@ const fields: CrudField[] = [
   { id: 'cf_blocked', label: 'Blocked', type: 'checkbox' },
   { id: 'cf_labels', label: 'Labels', type: 'tags' },
   { id: 'cf_assignee', label: 'Assignee', type: 'relation', placeholder: 'Search people…', loadOptions: assigneeLoader },
-  { id: 'cf_description', label: 'Description', type: 'richtext' },
+  { id: 'cf_description', label: 'Description', type: 'richtext', editor: 'html' },
   { id: 'is_done', label: 'Done', type: 'checkbox' },
 ]
 

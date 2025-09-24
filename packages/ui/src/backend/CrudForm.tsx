@@ -32,6 +32,8 @@ export type CrudBuiltinField = CrudFieldBase & {
   options?: CrudFieldOption[]
   // for relation/select style fields; if provided, options are loaded on mount
   loadOptions?: () => Promise<CrudFieldOption[]>
+  // when type === 'richtext', choose editor implementation
+  editor?: 'simple' | 'uiw' | 'html'
 }
 
 export type CrudCustomFieldRenderProps = {
@@ -148,6 +150,126 @@ const MarkdownEditor = React.memo(({ value = '', onChange }: MDProps) => {
   )
 }, (prev, next) => prev.value === next.value)
 
+// HTML Rich Text editor (contentEditable) with shortcuts; returns HTML string
+type HtmlRTProps = { value?: string; onChange: (html: string) => void }
+const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', onChange }: HtmlRTProps) {
+  const ref = React.useRef<HTMLDivElement | null>(null)
+  const applyingExternal = React.useRef(false)
+
+  // Sync DOM when external value changes (but don't fight user typing)
+  React.useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const current = el.innerHTML
+    if (current !== value) {
+      applyingExternal.current = true
+      el.innerHTML = value || ''
+      // release the flag next tick
+      requestAnimationFrame(() => { applyingExternal.current = false })
+    }
+  }, [value])
+
+  const exec = (cmd: string, arg?: string) => {
+    const el = ref.current
+    if (!el) return
+    el.focus()
+    try {
+      document.execCommand(cmd, false, arg)
+      onChange(el.innerHTML)
+    } catch (_) {}
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const isMod = e.metaKey || e.ctrlKey
+    if (!isMod) return
+    const k = e.key.toLowerCase()
+    if (k === 'b') { e.preventDefault(); exec('bold') }
+    if (k === 'i') { e.preventDefault(); exec('italic') }
+    if (k === 'u') { e.preventDefault(); exec('underline') }
+  }
+
+  return (
+    <div className="w-full rounded border">
+      <div className="flex items-center gap-1 px-2 py-1 border-b">
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>Bold</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>Italic</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>Underline</button>
+        <span className="mx-2 text-muted-foreground">|</span>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• List</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>H3</button>
+        <button
+          type="button"
+          className="px-2 py-0.5 text-xs rounded hover:bg-muted"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            const url = window.prompt('Link URL')?.trim()
+            if (url) exec('createLink', url)
+          }}
+        >Link</button>
+      </div>
+      <div
+        ref={ref}
+        className="w-full px-2 py-2 min-h-[160px] focus:outline-none prose prose-sm max-w-none"
+        contentEditable
+        suppressContentEditableWarning
+        onKeyDown={onKeyDown}
+        onInput={(e) => {
+          if (applyingExternal.current) return
+          onChange((e.target as HTMLDivElement).innerHTML)
+        }}
+      />
+    </div>
+  )
+}, (prev, next) => prev.value === next.value)
+
+// Very simple markdown editor with Bold/Italic/Underline + shortcuts.
+type SimpleMDProps = { value?: string; onChange: (md: string) => void }
+const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange }: SimpleMDProps) {
+  const taRef = React.useRef<HTMLTextAreaElement | null>(null)
+
+  const wrap = (before: string, after: string = before) => {
+    const el = taRef.current
+    if (!el) return
+    const start = el.selectionStart ?? 0
+    const end = el.selectionEnd ?? 0
+    const sel = value.slice(start, end) || 'text'
+    const next = value.slice(0, start) + before + sel + after + value.slice(end)
+    onChange(next)
+    queueMicrotask(() => {
+      const caret = start + before.length + sel.length + after.length
+      el.focus()
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const isMod = e.metaKey || e.ctrlKey
+    if (!isMod) return
+    const key = e.key.toLowerCase()
+    if (key === 'b') { e.preventDefault(); wrap('**') }
+    if (key === 'i') { e.preventDefault(); wrap('_') }
+    if (key === 'u') { e.preventDefault(); wrap('__') }
+  }
+
+  return (
+    <div className="w-full rounded border">
+      <div className="flex items-center gap-1 px-2 py-1 border-b">
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>Bold</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>Italic</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>Underline</button>
+      </div>
+      <textarea
+        ref={taRef}
+        className="w-full min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder="Write markdown..."
+      />
+    </div>
+  )
+}, (prev, next) => prev.value === next.value)
+
   // Load dynamic options for fields that require it
   React.useEffect(() => {
     let cancelled = false
@@ -205,7 +327,13 @@ const MarkdownEditor = React.memo(({ value = '', onChange }: MDProps) => {
         {f.type === 'textarea' && (
           <textarea className="w-full rounded border px-2 py-2 min-h-[120px]" placeholder={(f as any).placeholder} value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value)} />
         )}
-        {f.type === 'richtext' && (
+        {f.type === 'richtext' && ((f as any).editor === 'simple') && (
+          <SimpleMarkdownEditor value={String(value ?? '')} onChange={(md) => setValue(f.id, md)} />
+        )}
+        {f.type === 'richtext' && ((f as any).editor === 'html') && (
+          <HtmlRichTextEditor value={String(value ?? '')} onChange={(html) => setValue(f.id, html)} />
+        )}
+        {f.type === 'richtext' && (!('editor' in f) || ((f as any).editor !== 'simple' && (f as any).editor !== 'html')) && (
           <MarkdownEditor value={String(value ?? '')} onChange={(md) => setValue(f.id, md)} />
         )}
         {f.type === 'tags' && (
