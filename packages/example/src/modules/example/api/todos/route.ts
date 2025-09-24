@@ -15,6 +15,7 @@ function isValidUUID(uuid: string): boolean {
 }
 
 const querySchema = z.object({
+  id: z.string().uuid().optional(),
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
   sortField: z.string().optional().default('id'),
@@ -118,6 +119,7 @@ export async function GET(request: Request) {
       'cf:labels': string
     }
     const filters: Where<TodoFields> = {}
+    if (validatedQuery.id) filters.id = validatedQuery.id
     if (validatedQuery.title) filters.title = { $ilike: `%${validatedQuery.title}%` }
     if (validatedQuery.isDone !== undefined) filters.is_done = validatedQuery.isDone
     if (validatedQuery.organizationId) filters.organization_id = validatedQuery.organizationId
@@ -256,6 +258,104 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error('Error creating todo:', error)
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+}
+
+const updateSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1).optional(),
+  is_done: z.boolean().optional(),
+  cf_priority: z.number().int().min(1).max(5).optional(),
+  cf_severity: z.enum(['low', 'medium', 'high']).optional(),
+  cf_blocked: z.boolean().optional(),
+  cf_labels: z.array(z.string()).optional(),
+  cf_description: z.string().optional(),
+  cf_assignee: z.string().optional(),
+})
+
+export async function PUT(request: Request) {
+  try {
+    const container = await createRequestContainer()
+    const auth = await getAuthFromCookies()
+    if (!auth?.orgId || !auth?.tenantId) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'content-type': 'application/json' } })
+    }
+    const body = await request.json().catch(() => ({}))
+    const input = updateSchema.parse(body)
+
+    const em = container.resolve('em') as any
+    const repo = em.getRepository(Todo)
+    const todo = await repo.findOne({ id: input.id, organizationId: auth.orgId, tenantId: auth.tenantId })
+    if (!todo) {
+      return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { 'content-type': 'application/json' } })
+    }
+
+    if (input.title !== undefined) todo.title = input.title
+    if (input.is_done !== undefined) todo.isDone = !!input.is_done
+    await em.persistAndFlush(todo)
+
+    const values: Record<string, any> = {}
+    if (input.cf_priority !== undefined) values.priority = input.cf_priority
+    if (input.cf_severity !== undefined) values.severity = input.cf_severity
+    if (input.cf_blocked !== undefined) values.blocked = input.cf_blocked
+    if (input.cf_labels !== undefined) values.labels = input.cf_labels
+    if (input.cf_description !== undefined) values.description = input.cf_description
+    if (input.cf_assignee !== undefined) values.assignee = input.cf_assignee
+
+    if (Object.keys(values).length > 0) {
+      await setRecordCustomFields(em, {
+        entityId: E.example.todo,
+        recordId: String(todo.id),
+        organizationId: auth.orgId,
+        tenantId: auth.tenantId,
+        values,
+      })
+    }
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { 'content-type': 'application/json' },
+    })
+  } catch (error) {
+    console.error('Error updating todo:', error)
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const container = await createRequestContainer()
+    const auth = await getAuthFromCookies()
+    if (!auth?.orgId || !auth?.tenantId) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'content-type': 'application/json' } })
+    }
+    const url = new URL(request.url)
+    const idParam = url.searchParams.get('id')
+    if (!idParam || !isValidUUID(idParam)) {
+      return new Response(JSON.stringify({ error: 'ID is required' }), { status: 400, headers: { 'content-type': 'application/json' } })
+    }
+
+    const em = container.resolve('em') as any
+    const repo = em.getRepository(Todo)
+    const todo = await repo.findOne({ id: idParam, organizationId: auth.orgId, tenantId: auth.tenantId })
+    if (!todo) {
+      return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { 'content-type': 'application/json' } })
+    }
+
+    todo.deletedAt = new Date()
+    await em.persistAndFlush(todo)
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { 'content-type': 'application/json' },
+    })
+  } catch (error) {
+    console.error('Error deleting todo:', error)
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'content-type': 'application/json' },

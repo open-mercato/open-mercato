@@ -79,7 +79,6 @@ export function CrudForm<TValues extends Record<string, any>>({
   const [pending, setPending] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
-  const firstFieldRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | HTMLDivElement | null>(null)
 
   const setValue = (id: string, v: any) => setValues((prev) => ({ ...prev, [id]: v }))
 
@@ -113,8 +112,9 @@ export function CrudForm<TValues extends Record<string, any>>({
   }
 }
 
-const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChange: (html: string) => void }>(
-  function RichTextEditor({ value, onChange }, ref) {
+type RTEProps = { defaultValue?: string; onChange: (html: string) => void }
+const RichTextEditorBase = React.forwardRef<HTMLDivElement, RTEProps>(
+  function RichTextEditor({ defaultValue, onChange }, ref) {
     const editorRef = React.useRef<HTMLDivElement | null>(null)
     const composedRef = (node: HTMLDivElement | null) => {
       editorRef.current = node
@@ -123,14 +123,11 @@ const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChan
     }
     const hasUserInputRef = React.useRef(false)
 
-    React.useEffect(() => {
+    React.useLayoutEffect(() => {
       const el = editorRef.current
       if (!el) return
-      const current = el.innerHTML
-      if (!hasUserInputRef.current) {
-        if ((value ?? '') !== current) el.innerHTML = value ?? ''
-      }
-    }, [value])
+      el.innerHTML = defaultValue ?? ''
+    }, [])
 
     const exec = (cmd: 'bold' | 'italic' | 'underline') => {
       const el = editorRef.current
@@ -165,11 +162,22 @@ const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChan
             hasUserInputRef.current = true
             onChange((e.target as HTMLDivElement).innerHTML)
           }}
+          onKeyDown={(e) => {
+            const isMod = e.metaKey || e.ctrlKey
+            if (!isMod) return
+            const key = e.key.toLowerCase()
+            if (key === 'b' || key === 'i' || key === 'u') {
+              e.preventDefault()
+              exec(key === 'b' ? 'bold' : key === 'i' ? 'italic' : 'underline')
+            }
+          }}
         />
       </div>
     )
-  }
+  })
 )
+
+const RichTextEditor = React.memo(RichTextEditorBase, (prev, next) => prev.defaultValue === next.defaultValue)
 
   // Load dynamic options for fields that require it
   React.useEffect(() => {
@@ -195,38 +203,24 @@ const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChan
     }
   }, [fields])
 
-  React.useEffect(() => {
-    // autofocus first field on mount
-    firstFieldRef.current?.focus()
-  }, [])
+  // no auto-focus; let the browser/user manage focus
 
   const grid = twoColumn ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'grid grid-cols-1 gap-4'
 
-  const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    // Mobile: fullscreen; Desktop: card
-    return (
-      <div className="md:static md:p-0 md:bg-transparent md:h-auto">
-        <div className="fixed inset-0 z-40 bg-background p-0 md:static md:z-auto md:bg-transparent md:p-0 md:block">
-          <div className="flex h-full w-full flex-col md:block">
-            {/* Header */}
-            <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 px-4 py-3 md:rounded-t-lg md:border-b md:px-4 md:py-3">
-              {backHref ? (
-                <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-                  ← Back
-                </Link>
-              ) : null}
-              {title ? <div className="text-base font-medium">{title}</div> : null}
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-4 md:p-0">{children}</div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <Wrapper>
-      <form onSubmit={handleSubmit} className="md:rounded-lg md:border md:bg-card md:p-4 space-y-4">
+    <div className="md:static md:p-0 md:bg-transparent md:h-auto">
+      <div className="fixed inset-0 z-40 bg-background p-0 md:static md:z-auto md:bg-transparent md:p-0 md:block">
+        <div className="flex h-full w-full flex-col md:block">
+          <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 px-4 py-3 md:rounded-t-lg md:border-b md:px-4 md:py-3">
+            {backHref ? (
+              <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
+                ← Back
+              </Link>
+            ) : null}
+            {title ? <div className="text-base font-medium">{title}</div> : null}
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-4 md:p-0">
+            <form onSubmit={handleSubmit} className="md:rounded-lg md:border md:bg-card md:p-4 space-y-4">
         <div className={grid}>
           {fields.map((f, idx) => (
             <div key={f.id} className="space-y-1">
@@ -236,7 +230,6 @@ const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChan
               </label>
               {f.type === 'text' && (
                 <input
-                  ref={idx === 0 ? (firstFieldRef as any) : undefined}
                   type="text"
                   className="w-full h-9 rounded border px-2"
                   placeholder={f.placeholder}
@@ -246,7 +239,6 @@ const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChan
               )}
               {f.type === 'number' && (
                 <input
-                  ref={idx === 0 ? (firstFieldRef as any) : undefined}
                   type="number"
                   className="w-full h-9 rounded border px-2"
                   placeholder={f.placeholder}
@@ -258,7 +250,6 @@ const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChan
               )}
               {f.type === 'date' && (
                 <input
-                  ref={idx === 0 ? (firstFieldRef as any) : undefined}
                   type="date"
                   className="w-full h-9 rounded border px-2"
                   value={values[f.id] ?? ''}
@@ -267,7 +258,6 @@ const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChan
               )}
               {f.type === 'textarea' && (
                 <textarea
-                  ref={idx === 0 ? (firstFieldRef as any) : undefined}
                   className="w-full rounded border px-2 py-2 min-h-[120px]"
                   placeholder={f.placeholder}
                   value={values[f.id] ?? ''}
@@ -276,8 +266,7 @@ const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChan
               )}
               {f.type === 'richtext' && (
                 <RichTextEditor
-                  ref={idx === 0 ? (firstFieldRef as any) : undefined}
-                  value={values[f.id] as string}
+                  defaultValue={String((initialValues as any)?.[f.id] ?? '')}
                   onChange={(html) => setValue(f.id, html)}
                 />
               )}
@@ -291,7 +280,6 @@ const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChan
               {f.type === 'checkbox' && (
                 <label className="inline-flex items-center gap-2">
                   <input
-                    ref={idx === 0 ? (firstFieldRef as any) : undefined}
                     type="checkbox"
                     checked={!!values[f.id]}
                     onChange={(e) => setValue(f.id, e.target.checked)}
@@ -301,7 +289,6 @@ const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChan
               )}
               {f.type === 'select' && (
                 <select
-                  ref={idx === 0 ? (firstFieldRef as any) : undefined}
                   className="w-full h-9 rounded border px-2"
                   value={values[f.id] ?? ''}
                   onChange={(e) => setValue(f.id, e.target.value || undefined)}
@@ -345,8 +332,11 @@ const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChan
             {pending ? 'Saving…' : submitLabel}
           </Button>
         </div>
-      </form>
-    </Wrapper>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -83,7 +83,7 @@ The component receives `{ id, value, setValue, error, autoFocus }`.
 ## Mobile UX
 - On small screens the form is fullscreen with a sticky header that shows the `title` and a `backHref` link.
 - On desktop it renders as a standard card with border and padding.
-- The first field is auto-focused on mount for fast entry.
+- Focus is not auto-forced; the browser manages focus normally.
 
 ## Validation
 Provide a Zod schema via `schema`. Field-level errors are displayed under each field; a general form error (from `onSubmit`) shows above actions.

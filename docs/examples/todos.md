@@ -41,7 +41,7 @@ The create page (`/backend/example/todos/create`) uses the shared `CrudForm` com
 
 Key behaviors:
 - Mobile screens render a fullscreen form with a header and back link.
-- First field is auto-focused for fast data entry.
+  
 - Inline help text per field uses the `description` property.
 
 Example usage:

@@ -23,9 +23,11 @@ export type DataTableProps<T> = {
   onSortingChange?: (s: SortingState) => void
   pagination?: PaginationProps
   isLoading?: boolean
+  // Optional per-row actions renderer. When provided, an extra trailing column is rendered.
+  rowActions?: (row: T) => React.ReactNode
 }
 
-export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading }: DataTableProps<T>) {
+export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions }: DataTableProps<T>) {
   // Map column meta.priority (1..6) to Tailwind responsive visibility
   // 1 => always visible, 2 => hidden <sm, 3 => hidden <md, 4 => hidden <lg, 5 => hidden <xl, 6 => hidden <2xl
   const responsiveClass = (priority?: number) => {
@@ -127,13 +129,18 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
                     )}
                   </TableHead>
                 ))}
+                {rowActions ? (
+                  <TableHead className="w-0 text-right">
+                    Actions
+                  </TableHead>
+                ) : null}
               </TableRow>
             ))}
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center">
                   <div className="flex items-center justify-center gap-2">
                     <Spinner size="md" />
                     <span className="text-muted-foreground">Loading data...</span>
@@ -148,11 +155,16 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
+                  {rowActions ? (
+                    <TableCell className="text-right whitespace-nowrap">
+                      {rowActions(row.original as T)}
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
                   No results.
                 </TableCell>
               </TableRow>
