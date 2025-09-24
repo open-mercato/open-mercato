@@ -45,7 +45,7 @@ export function RowActions({ items }: { items: RowActionItem[] }) {
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span aria-hidden>⋯</span>
+        <span aria-hidden="true">⋯</span>
         <span className="sr-only">Open actions</span>
       </button>
       {open ? (
