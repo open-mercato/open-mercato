@@ -79,7 +79,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   const [pending, setPending] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
-  const firstFieldRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
+  const firstFieldRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | HTMLDivElement | null>(null)
 
   const setValue = (id: string, v: any) => setValues((prev) => ({ ...prev, [id]: v }))
 
@@ -110,8 +110,66 @@ export function CrudForm<TValues extends Record<string, any>>({
       setFormError(err?.message || 'Unexpected error')
     } finally {
       setPending(false)
-    }
   }
+}
+
+const RichTextEditor = React.forwardRef<HTMLDivElement, { value?: string; onChange: (html: string) => void }>(
+  function RichTextEditor({ value, onChange }, ref) {
+    const editorRef = React.useRef<HTMLDivElement | null>(null)
+    const composedRef = (node: HTMLDivElement | null) => {
+      editorRef.current = node
+      if (typeof ref === 'function') ref(node)
+      else if (ref && typeof ref === 'object') (ref as any).current = node
+    }
+    const hasUserInputRef = React.useRef(false)
+
+    React.useEffect(() => {
+      const el = editorRef.current
+      if (!el) return
+      const current = el.innerHTML
+      if (!hasUserInputRef.current) {
+        if ((value ?? '') !== current) el.innerHTML = value ?? ''
+      }
+    }, [value])
+
+    const exec = (cmd: 'bold' | 'italic' | 'underline') => {
+      const el = editorRef.current
+      if (!el) return
+      el.focus()
+      try {
+        document.execCommand(cmd)
+        // update value after command
+        onChange(el.innerHTML)
+      } catch (_) {}
+    }
+
+    return (
+      <div className="w-full rounded border">
+        <div className="flex items-center gap-1 px-2 py-1 border-b">
+          <button type="button" className="px-2 py-0.5 text-sm hover:bg-muted rounded" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>
+            B
+          </button>
+          <button type="button" className="px-2 py-0.5 text-sm italic hover:bg-muted rounded" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>
+            I
+          </button>
+          <button type="button" className="px-2 py-0.5 text-sm underline hover:bg-muted rounded" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>
+            U
+          </button>
+        </div>
+        <div
+          ref={composedRef}
+          className="w-full px-2 py-2 min-h-[140px] prose prose-sm max-w-none focus:outline-none"
+          contentEditable
+          suppressContentEditableWarning
+          onInput={(e) => {
+            hasUserInputRef.current = true
+            onChange((e.target as HTMLDivElement).innerHTML)
+          }}
+        />
+      </div>
+    )
+  }
+)
 
   // Load dynamic options for fields that require it
   React.useEffect(() => {
@@ -179,7 +237,6 @@ export function CrudForm<TValues extends Record<string, any>>({
               {f.type === 'text' && (
                 <input
                   ref={idx === 0 ? (firstFieldRef as any) : undefined}
-                  autoFocus={idx === 0}
                   type="text"
                   className="w-full h-9 rounded border px-2"
                   placeholder={f.placeholder}
@@ -190,7 +247,6 @@ export function CrudForm<TValues extends Record<string, any>>({
               {f.type === 'number' && (
                 <input
                   ref={idx === 0 ? (firstFieldRef as any) : undefined}
-                  autoFocus={idx === 0}
                   type="number"
                   className="w-full h-9 rounded border px-2"
                   placeholder={f.placeholder}
@@ -203,7 +259,6 @@ export function CrudForm<TValues extends Record<string, any>>({
               {f.type === 'date' && (
                 <input
                   ref={idx === 0 ? (firstFieldRef as any) : undefined}
-                  autoFocus={idx === 0}
                   type="date"
                   className="w-full h-9 rounded border px-2"
                   value={values[f.id] ?? ''}
@@ -213,7 +268,6 @@ export function CrudForm<TValues extends Record<string, any>>({
               {f.type === 'textarea' && (
                 <textarea
                   ref={idx === 0 ? (firstFieldRef as any) : undefined}
-                  autoFocus={idx === 0}
                   className="w-full rounded border px-2 py-2 min-h-[120px]"
                   placeholder={f.placeholder}
                   value={values[f.id] ?? ''}
@@ -221,12 +275,10 @@ export function CrudForm<TValues extends Record<string, any>>({
                 />
               )}
               {f.type === 'richtext' && (
-                <div
-                  className="w-full rounded border px-2 py-2 min-h-[140px] prose prose-sm max-w-none focus:outline-none"
-                  contentEditable
-                  suppressContentEditableWarning
-                  onInput={(e) => setValue(f.id, (e.target as HTMLDivElement).innerHTML)}
-                  dangerouslySetInnerHTML={{ __html: (values[f.id] as string) ?? '' }}
+                <RichTextEditor
+                  ref={idx === 0 ? (firstFieldRef as any) : undefined}
+                  value={values[f.id] as string}
+                  onChange={(html) => setValue(f.id, html)}
                 />
               )}
               {f.type === 'tags' && (
@@ -240,7 +292,6 @@ export function CrudForm<TValues extends Record<string, any>>({
                 <label className="inline-flex items-center gap-2">
                   <input
                     ref={idx === 0 ? (firstFieldRef as any) : undefined}
-                    autoFocus={idx === 0}
                     type="checkbox"
                     checked={!!values[f.id]}
                     onChange={(e) => setValue(f.id, e.target.checked)}
@@ -251,7 +302,6 @@ export function CrudForm<TValues extends Record<string, any>>({
               {f.type === 'select' && (
                 <select
                   ref={idx === 0 ? (firstFieldRef as any) : undefined}
-                  autoFocus={idx === 0}
                   className="w-full h-9 rounded border px-2"
                   value={values[f.id] ?? ''}
                   onChange={(e) => setValue(f.id, e.target.value || undefined)}
@@ -266,7 +316,6 @@ export function CrudForm<TValues extends Record<string, any>>({
               )}
               {f.type === 'relation' && (
                 <RelationSelect
-                  autoFocus={idx === 0}
                   options={f.options || dynamicOptions[f.id] || []}
                   placeholder={f.placeholder}
                   value={values[f.id] ?? ''}
@@ -362,19 +411,14 @@ function RelationSelect({
   onChange,
   options,
   placeholder,
-  autoFocus,
 }: {
   value: string
   onChange: (v: string) => void
   options: CrudFieldOption[]
   placeholder?: string
-  autoFocus?: boolean
 }) {
   const [query, setQuery] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement | null>(null)
-  React.useEffect(() => {
-    if (autoFocus) inputRef.current?.focus()
-  }, [autoFocus])
 
   const filtered = React.useMemo(() => {
     const q = query.toLowerCase().trim()
