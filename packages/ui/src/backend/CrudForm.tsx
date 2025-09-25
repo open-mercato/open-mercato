@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { z } from 'zod'
 import { useRouter } from 'next/navigation'
 import { Button } from '../primitives/button'
+import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
 
@@ -141,7 +142,9 @@ export function CrudForm<TValues extends Record<string, any>>({
     return [...fields, ...extras]
   }, [fields, cfFields])
 
-  const setValue = (id: string, v: any) => setValues((prev) => ({ ...prev, [id]: v }))
+  const setValue = React.useCallback((id: string, v: any) => {
+    setValues((prev) => ({ ...prev, [id]: v }))
+  }, [])
 
   // Sync when initialValues change (e.g., edit form loads data async)
   React.useEffect(() => {
@@ -156,6 +159,27 @@ export function CrudForm<TValues extends Record<string, any>>({
     setFormError(null)
     setErrors({})
 
+    // Basic required-field validation when no zod schema is provided
+    const requiredErrors: Record<string, string> = {}
+    for (const f of allFields) {
+      if (!('required' in f) || !f.required) continue
+      const v = values[f.id]
+      const isArray = Array.isArray(v)
+      const isString = typeof v === 'string'
+      const empty =
+        v === undefined ||
+        v === null ||
+        (isString && v.trim() === '') ||
+        (isArray && v.length === 0) ||
+        ((f as any).type === 'checkbox' && v !== true)
+      if (empty) requiredErrors[f.id] = 'This field is required'
+    }
+    if (Object.keys(requiredErrors).length) {
+      setErrors(requiredErrors)
+      flash('Please fix the highlighted errors.', 'error')
+      return
+    }
+
     let parsed: any = values
     if (schema) {
       const res = (schema as z.ZodTypeAny).safeParse(values)
@@ -165,6 +189,7 @@ export function CrudForm<TValues extends Record<string, any>>({
           if (iss.path && iss.path.length) fieldErrors[String(iss.path[0])] = iss.message
         })
         setErrors(fieldErrors)
+        flash('Please fix the highlighted errors.', 'error')
         return
       }
       parsed = res.data
@@ -175,7 +200,16 @@ export function CrudForm<TValues extends Record<string, any>>({
       await onSubmit?.(parsed)
       if (successRedirect) router.push(successRedirect)
     } catch (err: any) {
-      setFormError(err?.message || 'Unexpected error')
+      // Try to extract meaningful message often returned as JSON
+      let msg = err?.message || 'Unexpected error'
+      try {
+        const parsed = JSON.parse(msg)
+        if (parsed?.error) msg = String(parsed.error)
+        else if (parsed?.message) msg = String(parsed.message)
+      } catch {}
+      flash(msg || 'Save failed', 'error')
+      // Also keep inline error minimal and human-friendly
+      setFormError(msg)
     } finally {
       setPending(false)
   }
@@ -375,10 +409,12 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   const FieldControl = React.useMemo(() => React.memo(function FieldControlImpl({ f, value, error, options, idx, setValue }: FieldControlProps) {
     return (
       <div className="space-y-1">
-        <label className="block text-sm font-medium">
-          {f.label}
-          {f.required ? <span className="text-red-600"> *</span> : null}
-        </label>
+        {f.type !== 'checkbox' ? (
+          <label className="block text-sm font-medium">
+            {f.label}
+            {f.required ? <span className="text-red-600"> *</span> : null}
+          </label>
+        ) : null}
         {f.type === 'text' && (
           <input type="text" className="w-full h-9 rounded border px-2" placeholder={(f as any).placeholder} value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value)} />
         )}
@@ -406,8 +442,8 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         )}
         {f.type === 'checkbox' && (
           <label className="inline-flex items-center gap-2">
-            <input type="checkbox" checked={!!value} onChange={(e) => setValue(f.id, e.target.checked)} />
-            <span className="text-sm text-muted-foreground">Enable</span>
+            <input type="checkbox" className="size-4" checked={!!value} onChange={(e) => setValue(f.id, e.target.checked)} />
+            <span className="text-sm">{f.label}</span>
           </label>
         )}
         {f.type === 'select' && !((f as any).multiple) && (
@@ -417,7 +453,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </select>
         )}
         {f.type === 'select' && ((f as any).multiple) && (
-          <div className="space-y-1">
+          <div className="flex flex-wrap gap-3">
             {options.map((opt) => {
               const arr: string[] = Array.isArray(value) ? (value as string[]) : []
               const checked = arr.includes(opt.value)
@@ -425,6 +461,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                 <label key={opt.value} className="inline-flex items-center gap-2">
                   <input
                     type="checkbox"
+                    className="size-4"
                     checked={checked}
                     onChange={(e) => {
                       const next = new Set(arr)

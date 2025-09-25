@@ -11,8 +11,8 @@ export const fieldSets: CustomFieldSet[] = [
     // Multi-select labels CF; stored as multiple rows (EAV)
     cf.select('labels', ['frontend', 'backend', 'ops', 'bug', 'feature'], { label: 'Labels', filterable: true, formEditable: true, multi: true }),
     cf.multiline('description', { label: 'Description', formEditable: true }),
-    // Store a foreign id as text (no cross-module relation). Fetch related data separately.
-    cf.text('assignee', { label: 'Assignee Id', formEditable: true }),
+    // Assignees selection (multi-select). In a real app, derive options dynamically.
+    cf.select('assignee', ['alice', 'bob', 'charlie', 'diana'], { label: 'Assignees', formEditable: true, multi: true }),
   ], 'example'),
 
   

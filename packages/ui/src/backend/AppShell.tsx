@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { usePathname } from 'next/navigation'
@@ -20,6 +21,9 @@ const icons: Record<string, React.ReactNode> = {
   ),
   checklist: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M5 8l2-2M5 14l2-2M5 20l2-2"/></svg>
+  ),
+  checkbox: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 12l3 3 7-7"/></svg>
   ),
   dashboard: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 13h8V3H3zM13 21h8v-8h-8zM13 3v6h8V3zM3 21h8v-6H3z"/></svg>
@@ -77,7 +81,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
   const toggleGroup = (name: string) => setOpenGroups((prev) => ({ ...prev, [name]: !prev[name] }))
 
   const asideWidth = collapsed ? '72px' : '240px'
-  const asideClasses = `border-r bg-background/60 ${collapsed ? 'px-2' : 'px-3'} py-4 h-svh overflow-y-auto`;
+  const asideClassesBase = `border-r bg-background/60 py-4 h-svh overflow-y-auto`;
 
   // Persist collapse state
   React.useEffect(() => {
@@ -110,70 +114,74 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname])
 
-  const SidebarContent = (
-    <div className="flex flex-col gap-2 min-h-full">
-      <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'} mb-2`}>
-        <div className="flex items-center gap-2">
-          <div className="size-6 rounded bg-foreground" />
-          {!collapsed && <div className="text-sm font-semibold">{productName}</div>}
+  function renderSidebar(compact: boolean, showCollapseToggle: boolean) {
+    return (
+      <div className="flex flex-col gap-2 min-h-full">
+        <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
+          <div className="flex items-center gap-2">
+            <Image src="/open-mercato.svg" alt="Logo" width={40} height={40} className="rounded" />
+            {!compact && <div className="text-sm font-semibold">{productName}</div>}
+          </div>
+          {showCollapseToggle && !compact && (
+            <button type="button" className="rounded hover:bg-accent px-2 py-1 text-xs" onClick={() => setCollapsed(true)} aria-label="Collapse sidebar">⟨</button>
+          )}
         </div>
-        {!collapsed && (
-          <button type="button" className="rounded hover:bg-accent px-2 py-1 text-xs" onClick={() => setCollapsed(true)} aria-label="Collapse sidebar">⟨</button>
-        )}
+        <nav className="flex flex-col gap-2">
+          {groups.map((g, gi) => {
+            const open = openGroups[g.name] !== false
+            return (
+              <div key={g.name} className="">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(g.name)}
+                  className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
+                  aria-expanded={open}
+                >
+                  {!compact && <span>{g.name}</span>}
+                  {!compact && <Chevron open={open} />}
+                </button>
+                {open && (
+                  <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
+                    {g.items.map((i) => {
+                      const active = pathname?.startsWith(i.href)
+                      const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
+                      return (
+                        <Link
+                          key={i.href}
+                          href={i.href}
+                          className={`relative text-sm rounded inline-flex items-center ${base} ${
+                            active ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
+                          } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
+                          aria-disabled={i.enabled === false}
+                          title={compact ? i.title : undefined}
+                          onClick={() => setMobileOpen(false)}
+                        >
+                          {active ? (
+                            <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                          ) : null}
+                          <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                            {(i.icon && icons[i.icon]) ? icons[i.icon] : icons['list']}
+                          </span>
+                          {!compact && <span>{i.title}</span>}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )}
+                {gi < groups.length - 1 && <div className="my-2 border-t border-dotted" />}
+              </div>
+            )
+          })}
+        </nav>
       </div>
-      <nav className="flex flex-col gap-2">
-        {groups.map((g, gi) => {
-          const open = openGroups[g.name] !== false
-          return (
-            <div key={g.name} className="">
-              <button
-                type="button"
-                onClick={() => toggleGroup(g.name)}
-                className={`w-full ${collapsed ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2`}
-                aria-expanded={open}
-              >
-                {!collapsed && <span>{g.name}</span>}
-                {!collapsed && <Chevron open={open} />}
-              </button>
-              {open && (
-                <div className={`flex flex-col ${collapsed ? 'items-center' : ''} gap-1 ${!collapsed ? 'pl-1' : ''}`}>
-                  {g.items.map((i) => {
-                    const active = pathname?.startsWith(i.href)
-                    const base = collapsed ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
-                    return (
-                     <Link
-                       key={i.href}
-                       href={i.href}
-                      className={`relative text-sm rounded inline-flex items-center ${base} ${
-                        active ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
-                      } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
-                        aria-disabled={i.enabled === false}
-                        title={collapsed ? i.title : undefined}
-                      >
-                      {active && !collapsed ? (
-                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
-                      ) : null}
-                       <span className={`flex items-center justify-center shrink-0 ${collapsed ? '' : 'text-muted-foreground'}`}>
-                        {(i.icon && icons[i.icon]) ? icons[i.icon] : icons['list']}
-                        </span>
-                      {!collapsed && <span>{i.title}</span>}
-                      </Link>
-                  )})}
-                </div>
-              )}
-              {gi < groups.length - 1 && <div className="my-2 border-t border-dotted" />}
-            </div>
-          )
-        })}
-      </nav>
-    </div>
-  )
+    )
+  }
 
   const gridColsClass = collapsed ? 'lg:grid-cols-[72px_1fr]' : 'lg:grid-cols-[240px_1fr]'
   return (
     <div className={`min-h-svh lg:grid ${gridColsClass}`}>
       {/* Desktop sidebar */}
-      <aside className={`${asideClasses} hidden lg:block`}>{SidebarContent}</aside>
+      <aside className={`${asideClassesBase} ${collapsed ? 'px-2' : 'px-3'} hidden lg:block`}>{renderSidebar(collapsed, true)}</aside>
 
       <div className="flex min-h-svh flex-col">
         <header className="border-b bg-background/60 px-3 lg:px-4 py-3 flex items-center justify-between">
@@ -190,7 +198,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
               )}
             </button>
-            <div className="size-6 rounded bg-foreground" />
+            <Image src="/open-mercato.svg" alt="Logo" width={40} height={40} className="rounded" />
             <div className="font-semibold">{productName}</div>
           </div>
           <div className="flex items-center gap-2 text-sm">
@@ -216,10 +224,14 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
           <aside className="absolute left-0 top-0 h-full w-[260px] bg-background border-r p-3">
             <div className="mb-2 flex items-center justify-between">
-              <div className="text-sm font-semibold">{productName}</div>
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Image src="/open-mercato.svg" alt="Logo" width={28} height={28} className="rounded" />
+                {productName}
+              </div>
               <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label="Close menu">✕</button>
             </div>
-            {SidebarContent}
+            {/* Force expanded sidebar in mobile drawer and hide collapse toggle */}
+            {renderSidebar(false, false)}
           </aside>
         </div>
       )}

@@ -35,7 +35,7 @@ export default function CreateTodoPage() {
           groups={groups}
           submitLabel="Create Todo"
           cancelHref="/backend/todos"
-          successRedirect="/backend/todos"
+          successRedirect="/backend/todos?flash=Todo%20created&type=success"
           onSubmit={async (vals) => { await createCrud('example/todos', vals) }}
         />
       </PageBody>

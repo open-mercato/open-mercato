@@ -4,5 +4,5 @@ export const metadata = {
   pageTitle: 'Todos',
   pageGroup: 'Example',
   pageOrder: 20,
-  icon: 'checklist',
+  icon: 'checkbox',
 }

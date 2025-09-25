@@ -9,6 +9,7 @@ import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList, buildCrudCsvUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import Link from 'next/link'
 
 type TodoRow = TodoListItem & { organization_name?: string }
@@ -200,6 +201,7 @@ export default function TodosTable() {
               onSelect: async () => {
                 if (!window.confirm('Delete this todo?')) return
                 await deleteCrud('example/todos', row.id).catch((e) => { alert(e?.message || 'Failed to delete') })
+                flash('Todo deleted', 'success')
                 // refresh list
                 queryClient.invalidateQueries({ queryKey: ['todos'] })
               },

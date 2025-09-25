@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { fetchCrudList, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 
 type TodoItem = TodoListItem
@@ -93,13 +94,13 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
             initialValues={initial || { id }}
             submitLabel="Save Changes"
             cancelHref="/backend/todos"
-            successRedirect="/backend/todos"
+            successRedirect="/backend/todos?flash=Todo%20saved&type=success"
             onSubmit={async (vals) => { await updateCrud('example/todos', vals) }}
             onDelete={async () => {
               if (!id) return
               if (!window.confirm('Delete this todo?')) return
               await deleteCrud('example/todos', String(id))
-              router.push('/backend/todos?flash=' + encodeURIComponent('Record has been removed') + '&type=success')
+              pushWithFlash(router as any, '/backend/todos', 'Record has been removed', 'success')
             }}
           />
         )}
