@@ -36,9 +36,17 @@ export default async function BackendLayout({ children, params }: { children: Re
   const currentTitle = current?.title || ''
   const match = findBackendMatch(modules as any[], path)
   const breadcrumb = (match?.route as any)?.breadcrumb as Array<{ label: string; href?: string }> | undefined
+  // Read collapsed state from cookie for SSR-perfect initial render
+  let initialCollapsed = false
+  try {
+    const { cookies } = await import('next/headers')
+    const c = cookies()
+    const v = c.get('om_sidebar_collapsed')?.value
+    initialCollapsed = v === '1'
+  } catch {}
 
   return (
-    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} rightHeaderSlot={<UserMenu email={auth?.email} />}> 
+    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={<UserMenu email={auth?.email} />}> 
       {children}
     </AppShell>
   )

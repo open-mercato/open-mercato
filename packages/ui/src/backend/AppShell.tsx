@@ -93,8 +93,20 @@ function Chevron({ open }: { open: boolean }) {
 export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb }: AppShellProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = React.useState(false)
-  const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
-  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() => Object.fromEntries(groups.map(g => [g.name, true])))
+  // Initialize from server-provided prop only to avoid hydration flicker
+  const [collapsed, setCollapsed] = React.useState<boolean>(sidebarCollapsedDefault)
+  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() => {
+    const base = Object.fromEntries(groups.map(g => [g.name, true])) as Record<string, boolean>
+    if (typeof window === 'undefined') return base
+    try {
+      const savedOpen = localStorage.getItem('om:sidebarOpenGroups')
+      if (savedOpen) {
+        const parsed = JSON.parse(savedOpen) as Record<string, boolean>
+        for (const k of Object.keys(base)) if (k in parsed) base[k] = !!parsed[k]
+      }
+    } catch {}
+    return base
+  })
   const [headerTitle, setHeaderTitle] = React.useState<string | undefined>(currentTitle)
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
 
@@ -103,24 +115,12 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
   const asideWidth = collapsed ? '72px' : '240px'
   const asideClassesBase = `border-r bg-background/60 py-4 h-svh overflow-y-auto`;
 
-  // Persist collapse state
-  React.useEffect(() => {
-    try {
-      const saved = localStorage.getItem('om:sidebarCollapsed')
-      if (saved != null) setCollapsed(saved === '1')
-      const savedOpen = localStorage.getItem('om:sidebarOpenGroups')
-      if (savedOpen) {
-        const parsed = JSON.parse(savedOpen) as Record<string, boolean>
-        // only keep known groups
-        const base = Object.fromEntries(groups.map(g => [g.name, true])) as Record<string, boolean>
-        for (const k of Object.keys(base)) if (k in parsed) base[k] = !!parsed[k]
-        setOpenGroups(base)
-      }
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // Persist collapse state to localStorage and cookie
   React.useEffect(() => {
     try { localStorage.setItem('om:sidebarCollapsed', collapsed ? '1' : '0') } catch {}
+    try {
+      document.cookie = `om_sidebar_collapsed=${collapsed ? '1' : '0'}; path=/; max-age=31536000; samesite=lax`
+    } catch {}
   }, [collapsed])
   React.useEffect(() => {
     try { localStorage.setItem('om:sidebarOpenGroups', JSON.stringify(openGroups)) } catch {}
