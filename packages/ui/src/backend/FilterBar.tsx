@@ -33,6 +33,7 @@ export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Se
       <div className="flex flex-wrap items-center gap-2 w-full">
         {filters.length > 0 && (
           <Button variant="outline" className="h-9" onClick={() => setOpen(true)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="opacity-80"><path d="M3 4h18"/><path d="M6 8h12l-3 8H9L6 8z"/></svg>
             Filters{activeCount ? ` ${activeCount}` : ''}
           </Button>
         )}
@@ -42,7 +43,7 @@ export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Se
               value={searchValue ?? ''}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder={searchPlaceholder}
-              className="h-9 w-full rounded border pl-8 pr-2"
+              className="h-9 w-full rounded border pl-8 pr-2 text-sm"
             />
             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground">🔍</span>
           </div>

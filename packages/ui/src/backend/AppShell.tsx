@@ -17,6 +17,22 @@ export type AppShellProps = {
   breadcrumb?: Array<{ label: string; href?: string }>
 }
 
+type Breadcrumb = Array<{ label: string; href?: string }>
+
+const HeaderContext = React.createContext<{
+  setBreadcrumb: (b?: Breadcrumb) => void
+  setTitle: (t?: string) => void
+} | null>(null)
+
+export function ApplyBreadcrumb({ breadcrumb, title }: { breadcrumb?: Breadcrumb; title?: string }) {
+  const ctx = React.useContext(HeaderContext)
+  React.useEffect(() => {
+    ctx?.setBreadcrumb(breadcrumb)
+    if (title !== undefined) ctx?.setTitle(title)
+  }, [ctx, breadcrumb, title])
+  return null
+}
+
 const icons: Record<string, React.ReactNode> = {
   home: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 10l9-7 9 7"/><path d="M9 22V12h6v10"/></svg>
@@ -77,32 +93,34 @@ function Chevron({ open }: { open: boolean }) {
 export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb }: AppShellProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = React.useState(false)
-  const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
-  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() => Object.fromEntries(groups.map(g => [g.name, true])))
+  // Initialize from server-provided prop only to avoid hydration flicker
+  const [collapsed, setCollapsed] = React.useState<boolean>(sidebarCollapsedDefault)
+  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() => {
+    const base = Object.fromEntries(groups.map(g => [g.name, true])) as Record<string, boolean>
+    if (typeof window === 'undefined') return base
+    try {
+      const savedOpen = localStorage.getItem('om:sidebarOpenGroups')
+      if (savedOpen) {
+        const parsed = JSON.parse(savedOpen) as Record<string, boolean>
+        for (const k of Object.keys(base)) if (k in parsed) base[k] = !!parsed[k]
+      }
+    } catch {}
+    return base
+  })
+  const [headerTitle, setHeaderTitle] = React.useState<string | undefined>(currentTitle)
+  const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
 
   const toggleGroup = (name: string) => setOpenGroups((prev) => ({ ...prev, [name]: !prev[name] }))
 
   const asideWidth = collapsed ? '72px' : '240px'
   const asideClassesBase = `border-r bg-background/60 py-4 h-svh overflow-y-auto`;
 
-  // Persist collapse state
-  React.useEffect(() => {
-    try {
-      const saved = localStorage.getItem('om:sidebarCollapsed')
-      if (saved != null) setCollapsed(saved === '1')
-      const savedOpen = localStorage.getItem('om:sidebarOpenGroups')
-      if (savedOpen) {
-        const parsed = JSON.parse(savedOpen) as Record<string, boolean>
-        // only keep known groups
-        const base = Object.fromEntries(groups.map(g => [g.name, true])) as Record<string, boolean>
-        for (const k of Object.keys(base)) if (k in parsed) base[k] = !!parsed[k]
-        setOpenGroups(base)
-      }
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // Persist collapse state to localStorage and cookie
   React.useEffect(() => {
     try { localStorage.setItem('om:sidebarCollapsed', collapsed ? '1' : '0') } catch {}
+    try {
+      document.cookie = `om_sidebar_collapsed=${collapsed ? '1' : '0'}; path=/; max-age=31536000; samesite=lax`
+    } catch {}
   }, [collapsed])
   React.useEffect(() => {
     try { localStorage.setItem('om:sidebarOpenGroups', JSON.stringify(openGroups)) } catch {}
@@ -115,17 +133,21 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
     setOpenGroups((prev) => (prev[activeGroup] === false ? { ...prev, [activeGroup]: true } : prev))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname])
+  // Keep header state in sync with props (server-side updates)
+  React.useEffect(() => {
+    setHeaderTitle(currentTitle)
+    setHeaderBreadcrumb(breadcrumb)
+  }, [currentTitle, breadcrumb])
 
   function renderSidebar(compact: boolean, showCollapseToggle: boolean, hideHeader?: boolean) {
     return (
       <div className="flex flex-col gap-2 min-h-full">
         {!hideHeader && (
           <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
-            <div className="flex items-center gap-2">
-              <Image src="/open-mercato.svg" alt="Logo" width={48} height={48} className="rounded" />
+            <Link href="/backend" className="flex items-center gap-2" aria-label="Go to dashboard">
+              <Image src="/open-mercato.svg" alt="Open Mercato" width={48} height={48} className="rounded" />
               {!compact && <div className="text-sm font-semibold">{productName}</div>}
-            </div>
-            {/* Collapse toggle removed as requested */}
+            </Link>
           </div>
         )}
         <nav className="flex flex-col gap-2">
@@ -180,7 +202,13 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
   }
 
   const gridColsClass = collapsed ? 'lg:grid-cols-[72px_1fr]' : 'lg:grid-cols-[240px_1fr]'
+  const headerCtxValue = React.useMemo(() => ({
+    setBreadcrumb: setHeaderBreadcrumb,
+    setTitle: setHeaderTitle,
+  }), [])
+
   return (
+    <HeaderContext.Provider value={headerCtxValue}>
     <div className={`min-h-svh lg:grid ${gridColsClass}`}>
       {/* Desktop sidebar */}
       <aside className={`${asideClassesBase} ${collapsed ? 'px-2' : 'px-3'} hidden lg:block`}>{renderSidebar(collapsed, true)}</aside>
@@ -193,34 +221,42 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
             </button>
             {/* Desktop collapse toggle */}
-            <button type="button" className="hidden lg:inline-flex rounded border px-2 py-1" aria-label="Toggle collapse" onClick={() => setCollapsed((c) => !c)}>
-              {collapsed ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
-              )}
+            <button type="button" className="hidden lg:inline-flex rounded border px-2 py-1" aria-label="Toggle sidebar" onClick={() => setCollapsed((c) => !c)}>
+              {/* Sidebar toggle icon */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="4" width="18" height="16" rx="2"/>
+                <path d="M9 4v16"/>
+              </svg>
             </button>
-            {/* Header breadcrumb (from page meta). */}
-            {breadcrumb && breadcrumb.length ? (
-              <nav className="flex items-center gap-2 text-sm">
-                {breadcrumb.map((b, i) => (
-                  <React.Fragment key={i}>
-                    {i > 0 && <span className="text-muted-foreground">/</span>}
-                    {b.href ? (
-                      <Link href={b.href} className="text-muted-foreground hover:text-foreground">
-                        {b.label}
-                      </Link>
-                    ) : (
-                      <span className="font-medium">{b.label}</span>
-                    )}
-                  </React.Fragment>
-                ))}
-              </nav>
-            ) : (
-              <div className="font-semibold text-base lg:text-lg truncate max-w-[60vw]">
-                {currentTitle || ''}
-              </div>
-            )}
+            {/* Header breadcrumb: always starts with Dashboard */}
+            {(() => {
+              const root: Breadcrumb = [{ label: 'Dashboard', href: '/backend' }]
+              let rest: Breadcrumb = []
+              if (headerBreadcrumb && headerBreadcrumb.length) {
+                const first = headerBreadcrumb[0]
+                const dup = first && (first.href === '/backend' || first.label?.toLowerCase() === 'dashboard')
+                rest = dup ? headerBreadcrumb.slice(1) : headerBreadcrumb
+              } else if (headerTitle) {
+                rest = [{ label: headerTitle }]
+              }
+              const items = [...root, ...rest]
+              return (
+                <nav className="flex items-center gap-2 text-sm">
+                  {items.map((b, i) => (
+                    <React.Fragment key={i}>
+                      {i > 0 && <span className="text-muted-foreground">/</span>}
+                      {b.href ? (
+                        <Link href={b.href} className="text-muted-foreground hover:text-foreground">
+                          {b.label}
+                        </Link>
+                      ) : (
+                        <span className="font-medium truncate max-w-[60vw]">{b.label}</span>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </nav>
+              )
+            })()}
           </div>
           <div className="flex items-center gap-2 text-sm">
             {rightHeaderSlot ? (
@@ -245,10 +281,10 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
           <aside className="absolute left-0 top-0 h-full w-[260px] bg-background border-r p-3">
             <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <Image src="/open-mercato.svg" alt="Logo" width={28} height={28} className="rounded" />
+              <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label="Go to dashboard">
+                <Image src="/open-mercato.svg" alt="Open Mercato" width={28} height={28} className="rounded" />
                 {productName}
-              </div>
+              </Link>
               <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label="Close menu">✕</button>
             </div>
             {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
@@ -257,5 +293,6 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
         </div>
       )}
     </div>
+    </HeaderContext.Provider>
   )
 }
