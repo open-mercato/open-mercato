@@ -1,15 +1,27 @@
 import { modules } from '@/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@/lib/auth/server'
-import { headers } from 'next/headers'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
 import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
 
-export default async function BackendLayout({ children }: { children: React.ReactNode }) {
+export default async function BackendLayout({ children, params }: { children: React.ReactNode; params?: { slug?: string[] } }) {
   const auth = await getAuthFromCookies()
-  const h = await headers()
-  const path = h.get('x-next-url') || ''
+
+  // Prefer pathname injected by middleware; fallback to params-based path
+  let path = ''
+  try {
+    const { headers } = await import('next/headers')
+    const h = await headers()
+    path = h.get('x-next-url') || ''
+  } catch {}
+  // Ensure we pass only a pathname
+  if (path.includes('?')) path = path.split('?')[0]
+  if (!path) {
+    const slug = params?.slug ?? []
+    path = '/backend' + (Array.isArray(slug) && slug.length ? '/' + slug.join('/') : '')
+  }
+
   const ctx = { auth, path }
   const entries = await buildAdminNav(modules as any[], ctx)
   const groupNames = Array.from(new Set(entries.map((i) => i.group)))
@@ -26,8 +38,9 @@ export default async function BackendLayout({ children }: { children: React.Reac
   const breadcrumb = (match?.route as any)?.breadcrumb as Array<{ label: string; href?: string }> | undefined
 
   return (
-    <AppShell productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} rightHeaderSlot={<UserMenu email={auth?.email} />}> 
+    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} rightHeaderSlot={<UserMenu email={auth?.email} />}> 
       {children}
     </AppShell>
   )
 }
+export const dynamic = 'force-dynamic'

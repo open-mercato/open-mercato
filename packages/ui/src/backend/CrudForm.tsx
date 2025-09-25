@@ -8,7 +8,7 @@ import { DataLoader } from '../primitives/DataLoader'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
-import { Trash2 } from 'lucide-react'
+import { Trash2, Save } from 'lucide-react'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -121,6 +121,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   loadingMessage = 'Loading form...',
 }: CrudFormProps<TValues>) {
   const router = useRouter()
+  const formId = React.useId()
   const [values, setValues] = React.useState<Record<string, any>>({ ...(initialValues || {}) })
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [pending, setPending] = React.useState(false)
@@ -626,13 +627,32 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          {backHref ? (
-            <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-              ← Back
-            </Link>
-          ) : null}
-          {title ? <div className="text-base font-medium">{title}</div> : null}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            {backHref ? (
+              <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
+                ← Back
+              </Link>
+            ) : null}
+            {title ? <div className="text-base font-medium">{title}</div> : null}
+          </div>
+          <div className="flex items-center gap-2">
+            {onDelete ? (
+              <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50 rounded-none">
+                <Trash2 className="size-4 mr-2" />
+                Delete
+              </Button>
+            ) : null}
+            {cancelHref ? (
+              <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                Cancel
+              </Link>
+            ) : null}
+            <Button type="submit" form={formId} disabled={pending}>
+              <Save className="size-4 mr-2" />
+              {pending ? 'Saving…' : submitLabel}
+            </Button>
+          </div>
         </div>
         <DataLoader
           isLoading={isLoading}
@@ -640,27 +660,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           spinnerSize="lg"
           className="min-h-[400px]"
         >
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                {onDelete ? (
-                  <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50 rounded-none">
-                    <Trash2 className="size-4 mr-2" />
-                    Delete
-                  </Button>
-                ) : null}
-              </div>
-              <div className="flex items-center gap-2">
-                {cancelHref ? (
-                  <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                    Cancel
-                  </Link>
-                ) : null}
-                <Button type="submit" disabled={pending}>
-                  {pending ? 'Saving…' : submitLabel}
-                </Button>
-              </div>
-            </div>
+          <form id={formId} onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4">
               <div className="space-y-4">
                 {col1.map((g) => (
@@ -675,21 +675,21 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             <div className="flex items-center justify-between gap-2">
-              <div>
+              <div />
+              <div className="flex items-center gap-2">
                 {onDelete ? (
                   <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50 rounded-none">
                     <Trash2 className="size-4 mr-2" />
                     Delete
                   </Button>
                 ) : null}
-              </div>
-              <div className="flex items-center gap-2">
                 {cancelHref ? (
                   <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
                     Cancel
                   </Link>
                 ) : null}
                 <Button type="submit" disabled={pending}>
+                  <Save className="size-4 mr-2" />
                   {pending ? 'Saving…' : submitLabel}
                 </Button>
               </div>
@@ -703,13 +703,32 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   // Default single-card layout (compatible with previous API)
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        {backHref ? (
-          <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-            ← Back
-          </Link>
-        ) : null}
-        {title ? <div className="text-base font-medium">{title}</div> : null}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          {backHref ? (
+            <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
+              ← Back
+            </Link>
+          ) : null}
+          {title ? <div className="text-base font-medium">{title}</div> : null}
+        </div>
+        <div className="flex items-center gap-2">
+          {onDelete ? (
+            <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50">
+              <Trash2 className="size-4 mr-2" />
+              Delete
+            </Button>
+          ) : null}
+          {cancelHref ? (
+            <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+              Cancel
+            </Link>
+          ) : null}
+          <Button type="submit" form={formId} disabled={pending}>
+            <Save className="size-4 mr-2" />
+            {pending ? 'Saving…' : submitLabel}
+          </Button>
+        </div>
       </div>
       <DataLoader
         isLoading={isLoading}
@@ -718,23 +737,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         className="min-h-[400px]"
       >
         <div>
-          <form onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
-            <div className="flex items-center justify-end gap-2">
-              {onDelete ? (
-                <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50">
-                  <Trash2 className="size-4 mr-2" />
-                  Delete
-                </Button>
-              ) : null}
-              {cancelHref ? (
-                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                  Cancel
-                </Link>
-              ) : null}
-              <Button type="submit" disabled={pending}>
-                {pending ? 'Saving…' : submitLabel}
-              </Button>
-            </div>
+          <form id={formId} onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
             <div className={grid}>
               {allFields.map((f, idx) => (
                 <FieldControl
@@ -750,18 +753,19 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             <div className="flex items-center justify-end gap-2">
-              {cancelHref ? (
-                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                  Cancel
-                </Link>
-              ) : null}
               {onDelete ? (
                 <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50">
                   <Trash2 className="size-4 mr-2" />
                   Delete
                 </Button>
               ) : null}
+              {cancelHref ? (
+                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                  Cancel
+                </Link>
+              ) : null}
               <Button type="submit" disabled={pending}>
+                <Save className="size-4 mr-2" />
                 {pending ? 'Saving…' : submitLabel}
               </Button>
             </div>

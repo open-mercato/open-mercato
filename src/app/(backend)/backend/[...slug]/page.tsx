@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromCookies } from '@/lib/auth/server'
+import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
 
 export default async function BackendCatchAll({ params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
@@ -19,5 +20,10 @@ export default async function BackendCatchAll({ params }: { params: Promise<{ sl
     }
   }
   const Component = match.route.Component as any
-  return <Component params={match.params} />
+  return (
+    <>
+      <ApplyBreadcrumb breadcrumb={(match.route as any).breadcrumb} title={match.route.title as any} />
+      <Component params={match.params} />
+    </>
+  )
 }
