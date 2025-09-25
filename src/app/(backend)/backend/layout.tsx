@@ -1,4 +1,5 @@
 import { modules } from '@/generated/modules.generated'
+import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@/lib/auth/server'
 import { headers } from 'next/headers'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
@@ -21,9 +22,11 @@ export default async function BackendLayout({ children }: { children: React.Reac
 
   const current = entries.find((i) => path.startsWith(i.href))
   const currentTitle = current?.title || ''
+  const match = findBackendMatch(modules as any[], path)
+  const breadcrumb = (match?.route as any)?.breadcrumb as Array<{ label: string; href?: string }> | undefined
 
   return (
-    <AppShell productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} rightHeaderSlot={<UserMenu email={auth?.email} />}> 
+    <AppShell productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} rightHeaderSlot={<UserMenu email={auth?.email} />}> 
       {children}
     </AppShell>
   )

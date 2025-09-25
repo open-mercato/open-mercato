@@ -5,4 +5,7 @@ export const metadata = {
   pageGroup: 'Example',
   pageOrder: 20,
   icon: 'checkbox',
+  breadcrumb: [
+    { label: 'Todos' },
+  ],
 }

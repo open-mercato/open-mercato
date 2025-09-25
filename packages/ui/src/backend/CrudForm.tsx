@@ -489,7 +489,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={(v) => setValue(f.id, v)} />
         )}
         {f.type === 'custom' && (
-          <>{(f as any).component({ id: f.id, value, error, autoFocus: idx === 0, setValue: (v: any) => setValue(f.id, v) })}</>
+          <>{(f as any).component({ id: f.id, value, error, setValue: (v: any) => setValue(f.id, v) })}</>
         )}
         {(f as any).description ? (
           <div className="text-xs text-muted-foreground">{(f as any).description}</div>
@@ -787,12 +787,34 @@ function RelationSelect({
 function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v: string) => void; placeholder?: string }) {
   const ref = React.useRef<HTMLInputElement | null>(null)
   const [local, setLocal] = React.useState<string>(value ?? '')
+  const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   React.useEffect(() => {
     const el = ref.current
     // Only sync from props when not focused to avoid caret jumps
     if (el && document.activeElement === el) return
     setLocal(value ?? '')
   }, [value])
+  React.useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const el = e.target
+    const start = el.selectionStart ?? el.value.length
+    const end = el.selectionEnd ?? start
+    const next = el.value
+    setLocal(next)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => { onChange(next) }, 120)
+    // In case some sibling re-render steals focus, immediately restore it and caret
+    requestAnimationFrame(() => {
+      const input = ref.current
+      if (!input) return
+      input.focus()
+      try { input.setSelectionRange(start, end) } catch {}
+    })
+  }
+  const handleBlur = () => {
+    if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null }
+    onChange(local)
+  }
   return (
     <input
       ref={ref}
@@ -800,7 +822,8 @@ function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v:
       className="w-full h-9 rounded border px-2"
       placeholder={placeholder}
       value={local}
-      onChange={(e) => { setLocal(e.target.value); onChange(e.target.value) }}
+      onChange={handleChange}
+      onBlur={handleBlur}
     />
   )
 }

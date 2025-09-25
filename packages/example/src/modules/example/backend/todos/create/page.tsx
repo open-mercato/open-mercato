@@ -12,7 +12,7 @@ export default function CreateTodoPage() {
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['title'] },
     { id: 'status', title: 'Status', column: 2, fields: ['is_done'] },
-    { id: 'attributes', title: 'Attributes', column: 2, kind: 'customFields' },
+    { id: 'attributes', title: 'Attributes', column: 1, kind: 'customFields' },
     {
       id: 'tips',
       title: 'Tips',

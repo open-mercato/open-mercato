@@ -14,6 +14,7 @@ export type AppShellProps = {
   rightHeaderSlot?: React.ReactNode
   sidebarCollapsedDefault?: boolean
   currentTitle?: string
+  breadcrumb?: Array<{ label: string; href?: string }>
 }
 
 const icons: Record<string, React.ReactNode> = {
@@ -73,7 +74,7 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle }: AppShellProps) {
+export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb }: AppShellProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = React.useState(false)
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
@@ -115,16 +116,18 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname])
 
-  function renderSidebar(compact: boolean, showCollapseToggle: boolean) {
+  function renderSidebar(compact: boolean, showCollapseToggle: boolean, hideHeader?: boolean) {
     return (
       <div className="flex flex-col gap-2 min-h-full">
-        <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
-          <div className="flex items-center gap-2">
-            <Image src="/open-mercato.svg" alt="Logo" width={48} height={48} className="rounded" />
-            {!compact && <div className="text-sm font-semibold">{productName}</div>}
+        {!hideHeader && (
+          <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
+            <div className="flex items-center gap-2">
+              <Image src="/open-mercato.svg" alt="Logo" width={48} height={48} className="rounded" />
+              {!compact && <div className="text-sm font-semibold">{productName}</div>}
+            </div>
+            {/* Collapse toggle removed as requested */}
           </div>
-          {/* Collapse toggle removed as requested */}
-        </div>
+        )}
         <nav className="flex flex-col gap-2">
           {groups.map((g, gi) => {
             const open = openGroups[g.name] !== false
@@ -197,10 +200,27 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
               )}
             </button>
-            {/* Header title (current page). Remove logo from header. */}
-            <div className="font-semibold text-base lg:text-lg truncate max-w-[60vw]">
-              {currentTitle || ''}
-            </div>
+            {/* Header breadcrumb (from page meta). */}
+            {breadcrumb && breadcrumb.length ? (
+              <nav className="flex items-center gap-2 text-sm">
+                {breadcrumb.map((b, i) => (
+                  <React.Fragment key={i}>
+                    {i > 0 && <span className="text-muted-foreground">/</span>}
+                    {b.href ? (
+                      <Link href={b.href} className="text-muted-foreground hover:text-foreground">
+                        {b.label}
+                      </Link>
+                    ) : (
+                      <span className="font-medium">{b.label}</span>
+                    )}
+                  </React.Fragment>
+                ))}
+              </nav>
+            ) : (
+              <div className="font-semibold text-base lg:text-lg truncate max-w-[60vw]">
+                {currentTitle || ''}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 text-sm">
             {rightHeaderSlot ? (
@@ -231,8 +251,8 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
               </div>
               <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label="Close menu">✕</button>
             </div>
-            {/* Force expanded sidebar in mobile drawer and hide collapse toggle */}
-            {renderSidebar(false, false)}
+            {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
+            {renderSidebar(false, false, true)}
           </aside>
         </div>
       )}
