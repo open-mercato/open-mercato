@@ -202,23 +202,25 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     csv: {
       headers: (() => {
         const headers = ['id', 'title', 'is_done', 'organization_id', 'tenant_id']
-        if (cfKeys.has('priority')) headers.push('cf_priority')
-        if (cfKeys.has('severity')) headers.push('cf_severity')
-        if (cfKeys.has('blocked')) headers.push('cf_blocked')
-        if (cfKeys.has('labels')) headers.push('cf_labels')
+        for (const k of Array.from(cfKeys)) headers.push(`cf_${k}`)
         return headers
       })(),
-      row: (t: TodoListItem) => ([
-        t.id,
-        t.title,
-        t.is_done ? 'true' : 'false',
-        t.organization_id ?? '',
-        t.tenant_id ?? '',
-        ...(cfKeys.has('priority') ? [t.cf_priority ?? ''] : []),
-        ...(cfKeys.has('severity') ? [t.cf_severity ?? ''] : []),
-        ...(cfKeys.has('blocked') ? [t.cf_blocked ?? ''] : []),
-        ...(cfKeys.has('labels') ? [Array.isArray(t.cf_labels) ? t.cf_labels.join('|') : ''] : []),
-      ]),
+      row: (t: TodoListItem) => {
+        const base = [
+          t.id,
+          t.title,
+          t.is_done ? 'true' : 'false',
+          t.organization_id ?? '',
+          t.tenant_id ?? '',
+        ]
+        const cfVals = Array.from(cfKeys).map((k) => {
+          const key = `cf_${k}` as keyof TodoListItem
+          const v = t[key] as unknown
+          if (Array.isArray(v)) return (v as string[]).join('|')
+          return v == null ? '' : String(v)
+        })
+        return [...base, ...cfVals]
+      },
       filename: 'todos.csv',
     },
   },

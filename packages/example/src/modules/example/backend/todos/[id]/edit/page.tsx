@@ -2,8 +2,8 @@
 import * as React from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
-import { fetchCrudList, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { fetchCrudList, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 
 type TodoItem = TodoListItem
@@ -62,11 +62,45 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
             backHref="/backend/todos"
             entityId="example:todo"
             fields={baseFields}
+            groups={[
+              { id: 'details', title: 'Details', column: 1, fields: ['title'] },
+              { id: 'status', title: 'Status', column: 2, fields: ['is_done'] },
+              { id: 'attributes', title: 'Attributes', column: 2, kind: 'customFields' },
+              {
+                id: 'actions',
+                title: 'Quick Actions',
+                column: 2,
+                component: ({ values, setValue }) => (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="h-8 rounded border px-2 text-sm"
+                      onClick={() => setValue('is_done', true)}
+                    >
+                      Mark as done
+                    </button>
+                    <button
+                      type="button"
+                      className="h-8 rounded border px-2 text-sm"
+                      onClick={() => setValue('is_done', false)}
+                    >
+                      Mark as todo
+                    </button>
+                  </div>
+                ),
+              },
+            ] as CrudFormGroup[]}
             initialValues={initial || { id }}
             submitLabel="Save Changes"
             cancelHref="/backend/todos"
             successRedirect="/backend/todos"
             onSubmit={async (vals) => { await updateCrud('example/todos', vals) }}
+            onDelete={async () => {
+              if (!id) return
+              if (!window.confirm('Delete this todo?')) return
+              await deleteCrud('example/todos', String(id))
+              router.push('/backend/todos?flash=' + encodeURIComponent('Record has been removed') + '&type=success')
+            }}
           />
         )}
       </PageBody>

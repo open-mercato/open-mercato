@@ -1,6 +1,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Separator } from '../primitives/separator'
+import { FlashMessages } from './FlashMessages'
 
 export type AppShellProps = {
   productName?: string
@@ -52,7 +53,10 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
             )}
           </div>
         </header>
-        <main className="p-6">{children}</main>
+        <main className="p-6">
+          <FlashMessages />
+          {children}
+        </main>
       </div>
     </div>
   )

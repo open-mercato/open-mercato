@@ -61,12 +61,37 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   cancelHref?: string
   successRedirect?: string
   onSubmit?: (values: TValues) => Promise<void> | void
+  onDelete?: () => Promise<void> | void
+  // Legacy field-only grid toggle. Use `groups` for advanced layout.
   twoColumn?: boolean
   title?: string
   backHref?: string
   // When provided, CrudForm will fetch custom field definitions and append
   // form-editable custom fields automatically to the provided `fields`.
   entityId?: string
+  // Optional grouped layout rendered in two responsive columns (1 on mobile).
+  groups?: CrudFormGroup[]
+}
+
+// Group-level custom component context
+export type CrudFormGroupComponentProps = {
+  values: Record<string, any>
+  setValue: (id: string, v: any) => void
+  errors: Record<string, string>
+}
+
+// Special group kind for automatic Custom Fields section
+export type CrudFormGroup = {
+  id: string
+  title?: string
+  column?: 1 | 2
+  description?: string
+  // Either list field ids, inline field configs, or mix of both
+  fields?: (CrudField | string)[]
+  // Inject a custom component into the group card
+  component?: (ctx: CrudFormGroupComponentProps) => React.ReactNode
+  // When kind === 'customFields', the group renders form-editable custom fields
+  kind?: 'customFields'
 }
 
 export function CrudForm<TValues extends Record<string, any>>({
@@ -77,10 +102,12 @@ export function CrudForm<TValues extends Record<string, any>>({
   cancelHref,
   successRedirect,
   onSubmit,
+  onDelete,
   twoColumn = false,
   title,
   backHref,
   entityId,
+  groups,
 }: CrudFormProps<TValues>) {
   const router = useRouter()
   const [values, setValues] = React.useState<Record<string, any>>({ ...(initialValues || {}) })
@@ -334,7 +361,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
   // no auto-focus; let the browser/user manage focus
 
-  const grid = twoColumn ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'grid grid-cols-1 gap-4'
+  const grid = twoColumn ? 'grid grid-cols-1 lg:grid-cols-2 gap-4' : 'grid grid-cols-1 gap-4'
 
   type FieldControlProps = {
     f: CrudField
@@ -428,6 +455,121 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     )
   }, (prev, next) => prev.f.id === next.f.id && prev.value === next.value && prev.error === next.error && prev.options === next.options), [])
 
+  // Helper to render a list of field configs
+  const renderFields = (fieldList: CrudField[]) => (
+    <div className="grid grid-cols-1 gap-4">
+      {fieldList.map((f, idx) => (
+        <FieldControl
+          key={f.id}
+          f={f}
+          value={values[f.id]}
+          error={errors[f.id]}
+          options={f.options || dynamicOptions[f.id] || []}
+          idx={idx}
+          setValue={setValue}
+        />
+      ))}
+    </div>
+  )
+
+  // If groups are provided, render the two-column grouped layout
+  if (groups && groups.length) {
+    // Build a field index for lookup by id
+    const byId = new Map(allFields.map((f) => [f.id, f]))
+
+    const resolveGroupFields = (g: CrudFormGroup): CrudField[] => {
+      if (g.kind === 'customFields') {
+        return cfFields
+      }
+      const src = g.fields || []
+      const result: CrudField[] = []
+      for (const item of src) {
+        if (typeof item === 'string') {
+          const found = byId.get(item)
+          if (found) result.push(found)
+        } else {
+          result.push(item)
+        }
+      }
+      return result
+    }
+
+    const col1: CrudFormGroup[] = []
+    const col2: CrudFormGroup[] = []
+    for (const g of groups) {
+      if ((g.column ?? 1) === 2) col2.push(g)
+      else col1.push(g)
+    }
+
+    const GroupCard = ({ g }: { g: CrudFormGroup }) => {
+      const groupFields = resolveGroupFields(g)
+      return (
+        <div className="rounded-lg border bg-card p-4 space-y-3">
+          {g.title || g.kind === 'customFields' ? (
+            <div className="text-sm font-medium">{g.title || 'Custom Fields'}</div>
+          ) : null}
+          {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
+          {g.component ? (
+            <div>{g.component({ values, setValue, errors })}</div>
+          ) : null}
+          {groupFields.length ? renderFields(groupFields) : null}
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          {backHref ? (
+            <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
+              ← Back
+            </Link>
+          ) : null}
+          {title ? <div className="text-base font-medium">{title}</div> : null}
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="flex items-center justify-end gap-2">
+            {onDelete ? (
+              <Button type="button" variant="destructive" onClick={async () => { try { await onDelete() } catch {} }}>Delete</Button>
+            ) : null}
+            {cancelHref ? (
+              <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                Cancel
+              </Link>
+            ) : null}
+            <Button type="submit" disabled={pending}>
+              {pending ? 'Saving…' : submitLabel}
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-4">
+              {col1.map((g) => (
+                <GroupCard key={g.id} g={g} />
+              ))}
+            </div>
+            <div className="space-y-4">
+              {col2.map((g) => (
+                <GroupCard key={g.id} g={g} />
+              ))}
+            </div>
+          </div>
+          {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
+          <div className="flex items-center justify-end gap-2">
+            {cancelHref ? (
+              <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                Cancel
+              </Link>
+            ) : null}
+            <Button type="submit" disabled={pending}>
+              {pending ? 'Saving…' : submitLabel}
+            </Button>
+          </div>
+        </form>
+      </div>
+    )
+  }
+
+  // Default single-card layout (compatible with previous API)
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -440,30 +582,46 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       </div>
       <div>
         <form onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
+          <div className="flex items-center justify-end gap-2">
+            {onDelete ? (
+              <Button type="button" variant="destructive" onClick={async () => { try { await onDelete() } catch {} }}>Delete</Button>
+            ) : null}
+            {cancelHref ? (
+              <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                Cancel
+              </Link>
+            ) : null}
+            <Button type="submit" disabled={pending}>
+              {pending ? 'Saving…' : submitLabel}
+            </Button>
+          </div>
           <div className={grid}>
-          {allFields.map((f, idx) => (
-            <FieldControl
-              key={f.id}
-              f={f}
-              value={values[f.id]}
-              error={errors[f.id]}
-              options={f.options || dynamicOptions[f.id] || []}
-              idx={idx}
-              setValue={setValue}
-            />
-          ))}
+            {allFields.map((f, idx) => (
+              <FieldControl
+                key={f.id}
+                f={f}
+                value={values[f.id]}
+                error={errors[f.id]}
+                options={f.options || dynamicOptions[f.id] || []}
+                idx={idx}
+                setValue={setValue}
+              />
+            ))}
           </div>
           {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
           <div className="flex items-center justify-end gap-2">
-          {cancelHref ? (
-            <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-              Cancel
-            </Link>
-          ) : null}
-          <Button type="submit" disabled={pending}>
-            {pending ? 'Saving…' : submitLabel}
-          </Button>
-        </div>
+            {cancelHref ? (
+              <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                Cancel
+              </Link>
+            ) : null}
+            {onDelete ? (
+              <Button type="button" variant="destructive" onClick={async () => { try { await onDelete() } catch {} }}>Delete</Button>
+            ) : null}
+            <Button type="submit" disabled={pending}>
+              {pending ? 'Saving…' : submitLabel}
+            </Button>
+          </div>
         </form>
       </div>
     </div>
