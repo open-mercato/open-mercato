@@ -484,7 +484,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         )}
         {f.type === 'select' && !((f as any).multiple) && (
           <select
-            className="w-full h-9 rounded border px-2"
+            className="w-full h-9 rounded border px-2 text-sm"
             value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')}
             onChange={(e) => setValue(f.id, e.target.value || undefined)}
           >
