@@ -164,6 +164,14 @@ export function CrudForm<TValues extends Record<string, any>>({
     return [...fields, ...extras]
   }, [fields, cfFields])
 
+  // Separate basic fields from custom fields for progressive loading
+  const basicFields = React.useMemo(() => fields, [fields])
+  const customFields = React.useMemo(() => {
+    if (!cfFields.length) return []
+    const provided = new Set(fields.map(f => f.id))
+    return cfFields.filter(f => !provided.has(f.id))
+  }, [fields, cfFields])
+
   const setValue = React.useCallback((id: string, v: any) => {
     setValues((prev) => {
       // Only update if the value actually changed to prevent unnecessary re-renders
@@ -616,21 +624,21 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     })
 
     return (
-      <DataLoader
-        isLoading={isLoading}
-        loadingMessage={loadingMessage}
-        spinnerSize="lg"
-        className="min-h-[400px]"
-      >
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            {backHref ? (
-              <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-                ← Back
-              </Link>
-            ) : null}
-            {title ? <div className="text-base font-medium">{title}</div> : null}
-          </div>
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          {backHref ? (
+            <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
+              ← Back
+            </Link>
+          ) : null}
+          {title ? <div className="text-base font-medium">{title}</div> : null}
+        </div>
+        <DataLoader
+          isLoading={isLoading}
+          loadingMessage={loadingMessage}
+          spinnerSize="lg"
+          className="min-h-[400px]"
+        >
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="flex items-center justify-end gap-2">
               {onDelete ? (
@@ -658,39 +666,29 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
               </div>
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            <div className="flex items-center justify-end gap-2">
-              {cancelHref ? (
-                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                  Cancel
-                </Link>
-              ) : null}
-              <Button type="submit" disabled={pending}>
-                {pending ? 'Saving…' : submitLabel}
-              </Button>
-            </div>
           </form>
-        </div>
-      </DataLoader>
+        </DataLoader>
+      </div>
     )
   }
 
   // Default single-card layout (compatible with previous API)
   return (
-    <DataLoader
-      isLoading={isLoading}
-      loadingMessage={loadingMessage}
-      spinnerSize="lg"
-      className="min-h-[400px]"
-    >
-      <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          {backHref ? (
-            <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-              ← Back
-            </Link>
-          ) : null}
-          {title ? <div className="text-base font-medium">{title}</div> : null}
-        </div>
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        {backHref ? (
+          <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
+            ← Back
+          </Link>
+        ) : null}
+        {title ? <div className="text-base font-medium">{title}</div> : null}
+      </div>
+      <DataLoader
+        isLoading={isLoading}
+        loadingMessage={loadingMessage}
+        spinnerSize="lg"
+        className="min-h-[400px]"
+      >
         <div>
           <form onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
             <div className="flex items-center justify-end gap-2">
@@ -720,23 +718,10 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
               ))}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            <div className="flex items-center justify-end gap-2">
-              {cancelHref ? (
-                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                  Cancel
-                </Link>
-              ) : null}
-              {onDelete ? (
-                <Button type="button" variant="destructive" onClick={async () => { try { await onDelete() } catch {} }}>Delete</Button>
-              ) : null}
-              <Button type="submit" disabled={pending}>
-                {pending ? 'Saving…' : submitLabel}
-              </Button>
-            </div>
           </form>
         </div>
-      </div>
-    </DataLoader>
+      </DataLoader>
+    </div>
   )
 }
 

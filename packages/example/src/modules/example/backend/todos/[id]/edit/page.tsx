@@ -83,6 +83,9 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
     return () => { cancelled = true }
   }, [id])
 
+  // Show form immediately with basic data, even if custom fields are still loading
+  const showForm = initial !== null || !loading
+
   if (!id) return null
 
   return (
@@ -90,7 +93,7 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
       <PageBody>
         {err ? (
           <div className="text-red-600">{err}</div>
-        ) : (
+        ) : showForm ? (
           <CrudForm
             title="Edit Todo"
             backHref="/backend/todos"
@@ -101,7 +104,7 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
             submitLabel="Save Changes"
             cancelHref="/backend/todos"
             successRedirect="/backend/todos?flash=Todo%20saved&type=success"
-            isLoading={loading}
+            isLoading={false}
             loadingMessage="Loading todo..."
             onSubmit={async (vals) => { await updateCrud('example/todos', vals) }}
             onDelete={async () => {
@@ -111,6 +114,11 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
               pushWithFlash(router as any, '/backend/todos', 'Record has been removed', 'success')
             }}
           />
+        ) : (
+          <div className="flex items-center justify-center gap-2 py-8">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
+            <span className="text-sm text-muted-foreground">Loading todo...</span>
+          </div>
         )}
       </PageBody>
     </Page>

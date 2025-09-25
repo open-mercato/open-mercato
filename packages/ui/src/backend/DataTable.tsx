@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState } from '@tanstack/react-table'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
@@ -55,6 +56,7 @@ export type DataTableProps<T> = {
 }
 
 export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId }: DataTableProps<T>) {
+  const router = useRouter()
   // Map column meta.priority (1..6) to Tailwind responsive visibility
   // 1 => always visible, 2 => hidden <sm, 3 => hidden <md, 4 => hidden <lg, 5 => hidden <xl, 6 => hidden <2xl
   const responsiveClass = (priority?: number) => {
@@ -219,7 +221,12 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
                     key={row.id} 
                     data-state={row.getIsSelected() && 'selected'}
                     className={isClickable ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}
-                    onClick={isClickable ? () => {
+                    onClick={isClickable ? (e) => {
+                      // Don't trigger row click if clicking on actions cell
+                      if ((e.target as HTMLElement).closest('[data-actions-cell]')) {
+                        return
+                      }
+                      
                       if (onRowClick) {
                         onRowClick(row.original as T)
                       } else if (rowActions) {
@@ -231,7 +238,7 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
                           const editAction = extractEditAction((rowActionsElement.props as any).items as RowActionItem[])
                           if (editAction) {
                             if (editAction.href) {
-                              window.location.href = editAction.href
+                              router.push(editAction.href)
                             } else if (editAction.onSelect) {
                               editAction.onSelect()
                             }
@@ -246,7 +253,7 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
                       </TableCell>
                     ))}
                     {rowActions ? (
-                      <TableCell className="text-right whitespace-nowrap">
+                      <TableCell className="text-right whitespace-nowrap" data-actions-cell>
                         {rowActions(row.original as T)}
                       </TableCell>
                     ) : null}
