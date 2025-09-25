@@ -88,9 +88,7 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
   return (
     <Page>
       <PageBody>
-        {loading ? (
-          <div>Loading…</div>
-        ) : err ? (
+        {err ? (
           <div className="text-red-600">{err}</div>
         ) : (
           <CrudForm
@@ -103,6 +101,8 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
             submitLabel="Save Changes"
             cancelHref="/backend/todos"
             successRedirect="/backend/todos?flash=Todo%20saved&type=success"
+            isLoading={loading}
+            loadingMessage="Loading todo..."
             onSubmit={async (vals) => { await updateCrud('example/todos', vals) }}
             onDelete={async () => {
               if (!id) return
