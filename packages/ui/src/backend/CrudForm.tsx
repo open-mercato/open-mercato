@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { z } from 'zod'
 import { useRouter } from 'next/navigation'
 import { Button } from '../primitives/button'
+import { DataLoader } from '../primitives/DataLoader'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
@@ -75,6 +76,9 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   entityId?: string
   // Optional grouped layout rendered in two responsive columns (1 on mobile).
   groups?: CrudFormGroup[]
+  // Loading state for the entire form (e.g., when loading record data)
+  isLoading?: boolean
+  loadingMessage?: string
 }
 
 // Group-level custom component context
@@ -112,6 +116,8 @@ export function CrudForm<TValues extends Record<string, any>>({
   backHref,
   entityId,
   groups,
+  isLoading = false,
+  loadingMessage = 'Loading form...',
 }: CrudFormProps<TValues>) {
   const router = useRouter()
   const [values, setValues] = React.useState<Record<string, any>>({ ...(initialValues || {}) })
@@ -120,18 +126,31 @@ export function CrudForm<TValues extends Record<string, any>>({
   const [formError, setFormError] = React.useState<string | null>(null)
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
   const [cfFields, setCfFields] = React.useState<CrudField[]>([])
+  const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
     let cancelled = false
     async function load() {
-      if (!entityId) { setCfFields([]); return }
+      if (!entityId) { 
+        setCfFields([])
+        setIsLoadingCustomFields(false)
+        return 
+      }
+      
+      setIsLoadingCustomFields(true)
       try {
         const mod = await import('./utils/customFieldForms')
         const f = await mod.fetchCustomFieldFormFields(entityId)
-        if (!cancelled) setCfFields(f)
+        if (!cancelled) {
+          setCfFields(f)
+          setIsLoadingCustomFields(false)
+        }
       } catch {
-        if (!cancelled) setCfFields([])
+        if (!cancelled) {
+          setCfFields([])
+          setIsLoadingCustomFields(false)
+        }
       }
     }
     load()
@@ -566,17 +585,25 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
     const GroupCard = React.memo(({ g }: { g: CrudFormGroup }) => {
       const groupFields = React.useMemo(() => resolveGroupFields(g), [g, allFields, cfFields])
+      const isCustomFieldsGroup = g.kind === 'customFields'
       
       return (
         <div className="rounded-lg border bg-card p-4 space-y-3">
-          {g.title || g.kind === 'customFields' ? (
+          {g.title || isCustomFieldsGroup ? (
             <div className="text-sm font-medium">{g.title || 'Custom Fields'}</div>
           ) : null}
           {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
           {g.component ? (
             <div>{g.component({ values, setValue, errors })}</div>
           ) : null}
-          {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
+          <DataLoader
+            isLoading={isCustomFieldsGroup && isLoadingCustomFields}
+            loadingMessage="Loading custom fields..."
+            spinnerSize="sm"
+            className="min-h-[1px]"
+          >
+            {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
+          </DataLoader>
         </div>
       )
     }, (prev, next) => {
@@ -592,6 +619,72 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     })
 
     return (
+      <DataLoader
+        isLoading={isLoading}
+        loadingMessage={loadingMessage}
+        spinnerSize="lg"
+        className="min-h-[400px]"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            {backHref ? (
+              <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
+                ← Back
+              </Link>
+            ) : null}
+            {title ? <div className="text-base font-medium">{title}</div> : null}
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="flex items-center justify-end gap-2">
+              {onDelete ? (
+                <Button type="button" variant="destructive" onClick={async () => { try { await onDelete() } catch {} }}>Delete</Button>
+              ) : null}
+              {cancelHref ? (
+                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                  Cancel
+                </Link>
+              ) : null}
+              <Button type="submit" disabled={pending}>
+                {pending ? 'Saving…' : submitLabel}
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="space-y-4">
+                {col1.map((g) => (
+                  <GroupCard key={g.id} g={g} />
+                ))}
+              </div>
+              <div className="space-y-4">
+                {col2.map((g) => (
+                  <GroupCard key={g.id} g={g} />
+                ))}
+              </div>
+            </div>
+            {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
+            <div className="flex items-center justify-end gap-2">
+              {cancelHref ? (
+                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                  Cancel
+                </Link>
+              ) : null}
+              <Button type="submit" disabled={pending}>
+                {pending ? 'Saving…' : submitLabel}
+              </Button>
+            </div>
+          </form>
+        </div>
+      </DataLoader>
+    )
+  }
+
+  // Default single-card layout (compatible with previous API)
+  return (
+    <DataLoader
+      isLoading={isLoading}
+      loadingMessage={loadingMessage}
+      spinnerSize="lg"
+      className="min-h-[400px]"
+    >
       <div className="space-y-4">
         <div className="flex items-center gap-3">
           {backHref ? (
@@ -601,104 +694,52 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           ) : null}
           {title ? <div className="text-base font-medium">{title}</div> : null}
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex items-center justify-end gap-2">
-            {onDelete ? (
-              <Button type="button" variant="destructive" onClick={async () => { try { await onDelete() } catch {} }}>Delete</Button>
-            ) : null}
-            {cancelHref ? (
-              <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                Cancel
-              </Link>
-            ) : null}
-            <Button type="submit" disabled={pending}>
-              {pending ? 'Saving…' : submitLabel}
-            </Button>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="space-y-4">
-              {col1.map((g) => (
-                <GroupCard key={g.id} g={g} />
+        <div>
+          <form onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
+            <div className="flex items-center justify-end gap-2">
+              {onDelete ? (
+                <Button type="button" variant="destructive" onClick={async () => { try { await onDelete() } catch {} }}>Delete</Button>
+              ) : null}
+              {cancelHref ? (
+                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                  Cancel
+                </Link>
+              ) : null}
+              <Button type="submit" disabled={pending}>
+                {pending ? 'Saving…' : submitLabel}
+              </Button>
+            </div>
+            <div className={grid}>
+              {allFields.map((f, idx) => (
+                <FieldControl
+                  key={f.id}
+                  f={f}
+                  value={values[f.id]}
+                  error={errors[f.id]}
+                  options={(f as CrudBuiltinField).options || dynamicOptions[f.id] || EMPTY_OPTIONS}
+                  idx={idx}
+                  setValue={setValue}
+                />
               ))}
             </div>
-            <div className="space-y-4">
-              {col2.map((g) => (
-                <GroupCard key={g.id} g={g} />
-              ))}
+            {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
+            <div className="flex items-center justify-end gap-2">
+              {cancelHref ? (
+                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                  Cancel
+                </Link>
+              ) : null}
+              {onDelete ? (
+                <Button type="button" variant="destructive" onClick={async () => { try { await onDelete() } catch {} }}>Delete</Button>
+              ) : null}
+              <Button type="submit" disabled={pending}>
+                {pending ? 'Saving…' : submitLabel}
+              </Button>
             </div>
-          </div>
-          {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-          <div className="flex items-center justify-end gap-2">
-            {cancelHref ? (
-              <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                Cancel
-              </Link>
-            ) : null}
-            <Button type="submit" disabled={pending}>
-              {pending ? 'Saving…' : submitLabel}
-            </Button>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
-    )
-  }
-
-  // Default single-card layout (compatible with previous API)
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        {backHref ? (
-          <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-            ← Back
-          </Link>
-        ) : null}
-        {title ? <div className="text-base font-medium">{title}</div> : null}
-      </div>
-      <div>
-        <form onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
-          <div className="flex items-center justify-end gap-2">
-            {onDelete ? (
-              <Button type="button" variant="destructive" onClick={async () => { try { await onDelete() } catch {} }}>Delete</Button>
-            ) : null}
-            {cancelHref ? (
-              <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                Cancel
-              </Link>
-            ) : null}
-            <Button type="submit" disabled={pending}>
-              {pending ? 'Saving…' : submitLabel}
-            </Button>
-          </div>
-          <div className={grid}>
-            {allFields.map((f, idx) => (
-              <FieldControl
-                key={f.id}
-                f={f}
-                value={values[f.id]}
-                error={errors[f.id]}
-                options={(f as CrudBuiltinField).options || dynamicOptions[f.id] || EMPTY_OPTIONS}
-                idx={idx}
-                setValue={setValue}
-              />
-            ))}
-          </div>
-          {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-          <div className="flex items-center justify-end gap-2">
-            {cancelHref ? (
-              <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                Cancel
-              </Link>
-            ) : null}
-            {onDelete ? (
-              <Button type="button" variant="destructive" onClick={async () => { try { await onDelete() } catch {} }}>Delete</Button>
-            ) : null}
-            <Button type="submit" disabled={pending}>
-              {pending ? 'Saving…' : submitLabel}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+    </DataLoader>
   )
 }
 
