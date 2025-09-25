@@ -4,4 +4,8 @@ export const metadata = {
   pageTitle: 'Todos',
   pageGroup: 'Example',
   pageOrder: 20,
+  icon: 'checkbox',
+  breadcrumb: [
+    { label: 'Todos' },
+  ],
 }

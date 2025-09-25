@@ -98,3 +98,29 @@ export default async function Page() { /* ... */ }
 ```
 
 If both exist, the separate `*.meta.ts` file takes precedence.
+
+### Filters with custom fields
+
+To keep pages consistent and avoid forgetting to wire dynamic filters, the `DataTable` can auto-append filter controls for filterable custom fields.
+
+Usage:
+
+```tsx
+<DataTable
+  columns={columns}
+  data={rows}
+  // Built-in filter bar (search + filters)
+  searchValue={search}
+  onSearchChange={setSearch}
+  filters={[{ id: 'created_at', label: 'Created', type: 'dateRange' }]}
+  filterValues={values}
+  onFiltersApply={setValues}
+  onFiltersClear={() => setValues({})}
+  // Auto-include custom-field filters for this entity
+  entityId="example:todo"
+/>
+```
+
+This appends controls for all custom fields marked `filterable` in their definitions (boolean → checkbox, select → dropdown; multi-select uses a checkbox list, text-like kinds → text input). Selected values should be mapped to query params as `cf_<key>` or `cf_<key>In` for multi.
+
+Note: `customFieldFiltersEntityId` has been renamed to `entityId`.

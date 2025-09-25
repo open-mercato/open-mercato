@@ -12,6 +12,7 @@ export function RowActions({ items }: { items: RowActionItem[] }) {
   const [open, setOpen] = React.useState(false)
   const btnRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
+  const hoverTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
 
   React.useEffect(() => {
     if (!open) return
@@ -35,15 +36,40 @@ export function RowActions({ items }: { items: RowActionItem[] }) {
     }
   }, [open])
 
+  // Cleanup timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const handleMouseEnter = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current)
+    }
+    setOpen(true)
+  }
+
+  const handleMouseLeave = () => {
+    hoverTimeoutRef.current = setTimeout(() => {
+      setOpen(false)
+    }, 150) // Small delay to prevent flickering when moving to menu
+  }
+
   return (
-    <div className="relative inline-block text-left">
+    <div 
+      className="relative inline-block text-left"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
       <button
         ref={btnRef}
         type="button"
         className="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-accent"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
       >
         <span aria-hidden="true">⋯</span>
         <span className="sr-only">Open actions</span>

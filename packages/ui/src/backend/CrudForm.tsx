@@ -4,8 +4,14 @@ import Link from 'next/link'
 import { z } from 'zod'
 import { useRouter } from 'next/navigation'
 import { Button } from '../primitives/button'
+import { DataLoader } from '../primitives/DataLoader'
+import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
+import { Trash2 } from 'lucide-react'
+
+// Stable empty options array to avoid creating a new [] every render
+const EMPTY_OPTIONS: CrudFieldOption[] = []
 
 export type CrudFieldBase = {
   id: string
@@ -30,6 +36,7 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'relation'
   placeholder?: string
   options?: CrudFieldOption[]
+  multiple?: boolean
   // for relation/select style fields; if provided, options are loaded on mount
   loadOptions?: () => Promise<CrudFieldOption[]>
   // when type === 'richtext', choose editor implementation
@@ -60,9 +67,40 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   cancelHref?: string
   successRedirect?: string
   onSubmit?: (values: TValues) => Promise<void> | void
+  onDelete?: () => Promise<void> | void
+  // Legacy field-only grid toggle. Use `groups` for advanced layout.
   twoColumn?: boolean
   title?: string
   backHref?: string
+  // When provided, CrudForm will fetch custom field definitions and append
+  // form-editable custom fields automatically to the provided `fields`.
+  entityId?: string
+  // Optional grouped layout rendered in two responsive columns (1 on mobile).
+  groups?: CrudFormGroup[]
+  // Loading state for the entire form (e.g., when loading record data)
+  isLoading?: boolean
+  loadingMessage?: string
+}
+
+// Group-level custom component context
+export type CrudFormGroupComponentProps = {
+  values: Record<string, any>
+  setValue: (id: string, v: any) => void
+  errors: Record<string, string>
+}
+
+// Special group kind for automatic Custom Fields section
+export type CrudFormGroup = {
+  id: string
+  title?: string
+  column?: 1 | 2
+  description?: string
+  // Either list field ids, inline field configs, or mix of both
+  fields?: (CrudField | string)[]
+  // Inject a custom component into the group card
+  component?: (ctx: CrudFormGroupComponentProps) => React.ReactNode
+  // When kind === 'customFields', the group renders form-editable custom fields
+  kind?: 'customFields'
 }
 
 export function CrudForm<TValues extends Record<string, any>>({
@@ -73,9 +111,14 @@ export function CrudForm<TValues extends Record<string, any>>({
   cancelHref,
   successRedirect,
   onSubmit,
+  onDelete,
   twoColumn = false,
   title,
   backHref,
+  entityId,
+  groups,
+  isLoading = false,
+  loadingMessage = 'Loading form...',
 }: CrudFormProps<TValues>) {
   const router = useRouter()
   const [values, setValues] = React.useState<Record<string, any>>({ ...(initialValues || {}) })
@@ -83,21 +126,93 @@ export function CrudForm<TValues extends Record<string, any>>({
   const [pending, setPending] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
+  const [cfFields, setCfFields] = React.useState<CrudField[]>([])
+  const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
 
-  const setValue = (id: string, v: any) => setValues((prev) => ({ ...prev, [id]: v }))
+  // Auto-append custom fields for this entityId
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      if (!entityId) { 
+        setCfFields([])
+        setIsLoadingCustomFields(false)
+        return 
+      }
+      
+      setIsLoadingCustomFields(true)
+      try {
+        const mod = await import('./utils/customFieldForms')
+        const f = await mod.fetchCustomFieldFormFields(entityId)
+        if (!cancelled) {
+          setCfFields(f)
+          setIsLoadingCustomFields(false)
+        }
+      } catch {
+        if (!cancelled) {
+          setCfFields([])
+          setIsLoadingCustomFields(false)
+        }
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [entityId])
 
-  // Sync when initialValues change (e.g., edit form loads data async)
+  const allFields = React.useMemo(() => {
+    if (!cfFields.length) return fields
+    const provided = new Set(fields.map(f => f.id))
+    const extras = cfFields.filter(f => !provided.has(f.id))
+    return [...fields, ...extras]
+  }, [fields, cfFields])
+
+  // Separate basic fields from custom fields for progressive loading
+  const basicFields = React.useMemo(() => fields, [fields])
+  const customFields = React.useMemo(() => {
+    if (!cfFields.length) return []
+    const provided = new Set(fields.map(f => f.id))
+    return cfFields.filter(f => !provided.has(f.id))
+  }, [fields, cfFields])
+
+  const setValue = React.useCallback((id: string, v: any) => {
+    setValues((prev) => {
+      // Only update if the value actually changed to prevent unnecessary re-renders
+      if (prev[id] === v) return prev
+      return { ...prev, [id]: v }
+    })
+  }, [])
+
+  // Apply initialValues when provided (reapply when initialValues change for edit forms)
   React.useEffect(() => {
     if (initialValues) {
       setValues((prev) => ({ ...prev, ...(initialValues as any) }))
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialValues])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormError(null)
     setErrors({})
+
+    // Basic required-field validation when no zod schema is provided
+    const requiredErrors: Record<string, string> = {}
+    for (const f of allFields) {
+      if (!('required' in f) || !f.required) continue
+      const v = values[f.id]
+      const isArray = Array.isArray(v)
+      const isString = typeof v === 'string'
+      const empty =
+        v === undefined ||
+        v === null ||
+        (isString && v.trim() === '') ||
+        (isArray && v.length === 0) ||
+        ((f as any).type === 'checkbox' && v !== true)
+      if (empty) requiredErrors[f.id] = 'This field is required'
+    }
+    if (Object.keys(requiredErrors).length) {
+      setErrors(requiredErrors)
+      flash('Please fix the highlighted errors.', 'error')
+      return
+    }
 
     let parsed: any = values
     if (schema) {
@@ -108,6 +223,7 @@ export function CrudForm<TValues extends Record<string, any>>({
           if (iss.path && iss.path.length) fieldErrors[String(iss.path[0])] = iss.message
         })
         setErrors(fieldErrors)
+        flash('Please fix the highlighted errors.', 'error')
         return
       }
       parsed = res.data
@@ -118,7 +234,16 @@ export function CrudForm<TValues extends Record<string, any>>({
       await onSubmit?.(parsed)
       if (successRedirect) router.push(successRedirect)
     } catch (err: any) {
-      setFormError(err?.message || 'Unexpected error')
+      // Try to extract meaningful message often returned as JSON
+      let msg = err?.message || 'Unexpected error'
+      try {
+        const parsed = JSON.parse(msg)
+        if (parsed?.error) msg = String(parsed.error)
+        else if (parsed?.message) msg = String(parsed.message)
+      } catch {}
+      flash(msg || 'Save failed', 'error')
+      // Also keep inline error minimal and human-friendly
+      setFormError(msg)
     } finally {
       setPending(false)
   }
@@ -282,7 +407,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   React.useEffect(() => {
     let cancelled = false
     const loadAll = async () => {
-      const loaders = fields
+      const loaders = allFields
         .filter((f): f is CrudBuiltinField & { loadOptions: () => Promise<CrudFieldOption[]> } =>
           (f as any).loadOptions != null
         )
@@ -300,11 +425,11 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     return () => {
       cancelled = true
     }
-  }, [fields])
+  }, [allFields])
 
   // no auto-focus; let the browser/user manage focus
 
-  const grid = twoColumn ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : 'grid grid-cols-1 gap-4'
+  const grid = twoColumn ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4' : 'grid grid-cols-1 gap-4'
 
   type FieldControlProps = {
     f: CrudField
@@ -316,54 +441,86 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   }
 
   const FieldControl = React.useMemo(() => React.memo(function FieldControlImpl({ f, value, error, options, idx, setValue }: FieldControlProps) {
+    // Memoize the setValue callback for this specific field to prevent unnecessary re-renders
+    const fieldSetValue = React.useCallback((v: any) => setValue(f.id, v), [setValue, f.id])
+    
     return (
       <div className="space-y-1">
-        <label className="block text-sm font-medium">
-          {f.label}
-          {f.required ? <span className="text-red-600"> *</span> : null}
-        </label>
+        {f.type !== 'checkbox' ? (
+          <label className="block text-sm font-medium">
+            {f.label}
+            {f.required ? <span className="text-red-600"> *</span> : null}
+          </label>
+        ) : null}
         {f.type === 'text' && (
-          <input type="text" className="w-full h-9 rounded border px-2" placeholder={(f as any).placeholder} value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value)} />
+          <TextInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={fieldSetValue} />
         )}
         {f.type === 'number' && (
-          <input type="number" className="w-full h-9 rounded border px-2" placeholder={(f as any).placeholder} value={value ?? ''}
-                 onChange={(e) => setValue(f.id, e.target.value === '' ? undefined : Number(e.target.value))} />
+          <NumberInput value={value} placeholder={(f as any).placeholder} onChange={fieldSetValue} />
         )}
         {f.type === 'date' && (
-          <input type="date" className="w-full h-9 rounded border px-2" value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value || undefined)} />
+          <input type="date" className="w-full h-9 rounded border px-2 text-sm" value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value || undefined)} />
         )}
         {f.type === 'textarea' && (
-          <textarea className="w-full rounded border px-2 py-2 min-h-[120px]" placeholder={(f as any).placeholder} value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value)} />
+          <textarea className="w-full rounded border px-2 py-2 min-h-[120px] text-sm" placeholder={(f as any).placeholder} value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value)} />
         )}
         {f.type === 'richtext' && ((f as any).editor === 'simple') && (
-          <SimpleMarkdownEditor value={String(value ?? '')} onChange={(md) => setValue(f.id, md)} />
+          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'richtext' && ((f as any).editor === 'html') && (
-          <HtmlRichTextEditor value={String(value ?? '')} onChange={(html) => setValue(f.id, html)} />
+          <HtmlRichTextEditor value={String(value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'richtext' && (!('editor' in f) || ((f as any).editor !== 'simple' && (f as any).editor !== 'html')) && (
-          <MarkdownEditor value={String(value ?? '')} onChange={(md) => setValue(f.id, md)} />
+          <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'tags' && (
-          <TagsInput value={Array.isArray(value) ? (value as string[]) : []} onChange={(v) => setValue(f.id, v)} placeholder={(f as any).placeholder} />
+          <TagsInput value={Array.isArray(value) ? (value as string[]) : []} onChange={fieldSetValue} placeholder={(f as any).placeholder} />
         )}
         {f.type === 'checkbox' && (
           <label className="inline-flex items-center gap-2">
-            <input type="checkbox" checked={!!value} onChange={(e) => setValue(f.id, e.target.checked)} />
-            <span className="text-sm text-muted-foreground">Enable</span>
+            <input type="checkbox" className="size-4" checked={!!value} onChange={(e) => setValue(f.id, e.target.checked)} />
+            <span className="text-sm">{f.label}</span>
           </label>
         )}
-        {f.type === 'select' && (
-          <select className="w-full h-9 rounded border px-2" value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value || undefined)}>
+        {f.type === 'select' && !((f as any).multiple) && (
+          <select
+            className="w-full h-9 rounded border px-2 text-sm"
+            value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')}
+            onChange={(e) => setValue(f.id, e.target.value || undefined)}
+          >
             <option value="">—</option>
             {options.map((opt) => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
           </select>
         )}
+        {f.type === 'select' && ((f as any).multiple) && (
+          <div className="flex flex-wrap gap-3">
+            {options.map((opt) => {
+              const arr: string[] = Array.isArray(value) ? (value as string[]) : []
+              const checked = arr.includes(opt.value)
+              return (
+                <label key={opt.value} className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="size-4"
+                    checked={checked}
+                    onChange={(e) => {
+                      const next = new Set(arr)
+                      if (e.target.checked) next.add(opt.value)
+                      else next.delete(opt.value)
+                      setValue(f.id, Array.from(next))
+                    }}
+                  />
+                  <span className="text-sm">{opt.label}</span>
+                </label>
+              )
+            })}
+          </div>
+        )}
         {f.type === 'relation' && (
-          <RelationSelect options={options} placeholder={(f as any).placeholder} value={value ?? ''} onChange={(v) => setValue(f.id, v)} />
+          <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'custom' && (
-          <>{(f as any).component({ id: f.id, value, error, autoFocus: idx === 0, setValue: (v: any) => setValue(f.id, v) })}</>
+          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue })}</>
         )}
         {(f as any).description ? (
           <div className="text-xs text-muted-foreground">{(f as any).description}</div>
@@ -373,8 +530,177 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         ) : null}
       </div>
     )
-  }, (prev, next) => prev.f.id === next.f.id && prev.value === next.value && prev.error === next.error && prev.options === next.options), [])
+  }, (prev, next) => {
+    // More efficient comparison - only check what actually matters
+    return (
+      prev.f.id === next.f.id && 
+      prev.f.type === next.f.type &&
+      prev.f.label === next.f.label &&
+      prev.f.required === next.f.required &&
+      prev.value === next.value && 
+      prev.error === next.error && 
+      prev.options === next.options
+    )
+  }), [])
 
+  // Helper to render a list of field configs
+  const renderFields = (fieldList: CrudField[]) => (
+    <div className="grid grid-cols-1 gap-4">
+      {fieldList.map((f, idx) => (
+        <FieldControl
+          key={f.id}
+          f={f}
+          value={values[f.id]}
+          error={errors[f.id]}
+              options={(f as CrudBuiltinField).options || dynamicOptions[f.id] || EMPTY_OPTIONS}
+              idx={idx}
+              setValue={setValue}
+            />
+          ))}
+    </div>
+  )
+
+  // If groups are provided, render the two-column grouped layout
+  if (groups && groups.length) {
+    // Build a field index for lookup by id
+    const byId = new Map(allFields.map((f) => [f.id, f]))
+
+    const resolveGroupFields = (g: CrudFormGroup): CrudField[] => {
+      if (g.kind === 'customFields') {
+        return cfFields
+      }
+      const src = g.fields || []
+      const result: CrudField[] = []
+      for (const item of src) {
+        if (typeof item === 'string') {
+          const found = byId.get(item)
+          if (found) result.push(found)
+        } else {
+          result.push(item)
+        }
+      }
+      return result
+    }
+
+    const col1: CrudFormGroup[] = []
+    const col2: CrudFormGroup[] = []
+    for (const g of groups) {
+      if ((g.column ?? 1) === 2) col2.push(g)
+      else col1.push(g)
+    }
+
+    const GroupCard = React.memo(({ g }: { g: CrudFormGroup }) => {
+      const groupFields = React.useMemo(() => resolveGroupFields(g), [g, allFields, cfFields])
+      const isCustomFieldsGroup = g.kind === 'customFields'
+      
+      return (
+        <div className="rounded-lg border bg-card p-4 space-y-3">
+          {g.title || isCustomFieldsGroup ? (
+            <div className="text-sm font-medium">{g.title || 'Custom Fields'}</div>
+          ) : null}
+          {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
+          {g.component ? (
+            <div>{g.component({ values, setValue, errors })}</div>
+          ) : null}
+          <DataLoader
+            isLoading={isCustomFieldsGroup && isLoadingCustomFields}
+            loadingMessage="Loading custom fields..."
+            spinnerSize="sm"
+            className="min-h-[1px]"
+          >
+            {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
+          </DataLoader>
+        </div>
+      )
+    }, (prev, next) => {
+      // Only re-render if the group config or relevant dependencies change
+      return (
+        prev.g.id === next.g.id &&
+        prev.g.title === next.g.title &&
+        prev.g.description === next.g.description &&
+        prev.g.kind === next.g.kind &&
+        prev.g.column === next.g.column &&
+        JSON.stringify(prev.g.fields) === JSON.stringify(next.g.fields)
+      )
+    })
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          {backHref ? (
+            <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
+              ← Back
+            </Link>
+          ) : null}
+          {title ? <div className="text-base font-medium">{title}</div> : null}
+        </div>
+        <DataLoader
+          isLoading={isLoading}
+          loadingMessage={loadingMessage}
+          spinnerSize="lg"
+          className="min-h-[400px]"
+        >
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                {onDelete ? (
+                  <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50 rounded-none">
+                    <Trash2 className="size-4 mr-2" />
+                    Delete
+                  </Button>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                {cancelHref ? (
+                  <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                    Cancel
+                  </Link>
+                ) : null}
+                <Button type="submit" disabled={pending}>
+                  {pending ? 'Saving…' : submitLabel}
+                </Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4">
+              <div className="space-y-4">
+                {col1.map((g) => (
+                  <GroupCard key={g.id} g={g} />
+                ))}
+              </div>
+              <div className="space-y-4">
+                {col2.map((g) => (
+                  <GroupCard key={g.id} g={g} />
+                ))}
+              </div>
+            </div>
+            {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                {onDelete ? (
+                  <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50 rounded-none">
+                    <Trash2 className="size-4 mr-2" />
+                    Delete
+                  </Button>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                {cancelHref ? (
+                  <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                    Cancel
+                  </Link>
+                ) : null}
+                <Button type="submit" disabled={pending}>
+                  {pending ? 'Saving…' : submitLabel}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </DataLoader>
+      </div>
+    )
+  }
+
+  // Default single-card layout (compatible with previous API)
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -385,34 +711,63 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         ) : null}
         {title ? <div className="text-base font-medium">{title}</div> : null}
       </div>
-      <div>
-        <form onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
-          <div className={grid}>
-          {fields.map((f, idx) => (
-            <FieldControl
-              key={f.id}
-              f={f}
-              value={values[f.id]}
-              error={errors[f.id]}
-              options={f.options || dynamicOptions[f.id] || []}
-              idx={idx}
-              setValue={setValue}
-            />
-          ))}
-          </div>
-          {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-          <div className="flex items-center justify-end gap-2">
-          {cancelHref ? (
-            <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-              Cancel
-            </Link>
-          ) : null}
-          <Button type="submit" disabled={pending}>
-            {pending ? 'Saving…' : submitLabel}
-          </Button>
+      <DataLoader
+        isLoading={isLoading}
+        loadingMessage={loadingMessage}
+        spinnerSize="lg"
+        className="min-h-[400px]"
+      >
+        <div>
+          <form onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
+            <div className="flex items-center justify-end gap-2">
+              {onDelete ? (
+                <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50">
+                  <Trash2 className="size-4 mr-2" />
+                  Delete
+                </Button>
+              ) : null}
+              {cancelHref ? (
+                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                  Cancel
+                </Link>
+              ) : null}
+              <Button type="submit" disabled={pending}>
+                {pending ? 'Saving…' : submitLabel}
+              </Button>
+            </div>
+            <div className={grid}>
+              {allFields.map((f, idx) => (
+                <FieldControl
+                  key={f.id}
+                  f={f}
+                  value={values[f.id]}
+                  error={errors[f.id]}
+                  options={(f as CrudBuiltinField).options || dynamicOptions[f.id] || EMPTY_OPTIONS}
+                  idx={idx}
+                  setValue={setValue}
+                />
+              ))}
+            </div>
+            {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
+            <div className="flex items-center justify-end gap-2">
+              {cancelHref ? (
+                <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
+                  Cancel
+                </Link>
+              ) : null}
+              {onDelete ? (
+                <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50">
+                  <Trash2 className="size-4 mr-2" />
+                  Delete
+                </Button>
+              ) : null}
+              <Button type="submit" disabled={pending}>
+                {pending ? 'Saving…' : submitLabel}
+              </Button>
+            </div>
+          </form>
         </div>
-        </form>
-      </div>
+      </DataLoader>
     </div>
   )
 }
@@ -497,7 +852,7 @@ function RelationSelect({
     <div className="space-y-1">
       <input
         ref={inputRef}
-        className="w-full h-9 rounded border px-2"
+        className="w-full h-9 rounded border px-2 text-sm"
         placeholder={placeholder || 'Search...'}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -524,5 +879,100 @@ function RelationSelect({
         ))}
       </div>
     </div>
+  )
+}
+// Local-buffer text input to avoid focus loss when parent re-renders
+function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v: string) => void; placeholder?: string }) {
+  const ref = React.useRef<HTMLInputElement | null>(null)
+  const [local, setLocal] = React.useState<string>(value ?? '')
+  const isFocusedRef = React.useRef(false)
+  
+  React.useEffect(() => {
+    // Only sync from props when not focused to avoid caret jumps
+    if (!isFocusedRef.current) {
+      setLocal(value ?? '')
+    }
+  }, [value])
+  
+  const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocal(e.target.value)
+  }, [])
+
+  const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      onChange(local)
+      ;(e.target as HTMLInputElement).blur()
+    }
+  }, [local, onChange])
+  
+  const handleFocus = React.useCallback(() => {
+    isFocusedRef.current = true
+  }, [])
+  
+  const handleBlur = React.useCallback(() => {
+    isFocusedRef.current = false
+    onChange(local)
+  }, [local, onChange])
+  
+  return (
+    <input
+      ref={ref}
+      type="text"
+      className="w-full h-9 rounded border px-2 text-sm"
+      placeholder={placeholder}
+      value={local}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+    />
+  )
+}
+
+// Local-buffer number input to avoid focus loss when parent re-renders
+function NumberInput({ value, onChange, placeholder }: { value: any; onChange: (v: number | undefined) => void; placeholder?: string }) {
+  const [local, setLocal] = React.useState<string>(value !== undefined && value !== null ? String(value) : '')
+  const isFocusedRef = React.useRef(false)
+  
+  React.useEffect(() => {
+    // Only sync from props when not focused to avoid caret jumps
+    if (!isFocusedRef.current) {
+      setLocal(value !== undefined && value !== null ? String(value) : '')
+    }
+  }, [value])
+  
+  const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocal(e.target.value)
+  }, [])
+
+  const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const numValue = local === '' ? undefined : Number(local)
+      onChange(numValue)
+      ;(e.target as HTMLInputElement).blur()
+    }
+  }, [local, onChange])
+  
+  const handleFocus = React.useCallback(() => {
+    isFocusedRef.current = true
+  }, [])
+  
+  const handleBlur = React.useCallback(() => {
+    isFocusedRef.current = false
+    const numValue = local === '' ? undefined : Number(local)
+    onChange(numValue)
+  }, [local, onChange])
+  
+  return (
+    <input
+      type="number"
+      className="w-full h-9 rounded border px-2 text-sm"
+      placeholder={placeholder}
+      value={local}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+    />
   )
 }

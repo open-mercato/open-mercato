@@ -1,9 +1,13 @@
 "use client"
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState } from '@tanstack/react-table'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
+import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
+import { fetchCustomFieldFilterDefs } from './utils/customFieldFilters'
+import { type RowActionItem } from './RowActions'
 
 export type PaginationProps = {
   page: number
@@ -11,6 +15,14 @@ export type PaginationProps = {
   total: number
   totalPages: number
   onPageChange: (page: number) => void
+}
+
+// Helper function to extract edit action from RowActions items
+function extractEditAction(items: RowActionItem[]): RowActionItem | null {
+  return items.find(item => 
+    item.label.toLowerCase() === 'edit' && 
+    (item.href || item.onSelect)
+  ) || null
 }
 
 export type DataTableProps<T> = {
@@ -26,9 +38,25 @@ export type DataTableProps<T> = {
   isLoading?: boolean
   // Optional per-row actions renderer. When provided, an extra trailing column is rendered.
   rowActions?: (row: T) => React.ReactNode
+  // Optional row click handler. When provided, rows become clickable and show pointer cursor.
+  // If not provided but rowActions contains an 'Edit' action, it will be used as the default row click handler.
+  onRowClick?: (row: T) => void
+
+  // Auto FilterBar options (rendered as toolbar when provided and no custom toolbar passed)
+  searchValue?: string
+  onSearchChange?: (v: string) => void
+  searchPlaceholder?: string
+  searchAlign?: 'left' | 'right'
+  filters?: FilterDef[]
+  filterValues?: FilterValues
+  onFiltersApply?: (values: FilterValues) => void
+  onFiltersClear?: () => void
+  // When provided, DataTable will fetch custom field definitions and append filter controls for filterable ones.
+  entityId?: string
 }
 
-export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions }: DataTableProps<T>) {
+export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId }: DataTableProps<T>) {
+  const router = useRouter()
   // Map column meta.priority (1..6) to Tailwind responsive visibility
   // 1 => always visible, 2 => hidden <sm, 3 => hidden <md, 4 => hidden <lg, 5 => hidden <xl, 6 => hidden <2xl
   const responsiveClass = (priority?: number) => {
@@ -94,6 +122,42 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
     )
   }
 
+  // Auto filters: fetch custom field defs when requested
+  const [cfFilters, setCfFilters] = React.useState<FilterDef[]>([])
+  const [cfLoadedFor, setCfLoadedFor] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadEntity(eid: string) {
+      try {
+        const f = await fetchCustomFieldFilterDefs(eid)
+        if (!cancelled) { setCfFilters(f); setCfLoadedFor(eid) }
+      } catch (_) { if (!cancelled) { setCfFilters([]); setCfLoadedFor(eid) } }
+    }
+    if (entityId && entityId !== cfLoadedFor) loadEntity(entityId)
+    return () => { cancelled = true }
+  }, [entityId, cfLoadedFor])
+
+  const builtToolbar = React.useMemo(() => {
+    if (toolbar) return toolbar
+    const anySearch = onSearchChange != null
+    const anyFilters = (baseFilters && baseFilters.length > 0) || (cfFilters && cfFilters.length > 0)
+    if (!anySearch && !anyFilters) return null
+    const combined: FilterDef[] = [...(baseFilters || []), ...(cfFilters || [])]
+    return (
+      <FilterBar
+        searchValue={searchValue}
+        onSearchChange={onSearchChange}
+        searchPlaceholder={searchPlaceholder}
+        searchAlign={searchAlign}
+        filters={combined}
+        values={filterValues}
+        onApply={onFiltersApply}
+        onClear={onFiltersClear}
+      />
+    )
+  }, [toolbar, searchValue, onSearchChange, searchPlaceholder, searchAlign, baseFilters, cfFilters, filterValues, onFiltersApply, onFiltersClear])
+
   return (
     <div className="rounded-lg border bg-card">
       {(title || actions || toolbar) && (
@@ -106,7 +170,7 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
               <div className="flex items-center gap-2">{actions}</div>
             </div>
           )}
-          {toolbar ? <div className="mt-3 pt-3 border-t">{toolbar}</div> : null}
+          {builtToolbar ? <div className="mt-3 pt-3 border-t">{builtToolbar}</div> : null}
         </div>
       )}
       <div className="overflow-auto">
@@ -149,20 +213,53 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className={responsiveClass((cell.column.columnDef as any)?.meta?.priority)}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                  {rowActions ? (
-                    <TableCell className="text-right whitespace-nowrap">
-                      {rowActions(row.original as T)}
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              ))
+              table.getRowModel().rows.map((row) => {
+                const isClickable = onRowClick || (rowActions && rowActions(row.original as T))
+                
+                return (
+                  <TableRow 
+                    key={row.id} 
+                    data-state={row.getIsSelected() && 'selected'}
+                    className={isClickable ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}
+                    onClick={isClickable ? (e) => {
+                      // Don't trigger row click if clicking on actions cell
+                      if ((e.target as HTMLElement).closest('[data-actions-cell]')) {
+                        return
+                      }
+                      
+                      if (onRowClick) {
+                        onRowClick(row.original as T)
+                      } else if (rowActions) {
+                        // Auto-extract and execute edit action
+                        const rowActionsElement = rowActions(row.original as T)
+                        if (React.isValidElement(rowActionsElement) && 
+                            'items' in (rowActionsElement.props as any) && 
+                            Array.isArray((rowActionsElement.props as any).items)) {
+                          const editAction = extractEditAction((rowActionsElement.props as any).items as RowActionItem[])
+                          if (editAction) {
+                            if (editAction.href) {
+                              router.push(editAction.href)
+                            } else if (editAction.onSelect) {
+                              editAction.onSelect()
+                            }
+                          }
+                        }
+                      }
+                    } : undefined}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id} className={responsiveClass((cell.column.columnDef as any)?.meta?.priority)}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                    {rowActions ? (
+                      <TableCell className="text-right whitespace-nowrap" data-actions-cell>
+                        {rowActions(row.original as T)}
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                )
+              })
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">

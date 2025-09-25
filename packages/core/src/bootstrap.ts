@@ -4,7 +4,20 @@ import { createEventBus } from '@open-mercato/events/index'
 
 export async function bootstrap(container: AwilixContainer) {
   // Create and register the DI-aware event bus
-  const eventBus = createEventBus({ resolve: container.resolve.bind(container) as any })
+  let eventBus: any
+  try {
+    const strategy = process.env.EVENTS_STRATEGY === 'redis' ? 'redis' : 'local'
+    eventBus = createEventBus({ resolve: container.resolve.bind(container) as any, strategy })
+  } catch (err: any) {
+    // Fall back to local strategy to avoid breaking the app on misconfiguration
+    console.warn('Event bus initialization failed; falling back to local strategy:', err?.message || err)
+    try {
+      eventBus = createEventBus({ resolve: container.resolve.bind(container) as any, strategy: 'local' })
+    } catch {
+      // In extreme cases, provide a no-op bus to avoid crashes
+      eventBus = { emitEvent: async () => {}, on: () => {}, registerModuleSubscribers: () => {}, processOffline: async () => ({ processed: 0, lastId: 0 }), clearQueue: async () => ({ removed: 0 }), clearProcessed: async () => ({ removed: 0, lastId: 0 }) }
+    }
+  }
   container.register({ eventBus: asValue(eventBus) })
   // Auto-register discovered module subscribers
   try {

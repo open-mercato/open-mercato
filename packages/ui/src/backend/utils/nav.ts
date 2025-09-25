@@ -4,7 +4,7 @@ export type AdminNavItem = {
   href: string
   enabled: boolean
   order?: number
-  icon?: string
+  icon: string
 }
 
 export async function buildAdminNav(
@@ -19,6 +19,23 @@ export async function buildAdminNav(
     return seg ? seg.split('-').map(capitalize).join(' ') : 'Home'
   }
   const entries: AdminNavItem[] = []
+
+  function deriveIcon(key: string): string | undefined {
+    const k = key.toLowerCase()
+    if (/(home|dashboard|start)/.test(k)) return 'home'
+    if (/(order|checkout)/.test(k)) return 'cart'
+    if (/(product|catalog|variant|option)/.test(k)) return 'box'
+    if (/(inventory|stock)/.test(k)) return 'inventory'
+    if (/(customer|user|account)/.test(k)) return 'user'
+    if (/(promotion|discount|coupon)/.test(k)) return 'tag'
+    if (/(report|analytics|insight)/.test(k)) return 'chart'
+    if (/(setting|config|preference)/.test(k)) return 'settings'
+    if (/(collection|category)/.test(k)) return 'collection'
+    if (/(channel|saleschannel)/.test(k)) return 'channel'
+    if (/(shipping|delivery)/.test(k)) return 'truck'
+    if (/(tax|billing|invoice|payment)/.test(k)) return 'billing'
+    return undefined
+  }
   for (const m of modules) {
     const groupDefault = capitalize(m.id)
     for (const r of m.backendRoutes ?? []) {
@@ -38,7 +55,9 @@ export async function buildAdminNav(
         if (!ok) continue
       }
       const order = (r as any).order as number | undefined
-      const icon = (r as any).icon as string | undefined
+      let icon = (r as any).icon as string | undefined
+      if (!icon) icon = deriveIcon(`${group} ${title} ${href}`)
+      if (!icon) icon = 'list'
       entries.push({ group, title, href, enabled, order, icon })
     }
   }

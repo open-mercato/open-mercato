@@ -20,6 +20,8 @@ export type PageMetadata = {
   // Dynamic flags
   visible?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
   enabled?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
+  // Optional static breadcrumb trail for header
+  breadcrumb?: Array<{ label: string; href?: string }>
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -38,6 +40,7 @@ export type ModuleRoute = {
   navHidden?: boolean
   visible?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
   enabled?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
+  breadcrumb?: Array<{ label: string; href?: string }>
   Component: (props: any) => ReactNode | Promise<ReactNode>
 }
 

@@ -1,51 +1,62 @@
 "use client"
 import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
-import { z } from 'zod'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { fetchCrudList, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
+import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 
-const todoUpdateSchema = z.object({
-  id: z.string().uuid(),
-  title: z.string().min(1, 'Title is required'),
-  is_done: z.boolean().optional(),
-  cf_severity: z.enum(['low', 'medium', 'high']).optional(),
-  cf_blocked: z.boolean().optional(),
-  cf_labels: z.array(z.string()).optional(),
-  cf_description: z.string().optional(),
-  cf_assignee: z.string().optional(),
-})
-
-const assigneeLoader = async () => {
-  const res = await fetch('/api/example/assignees', { headers: { 'content-type': 'application/json' } })
-  if (!res.ok) return []
-  const data = await res.json().catch(() => ({ items: [] }))
-  return (data?.items || []) as { value: string; label: string }[]
-}
-
-const fields: CrudField[] = [
-  { id: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Write a clear title' },
-  { id: 'cf_severity', label: 'Severity', type: 'select', options: [
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-  ] },
-  { id: 'cf_blocked', label: 'Blocked', type: 'checkbox' },
-  { id: 'cf_labels', label: 'Labels', type: 'tags' },
-  { id: 'cf_assignee', label: 'Assignee', type: 'relation', placeholder: 'Search people…', loadOptions: assigneeLoader },
-  { id: 'cf_description', label: 'Description', type: 'richtext', editor: 'html' },
-  { id: 'is_done', label: 'Done', type: 'checkbox' },
-]
+type TodoItem = TodoListItem
 
 export default function EditTodoPage(props: { params?: { id?: string | string[] } }) {
   // Prefer params passed by registry; fallback to Next hook if missing
   const hookParams = useParams<{ id?: string | string[] }>()
   const router = useRouter()
+  const pathname = usePathname()
   const idParam = (props?.params?.id ?? hookParams?.id) as string | string[] | undefined
-  const id = Array.isArray(idParam) ? idParam[0] : idParam
+  let id = Array.isArray(idParam) ? idParam[0] : idParam
+  // Fallback: derive from pathname when params are missing
+  if (!id && typeof pathname === 'string') {
+    const m = pathname.match(/\/backend\/todos\/([^/]+)\/edit/)
+    if (m) id = m[1]
+  }
   const [initial, setInitial] = React.useState<any | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [err, setErr] = React.useState<string | null>(null)
+  // Memoize fields to avoid recreating arrays/objects each render (prevents focus loss)
+  const baseFields = React.useMemo<CrudField[]>(() => [
+    { id: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Write a clear title' },
+    { id: 'is_done', label: 'Done', type: 'checkbox' },
+  ], [])
+  const groups = React.useMemo<CrudFormGroup[]>(() => [
+    { id: 'details', title: 'Details', column: 1, fields: ['title'] },
+    { id: 'status', title: 'Status', column: 2, fields: ['is_done'] },
+    { id: 'attributes', title: 'Attributes', column: 1, kind: 'customFields' },
+    {
+      id: 'actions',
+      title: 'Quick Actions',
+      column: 2,
+      component: ({ values, setValue }) => (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="h-8 rounded border px-2 text-sm"
+            onClick={() => setValue('is_done', true)}
+          >
+            Mark as done
+          </button>
+          <button
+            type="button"
+            className="h-8 rounded border px-2 text-sm"
+            onClick={() => setValue('is_done', false)}
+          >
+            Mark as todo
+          </button>
+        </div>
+      ),
+    },
+  ], [])
 
   React.useEffect(() => {
     let cancelled = false
@@ -54,22 +65,13 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
       setLoading(true)
       setErr(null)
       try {
-        const res = await fetch(`/api/example/todos?id=${encodeURIComponent(String(id))}&pageSize=1`)
-        if (!res.ok) throw new Error(await res.text())
-        const data = await res.json()
+        const data = await fetchCrudList<TodoItem>('example/todos', { id: String(id), pageSize: 1 })
         const t = data?.items?.[0]
         if (!t) throw new Error('Not found')
         // Map to form initial values
-        const init = {
-          id: t.id,
-          title: t.title,
-          is_done: !!t.is_done,
-          cf_severity: t.cf_severity || undefined,
-          cf_blocked: !!t.cf_blocked,
-          cf_labels: Array.isArray(t.cf_labels) ? t.cf_labels : [],
-          cf_description: t.cf_description || undefined,
-          cf_assignee: t.cf_assignee || undefined,
-        }
+        const cfInit: Record<string, any> = {}
+        for (const [k, v] of Object.entries(t as any)) if (k.startsWith('cf_')) cfInit[k] = v
+        const init = { id: t.id, title: t.title, is_done: !!t.is_done, ...cfInit }
         if (!cancelled) setInitial(init)
       } catch (e: any) {
         if (!cancelled) setErr(e?.message || 'Failed to load')
@@ -81,38 +83,42 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
     return () => { cancelled = true }
   }, [id])
 
+  // Show form immediately with basic data, even if custom fields are still loading
+  const showForm = initial !== null || !loading
+
   if (!id) return null
 
   return (
     <Page>
       <PageBody>
-        {loading ? (
-          <div>Loading…</div>
-        ) : err ? (
+        {err ? (
           <div className="text-red-600">{err}</div>
-        ) : (
+        ) : showForm ? (
           <CrudForm
             title="Edit Todo"
             backHref="/backend/todos"
-            schema={todoUpdateSchema}
-            fields={fields}
+            entityId="example:todo"
+            fields={baseFields}
+            groups={groups}
             initialValues={initial || { id }}
             submitLabel="Save Changes"
             cancelHref="/backend/todos"
-            successRedirect="/backend/todos"
-            onSubmit={async (vals) => {
-              await fetch('/api/example/todos', {
-                method: 'PUT',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(vals),
-              }).then(async (res) => {
-                if (!res.ok) {
-                  const t = await res.text().catch(() => '')
-                  throw new Error(t || 'Failed to update')
-                }
-              })
+            successRedirect="/backend/todos?flash=Todo%20saved&type=success"
+            isLoading={false}
+            loadingMessage="Loading todo..."
+            onSubmit={async (vals) => { await updateCrud('example/todos', vals) }}
+            onDelete={async () => {
+              if (!id) return
+              if (!window.confirm('Delete this todo?')) return
+              await deleteCrud('example/todos', String(id))
+              pushWithFlash(router as any, '/backend/todos', 'Record has been removed', 'success')
             }}
           />
+        ) : (
+          <div className="flex items-center justify-center gap-2 py-8">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
+            <span className="text-sm text-muted-foreground">Loading todo...</span>
+          </div>
         )}
       </PageBody>
     </Page>

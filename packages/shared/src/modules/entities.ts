@@ -37,6 +37,8 @@ export type CustomFieldDefinition = {
   options?: string[] // for 'select'
   defaultValue?: string | number | boolean | null
   filterable?: boolean
+  // whether field should be editable in generated CRUD forms
+  formEditable?: boolean
   indexed?: boolean
 }
 
@@ -53,4 +55,3 @@ export type EntityRegistrySpec = {
   // Static, per-module declared custom fields (seeded via migrations/CLI)
   customFieldSets?: CustomFieldSet[]
 }
-
