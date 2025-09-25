@@ -172,14 +172,11 @@ export function CrudForm<TValues extends Record<string, any>>({
     })
   }, [])
 
-  // Apply initialValues once when provided (avoid overriding user typing)
-  const appliedInitialRef = React.useRef(false)
+  // Apply initialValues when provided (reapply when initialValues change for edit forms)
   React.useEffect(() => {
-    if (initialValues && !appliedInitialRef.current) {
+    if (initialValues) {
       setValues((prev) => ({ ...prev, ...(initialValues as any) }))
-      appliedInitialRef.current = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialValues])
 
   const handleSubmit = async (e: React.FormEvent) => {
