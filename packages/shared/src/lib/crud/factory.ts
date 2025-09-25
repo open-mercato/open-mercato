@@ -51,7 +51,7 @@ export type ListConfig<TList> = {
   entityId?: any
   fields?: any[]
   sortFieldMap?: Record<string, any>
-  buildFilters?: (query: TList, ctx: CrudCtx) => Where<any>
+  buildFilters?: (query: TList, ctx: CrudCtx) => Where<any> | Promise<Where<any>>
   transformItem?: (item: any) => any
   allowCsv?: boolean
   csv?: {
@@ -184,7 +184,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           page: Number((queryParams as any).page ?? 1) || 1,
           pageSize: Math.min(Math.max(Number((queryParams as any).pageSize ?? 50) || 50, 1), 100),
         }
-        const filters = opts.list.buildFilters ? opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>)
+        const filters = opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>)
         const withDeleted = String((queryParams as any).withDeleted || 'false') === 'true'
         const res = await qe.query(opts.list.entityId as any, {
           organizationId: ctx.auth.orgId!,
@@ -349,4 +349,3 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   return { metadata, GET, POST, PUT, DELETE }
 }
-
