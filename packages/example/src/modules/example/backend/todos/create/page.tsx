@@ -1,6 +1,7 @@
 "use client"
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { z } from 'zod'
 
 const todoCreateSchema = z.object({
@@ -46,18 +47,7 @@ export default function CreateTodoPage() {
           submitLabel="Create Todo"
           cancelHref="/backend/todos"
           successRedirect="/backend/todos"
-          onSubmit={async (vals) => {
-            await fetch('/api/example/todos', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(vals),
-            }).then(async (res) => {
-              if (!res.ok) {
-                const t = await res.text().catch(() => '')
-                throw new Error(t || 'Failed to create')
-              }
-            })
-          }}
+          onSubmit={async (vals) => { await createCrud('example/todos', vals) }}
         />
       </PageBody>
     </Page>

@@ -206,6 +206,7 @@ Notes:
 - <a href="./docs/data-extensibility.md">Entity extensions and custom fields</a>
 - <a href="./docs/query-layer.md">Unified query layer (filters, paging, fields)</a>
 - <a href="./docs/events-and-subscribers.md">Events & subscribers</a>
+- <a href="./docs/api/crud-factory.md">CRUD API factory (reusable handlers, hooks, events)</a>
 
 ### CLI
 

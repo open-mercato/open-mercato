@@ -3,7 +3,11 @@ import * as React from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { fetchCrudList, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 import { z } from 'zod'
+
+type TodoItem = TodoListItem
 
 const todoUpdateSchema = z.object({
   id: z.string().uuid(),
@@ -54,9 +58,7 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
       setLoading(true)
       setErr(null)
       try {
-        const res = await fetch(`/api/example/todos?id=${encodeURIComponent(String(id))}&pageSize=1`)
-        if (!res.ok) throw new Error(await res.text())
-        const data = await res.json()
+        const data = await fetchCrudList<TodoItem>('example/todos', { id: String(id), pageSize: 1 })
         const t = data?.items?.[0]
         if (!t) throw new Error('Not found')
         // Map to form initial values
@@ -100,18 +102,7 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
             submitLabel="Save Changes"
             cancelHref="/backend/todos"
             successRedirect="/backend/todos"
-            onSubmit={async (vals) => {
-              await fetch('/api/example/todos', {
-                method: 'PUT',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(vals),
-              }).then(async (res) => {
-                if (!res.ok) {
-                  const t = await res.text().catch(() => '')
-                  throw new Error(t || 'Failed to update')
-                }
-              })
-            }}
+            onSubmit={async (vals) => { await updateCrud('example/todos', vals) }}
           />
         )}
       </PageBody>

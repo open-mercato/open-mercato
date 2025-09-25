@@ -2,28 +2,19 @@
 import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { FilterBar, type FilterDef, type FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { fetchCrudList, buildCrudCsvUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import Link from 'next/link'
 
-type TodoRow = {
-  id: string
-  title: string
-  is_done?: boolean
-  tenant_id?: string | null
-  organization_id?: string | null
-  organization_name?: string
-  cf_priority?: number | null
-  cf_severity?: string | null
-  cf_blocked?: boolean | null
-  cf_labels?: string[] | null
-}
+type TodoRow = TodoListItem & { organization_name?: string }
 
 type TodosResponse = {
-  items: TodoRow[]
+  items: TodoListItem[]
   total: number
   page: number
   pageSize: number
@@ -104,13 +95,7 @@ export default function TodosTable() {
   // Fetch todos
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
     queryKey: ['todos', queryParams],
-    queryFn: async () => {
-      const response = await fetch(`/api/example/todos?${queryParams}`)
-      if (!response.ok) {
-        throw new Error('Failed to fetch todos')
-      }
-      return response.json()
-    },
+    queryFn: async () => fetchCrudList<TodoListItem>('example/todos', Object.fromEntries(new URLSearchParams(queryParams))),
   })
 
   // Get unique organization IDs from todos
@@ -235,7 +220,7 @@ export default function TodosTable() {
       actions={(
         <>
           <Button variant="outline" size="sm" onClick={() => {
-            const url = `/api/example/todos?${queryParams}&format=csv`
+            const url = buildCrudCsvUrl('example/todos', Object.fromEntries(new URLSearchParams(queryParams)))
             window.open(url, '_blank')
           }}>Export</Button>
           <Button asChild variant="outline" size="sm">
@@ -258,12 +243,7 @@ export default function TodosTable() {
               destructive: true,
               onSelect: async () => {
                 if (!window.confirm('Delete this todo?')) return
-                const res = await fetch(`/api/example/todos?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
-                if (!res.ok) {
-                  const t = await res.text().catch(() => '')
-                  alert(t || 'Failed to delete')
-                  return
-                }
+                await deleteCrud('example/todos', row.id).catch((e) => { alert(e?.message || 'Failed to delete') })
                 // refresh list
                 queryClient.invalidateQueries({ queryKey: ['todos'] })
               },
