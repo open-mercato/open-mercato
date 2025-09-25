@@ -48,7 +48,26 @@ function createFakeKnex() {
         const rows = data[table] || []; 
         return rows[0] 
       },
-      modify: function (fn: Function) { fn({ andWhere: (obj: any) => ops.wheres.push(['andWhere', obj]) }); return this },
+      modify: function (fn: Function) {
+        const qb: any = {
+          andWhere: (arg: any) => {
+            if (typeof arg === 'function') {
+              const inner: any = {
+                where: (obj: any) => ({
+                  orWhereNull: (col: any) => { ops.wheres.push(['andWhereFn', obj, ['orWhereNull', col]]); return inner },
+                }),
+              }
+              arg(inner)
+            } else {
+              ops.wheres.push(['andWhere', arg])
+            }
+            return qb
+          },
+          whereNull: (col: any) => { ops.wheres.push(['isNull', col]); return qb },
+        }
+        fn(qb)
+        return this
+      },
       then: function (resolve: any) { const res = data[table] || []; return Promise.resolve(resolve(res)) },
     }
     calls.push(b)
