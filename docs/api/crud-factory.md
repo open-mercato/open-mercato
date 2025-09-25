@@ -127,6 +127,40 @@ When `customFields.enabled` is set and `entityId` is provided, the factory picks
 
 If you need full control, supply `customFields.map(body) => Record<string, any>`.
 
+### Reusable helpers
+
+Use helpers from `@open-mercato/shared/lib/crud/custom-fields` to keep routes DRY and dynamic:
+
+- `buildCustomFieldSelectorsForEntity(entityId, fieldSets)` → `{ keys, selectors, outputKeys }`
+  - `selectors`: `['cf:priority', 'cf:severity', ...]` for QueryEngine `fields`
+  - `outputKeys`: `['cf_priority', 'cf_severity', ...]` for CSV headers or typed output
+- `extractCustomFieldsFromItem(item, keys)` → maps projections `cf:<k>`/`cf_<k>` into `{ cf_<k>: value }`
+- `buildCustomFieldFiltersFromQuery({ entityId, query, em, orgId, tenantId })` → builds a `Record<string, WhereValue>` for `cf:<k>` and `cf:<k> $in` based on query keys `cf_<k>` and `cf_<k>In`. Values are coerced to the correct type from `CustomFieldDef.kind`.
+
+Example wiring:
+
+```
+import fieldSets from '.../data/fields'
+import { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
+
+const cf = buildCustomFieldSelectorsForEntity(E.example.todo, fieldSets)
+
+makeCrudRoute({
+  list: {
+    fields: [id, title, ...cf.selectors],
+    sortFieldMap: { id, title, ...Object.fromEntries(cf.keys.map(k => [`cf_${k}`, `cf:${k}`])) },
+    buildFilters: async (q, ctx) => ({
+      ...(await buildCustomFieldFiltersFromQuery({ entityId: E.example.todo, query: q, em: ctx.container.resolve('em'), orgId: ctx.auth.orgId, tenantId: ctx.auth.tenantId }))
+    }),
+    transformItem: (item) => ({ id: item.id, title: item.title, ...extractCustomFieldsFromItem(item as any, cf.keys) }),
+    csv: {
+      headers: ['id','title', ...cf.outputKeys],
+      row: (t) => [t.id, t.title, ...cf.outputKeys.map(k => String((t as any)[k] ?? ''))],
+    }
+  }
+})
+```
+
 ## Hooks
 
 Hooks receive the DI container and auth context so you can resolve services and inject custom logic.
@@ -142,4 +176,3 @@ hooks: {
   afterUpdate: async (entity) => { /* ... */ },
 }
 ```
-

@@ -14,7 +14,9 @@ export default async function BackendLayout({ children }: { children: React.Reac
   const groupNames = Array.from(new Set(entries.map((i) => i.group)))
   const groups = groupNames.map((name) => ({
     name,
-    items: entries.filter((i) => i.group === name).map((i) => ({ href: i.href, title: i.title, enabled: i.enabled })),
+    items: entries
+      .filter((i) => i.group === name)
+      .map((i) => ({ href: i.href, title: i.title, enabled: i.enabled, icon: i.icon })),
   }))
 
   return (
