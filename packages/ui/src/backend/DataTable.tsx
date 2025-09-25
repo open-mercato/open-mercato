@@ -6,6 +6,7 @@ import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { fetchCustomFieldFilterDefs } from './utils/customFieldFilters'
+import { type RowActionItem } from './RowActions'
 
 export type PaginationProps = {
   page: number
@@ -13,6 +14,14 @@ export type PaginationProps = {
   total: number
   totalPages: number
   onPageChange: (page: number) => void
+}
+
+// Helper function to extract edit action from RowActions items
+function extractEditAction(items: RowActionItem[]): RowActionItem | null {
+  return items.find(item => 
+    item.label.toLowerCase() === 'edit' && 
+    (item.href || item.onSelect)
+  ) || null
 }
 
 export type DataTableProps<T> = {
@@ -28,6 +37,9 @@ export type DataTableProps<T> = {
   isLoading?: boolean
   // Optional per-row actions renderer. When provided, an extra trailing column is rendered.
   rowActions?: (row: T) => React.ReactNode
+  // Optional row click handler. When provided, rows become clickable and show pointer cursor.
+  // If not provided but rowActions contains an 'Edit' action, it will be used as the default row click handler.
+  onRowClick?: (row: T) => void
 
   // Auto FilterBar options (rendered as toolbar when provided and no custom toolbar passed)
   searchValue?: string
@@ -42,7 +54,7 @@ export type DataTableProps<T> = {
   entityId?: string
 }
 
-export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId }: DataTableProps<T>) {
+export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId }: DataTableProps<T>) {
   // Map column meta.priority (1..6) to Tailwind responsive visibility
   // 1 => always visible, 2 => hidden <sm, 3 => hidden <md, 4 => hidden <lg, 5 => hidden <xl, 6 => hidden <2xl
   const responsiveClass = (priority?: number) => {
@@ -199,20 +211,48 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className={responsiveClass((cell.column.columnDef as any)?.meta?.priority)}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                  {rowActions ? (
-                    <TableCell className="text-right whitespace-nowrap">
-                      {rowActions(row.original as T)}
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              ))
+              table.getRowModel().rows.map((row) => {
+                const isClickable = onRowClick || (rowActions && rowActions(row.original as T))
+                
+                return (
+                  <TableRow 
+                    key={row.id} 
+                    data-state={row.getIsSelected() && 'selected'}
+                    className={isClickable ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}
+                    onClick={isClickable ? () => {
+                      if (onRowClick) {
+                        onRowClick(row.original as T)
+                      } else if (rowActions) {
+                        // Auto-extract and execute edit action
+                        const rowActionsElement = rowActions(row.original as T)
+                        if (React.isValidElement(rowActionsElement) && 
+                            'items' in (rowActionsElement.props as any) && 
+                            Array.isArray((rowActionsElement.props as any).items)) {
+                          const editAction = extractEditAction((rowActionsElement.props as any).items as RowActionItem[])
+                          if (editAction) {
+                            if (editAction.href) {
+                              window.location.href = editAction.href
+                            } else if (editAction.onSelect) {
+                              editAction.onSelect()
+                            }
+                          }
+                        }
+                      }
+                    } : undefined}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id} className={responsiveClass((cell.column.columnDef as any)?.meta?.priority)}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                    {rowActions ? (
+                      <TableCell className="text-right whitespace-nowrap">
+                        {rowActions(row.original as T)}
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                )
+              })
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
