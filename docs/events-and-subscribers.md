@@ -119,3 +119,13 @@ Notes:
 
 - Subscribers are executed online on `emitEvent`, and also available for offline replay when persistent.
 - Input validation and security remain the responsibility of the emitting producer/consumer code.
+
+## CRUD Events
+
+The CRUD factory (docs/api/crud-factory.md) emits standard events for module entities:
+
+- `<module>.<entity>.created`
+- `<module>.<entity>.updated`
+- `<module>.<entity>.deleted`
+
+Use these to react to lifecycle changes without tightly coupling modules. Mark them persistent to support offline replay.
