@@ -146,7 +146,11 @@ export function CrudForm<TValues extends Record<string, any>>({
   }, [fields, cfFields])
 
   const setValue = React.useCallback((id: string, v: any) => {
-    setValues((prev) => ({ ...prev, [id]: v }))
+    setValues((prev) => {
+      // Only update if the value actually changed to prevent unnecessary re-renders
+      if (prev[id] === v) return prev
+      return { ...prev, [id]: v }
+    })
   }, [])
 
   // Apply initialValues once when provided (avoid overriding user typing)
@@ -412,6 +416,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   }
 
   const FieldControl = React.useMemo(() => React.memo(function FieldControlImpl({ f, value, error, options, idx, setValue }: FieldControlProps) {
+    // Memoize the setValue callback for this specific field to prevent unnecessary re-renders
+    const fieldSetValue = React.useCallback((v: any) => setValue(f.id, v), [setValue, f.id])
+    
     return (
       <div className="space-y-1">
         {f.type !== 'checkbox' ? (
@@ -421,11 +428,10 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </label>
         ) : null}
         {f.type === 'text' && (
-          <TextInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={(v) => setValue(f.id, v)} />
+          <TextInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={fieldSetValue} />
         )}
         {f.type === 'number' && (
-          <input type="number" className="w-full h-9 rounded border px-2" placeholder={(f as any).placeholder} value={value ?? ''}
-                 onChange={(e) => setValue(f.id, e.target.value === '' ? undefined : Number(e.target.value))} />
+          <NumberInput value={value} placeholder={(f as any).placeholder} onChange={fieldSetValue} />
         )}
         {f.type === 'date' && (
           <input type="date" className="w-full h-9 rounded border px-2" value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value || undefined)} />
@@ -434,16 +440,16 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <textarea className="w-full rounded border px-2 py-2 min-h-[120px]" placeholder={(f as any).placeholder} value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value)} />
         )}
         {f.type === 'richtext' && ((f as any).editor === 'simple') && (
-          <SimpleMarkdownEditor value={String(value ?? '')} onChange={(md) => setValue(f.id, md)} />
+          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'richtext' && ((f as any).editor === 'html') && (
-          <HtmlRichTextEditor value={String(value ?? '')} onChange={(html) => setValue(f.id, html)} />
+          <HtmlRichTextEditor value={String(value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'richtext' && (!('editor' in f) || ((f as any).editor !== 'simple' && (f as any).editor !== 'html')) && (
-          <MarkdownEditor value={String(value ?? '')} onChange={(md) => setValue(f.id, md)} />
+          <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'tags' && (
-          <TagsInput value={Array.isArray(value) ? (value as string[]) : []} onChange={(v) => setValue(f.id, v)} placeholder={(f as any).placeholder} />
+          <TagsInput value={Array.isArray(value) ? (value as string[]) : []} onChange={fieldSetValue} placeholder={(f as any).placeholder} />
         )}
         {f.type === 'checkbox' && (
           <label className="inline-flex items-center gap-2">
@@ -486,10 +492,10 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </div>
         )}
         {f.type === 'relation' && (
-          <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={(v) => setValue(f.id, v)} />
+          <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'custom' && (
-          <>{(f as any).component({ id: f.id, value, error, setValue: (v: any) => setValue(f.id, v) })}</>
+          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue })}</>
         )}
         {(f as any).description ? (
           <div className="text-xs text-muted-foreground">{(f as any).description}</div>
@@ -499,7 +505,18 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         ) : null}
       </div>
     )
-  }, (prev, next) => prev.f.id === next.f.id && prev.value === next.value && prev.error === next.error && prev.options === next.options), [])
+  }, (prev, next) => {
+    // More efficient comparison - only check what actually matters
+    return (
+      prev.f.id === next.f.id && 
+      prev.f.type === next.f.type &&
+      prev.f.label === next.f.label &&
+      prev.f.required === next.f.required &&
+      prev.value === next.value && 
+      prev.error === next.error && 
+      prev.options === next.options
+    )
+  }), [])
 
   // Helper to render a list of field configs
   const renderFields = (fieldList: CrudField[]) => (
@@ -510,7 +527,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           f={f}
           value={values[f.id]}
           error={errors[f.id]}
-              options={f.options || dynamicOptions[f.id] || EMPTY_OPTIONS}
+              options={(f as CrudBuiltinField).options || dynamicOptions[f.id] || EMPTY_OPTIONS}
               idx={idx}
               setValue={setValue}
             />
@@ -547,8 +564,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       else col1.push(g)
     }
 
-    const GroupCard = ({ g }: { g: CrudFormGroup }) => {
-      const groupFields = resolveGroupFields(g)
+    const GroupCard = React.memo(({ g }: { g: CrudFormGroup }) => {
+      const groupFields = React.useMemo(() => resolveGroupFields(g), [g, allFields, cfFields])
+      
       return (
         <div className="rounded-lg border bg-card p-4 space-y-3">
           {g.title || g.kind === 'customFields' ? (
@@ -558,10 +576,20 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           {g.component ? (
             <div>{g.component({ values, setValue, errors })}</div>
           ) : null}
-          {groupFields.length ? renderFields(groupFields) : null}
+          {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
         </div>
       )
-    }
+    }, (prev, next) => {
+      // Only re-render if the group config or relevant dependencies change
+      return (
+        prev.g.id === next.g.id &&
+        prev.g.title === next.g.title &&
+        prev.g.description === next.g.description &&
+        prev.g.kind === next.g.kind &&
+        prev.g.column === next.g.column &&
+        JSON.stringify(prev.g.fields) === JSON.stringify(next.g.fields)
+      )
+    })
 
     return (
       <div className="space-y-4">
@@ -648,7 +676,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                 f={f}
                 value={values[f.id]}
                 error={errors[f.id]}
-                options={f.options || dynamicOptions[f.id] || EMPTY_OPTIONS}
+                options={(f as CrudBuiltinField).options || dynamicOptions[f.id] || EMPTY_OPTIONS}
                 idx={idx}
                 setValue={setValue}
               />
@@ -787,34 +815,35 @@ function RelationSelect({
 function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v: string) => void; placeholder?: string }) {
   const ref = React.useRef<HTMLInputElement | null>(null)
   const [local, setLocal] = React.useState<string>(value ?? '')
-  const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isFocusedRef = React.useRef(false)
+  
   React.useEffect(() => {
-    const el = ref.current
     // Only sync from props when not focused to avoid caret jumps
-    if (el && document.activeElement === el) return
-    setLocal(value ?? '')
+    if (!isFocusedRef.current) {
+      setLocal(value ?? '')
+    }
   }, [value])
-  React.useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const el = e.target
-    const start = el.selectionStart ?? el.value.length
-    const end = el.selectionEnd ?? start
-    const next = el.value
-    setLocal(next)
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => { onChange(next) }, 120)
-    // In case some sibling re-render steals focus, immediately restore it and caret
-    requestAnimationFrame(() => {
-      const input = ref.current
-      if (!input) return
-      input.focus()
-      try { input.setSelectionRange(start, end) } catch {}
-    })
-  }
-  const handleBlur = () => {
-    if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null }
+  
+  const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocal(e.target.value)
+  }, [])
+
+  const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      onChange(local)
+      ;(e.target as HTMLInputElement).blur()
+    }
+  }, [local, onChange])
+  
+  const handleFocus = React.useCallback(() => {
+    isFocusedRef.current = true
+  }, [])
+  
+  const handleBlur = React.useCallback(() => {
+    isFocusedRef.current = false
     onChange(local)
-  }
+  }, [local, onChange])
+  
   return (
     <input
       ref={ref}
@@ -823,6 +852,56 @@ function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v:
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+    />
+  )
+}
+
+// Local-buffer number input to avoid focus loss when parent re-renders
+function NumberInput({ value, onChange, placeholder }: { value: any; onChange: (v: number | undefined) => void; placeholder?: string }) {
+  const [local, setLocal] = React.useState<string>(value !== undefined && value !== null ? String(value) : '')
+  const isFocusedRef = React.useRef(false)
+  
+  React.useEffect(() => {
+    // Only sync from props when not focused to avoid caret jumps
+    if (!isFocusedRef.current) {
+      setLocal(value !== undefined && value !== null ? String(value) : '')
+    }
+  }, [value])
+  
+  const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocal(e.target.value)
+  }, [])
+
+  const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const numValue = local === '' ? undefined : Number(local)
+      onChange(numValue)
+      ;(e.target as HTMLInputElement).blur()
+    }
+  }, [local, onChange])
+  
+  const handleFocus = React.useCallback(() => {
+    isFocusedRef.current = true
+  }, [])
+  
+  const handleBlur = React.useCallback(() => {
+    isFocusedRef.current = false
+    const numValue = local === '' ? undefined : Number(local)
+    onChange(numValue)
+  }, [local, onChange])
+  
+  return (
+    <input
+      type="number"
+      className="w-full h-9 rounded border px-2"
+      placeholder={placeholder}
+      value={local}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      onFocus={handleFocus}
       onBlur={handleBlur}
     />
   )
