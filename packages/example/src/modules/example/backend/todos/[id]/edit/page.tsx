@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { fetchCrudList, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -13,15 +13,50 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
   // Prefer params passed by registry; fallback to Next hook if missing
   const hookParams = useParams<{ id?: string | string[] }>()
   const router = useRouter()
+  const pathname = usePathname()
   const idParam = (props?.params?.id ?? hookParams?.id) as string | string[] | undefined
-  const id = Array.isArray(idParam) ? idParam[0] : idParam
+  let id = Array.isArray(idParam) ? idParam[0] : idParam
+  // Fallback: derive from pathname when params are missing
+  if (!id && typeof pathname === 'string') {
+    const m = pathname.match(/\/backend\/todos\/([^/]+)\/edit/)
+    if (m) id = m[1]
+  }
   const [initial, setInitial] = React.useState<any | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [err, setErr] = React.useState<string | null>(null)
-  const baseFields: CrudField[] = [
+  // Memoize fields to avoid recreating arrays/objects each render (prevents focus loss)
+  const baseFields = React.useMemo<CrudField[]>(() => [
     { id: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Write a clear title' },
     { id: 'is_done', label: 'Done', type: 'checkbox' },
-  ]
+  ], [])
+  const groups = React.useMemo<CrudFormGroup[]>(() => [
+    { id: 'details', title: 'Details', column: 1, fields: ['title'] },
+    { id: 'status', title: 'Status', column: 2, fields: ['is_done'] },
+    { id: 'attributes', title: 'Attributes', column: 1, kind: 'customFields' },
+    {
+      id: 'actions',
+      title: 'Quick Actions',
+      column: 2,
+      component: ({ values, setValue }) => (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="h-8 rounded border px-2 text-sm"
+            onClick={() => setValue('is_done', true)}
+          >
+            Mark as done
+          </button>
+          <button
+            type="button"
+            className="h-8 rounded border px-2 text-sm"
+            onClick={() => setValue('is_done', false)}
+          >
+            Mark as todo
+          </button>
+        </div>
+      ),
+    },
+  ], [])
 
   React.useEffect(() => {
     let cancelled = false
@@ -63,34 +98,7 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
             backHref="/backend/todos"
             entityId="example:todo"
             fields={baseFields}
-            groups={[
-              { id: 'details', title: 'Details', column: 1, fields: ['title'] },
-              { id: 'status', title: 'Status', column: 2, fields: ['is_done'] },
-              { id: 'attributes', title: 'Attributes', column: 2, kind: 'customFields' },
-              {
-                id: 'actions',
-                title: 'Quick Actions',
-                column: 2,
-                component: ({ values, setValue }) => (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="h-8 rounded border px-2 text-sm"
-                      onClick={() => setValue('is_done', true)}
-                    >
-                      Mark as done
-                    </button>
-                    <button
-                      type="button"
-                      className="h-8 rounded border px-2 text-sm"
-                      onClick={() => setValue('is_done', false)}
-                    >
-                      Mark as todo
-                    </button>
-                  </div>
-                ),
-              },
-            ] as CrudFormGroup[]}
+            groups={groups}
             initialValues={initial || { id }}
             submitLabel="Save Changes"
             cancelHref="/backend/todos"

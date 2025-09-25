@@ -19,8 +19,11 @@ export default async function BackendLayout({ children }: { children: React.Reac
       .map((i) => ({ href: i.href, title: i.title, enabled: i.enabled, icon: i.icon })),
   }))
 
+  const current = entries.find((i) => path.startsWith(i.href))
+  const currentTitle = current?.title || ''
+
   return (
-    <AppShell productName="Open Mercato Admin" email={auth?.email} groups={groups} rightHeaderSlot={<UserMenu email={auth?.email} />}> 
+    <AppShell productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} rightHeaderSlot={<UserMenu email={auth?.email} />}> 
       {children}
     </AppShell>
   )

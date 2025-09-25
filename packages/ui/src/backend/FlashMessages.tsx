@@ -1,7 +1,6 @@
 "use client"
 import * as React from 'react'
-
-type FlashKind = 'success' | 'error' | 'warning' | 'info'
+import { usePathname, useSearchParams } from 'next/navigation'
 
 export type FlashKind = 'success' | 'error' | 'warning' | 'info'
 
@@ -16,21 +15,25 @@ export function flash(message: string, type: FlashKind = 'info') {
 export function FlashMessages() {
   const [msg, setMsg] = React.useState<string | null>(null)
   const [kind, setKind] = React.useState<FlashKind>('info')
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
 
+  // Read flash from URL on any navigation change (client-side too)
   React.useEffect(() => {
-    const url = new URL(window.location.href)
-    const m = url.searchParams.get('flash')
-    const t = (url.searchParams.get('type') as FlashKind | null) || 'success'
+    if (!searchParams) return
+    const m = searchParams.get('flash')
+    const t = (searchParams.get('type') as FlashKind | null) || 'success'
     if (m) {
       setMsg(m)
       setKind(t)
+      const url = new URL(window.location.href)
       url.searchParams.delete('flash')
       url.searchParams.delete('type')
       window.history.replaceState({}, '', url.toString())
       const timer = setTimeout(() => setMsg(null), 3000)
       return () => clearTimeout(timer)
     }
-  }, [])
+  }, [pathname, searchParams])
 
   // Listen for programmatic flash events
   React.useEffect(() => {

@@ -13,6 +13,7 @@ export type AppShellProps = {
   children: React.ReactNode
   rightHeaderSlot?: React.ReactNode
   sidebarCollapsedDefault?: boolean
+  currentTitle?: string
 }
 
 const icons: Record<string, React.ReactNode> = {
@@ -72,7 +73,7 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false }: AppShellProps) {
+export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle }: AppShellProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = React.useState(false)
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
@@ -119,12 +120,10 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
       <div className="flex flex-col gap-2 min-h-full">
         <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
           <div className="flex items-center gap-2">
-            <Image src="/open-mercato.svg" alt="Logo" width={40} height={40} className="rounded" />
+            <Image src="/open-mercato.svg" alt="Logo" width={48} height={48} className="rounded" />
             {!compact && <div className="text-sm font-semibold">{productName}</div>}
           </div>
-          {showCollapseToggle && !compact && (
-            <button type="button" className="rounded hover:bg-accent px-2 py-1 text-xs" onClick={() => setCollapsed(true)} aria-label="Collapse sidebar">⟨</button>
-          )}
+          {/* Collapse toggle removed as requested */}
         </div>
         <nav className="flex flex-col gap-2">
           {groups.map((g, gi) => {
@@ -198,8 +197,10 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
               )}
             </button>
-            <Image src="/open-mercato.svg" alt="Logo" width={40} height={40} className="rounded" />
-            <div className="font-semibold">{productName}</div>
+            {/* Header title (current page). Remove logo from header. */}
+            <div className="font-semibold text-base lg:text-lg truncate max-w-[60vw]">
+              {currentTitle || ''}
+            </div>
           </div>
           <div className="flex items-center gap-2 text-sm">
             {rightHeaderSlot ? (

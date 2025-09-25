@@ -8,6 +8,9 @@ import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
 
+// Stable empty options array to avoid creating a new [] every render
+const EMPTY_OPTIONS: CrudFieldOption[] = []
+
 export type CrudFieldBase = {
   id: string
   label: string
@@ -146,10 +149,12 @@ export function CrudForm<TValues extends Record<string, any>>({
     setValues((prev) => ({ ...prev, [id]: v }))
   }, [])
 
-  // Sync when initialValues change (e.g., edit form loads data async)
+  // Apply initialValues once when provided (avoid overriding user typing)
+  const appliedInitialRef = React.useRef(false)
   React.useEffect(() => {
-    if (initialValues) {
+    if (initialValues && !appliedInitialRef.current) {
       setValues((prev) => ({ ...prev, ...(initialValues as any) }))
+      appliedInitialRef.current = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialValues])
@@ -416,7 +421,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </label>
         ) : null}
         {f.type === 'text' && (
-          <input type="text" className="w-full h-9 rounded border px-2" placeholder={(f as any).placeholder} value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value)} />
+          <TextInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={(v) => setValue(f.id, v)} />
         )}
         {f.type === 'number' && (
           <input type="number" className="w-full h-9 rounded border px-2" placeholder={(f as any).placeholder} value={value ?? ''}
@@ -447,7 +452,11 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </label>
         )}
         {f.type === 'select' && !((f as any).multiple) && (
-          <select className="w-full h-9 rounded border px-2" value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value || undefined)}>
+          <select
+            className="w-full h-9 rounded border px-2"
+            value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')}
+            onChange={(e) => setValue(f.id, e.target.value || undefined)}
+          >
             <option value="">—</option>
             {options.map((opt) => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
           </select>
@@ -477,7 +486,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </div>
         )}
         {f.type === 'relation' && (
-          <RelationSelect options={options} placeholder={(f as any).placeholder} value={value ?? ''} onChange={(v) => setValue(f.id, v)} />
+          <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={(v) => setValue(f.id, v)} />
         )}
         {f.type === 'custom' && (
           <>{(f as any).component({ id: f.id, value, error, autoFocus: idx === 0, setValue: (v: any) => setValue(f.id, v) })}</>
@@ -501,11 +510,11 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           f={f}
           value={values[f.id]}
           error={errors[f.id]}
-          options={f.options || dynamicOptions[f.id] || []}
-          idx={idx}
-          setValue={setValue}
-        />
-      ))}
+              options={f.options || dynamicOptions[f.id] || EMPTY_OPTIONS}
+              idx={idx}
+              setValue={setValue}
+            />
+          ))}
     </div>
   )
 
@@ -639,7 +648,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                 f={f}
                 value={values[f.id]}
                 error={errors[f.id]}
-                options={f.options || dynamicOptions[f.id] || []}
+                options={f.options || dynamicOptions[f.id] || EMPTY_OPTIONS}
                 idx={idx}
                 setValue={setValue}
               />
@@ -772,5 +781,26 @@ function RelationSelect({
         ))}
       </div>
     </div>
+  )
+}
+// Local-buffer text input to avoid focus loss when parent re-renders
+function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v: string) => void; placeholder?: string }) {
+  const ref = React.useRef<HTMLInputElement | null>(null)
+  const [local, setLocal] = React.useState<string>(value ?? '')
+  React.useEffect(() => {
+    const el = ref.current
+    // Only sync from props when not focused to avoid caret jumps
+    if (el && document.activeElement === el) return
+    setLocal(value ?? '')
+  }, [value])
+  return (
+    <input
+      ref={ref}
+      type="text"
+      className="w-full h-9 rounded border px-2"
+      placeholder={placeholder}
+      value={local}
+      onChange={(e) => { setLocal(e.target.value); onChange(e.target.value) }}
+    />
   )
 }
