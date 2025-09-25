@@ -17,7 +17,10 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
   const [initial, setInitial] = React.useState<any | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [err, setErr] = React.useState<string | null>(null)
-  const [fields, setFields] = React.useState<CrudField[]>([])
+  const baseFields: CrudField[] = [
+    { id: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Write a clear title' },
+    { id: 'is_done', label: 'Done', type: 'checkbox' },
+  ]
 
   React.useEffect(() => {
     let cancelled = false
@@ -26,36 +29,12 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
       setLoading(true)
       setErr(null)
       try {
-        const [defsRes, data] = await Promise.all([
-          fetch(`/api/custom_fields/definitions?entityId=example:todo`).then((r) => r.json()).catch(() => ({ items: [] })),
-          fetchCrudList<TodoItem>('example/todos', { id: String(id), pageSize: 1 }),
-        ])
+        const data = await fetchCrudList<TodoItem>('example/todos', { id: String(id), pageSize: 1 })
         const t = data?.items?.[0]
         if (!t) throw new Error('Not found')
-        const defs: Array<{ key: string; kind: string; label?: string; description?: string; options?: string[]; multi?: boolean; formEditable?: boolean }> = defsRes?.items || []
-        const out: CrudField[] = []
-        out.push({ id: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Write a clear title' })
-        for (const d of defs) {
-          if (!d.formEditable) continue
-          const id = `cf_${d.key}`
-          const label = d.label || d.key
-          if (d.kind === 'boolean') out.push({ id, label, type: 'checkbox', description: d.description })
-          else if (d.kind === 'integer' || d.kind === 'float') out.push({ id, label, type: 'number', description: d.description })
-          else if (d.kind === 'multiline') out.push({ id, label, type: 'textarea', description: d.description })
-          else if (d.kind === 'select') {
-            const options = (d.options || []).map((o) => ({ value: o, label: o[0]?.toUpperCase() + o.slice(1) }))
-            out.push({ id, label, type: 'select', options, multiple: !!d.multi, description: d.description })
-          } else out.push({ id, label, type: 'text', description: d.description })
-        }
-        out.push({ id: 'is_done', label: 'Done', type: 'checkbox' })
-        if (!cancelled) setFields(out)
         // Map to form initial values
         const cfInit: Record<string, any> = {}
-        for (const d of defs) {
-          const key = `cf_${d.key}`
-          const val = (t as any)[key]
-          cfInit[key] = val == null ? (d.multi ? [] : undefined) : val
-        }
+        for (const [k, v] of Object.entries(t as any)) if (k.startsWith('cf_')) cfInit[k] = v
         const init = { id: t.id, title: t.title, is_done: !!t.is_done, ...cfInit }
         if (!cancelled) setInitial(init)
       } catch (e: any) {
@@ -81,7 +60,8 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
           <CrudForm
             title="Edit Todo"
             backHref="/backend/todos"
-            fields={fields}
+            entityId="example:todo"
+            fields={baseFields}
             initialValues={initial || { id }}
             submitLabel="Save Changes"
             cancelHref="/backend/todos"

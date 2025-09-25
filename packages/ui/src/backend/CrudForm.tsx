@@ -64,6 +64,9 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   twoColumn?: boolean
   title?: string
   backHref?: string
+  // When provided, CrudForm will fetch custom field definitions and append
+  // form-editable custom fields automatically to the provided `fields`.
+  entityId?: string
 }
 
 export function CrudForm<TValues extends Record<string, any>>({
@@ -77,6 +80,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   twoColumn = false,
   title,
   backHref,
+  entityId,
 }: CrudFormProps<TValues>) {
   const router = useRouter()
   const [values, setValues] = React.useState<Record<string, any>>({ ...(initialValues || {}) })
@@ -84,6 +88,31 @@ export function CrudForm<TValues extends Record<string, any>>({
   const [pending, setPending] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
+  const [cfFields, setCfFields] = React.useState<CrudField[]>([])
+
+  // Auto-append custom fields for this entityId
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      if (!entityId) { setCfFields([]); return }
+      try {
+        const mod = await import('./utils/customFieldForms')
+        const f = await mod.fetchCustomFieldFormFields(entityId)
+        if (!cancelled) setCfFields(f)
+      } catch {
+        if (!cancelled) setCfFields([])
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [entityId])
+
+  const allFields = React.useMemo(() => {
+    if (!cfFields.length) return fields
+    const provided = new Set(fields.map(f => f.id))
+    const extras = cfFields.filter(f => !provided.has(f.id))
+    return [...fields, ...extras]
+  }, [fields, cfFields])
 
   const setValue = (id: string, v: any) => setValues((prev) => ({ ...prev, [id]: v }))
 
@@ -283,7 +312,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   React.useEffect(() => {
     let cancelled = false
     const loadAll = async () => {
-      const loaders = fields
+      const loaders = allFields
         .filter((f): f is CrudBuiltinField & { loadOptions: () => Promise<CrudFieldOption[]> } =>
           (f as any).loadOptions != null
         )
@@ -301,7 +330,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     return () => {
       cancelled = true
     }
-  }, [fields])
+  }, [allFields])
 
   // no auto-focus; let the browser/user manage focus
 
@@ -412,7 +441,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       <div>
         <form onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
           <div className={grid}>
-          {fields.map((f, idx) => (
+          {allFields.map((f, idx) => (
             <FieldControl
               key={f.id}
               f={f}

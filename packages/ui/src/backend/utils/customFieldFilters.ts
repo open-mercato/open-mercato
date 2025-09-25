@@ -8,6 +8,7 @@ export type CustomFieldDefDto = {
   options?: string[]
   multi?: boolean
   filterable?: boolean
+  formEditable?: boolean
 }
 
 export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): FilterDef[] {
@@ -33,4 +34,3 @@ export async function fetchCustomFieldFilterDefs(entityId: string, fetchImpl: ty
   const defs: CustomFieldDefDto[] = data?.items || []
   return buildFilterDefsFromCustomFields(defs)
 }
-
