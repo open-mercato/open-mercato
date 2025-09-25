@@ -3,7 +3,8 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { E } from '@open-mercato/example/datamodel/entities'
 import { id, title, tenant_id, organization_id, is_done } from '@open-mercato/example/datamodel/entities/todo'
-import type { Where } from '@open-mercato/shared/lib/query/types'
+import type { Where, WhereValue } from '@open-mercato/shared/lib/query/types'
+import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 
 // Query (list) schema
 const querySchema = z.object({
@@ -49,7 +50,11 @@ const updateSchema = z.object({
   cf_assignee: z.string().optional(),
 })
 
-const sortFieldMap: Record<string, any> = {
+type Query = z.infer<typeof querySchema>
+type CreateInput = z.infer<typeof createSchema>
+type UpdateInput = z.infer<typeof updateSchema>
+
+const sortFieldMap: Record<string, unknown> = {
   id,
   title,
   tenant_id,
@@ -74,7 +79,7 @@ type TodoFields = {
   'cf:labels': string
 }
 
-function toArray(val: any): string[] {
+function toArray(val: unknown): string[] {
   if (Array.isArray(val)) return val as string[]
   if (typeof val === 'string') {
     const s = val.trim()
@@ -108,57 +113,76 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     entityId: E.example.todo,
     fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked', 'cf:labels', 'cf:assignee', 'cf:description'],
     sortFieldMap,
-    buildFilters: (q): Where<TodoFields> => {
+    buildFilters: (q: Query): Where<TodoFields> => {
       const filters: Where<TodoFields> = {}
-      if ((q as any).id) (filters as any).id = (q as any).id
-      if ((q as any).title) (filters as any).title = { $ilike: `%${(q as any).title}%` }
-      if ((q as any).isDone !== undefined) (filters as any).is_done = (q as any).isDone
-      if ((q as any).organizationId) (filters as any).organization_id = (q as any).organizationId
-      if ((q as any).severity) (filters as any)['cf:severity'] = (q as any).severity
-      if ((q as any).severityIn) {
-        const list = String((q as any).severityIn)
+      const F = filters as Record<string, WhereValue>
+      if (q.id) F.id = q.id
+      if (q.title) F.title = { $ilike: `%${q.title}%` }
+      if (q.isDone !== undefined) F.is_done = q.isDone
+      if (q.organizationId) F.organization_id = q.organizationId
+      if (q.severity) F['cf:severity'] = q.severity
+      if (q.severityIn) {
+        const list = String(q.severityIn)
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean)
-        if (list.length) (filters as any)['cf:severity'] = { $in: list as any }
+        if (list.length) F['cf:severity'] = { $in: list }
       }
-      if ((q as any).labelsIn) {
-        const list = String((q as any).labelsIn)
+      if (q.labelsIn) {
+        const list = String(q.labelsIn)
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean)
-        if (list.length) (filters as any)['cf:labels'] = { $in: list as any }
+        if (list.length) F['cf:labels'] = { $in: list }
       }
-      if ((q as any).isBlocked !== undefined) (filters as any)['cf:blocked'] = (q as any).isBlocked
-      if ((q as any).createdFrom || (q as any).createdTo) {
-        const range: any = {}
-        if ((q as any).createdFrom) range.$gte = new Date((q as any).createdFrom)
-        if ((q as any).createdTo) range.$lte = new Date((q as any).createdTo)
-        ;(filters as any).created_at = range
+      if (q.isBlocked !== undefined) F['cf:blocked'] = q.isBlocked
+      if (q.createdFrom || q.createdTo) {
+        const range: { $gte?: Date; $lte?: Date } = {}
+        if (q.createdFrom) range.$gte = new Date(q.createdFrom)
+        if (q.createdTo) range.$lte = new Date(q.createdTo)
+        F.created_at = range
       }
       return filters
     },
-    transformItem: (item: any) => {
-      const rawSeverity: any = (item as any)['cf:severity'] ?? (item as any).cf_severity
+    transformItem: (item: {
+      id: string
+      title: string
+      tenant_id: string | null
+      organization_id: string | null
+      is_done: boolean
+      ['cf:priority']?: unknown
+      ['cf:severity']?: unknown
+      ['cf:blocked']?: unknown
+      ['cf:labels']?: unknown
+      ['cf:assignee']?: unknown
+      ['cf:description']?: unknown
+      cf_priority?: unknown
+      cf_severity?: unknown
+      cf_blocked?: unknown
+      cf_labels?: unknown
+      cf_assignee?: unknown
+      cf_description?: unknown
+    }): TodoListItem => {
+      const rawSeverity = item['cf:severity'] ?? item.cf_severity
       const severityVal: any = Array.isArray(rawSeverity) ? rawSeverity[0] : rawSeverity
       const cf_severity = typeof severityVal === 'string' ? severityVal.toLowerCase() : severityVal
 
-      const rawAssignee: any = (item as any)['cf:assignee'] ?? (item as any).cf_assignee
+      const rawAssignee: any = item['cf:assignee'] ?? item.cf_assignee
       const cf_assignee = Array.isArray(rawAssignee) ? rawAssignee[0] : rawAssignee
 
-      const rawDesc: any = (item as any)['cf:description'] ?? (item as any).cf_description
+      const rawDesc: any = item['cf:description'] ?? item.cf_description
       const cf_description = Array.isArray(rawDesc) ? rawDesc[0] : rawDesc
 
       return {
         id: item.id,
         title: item.title,
-        tenant_id: (item as any).tenant_id,
-        organization_id: (item as any).organization_id,
-        is_done: (item as any).is_done,
-        cf_priority: (item as any)['cf:priority'] ?? (item as any).cf_priority,
+        tenant_id: item.tenant_id,
+        organization_id: item.organization_id,
+        is_done: item.is_done,
+        cf_priority: item['cf:priority'] as any ?? (item.cf_priority as any),
         cf_severity,
-        cf_blocked: (item as any)['cf:blocked'] ?? (item as any).cf_blocked,
-        cf_labels: toArray((item as any)['cf:labels'] ?? (item as any).cf_labels),
+        cf_blocked: (item['cf:blocked'] as any) ?? (item.cf_blocked as any),
+        cf_labels: toArray((item['cf:labels'] as any) ?? (item.cf_labels as any)),
         cf_assignee: typeof cf_assignee === 'string' ? cf_assignee : undefined,
         cf_description: typeof cf_description === 'string' ? cf_description : undefined,
       }
@@ -166,12 +190,12 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     allowCsv: true,
     csv: {
       headers: ['id', 'title', 'is_done', 'organization_id', 'tenant_id', 'cf_priority', 'cf_severity', 'cf_blocked', 'cf_labels'],
-      row: (t: any) => [
+      row: (t: TodoListItem) => [
         t.id,
         t.title,
-        t.is_done,
-        t.organization_id,
-        t.tenant_id,
+        t.is_done ? 'true' : 'false',
+        t.organization_id ?? '',
+        t.tenant_id ?? '',
         t.cf_priority ?? '',
         t.cf_severity ?? '',
         t.cf_blocked ?? '',
@@ -182,15 +206,15 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   },
   create: {
     schema: createSchema,
-    mapToEntity: (input) => ({ title: input.title, isDone: !!(input as any).is_done }),
+    mapToEntity: (input: CreateInput) => ({ title: input.title, isDone: !!input.is_done }),
     customFields: { enabled: true, entityId: E.example.todo, pickPrefixed: true },
-    response: (entity) => ({ id: String((entity as any).id) }),
+    response: (entity: Todo) => ({ id: String(entity.id) }),
   },
   update: {
     schema: updateSchema,
-    applyToEntity: (entity, input) => {
-      if ((input as any).title !== undefined) (entity as any).title = (input as any).title
-      if ((input as any).is_done !== undefined) (entity as any).isDone = !!(input as any).is_done
+    applyToEntity: (entity: Todo, input: UpdateInput) => {
+      if (input.title !== undefined) entity.title = input.title
+      if (input.is_done !== undefined) entity.isDone = !!input.is_done
     },
     customFields: { enabled: true, entityId: E.example.todo, pickPrefixed: true },
   },
