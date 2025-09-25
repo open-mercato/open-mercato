@@ -5,7 +5,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { FilterBar, type FilterDef, type FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList, buildCrudCsvUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -62,14 +62,11 @@ const columns: ColumnDef<TodoRow>[] = [
 export default function TodosTable() {
   const queryClient = useQueryClient()
   const [title, setTitle] = React.useState('')
-  const [severity, setSeverity] = React.useState<string[]>([])
-  const [done, setDone] = React.useState<boolean | undefined>(undefined)
-  const [blocked, setBlocked] = React.useState<boolean | undefined>(undefined)
-  const [labels, setLabels] = React.useState<string[]>([])
+  const [values, setValues] = React.useState<FilterValues>({})
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
   const [page, setPage] = React.useState(1)
-  const [createdFrom, setCreatedFrom] = React.useState<string | undefined>(undefined)
-  const [createdTo, setCreatedTo] = React.useState<string | undefined>(undefined)
+
+  // Custom field filters handled by DataTable (via customFieldFiltersEntityId)
 
   // Build query parameters
   const queryParams = React.useMemo(() => {
@@ -81,16 +78,27 @@ export default function TodosTable() {
     })
 
     if (title) params.set('title', title)
-    if (severity && severity.length) params.set('severityIn', severity.join(','))
-    if (done !== undefined) params.set('isDone', done.toString())
-    if (blocked !== undefined) params.set('isBlocked', blocked.toString())
-    if (labels && labels.length) params.set('labelsIn', labels.join(','))
-    if (createdFrom) params.set('createdFrom', createdFrom)
-    if (createdTo) params.set('createdTo', createdTo)
+    // Map dynamic filter values to query params
+    Object.entries(values).forEach(([k, v]) => {
+      if (k === 'created_at') {
+        if ((v as any)?.from) params.set('createdFrom', (v as any).from)
+        if ((v as any)?.to) params.set('createdTo', (v as any).to)
+        return
+      }
+      if (k === 'is_done') {
+        if (v === true || v === false) params.set('isDone', String(v))
+        return
+      }
+      // custom fields: keys are already cf_<key> or cf_<key>In
+      if (k.startsWith('cf_')) {
+        if (Array.isArray(v)) params.set(k, (v as string[]).join(','))
+        else if (v != null && v !== '') params.set(k, String(v))
+      }
+    })
     // organization and tenant filters removed per request
     
     return params.toString()
-  }, [page, sorting, title, severity, labels, done, blocked, createdFrom, createdTo])
+  }, [page, sorting, title, values])
 
   // Fetch todos
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
@@ -146,69 +154,9 @@ export default function TodosTable() {
 
   const handleReset = () => {
     setTitle('')
-    setSeverity([])
-    setDone(undefined)
-    setBlocked(undefined)
-    setCreatedFrom(undefined)
-    setCreatedTo(undefined)
-    setLabels([])
+    setValues({})
     setPage(1)
   }
-
-  const filterDefs: FilterDef[] = [
-    { id: 'severity', label: 'Severity', type: 'select', multiple: true, options: [
-      { value: 'low', label: 'Low' },
-      { value: 'medium', label: 'Medium' },
-      { value: 'high', label: 'High' },
-    ] },
-    { id: 'is_done', label: 'Done', type: 'checkbox' },
-    { id: 'cf_blocked', label: 'Blocked', type: 'checkbox' },
-    { id: 'labels', label: 'Labels', type: 'select', multiple: true, options: [
-      { value: 'frontend', label: 'Frontend' },
-      { value: 'backend', label: 'Backend' },
-      { value: 'ops', label: 'Ops' },
-      { value: 'bug', label: 'Bug' },
-      { value: 'feature', label: 'Feature' },
-    ] },
-    // Example extra filter type: date range wired to backend
-    { id: 'created_at', label: 'Created Date', type: 'dateRange' },
-  ]
-
-  const toolbar = (
-    <FilterBar
-      searchValue={title}
-      onSearchChange={(v) => { setTitle(v); setPage(1) }}
-      searchAlign="right"
-      filters={filterDefs}
-      values={{
-        severity,
-        labels,
-        is_done: done,
-        cf_blocked: blocked,
-        ...(createdFrom || createdTo ? { created_at: { from: createdFrom, to: createdTo } } : {}),
-      }}
-      onApply={(vals: FilterValues) => {
-        const sev = Array.isArray(vals.severity)
-          ? vals.severity
-          : vals.severity
-            ? [vals.severity]
-            : []
-        setSeverity(sev)
-        const lbls = Array.isArray(vals.labels)
-          ? vals.labels
-          : vals.labels
-            ? [vals.labels]
-            : []
-        setLabels(lbls)
-        setDone(vals.is_done === true ? true : undefined)
-        setBlocked(vals.cf_blocked === true ? true : undefined)
-        setCreatedFrom(vals.created_at?.from)
-        setCreatedTo(vals.created_at?.to)
-        setPage(1)
-      }}
-      onClear={() => handleReset()}
-    />
-  )
 
   if (error) {
     return <div>Error: {error.message}</div>
@@ -228,9 +176,17 @@ export default function TodosTable() {
           </Button>
         </>
       )}
-      columns={columns} 
-      data={todosWithOrgNames} 
-      toolbar={toolbar} 
+      columns={columns}
+      data={todosWithOrgNames}
+      // Built-in FilterBar with dynamic custom fields
+      searchValue={title}
+      onSearchChange={(v) => { setTitle(v); setPage(1) }}
+      searchAlign="right"
+      filters={[{ id: 'is_done', label: 'Done', type: 'checkbox' }, { id: 'created_at', label: 'Created Date', type: 'dateRange' }]}
+      filterValues={values}
+      onFiltersApply={(vals: FilterValues) => { setValues(vals); setPage(1) }}
+      onFiltersClear={() => handleReset()}
+      entityId="example:todo"
       sortable 
       sorting={sorting} 
       onSortingChange={handleSortingChange}

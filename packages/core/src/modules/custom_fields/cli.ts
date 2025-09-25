@@ -57,6 +57,7 @@ const seedDefs: ModuleCli = {
         if (f.required !== undefined) configJson.required = f.required
         if (f.multi !== undefined) configJson.multi = f.multi
         if (f.filterable !== undefined) configJson.filterable = f.filterable
+        if ((f as any).formEditable !== undefined) configJson.formEditable = (f as any).formEditable
         if (f.indexed !== undefined) configJson.indexed = f.indexed
         if (f.label !== undefined) configJson.label = f.label
         if (f.description !== undefined) configJson.description = f.description
@@ -133,6 +134,7 @@ const addField: ModuleCli = {
         }
       }
       const filterable = args.filterable !== undefined ? Boolean(args.filterable) : await askBool('Filterable?', true)
+      const formEditable = args.formEditable !== undefined ? Boolean(args.formEditable) : await askBool('Editable in forms?', true)
       const indexed = args.indexed !== undefined ? Boolean(args.indexed) : await askBool('Indexed?', false)
 
       const where = { entityId, organizationId: orgId, tenantId: tenantId, key }
@@ -144,6 +146,7 @@ const addField: ModuleCli = {
       if (multi !== undefined) configJson.multi = multi
       if (filterable !== undefined) configJson.filterable = filterable
       if (indexed !== undefined) configJson.indexed = indexed
+      if (formEditable !== undefined) configJson.formEditable = formEditable
       if (label !== undefined) configJson.label = label
       if (description !== undefined) configJson.description = description
 

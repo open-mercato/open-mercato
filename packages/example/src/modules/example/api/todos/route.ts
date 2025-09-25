@@ -5,50 +5,41 @@ import { E } from '@open-mercato/example/datamodel/entities'
 import { id, title, tenant_id, organization_id, is_done } from '@open-mercato/example/datamodel/entities/todo'
 import type { Where, WhereValue } from '@open-mercato/shared/lib/query/types'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
+import { CustomFieldDef } from '@open-mercato/core/modules/custom_fields/data/entities'
 
 // Query (list) schema
-const querySchema = z.object({
-  id: z.string().uuid().optional(),
-  page: z.coerce.number().min(1).default(1),
-  pageSize: z.coerce.number().min(1).max(100).default(50),
-  sortField: z.string().optional().default('id'),
-  sortDir: z.enum(['asc', 'desc']).optional().default('asc'),
-  title: z.string().optional(),
-  severity: z.string().optional(),
-  severityIn: z.string().optional(),
-  isDone: z.coerce.boolean().optional(),
-  isBlocked: z.coerce.boolean().optional(),
-  withDeleted: z.coerce.boolean().optional().default(false),
-  organizationId: z.string().uuid().optional(),
-  createdFrom: z.string().optional(),
-  createdTo: z.string().optional(),
-  labelsIn: z.string().optional(),
-  format: z.enum(['json', 'csv']).optional().default('json'),
-})
+const querySchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    page: z.coerce.number().min(1).default(1),
+    pageSize: z.coerce.number().min(1).max(100).default(50),
+    sortField: z.string().optional().default('id'),
+    sortDir: z.enum(['asc', 'desc']).optional().default('asc'),
+    title: z.string().optional(),
+    isDone: z.coerce.boolean().optional(),
+    withDeleted: z.coerce.boolean().optional().default(false),
+    organizationId: z.string().uuid().optional(),
+    createdFrom: z.string().optional(),
+    createdTo: z.string().optional(),
+    format: z.enum(['json', 'csv']).optional().default('json'),
+  })
+  .passthrough()
 
 // Create/Update schemas
-const createSchema = z.object({
-  title: z.string().min(1),
-  is_done: z.boolean().optional().default(false),
-  cf_priority: z.number().int().min(1).max(5).optional(),
-  cf_severity: z.enum(['low', 'medium', 'high']).optional(),
-  cf_blocked: z.boolean().optional(),
-  cf_labels: z.array(z.string()).optional(),
-  cf_description: z.string().optional(),
-  cf_assignee: z.string().optional(),
-})
+const createSchema = z
+  .object({
+    title: z.string().min(1),
+    is_done: z.boolean().optional().default(false),
+  })
+  .passthrough()
 
-const updateSchema = z.object({
-  id: z.string().uuid(),
-  title: z.string().min(1).optional(),
-  is_done: z.boolean().optional(),
-  cf_priority: z.number().int().min(1).max(5).optional(),
-  cf_severity: z.enum(['low', 'medium', 'high']).optional(),
-  cf_blocked: z.boolean().optional(),
-  cf_labels: z.array(z.string()).optional(),
-  cf_description: z.string().optional(),
-  cf_assignee: z.string().optional(),
-})
+const updateSchema = z
+  .object({
+    id: z.string().uuid(),
+    title: z.string().min(1).optional(),
+    is_done: z.boolean().optional(),
+  })
+  .passthrough()
 
 type Query = z.infer<typeof querySchema>
 type CreateInput = z.infer<typeof createSchema>
@@ -113,35 +104,70 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     entityId: E.example.todo,
     fields: [id, title, tenant_id, organization_id, is_done, 'cf:priority', 'cf:severity', 'cf:blocked', 'cf:labels', 'cf:assignee', 'cf:description'],
     sortFieldMap,
-    buildFilters: (q: Query): Where<TodoFields> => {
+    buildFilters: (q: Query, ctx): Where<TodoFields> => {
       const filters: Where<TodoFields> = {}
       const F = filters as Record<string, WhereValue>
-      if (q.id) F.id = q.id
-      if (q.title) F.title = { $ilike: `%${q.title}%` }
-      if (q.isDone !== undefined) F.is_done = q.isDone
-      if (q.organizationId) F.organization_id = q.organizationId
-      if (q.severity) F['cf:severity'] = q.severity
-      if (q.severityIn) {
-        const list = String(q.severityIn)
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-        if (list.length) F['cf:severity'] = { $in: list }
-      }
-      if (q.labelsIn) {
-        const list = String(q.labelsIn)
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-        if (list.length) F['cf:labels'] = { $in: list }
-      }
-      if (q.isBlocked !== undefined) F['cf:blocked'] = q.isBlocked
-      if (q.createdFrom || q.createdTo) {
+      // Base fields
+      if ((q as any).id) F.id = (q as any).id
+      if ((q as any).title) F.title = { $ilike: `%${(q as any).title}%` }
+      if ((q as any).isDone !== undefined) F.is_done = (q as any).isDone
+      if ((q as any).organizationId) F.organization_id = (q as any).organizationId
+      if ((q as any).createdFrom || (q as any).createdTo) {
         const range: { $gte?: Date; $lte?: Date } = {}
-        if (q.createdFrom) range.$gte = new Date(q.createdFrom)
-        if (q.createdTo) range.$lte = new Date(q.createdTo)
+        if ((q as any).createdFrom) range.$gte = new Date((q as any).createdFrom)
+        if ((q as any).createdTo) range.$lte = new Date((q as any).createdTo)
         F.created_at = range
       }
+
+      // Dynamic custom field filters: accept cf_<key> (eq) and cf_<key>In (in)
+      const allEntries = Object.entries(q as any)
+      const cfParams = allEntries.filter(([k]) => k.startsWith('cf_'))
+
+      if (cfParams.length) {
+        const em = ctx.container.resolve<any>('em')
+        // Resolve definitions to parse types
+        // Note: inline query to avoid extra dependency imports
+        const defs = await em.find(CustomFieldDef, {
+          entityId: E.example.todo as any,
+          organizationId: { $in: [ctx.auth.orgId, null] as any },
+          tenantId: { $in: [ctx.auth.tenantId, null] as any },
+          isActive: true,
+        })
+        const byKey: Record<string, { kind: string; multi?: boolean }> = {}
+        for (const d of defs as any[]) {
+          byKey[d.key] = { kind: d.kind, multi: Boolean(d.configJson?.multi) }
+        }
+
+        const coerce = (kind: string, v: any) => {
+          if (v == null) return v
+          switch (kind) {
+            case 'integer': return Number.parseInt(String(v), 10)
+            case 'float': return Number.parseFloat(String(v))
+            case 'boolean': return String(v).toLowerCase() === 'true'
+            default: return String(v)
+          }
+        }
+
+        for (const [rawKey, rawVal] of cfParams) {
+          const isIn = rawKey.endsWith('In')
+          const key = isIn ? rawKey.replace(/^cf_/, '').replace(/In$/, '') : rawKey.replace(/^cf_/, '')
+          const def = byKey[key]
+          const fieldId = `cf:${key}`
+          if (!def) continue
+          if (isIn) {
+            const list = Array.isArray(rawVal)
+              ? (rawVal as any[])
+              : String(rawVal)
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+            if (list.length) F[fieldId] = { $in: list.map((x) => coerce(def.kind, x)) as any }
+          } else {
+            F[fieldId] = coerce(def.kind, rawVal as any) as any
+          }
+        }
+      }
+
       return filters
     },
     transformItem: (item: {

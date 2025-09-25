@@ -5,41 +5,8 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { fetchCrudList, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
-import { z } from 'zod'
 
 type TodoItem = TodoListItem
-
-const todoUpdateSchema = z.object({
-  id: z.string().uuid(),
-  title: z.string().min(1, 'Title is required'),
-  is_done: z.boolean().optional(),
-  cf_severity: z.enum(['low', 'medium', 'high']).optional(),
-  cf_blocked: z.boolean().optional(),
-  cf_labels: z.array(z.string()).optional(),
-  cf_description: z.string().optional(),
-  cf_assignee: z.string().optional(),
-})
-
-const assigneeLoader = async () => {
-  const res = await fetch('/api/example/assignees', { headers: { 'content-type': 'application/json' } })
-  if (!res.ok) return []
-  const data = await res.json().catch(() => ({ items: [] }))
-  return (data?.items || []) as { value: string; label: string }[]
-}
-
-const fields: CrudField[] = [
-  { id: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Write a clear title' },
-  { id: 'cf_severity', label: 'Severity', type: 'select', options: [
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-  ] },
-  { id: 'cf_blocked', label: 'Blocked', type: 'checkbox' },
-  { id: 'cf_labels', label: 'Labels', type: 'tags' },
-  { id: 'cf_assignee', label: 'Assignee', type: 'relation', placeholder: 'Search people…', loadOptions: assigneeLoader },
-  { id: 'cf_description', label: 'Description', type: 'richtext', editor: 'html' },
-  { id: 'is_done', label: 'Done', type: 'checkbox' },
-]
 
 export default function EditTodoPage(props: { params?: { id?: string | string[] } }) {
   // Prefer params passed by registry; fallback to Next hook if missing
@@ -50,6 +17,7 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
   const [initial, setInitial] = React.useState<any | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [err, setErr] = React.useState<string | null>(null)
+  const [fields, setFields] = React.useState<CrudField[]>([])
 
   React.useEffect(() => {
     let cancelled = false
@@ -58,20 +26,37 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
       setLoading(true)
       setErr(null)
       try {
-        const data = await fetchCrudList<TodoItem>('example/todos', { id: String(id), pageSize: 1 })
+        const [defsRes, data] = await Promise.all([
+          fetch(`/api/custom_fields/definitions?entityId=example:todo`).then((r) => r.json()).catch(() => ({ items: [] })),
+          fetchCrudList<TodoItem>('example/todos', { id: String(id), pageSize: 1 }),
+        ])
         const t = data?.items?.[0]
         if (!t) throw new Error('Not found')
-        // Map to form initial values
-        const init = {
-          id: t.id,
-          title: t.title,
-          is_done: !!t.is_done,
-          cf_severity: t.cf_severity || undefined,
-          cf_blocked: !!t.cf_blocked,
-          cf_labels: Array.isArray(t.cf_labels) ? t.cf_labels : [],
-          cf_description: t.cf_description || undefined,
-          cf_assignee: t.cf_assignee || undefined,
+        const defs: Array<{ key: string; kind: string; label?: string; description?: string; options?: string[]; multi?: boolean; formEditable?: boolean }> = defsRes?.items || []
+        const out: CrudField[] = []
+        out.push({ id: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Write a clear title' })
+        for (const d of defs) {
+          if (!d.formEditable) continue
+          const id = `cf_${d.key}`
+          const label = d.label || d.key
+          if (d.kind === 'boolean') out.push({ id, label, type: 'checkbox', description: d.description })
+          else if (d.kind === 'integer' || d.kind === 'float') out.push({ id, label, type: 'number', description: d.description })
+          else if (d.kind === 'multiline') out.push({ id, label, type: 'textarea', description: d.description })
+          else if (d.kind === 'select') {
+            const options = (d.options || []).map((o) => ({ value: o, label: o[0]?.toUpperCase() + o.slice(1) }))
+            out.push({ id, label, type: 'select', options, multiple: !!d.multi, description: d.description })
+          } else out.push({ id, label, type: 'text', description: d.description })
         }
+        out.push({ id: 'is_done', label: 'Done', type: 'checkbox' })
+        if (!cancelled) setFields(out)
+        // Map to form initial values
+        const cfInit: Record<string, any> = {}
+        for (const d of defs) {
+          const key = `cf_${d.key}`
+          const val = (t as any)[key]
+          cfInit[key] = val == null ? (d.multi ? [] : undefined) : val
+        }
+        const init = { id: t.id, title: t.title, is_done: !!t.is_done, ...cfInit }
         if (!cancelled) setInitial(init)
       } catch (e: any) {
         if (!cancelled) setErr(e?.message || 'Failed to load')
@@ -96,7 +81,6 @@ export default function EditTodoPage(props: { params?: { id?: string | string[] 
           <CrudForm
             title="Edit Todo"
             backHref="/backend/todos"
-            schema={todoUpdateSchema}
             fields={fields}
             initialValues={initial || { id }}
             submitLabel="Save Changes"

@@ -30,6 +30,7 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'relation'
   placeholder?: string
   options?: CrudFieldOption[]
+  multiple?: boolean
   // for relation/select style fields; if provided, options are loaded on mount
   loadOptions?: () => Promise<CrudFieldOption[]>
   // when type === 'richtext', choose editor implementation
@@ -353,11 +354,34 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             <span className="text-sm text-muted-foreground">Enable</span>
           </label>
         )}
-        {f.type === 'select' && (
+        {f.type === 'select' && !((f as any).multiple) && (
           <select className="w-full h-9 rounded border px-2" value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value || undefined)}>
             <option value="">—</option>
             {options.map((opt) => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
           </select>
+        )}
+        {f.type === 'select' && ((f as any).multiple) && (
+          <div className="space-y-1">
+            {options.map((opt) => {
+              const arr: string[] = Array.isArray(value) ? (value as string[]) : []
+              const checked = arr.includes(opt.value)
+              return (
+                <label key={opt.value} className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => {
+                      const next = new Set(arr)
+                      if (e.target.checked) next.add(opt.value)
+                      else next.delete(opt.value)
+                      setValue(f.id, Array.from(next))
+                    }}
+                  />
+                  <span className="text-sm">{opt.label}</span>
+                </label>
+              )
+            })}
+          </div>
         )}
         {f.type === 'relation' && (
           <RelationSelect options={options} placeholder={(f as any).placeholder} value={value ?? ''} onChange={(v) => setValue(f.id, v)} />

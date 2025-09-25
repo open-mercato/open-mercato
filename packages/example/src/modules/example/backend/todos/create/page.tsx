@@ -1,48 +1,49 @@
 "use client"
+import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
-import { z } from 'zod'
-
-const todoCreateSchema = z.object({
-  title: z.string().min(1, 'Title is required'),
-  is_done: z.boolean().optional().default(false),
-  cf_severity: z.enum(['low', 'medium', 'high']).optional(),
-  cf_blocked: z.boolean().optional(),
-  cf_labels: z.array(z.string()).optional(),
-  cf_description: z.string().optional(),
-  cf_assignee: z.string().optional(),
-})
-
-const assigneeLoader = async () => {
-  const res = await fetch('/api/example/assignees', { headers: { 'content-type': 'application/json' } })
-  if (!res.ok) throw new Error('Failed to load assignees')
-  const data = await res.json().catch(() => ({ items: [] }))
-  return (data?.items || []) as { value: string; label: string }[]
-}
-
-const fields: CrudField[] = [
-  { id: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Write a clear title' },
-  { id: 'cf_severity', label: 'Severity', type: 'select', options: [
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-  ], description: 'How severe is this todo?' },
-  { id: 'cf_blocked', label: 'Blocked', type: 'checkbox', description: 'Mark if this is currently blocked' },
-  { id: 'cf_labels', label: 'Labels', type: 'tags', description: 'Add labels, press Enter to confirm' },
-  { id: 'cf_assignee', label: 'Assignee', type: 'relation', placeholder: 'Search people…', description: 'Pick one assignee', loadOptions: assigneeLoader },
-  { id: 'cf_description', label: 'Description', type: 'richtext', editor: 'html', description: 'Supports basic formatting' },
-  { id: 'is_done', label: 'Done', type: 'checkbox' },
-]
 
 export default function CreateTodoPage() {
+  const [fields, setFields] = React.useState<CrudField[]>([])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await fetch(`/api/custom_fields/definitions?entityId=example:todo`)
+        const data = await res.json().catch(() => ({ items: [] }))
+        const defs: Array<{ key: string; kind: string; label?: string; description?: string; options?: string[]; multi?: boolean; formEditable?: boolean }> = data?.items || []
+        const out: CrudField[] = []
+        // Base fields
+        out.push({ id: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Write a clear title' })
+        // Custom fields editable in forms
+        for (const d of defs) {
+          if (!d.formEditable) continue
+          const id = `cf_${d.key}`
+          const label = d.label || d.key
+          if (d.kind === 'boolean') out.push({ id, label, type: 'checkbox', description: d.description })
+          else if (d.kind === 'integer' || d.kind === 'float') out.push({ id, label, type: 'number', description: d.description })
+          else if (d.kind === 'multiline') out.push({ id, label, type: 'textarea', description: d.description })
+          else if (d.kind === 'select') {
+            const options = (d.options || []).map((o) => ({ value: o, label: o[0]?.toUpperCase() + o.slice(1) }))
+            out.push({ id, label, type: 'select', options, multiple: !!d.multi, description: d.description })
+          } else out.push({ id, label, type: 'text', description: d.description })
+        }
+        out.push({ id: 'is_done', label: 'Done', type: 'checkbox' })
+        if (!cancelled) setFields(out)
+      } catch (_) {}
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
   return (
     <Page>
       <PageBody>
         <CrudForm
           title="Create Todo"
           backHref="/backend/todos"
-          schema={todoCreateSchema}
           fields={fields}
           submitLabel="Create Todo"
           cancelHref="/backend/todos"
