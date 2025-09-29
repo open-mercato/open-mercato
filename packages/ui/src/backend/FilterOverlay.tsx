@@ -10,7 +10,7 @@ export type FilterDef = {
   type: 'text' | 'select' | 'checkbox' | 'dateRange' | 'tags'
   options?: FilterOption[]
   // Optional async loader for options (used by select/tags)
-  loadOptions?: () => Promise<FilterOption[]>
+  loadOptions?: (query?: string) => Promise<FilterOption[]>
   multiple?: boolean
   placeholder?: string
   group?: string
@@ -35,6 +35,7 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
   // Load dynamic options for filters that request it
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, FilterOption[]>>({})
   React.useEffect(() => {
+    if (!open) return
     let cancelled = false
     const loadAll = async () => {
       const loaders = filters
@@ -53,7 +54,7 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
     return () => {
       cancelled = true
     }
-  }, [filters])
+  }, [filters, open])
 
   const setValue = (id: string, v: any) => setValues((prev) => ({ ...prev, [id]: v }))
 
@@ -160,11 +161,22 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
                   )}
                   {f.type === 'tags' && (() => {
                     const arr: string[] = Array.isArray(values[f.id]) ? values[f.id] : []
-                    const options = f.options || dynamicOptions[f.id] || []
+                    const staticOptions = f.options || dynamicOptions[f.id] || []
+                    const loadSuggestions = (f as any).loadOptions
+                      ? async (q: string) => {
+                          try {
+                            const opts = await (f as any).loadOptions(q)
+                            return opts.map((o: FilterOption) => o.label)
+                          } catch {
+                            return []
+                          }
+                        }
+                      : undefined
                     return (
                       <TagsInput
                         value={arr}
-                        suggestions={options.map((o) => o.label)}
+                        suggestions={staticOptions.map((o) => o.label)}
+                        loadSuggestions={loadSuggestions}
                         placeholder={f.placeholder}
                         onChange={(next) => setValue(f.id, next.length ? next : undefined)}
                       />
@@ -202,13 +214,18 @@ function TagsInput({
   onChange,
   placeholder,
   suggestions,
+  loadSuggestions,
 }: {
   value: string[]
   onChange: (v: string[]) => void
   placeholder?: string
   suggestions?: string[]
+  loadSuggestions?: (q: string) => Promise<string[]>
 }) {
   const [input, setInput] = React.useState('')
+  const [asyncSugg, setAsyncSugg] = React.useState<string[] | null>(null)
+  const [loading, setLoading] = React.useState(false)
+  const [touched, setTouched] = React.useState(false)
 
   const add = (v: string) => {
     const t = v.trim()
@@ -217,11 +234,32 @@ function TagsInput({
   }
   const remove = (t: string) => onChange(value.filter((x) => x !== t))
 
-  const sugg = React.useMemo(() => {
-    const s = (suggestions || []).filter((t) => !value.includes(t))
+  // Debounced async suggestions
+  React.useEffect(() => {
+    if (!loadSuggestions) return
+    // only fetch after first focus/typing to avoid extra network on render
+    if (!touched) return
+    const q = input.trim()
+    let cancelled = false
+    const handle = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const items = await loadSuggestions(q)
+        if (!cancelled) setAsyncSugg(items)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }, 200)
+    return () => { cancelled = true; clearTimeout(handle) }
+  }, [input, loadSuggestions, touched])
+
+  const merged = React.useMemo(() => {
+    const base = (asyncSugg ?? suggestions ?? [])
+    const unique = Array.from(new Set(base))
+    const withoutSelected = unique.filter((t) => !value.includes(t))
     const q = input.toLowerCase().trim()
-    return q ? s.filter((t) => t.toLowerCase().includes(q)) : s.slice(0, 8)
-  }, [suggestions, value, input])
+    return q ? withoutSelected.filter((t) => t.toLowerCase().includes(q)) : withoutSelected.slice(0, 8)
+  }, [asyncSugg, suggestions, value, input])
 
   return (
     <div className="w-full rounded border px-2 py-1">
@@ -240,8 +278,9 @@ function TagsInput({
         <input
           className="flex-1 min-w-[120px] border-0 outline-none py-1 text-sm"
           value={input}
-          placeholder={placeholder || 'Add tag and press Enter'}
-          onChange={(e) => setInput(e.target.value)}
+          placeholder={placeholder || 'Type to search tags'}
+          onFocus={() => setTouched(true)}
+          onChange={(e) => { setTouched(true); setInput(e.target.value) }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ',') {
               e.preventDefault()
@@ -256,9 +295,12 @@ function TagsInput({
             setInput('')
           }}
         />
-        {sugg.length ? (
+        {(loading && touched) ? (
+          <div className="basis-full mt-1 text-xs text-muted-foreground">Loading suggestions…</div>
+        ) : null}
+        {!loading && merged.length ? (
           <div className="basis-full mt-1 flex flex-wrap gap-1">
-            {sugg.map((t) => (
+            {merged.map((t) => (
               <button key={t} type="button" className="text-xs rounded border px-1.5 py-0.5 hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => add(t)}>
                 {t}
               </button>
