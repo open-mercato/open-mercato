@@ -61,6 +61,9 @@ const seedDefs: ModuleCli = {
         if (f.indexed !== undefined) configJson.indexed = f.indexed
         if (f.label !== undefined) configJson.label = f.label
         if (f.description !== undefined) configJson.description = f.description
+        // UI hints passthrough
+        if ((f as any).editor !== undefined) configJson.editor = (f as any).editor
+        if ((f as any).input !== undefined) configJson.input = (f as any).input
         if (!existing) {
           if (!dry) await em.persistAndFlush(em.create(CustomFieldDef, {
             entityId: s.entity,

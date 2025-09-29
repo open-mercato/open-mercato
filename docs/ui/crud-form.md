@@ -128,3 +128,24 @@ Provide a Zod schema via `schema`. Field-level errors are displayed under each f
 ## Notes
 - Keep field validation in Zod; mark `required: true` for labels only (the schema drives actual validation).
 - Prefer simple value shapes for portability (e.g., tags as `string[]`, relations as a single foreign key `string`).
+
+## Custom Fields → Editors and Inputs
+When `entityId` is provided, custom fields are fetched from `/api/custom_fields/definitions` and rendered automatically:
+
+- `kind: 'boolean'` → checkbox
+- `kind: 'integer'|'float'` → number input
+- `kind: 'select'` → select; `multi: true` renders multi-select checkboxes
+- `kind: 'text'` + `multi: true` → tags input (free-form tagging)
+- `kind: 'multiline'` → rich text area; you can choose the editor via definition `configJson.editor`:
+  - `markdown` → UIW Markdown editor
+  - `simpleMarkdown` → Simple toolbar markdown textarea
+  - `htmlRichText` → ContentEditable rich text (HTML value)
+
+Declare these hints via the DSL in your module:
+
+```ts
+defineFields(E.example.todo, [
+  cf.text('labels', { label: 'Labels', multi: true, input: 'tags' }),
+  cf.multiline('description', { label: 'Description', editor: 'markdown' }),
+])
+```

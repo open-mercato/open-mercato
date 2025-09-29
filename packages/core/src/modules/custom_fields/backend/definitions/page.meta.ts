@@ -3,5 +3,5 @@ export const metadata = {
   pageTitle: 'Definitions',
   pageGroup: 'Custom fields',
   pageOrder: 10,
+  icon: 'form',
 }
-
