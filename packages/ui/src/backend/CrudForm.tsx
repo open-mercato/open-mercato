@@ -523,22 +523,52 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             {options.map((opt) => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
           </select>
         )}
-        {f.type === 'select' && ((f as any).multiple) && (f as any).listbox === true && (
-          <select
-            multiple
-            size={Math.min(8, Math.max(4, options.length))}
-            className="w-full rounded border px-2 py-1 text-sm min-h-[120px]"
-            value={Array.isArray(value) ? (value as string[]) : []}
-            onChange={(e) => {
-              const sel = Array.from(e.currentTarget.selectedOptions).map((o) => o.value)
-              setValue(f.id, sel)
-            }}
-          >
-            {options.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        )}
+        {f.type === 'select' && ((f as any).multiple) && (f as any).listbox === true && (() => {
+          const selected: string[] = Array.isArray(value) ? (value as string[]) : []
+          const [query, setQuery] = React.useState('')
+          const filtered = React.useMemo(() => {
+            const q = query.toLowerCase().trim()
+            if (!q) return options
+            return options.filter(o => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q))
+          }, [options, query])
+          const toggle = (val: string) => {
+            const set = new Set(selected)
+            if (set.has(val)) set.delete(val)
+            else set.add(val)
+            setValue(f.id, Array.from(set))
+          }
+          return (
+            <div className="w-full">
+              <input
+                className="mb-2 w-full h-8 rounded border px-2 text-sm"
+                placeholder={(f as any).placeholder || 'Search...'}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <div className="rounded border max-h-48 overflow-auto divide-y">
+                {filtered.map((opt) => {
+                  const isSel = selected.includes(opt.value)
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => toggle(opt.value)}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${isSel ? 'bg-muted' : ''}`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <input type="checkbox" className="size-4" readOnly checked={isSel} />
+                        <span>{opt.label}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+                {!filtered.length ? (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">No matches</div>
+                ) : null}
+              </div>
+            </div>
+          )
+        })()}
         {f.type === 'select' && ((f as any).multiple) && !((f as any).listbox === true) && (
           <div className="flex flex-wrap gap-3">
             {options.map((opt) => {
