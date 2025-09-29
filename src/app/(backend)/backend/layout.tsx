@@ -27,7 +27,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   // Group entries and sort groups by the smallest priority/order among their roots
   const groupMap = new Map<string, {
     name: string,
-    items: { href: string; title: string; enabled?: boolean; icon: string; children?: { href: string; title: string; enabled?: boolean; icon: string }[] }[],
+    items: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode; children?: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode }[] }[],
     weight: number,
   }>()
   for (const e of entries) {
