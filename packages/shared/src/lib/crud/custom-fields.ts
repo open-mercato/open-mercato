@@ -60,9 +60,11 @@ export async function buildCustomFieldFiltersFromQuery(opts: {
 
   const defs = await opts.em.find(CustomFieldDef, {
     entityId: opts.entityId as string,
-    organizationId: { $in: [opts.orgId ?? null, null] as any },
-    tenantId: { $in: [opts.tenantId ?? null, null] as any },
     isActive: true,
+    $and: [
+      { $or: [ { organizationId: opts.orgId as any }, { organizationId: null } ] },
+      { $or: [ { tenantId: opts.tenantId as any }, { tenantId: null } ] },
+    ],
   })
   const byKey: Record<string, { kind: string; multi?: boolean }> = {}
   for (const d of defs) byKey[d.key] = { kind: d.kind, multi: Boolean((d as any).configJson?.multi) }

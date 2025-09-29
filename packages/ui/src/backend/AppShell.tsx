@@ -123,20 +123,21 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
                 {open && (
                   <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
                     {g.items.map((i) => {
-                      const active = pathname?.startsWith(i.href)
+                      const isParentActive = pathname === i.href
+                      const showChildren = !!pathname && pathname.startsWith(i.href)
                       const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
                       return (
                         <React.Fragment key={i.href}>
                           <Link
                             href={i.href}
                             className={`relative text-sm rounded inline-flex items-center ${base} ${
-                              active ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
+                              isParentActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
                             } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                             aria-disabled={i.enabled === false}
                             title={compact ? i.title : undefined}
                             onClick={() => setMobileOpen(false)}
                           >
-                            {active ? (
+                            {isParentActive ? (
                               <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
                             ) : null}
                             <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
@@ -145,7 +146,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
                             {!compact && <span>{i.title}</span>}
                           </Link>
                           {/* Inline children when parent is active */}
-                          {active && i.children && i.children.length > 0 ? (
+                          {showChildren && i.children && i.children.length > 0 ? (
                             <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-4' : ''}`}>
                               {i.children.map((c) => {
                                 const childActive = pathname?.startsWith(c.href)
