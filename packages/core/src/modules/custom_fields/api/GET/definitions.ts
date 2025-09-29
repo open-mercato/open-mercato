@@ -25,13 +25,21 @@ export default async function handler(req: Request) {
     isActive: true,
   })
 
+  // Choose best definition per key with clear tie-breakers:
+  // 1) Scope specificity: tenant > org > global
+  // 2) Latest updatedAt wins within same scope
+  const scopeScore = (x: any) => (x.tenantId ? 2 : 0) + (x.organizationId ? 1 : 0)
   const byKey = new Map<string, any>()
   for (const d of defs) {
     const existing = byKey.get(d.key)
-    const prefers = !existing ||
-      ((existing.organizationId == null) && d.organizationId != null) ||
-      ((existing.tenantId == null) && d.tenantId != null)
-    if (prefers) byKey.set(d.key, d)
+    if (!existing) { byKey.set(d.key, d); continue }
+    const sNew = scopeScore(d)
+    const sOld = scopeScore(existing)
+    if (sNew > sOld) { byKey.set(d.key, d); continue }
+    if (sNew < sOld) continue
+    const tNew = (d.updatedAt instanceof Date) ? d.updatedAt.getTime() : new Date(d.updatedAt).getTime()
+    const tOld = (existing.updatedAt instanceof Date) ? existing.updatedAt.getTime() : new Date(existing.updatedAt).getTime()
+    if (tNew >= tOld) byKey.set(d.key, d)
   }
 
   const items = Array.from(byKey.values()).map((d) => ({
