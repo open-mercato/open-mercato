@@ -12,9 +12,9 @@ export const fieldSets: CustomFieldSet[] = [
     cf.text('labels', { label: 'Labels', formEditable: true, multi: true, filterable: true, input: 'tags', optionsUrl: '/api/example/tags' }),
     // Rich description (markdown editor by default)
     cf.multiline('description', { label: 'Description', formEditable: true, editor: 'markdown' }),
-    // Assignees selection (multi-select) loaded dynamically from API
+    // Assignees selection (multi-select) loaded dynamically from API; render as listbox
     // Keep fallback options for initial UX; UI will use optionsUrl when present
-    cf.select('assignee', ['alice', 'bob', 'charlie', 'diana'], { label: 'Assignees', formEditable: true, multi: true, optionsUrl: '/api/example/assignees' }),
+    cf.select('assignee', ['alice', 'bob', 'charlie', 'diana'], { label: 'Assignees', formEditable: true, multi: true, optionsUrl: '/api/example/assignees', input: 'listbox' }),
   ], 'example'),
 
   

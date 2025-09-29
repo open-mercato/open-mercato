@@ -523,7 +523,23 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             {options.map((opt) => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
           </select>
         )}
-        {f.type === 'select' && ((f as any).multiple) && (
+        {f.type === 'select' && ((f as any).multiple) && (f as any).listbox === true && (
+          <select
+            multiple
+            size={Math.min(8, Math.max(4, options.length))}
+            className="w-full rounded border px-2 py-1 text-sm min-h-[120px]"
+            value={Array.isArray(value) ? (value as string[]) : []}
+            onChange={(e) => {
+              const sel = Array.from(e.currentTarget.selectedOptions).map((o) => o.value)
+              setValue(f.id, sel)
+            }}
+          >
+            {options.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        )}
+        {f.type === 'select' && ((f as any).multiple) && !((f as any).listbox === true) && (
           <div className="flex flex-wrap gap-3">
             {options.map((opt) => {
               const arr: string[] = Array.isArray(value) ? (value as string[]) : []

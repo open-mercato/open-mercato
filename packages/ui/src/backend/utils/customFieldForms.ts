@@ -50,6 +50,8 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
                 },
               }
             : {}),
+          // UI hint: render multi-select as listbox
+          ...(d.multi && d.input === 'listbox' ? { listbox: true } as any : {}),
         })
         break
       default:
