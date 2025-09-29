@@ -395,6 +395,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       <textarea
         ref={taRef}
         className="w-full min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
+        spellCheck={false}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
@@ -929,6 +930,7 @@ function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v:
       onKeyDown={handleKeyDown}
       onFocus={handleFocus}
       onBlur={handleBlur}
+      spellCheck={false}
     />
   )
 }

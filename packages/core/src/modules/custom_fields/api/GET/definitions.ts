@@ -18,12 +18,21 @@ export default async function handler(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
 
-  const defs = await em.find(CustomFieldDef, {
+  // Build safe $in arrays: always include null, add ids only when defined
+  const orgIn: (string | null)[] = [null]
+  if (auth.orgId) orgIn.push(auth.orgId)
+  const tenantIn: (string | null)[] = [null]
+  if (auth.tenantId) tenantIn.push(auth.tenantId)
+
+  const where = {
     entityId,
-    organizationId: { $in: [auth.orgId, null] as any },
-    tenantId: { $in: [auth.tenantId, null] as any },
     isActive: true,
-  })
+    $and: [
+      { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+      { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+    ],
+  } as any
+  const defs = await em.find(CustomFieldDef, where)
 
   // Choose best definition per key with clear tie-breakers:
   // 1) Scope specificity: tenant > org > global
