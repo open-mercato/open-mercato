@@ -6,6 +6,7 @@ export type CustomFieldDefDto = {
   label?: string
   description?: string
   options?: string[]
+  optionsUrl?: string
   multi?: boolean
   filterable?: boolean
   formEditable?: boolean

@@ -35,6 +35,8 @@ export type CustomFieldDefinition = {
   required?: boolean
   multi?: boolean // allow multiple values
   options?: string[] // for 'select'
+  // Optional dynamic options source for selects/tags relations
+  optionsUrl?: string
   defaultValue?: string | number | boolean | null
   filterable?: boolean
   // whether field should be editable in generated CRUD forms

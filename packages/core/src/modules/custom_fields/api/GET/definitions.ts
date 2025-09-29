@@ -58,6 +58,7 @@ export default async function handler(req: Request) {
     description: d.configJson?.description || undefined,
     multi: Boolean(d.configJson?.multi),
     options: Array.isArray(d.configJson?.options) ? d.configJson.options : undefined,
+    optionsUrl: typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined,
     filterable: Boolean(d.configJson?.filterable),
     formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
     // Optional UI hints for client renderers

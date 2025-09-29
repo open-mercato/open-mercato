@@ -36,12 +36,37 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
           description: d.description,
           options: (d.options || []).map((o) => ({ value: String(o), label: String(o) })),
           multiple: !!d.multi,
+          ...(d.optionsUrl
+            ? {
+                loadOptions: async () => {
+                  try {
+                    const res = await fetch(d.optionsUrl!)
+                    const json = await res.json()
+                    const items = Array.isArray(json?.items) ? json.items : []
+                    return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
+                  } catch {
+                    return []
+                  }
+                },
+              }
+            : {}),
         })
         break
       default:
         // If text + multi => render as tags input for free-form tagging
         if (d.kind === 'text' && d.multi) {
-          fields.push({ id, label, type: 'tags', description: d.description })
+          const base: any = { id, label, type: 'tags', description: d.description }
+          if (d.optionsUrl) {
+            base.loadOptions = async () => {
+              try {
+                const res = await fetch(d.optionsUrl!)
+                const json = await res.json()
+                const items = Array.isArray(json?.items) ? json.items : []
+                return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
+              } catch { return [] }
+            }
+          }
+          fields.push(base)
         } else {
           fields.push({ id, label, type: 'text', description: d.description })
         }

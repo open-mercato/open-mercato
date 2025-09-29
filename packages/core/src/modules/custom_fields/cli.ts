@@ -64,6 +64,7 @@ const seedDefs: ModuleCli = {
         // UI hints passthrough
         if ((f as any).editor !== undefined) configJson.editor = (f as any).editor
         if ((f as any).input !== undefined) configJson.input = (f as any).input
+        if ((f as any).optionsUrl !== undefined) configJson.optionsUrl = (f as any).optionsUrl
         if (!existing) {
           if (!dry) await em.persistAndFlush(em.create(CustomFieldDef, {
             entityId: s.entity,
