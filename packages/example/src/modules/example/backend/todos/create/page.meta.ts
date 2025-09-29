@@ -1,8 +1,8 @@
 export const metadata = {
+  requireAuth: true,
   pageTitle: 'Create Todo',
-  breadcrumb: [
-    { label: 'Todos', href: '/backend/todos' },
-    { label: 'Create' },
-  ],
+  pageGroup: 'Example',
+  pageOrder: 11,
+  icon: 'checkbox',
 }
 

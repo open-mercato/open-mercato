@@ -4,5 +4,5 @@ export const metadata = {
   pageTitle: 'Products',
   pageGroup: 'Example',
   pageOrder: 10,
+  navHidden: true,
 }
-

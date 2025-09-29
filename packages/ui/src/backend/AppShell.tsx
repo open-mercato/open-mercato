@@ -9,7 +9,7 @@ import { usePathname } from 'next/navigation'
 export type AppShellProps = {
   productName?: string
   email?: string
-  groups: { name: string; items: { href: string; title: string; icon: string; enabled?: boolean }[] }[]
+  groups: { name: string; items: { href: string; title: string; icon: string; enabled?: boolean; children?: { href: string; title: string; icon: string; enabled?: boolean }[] }[] }[]
   children: React.ReactNode
   rightHeaderSlot?: React.ReactNode
   sidebarCollapsedDefault?: boolean
@@ -69,6 +69,12 @@ const icons: Record<string, React.ReactNode> = {
   ),
   settings: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.26 1.3.73 1.77.47.47 1.11.73 1.77.73H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  ),
+  cogs: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M9.5 2l1 2.5a7.5 7.5 0 0 1 3 0L14.5 2l2 1.2-1 2.3a7.5 7.5 0 0 1 2.1 2.1l2.3-1 1.2 2-2.5 1a7.5 7.5 0 0 1 0 3l2.5 1-1.2 2-2.3-1a7.5 7.5 0 0 1-2.1 2.1l1 2.3-2 1.2-1-2.5a7.5 7.5 0 0 1-3 0L9.5 22l-2-1.2 1-2.3a7.5 7.5 0 0 1-2.1-2.1l-2.3 1-1.2-2 2.5-1a7.5 7.5 0 0 1 0-3L2 9.5l1.2-2 2.3 1a7.5 7.5 0 0 1 2.1-2.1L7.5 3.2 9.5 2z"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
   ),
   collection: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="4"/><rect x="3" y="10" width="18" height="10"/></svg>
@@ -188,6 +194,39 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
                           </span>
                           {!compact && <span>{i.title}</span>}
                         </Link>
+                      )
+                    })}
+                    {/* Nested children visible only when parent is active */}
+                    {g.items.map((i) => {
+                      const parentActive = pathname?.startsWith(i.href)
+                      if (!parentActive || !i.children || i.children.length === 0) return null
+                      return (
+                        <div key={i.href + ':children'} className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-4' : ''}`}>
+                          {i.children.map((c) => {
+                            const childActive = pathname?.startsWith(c.href)
+                            const base = compact ? 'w-10 h-8 justify-center' : 'px-2 py-1 gap-2'
+                            return (
+                              <Link
+                                key={c.href}
+                                href={c.href}
+                                className={`relative text-sm rounded inline-flex items-center ${base} ${
+                                  childActive ? 'bg-background border shadow-sm' : 'hover:bg-accent hover:text-accent-foreground'
+                                } ${c.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
+                                aria-disabled={c.enabled === false}
+                                title={compact ? c.title : undefined}
+                                onClick={() => setMobileOpen(false)}
+                              >
+                                {childActive ? (
+                                  <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                                ) : null}
+                                <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                                  {(c.icon && icons[c.icon]) ? icons[c.icon] : icons['list']}
+                                </span>
+                                {!compact && <span>{c.title}</span>}
+                              </Link>
+                            )
+                          })}
+                        </div>
                       )
                     })}
                   </div>

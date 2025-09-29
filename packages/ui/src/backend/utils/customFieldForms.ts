@@ -15,9 +15,19 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
       case 'float':
         fields.push({ id, label, type: 'number', description: d.description })
         break
-      case 'multiline':
-        fields.push({ id, label, type: 'textarea', description: d.description })
+      case 'multiline': {
+        // Prefer rich text editors for multiline; allow override via definition.editor
+        // Supported editor values:
+        // - 'markdown' (default) -> uiw markdown editor
+        // - 'simpleMarkdown'    -> SimpleMarkdownEditor
+        // - 'htmlRichText'      -> HtmlRichTextEditor
+        let editor: 'simple' | 'uiw' | 'html' = 'uiw'
+        if (d.editor === 'simpleMarkdown') editor = 'simple'
+        else if (d.editor === 'htmlRichText') editor = 'html'
+        // Any other value (including 'markdown' or undefined) falls back to 'uiw'
+        fields.push({ id, label, type: 'richtext', description: d.description, editor })
         break
+      }
       case 'select':
         fields.push({
           id,
@@ -29,7 +39,12 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
         })
         break
       default:
-        fields.push({ id, label, type: 'text', description: d.description })
+        // If text + multi => render as tags input for free-form tagging
+        if (d.kind === 'text' && d.multi) {
+          fields.push({ id, label, type: 'tags', description: d.description })
+        } else {
+          fields.push({ id, label, type: 'text', description: d.description })
+        }
     }
   }
   return fields

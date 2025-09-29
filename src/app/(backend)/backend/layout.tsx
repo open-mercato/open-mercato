@@ -24,13 +24,30 @@ export default async function BackendLayout({ children, params }: { children: Re
 
   const ctx = { auth, path }
   const entries = await buildAdminNav(modules as any[], ctx)
-  const groupNames = Array.from(new Set(entries.map((i) => i.group)))
-  const groups = groupNames.map((name) => ({
-    name,
-    items: entries
-      .filter((i) => i.group === name)
-      .map((i) => ({ href: i.href, title: i.title, enabled: i.enabled, icon: i.icon })),
-  }))
+  // Group entries and sort groups by the smallest priority/order among their roots
+  const groupMap = new Map<string, {
+    name: string,
+    items: { href: string; title: string; enabled?: boolean; icon: string; children?: { href: string; title: string; enabled?: boolean; icon: string }[] }[],
+    weight: number,
+  }>()
+  for (const e of entries) {
+    const w = (e.priority ?? e.order ?? 10_000)
+    if (!groupMap.has(e.group)) {
+      groupMap.set(e.group, { name: e.group, items: [], weight: w })
+    } else {
+      const g = groupMap.get(e.group)!
+      if (w < g.weight) g.weight = w
+    }
+    const g = groupMap.get(e.group)!
+    g.items.push({
+      href: e.href,
+      title: e.title,
+      enabled: e.enabled,
+      icon: e.icon,
+      children: (e.children || []).map((c) => ({ href: c.href, title: c.title, enabled: c.enabled, icon: c.icon })),
+    })
+  }
+  const groups = Array.from(groupMap.values()).sort((a, b) => a.weight - b.weight)
 
   const current = entries.find((i) => path.startsWith(i.href))
   const currentTitle = current?.title || ''

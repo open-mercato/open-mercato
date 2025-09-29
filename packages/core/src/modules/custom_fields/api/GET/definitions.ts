@@ -43,8 +43,10 @@ export default async function handler(req: Request) {
     options: Array.isArray(d.configJson?.options) ? d.configJson.options : undefined,
     filterable: Boolean(d.configJson?.filterable),
     formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
+    // Optional UI hints for client renderers
+    editor: typeof d.configJson?.editor === 'string' ? d.configJson.editor : undefined,
+    input: typeof d.configJson?.input === 'string' ? d.configJson.input : undefined,
   }))
 
   return NextResponse.json({ items })
 }
-

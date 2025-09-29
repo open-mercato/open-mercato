@@ -9,6 +9,9 @@ export type CustomFieldDefDto = {
   multi?: boolean
   filterable?: boolean
   formEditable?: boolean
+  // Optional UI hints
+  editor?: string
+  input?: string
 }
 
 export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): FilterDef[] {

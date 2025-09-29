@@ -4,7 +4,9 @@ export type AdminNavItem = {
   href: string
   enabled: boolean
   order?: number
+  priority?: number
   icon: string
+  children?: AdminNavItem[]
 }
 
 export async function buildAdminNav(
@@ -55,18 +57,45 @@ export async function buildAdminNav(
         if (!ok) continue
       }
       const order = (r as any).order as number | undefined
+      const priority = ((r as any).priority as number | undefined) ?? order
       let icon = (r as any).icon as string | undefined
       if (!icon) icon = deriveIcon(`${group} ${title} ${href}`)
       if (!icon) icon = 'list'
-      entries.push({ group, title, href, enabled, order, icon })
+      entries.push({ group, title, href, enabled, order, priority, icon })
     }
   }
-  entries.sort((a, b) => {
-    if (a.group !== b.group) return a.group.localeCompare(b.group)
-    const ao = a.order ?? 10_000
-    const bo = b.order ?? 10_000
-    if (ao !== bo) return ao - bo
-    return a.title.localeCompare(b.title)
-  })
-  return entries
+  // Build hierarchy: treat routes whose href starts with a parent href + '/'
+  const byHref = new Map<string, AdminNavItem>()
+  for (const e of entries) byHref.set(e.href, e)
+  const roots: AdminNavItem[] = []
+  for (const e of entries) {
+    // Find the longest parent href that is a strict prefix and within same group
+    let parent: AdminNavItem | undefined
+    for (const p of entries) {
+      if (p === e) continue
+      if (p.group !== e.group) continue
+      if (!e.href.startsWith(p.href + '/')) continue
+      if (!parent || p.href.length > parent.href.length) parent = p
+    }
+    if (parent) {
+      parent.children = parent.children || []
+      parent.children.push(e)
+    } else {
+      roots.push(e)
+    }
+  }
+
+  // Sorting: group, then priority/order, then title. Apply within children too.
+  const sortItems = (arr: AdminNavItem[]) => {
+    arr.sort((a, b) => {
+      if (a.group !== b.group) return a.group.localeCompare(b.group)
+      const ap = a.priority ?? a.order ?? 10_000
+      const bp = b.priority ?? b.order ?? 10_000
+      if (ap !== bp) return ap - bp
+      return a.title.localeCompare(b.title)
+    })
+    for (const it of arr) if (it.children?.length) sortItems(it.children)
+  }
+  sortItems(roots)
+  return roots
 }
