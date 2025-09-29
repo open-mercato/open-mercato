@@ -18,20 +18,37 @@ export default async function handler(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
 
-  const defs = await em.find(CustomFieldDef, {
-    entityId,
-    organizationId: { $in: [auth.orgId, null] as any },
-    tenantId: { $in: [auth.tenantId, null] as any },
-    isActive: true,
-  })
+  // Build safe $in arrays: always include null, add ids only when defined
+  const orgIn: (string | null)[] = [null]
+  if (auth.orgId) orgIn.push(auth.orgId)
+  const tenantIn: (string | null)[] = [null]
+  if (auth.tenantId) tenantIn.push(auth.tenantId)
 
+  const where = {
+    entityId,
+    isActive: true,
+    $and: [
+      { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+      { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+    ],
+  } as any
+  const defs = await em.find(CustomFieldDef, where)
+
+  // Choose best definition per key with clear tie-breakers:
+  // 1) Scope specificity: tenant > org > global
+  // 2) Latest updatedAt wins within same scope
+  const scopeScore = (x: any) => (x.tenantId ? 2 : 0) + (x.organizationId ? 1 : 0)
   const byKey = new Map<string, any>()
   for (const d of defs) {
     const existing = byKey.get(d.key)
-    const prefers = !existing ||
-      ((existing.organizationId == null) && d.organizationId != null) ||
-      ((existing.tenantId == null) && d.tenantId != null)
-    if (prefers) byKey.set(d.key, d)
+    if (!existing) { byKey.set(d.key, d); continue }
+    const sNew = scopeScore(d)
+    const sOld = scopeScore(existing)
+    if (sNew > sOld) { byKey.set(d.key, d); continue }
+    if (sNew < sOld) continue
+    const tNew = (d.updatedAt instanceof Date) ? d.updatedAt.getTime() : new Date(d.updatedAt).getTime()
+    const tOld = (existing.updatedAt instanceof Date) ? existing.updatedAt.getTime() : new Date(existing.updatedAt).getTime()
+    if (tNew >= tOld) byKey.set(d.key, d)
   }
 
   const items = Array.from(byKey.values()).map((d) => ({
@@ -41,10 +58,13 @@ export default async function handler(req: Request) {
     description: d.configJson?.description || undefined,
     multi: Boolean(d.configJson?.multi),
     options: Array.isArray(d.configJson?.options) ? d.configJson.options : undefined,
+    optionsUrl: typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined,
     filterable: Boolean(d.configJson?.filterable),
     formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
+    // Optional UI hints for client renderers
+    editor: typeof d.configJson?.editor === 'string' ? d.configJson.editor : undefined,
+    input: typeof d.configJson?.input === 'string' ? d.configJson.input : undefined,
   }))
 
   return NextResponse.json({ items })
 }
-

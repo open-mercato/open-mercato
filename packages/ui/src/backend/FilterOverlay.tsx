@@ -7,8 +7,10 @@ export type FilterOption = { value: string; label: string }
 export type FilterDef = {
   id: string
   label: string
-  type: 'text' | 'select' | 'checkbox' | 'dateRange'
+  type: 'text' | 'select' | 'checkbox' | 'dateRange' | 'tags'
   options?: FilterOption[]
+  // Optional async loader for options (used by select/tags)
+  loadOptions?: (query?: string) => Promise<FilterOption[]>
   multiple?: boolean
   placeholder?: string
   group?: string
@@ -29,6 +31,30 @@ export type FilterOverlayProps = {
 export function FilterOverlay({ title = 'Filters', filters, initialValues, open, onOpenChange, onApply, onClear }: FilterOverlayProps) {
   const [values, setValues] = React.useState<FilterValues>(initialValues)
   React.useEffect(() => setValues(initialValues), [initialValues])
+
+  // Load dynamic options for filters that request it
+  const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, FilterOption[]>>({})
+  React.useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    const loadAll = async () => {
+      const loaders = filters
+        .filter((f): f is FilterDef & { loadOptions: () => Promise<FilterOption[]> } => (f as any).loadOptions != null)
+        .map(async (f) => {
+          try {
+            const opts = await (f as any).loadOptions()
+            if (!cancelled) setDynamicOptions((prev) => ({ ...prev, [f.id]: opts }))
+          } catch {
+            // ignore
+          }
+        })
+      await Promise.all(loaders)
+    }
+    loadAll()
+    return () => {
+      cancelled = true
+    }
+  }, [filters, open])
 
   const setValue = (id: string, v: any) => setValues((prev) => ({ ...prev, [id]: v }))
 
@@ -99,7 +125,7 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
                     <div className="space-y-1">
                       {f.multiple ? (
                         <div className="flex flex-col gap-1">
-                          {f.options?.map((opt) => {
+                          {(f.options || dynamicOptions[f.id] || []).map((opt) => {
                             const arr: string[] = Array.isArray(values[f.id]) ? values[f.id] : []
                             const checked = arr.includes(opt.value)
                             return (
@@ -126,13 +152,36 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
                           onChange={(e) => setValue(f.id, e.target.value || undefined)}
                         >
                           <option value="">—</option>
-                          {f.options?.map((opt) => (
+                          {(f.options || dynamicOptions[f.id] || []).map((opt) => (
                             <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}
                         </select>
                       )}
                     </div>
                   )}
+                  {f.type === 'tags' && (() => {
+                    const arr: string[] = Array.isArray(values[f.id]) ? values[f.id] : []
+                    const staticOptions = f.options || dynamicOptions[f.id] || []
+                    const loadSuggestions = (f as any).loadOptions
+                      ? async (q: string) => {
+                          try {
+                            const opts = await (f as any).loadOptions(q)
+                            return opts.map((o: FilterOption) => o.label)
+                          } catch {
+                            return []
+                          }
+                        }
+                      : undefined
+                    return (
+                      <TagsInput
+                        value={arr}
+                        suggestions={staticOptions.map((o) => o.label)}
+                        loadSuggestions={loadSuggestions}
+                        placeholder={f.placeholder}
+                        onChange={(next) => setValue(f.id, next.length ? next : undefined)}
+                      />
+                    )
+                  })()}
                   {f.type === 'checkbox' && (
                     <label className="inline-flex items-center gap-2">
                       <input
@@ -157,5 +206,108 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
         </div>
       )}
     </>
+  )
+}
+
+function TagsInput({
+  value,
+  onChange,
+  placeholder,
+  suggestions,
+  loadSuggestions,
+}: {
+  value: string[]
+  onChange: (v: string[]) => void
+  placeholder?: string
+  suggestions?: string[]
+  loadSuggestions?: (q: string) => Promise<string[]>
+}) {
+  const [input, setInput] = React.useState('')
+  const [asyncSugg, setAsyncSugg] = React.useState<string[] | null>(null)
+  const [loading, setLoading] = React.useState(false)
+  const [touched, setTouched] = React.useState(false)
+
+  const add = (v: string) => {
+    const t = v.trim()
+    if (!t) return
+    if (!value.includes(t)) onChange([...value, t])
+  }
+  const remove = (t: string) => onChange(value.filter((x) => x !== t))
+
+  // Debounced async suggestions
+  React.useEffect(() => {
+    if (!loadSuggestions) return
+    // only fetch after first focus/typing to avoid extra network on render
+    if (!touched) return
+    const q = input.trim()
+    let cancelled = false
+    const handle = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const items = await loadSuggestions(q)
+        if (!cancelled) setAsyncSugg(items)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }, 200)
+    return () => { cancelled = true; clearTimeout(handle) }
+  }, [input, loadSuggestions, touched])
+
+  const merged = React.useMemo(() => {
+    const base = (asyncSugg ?? suggestions ?? [])
+    const unique = Array.from(new Set(base))
+    const withoutSelected = unique.filter((t) => !value.includes(t))
+    const q = input.toLowerCase().trim()
+    return q ? withoutSelected.filter((t) => t.toLowerCase().includes(q)) : withoutSelected.slice(0, 8)
+  }, [asyncSugg, suggestions, value, input])
+
+  return (
+    <div className="w-full rounded border px-2 py-1">
+      <div className="flex flex-wrap gap-1">
+        {value.map((t) => (
+          <span
+            key={t}
+            className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs"
+          >
+            {t}
+            <button type="button" className="opacity-60 hover:opacity-100" onClick={() => remove(t)}>
+              ×
+            </button>
+          </span>
+        ))}
+        <input
+          className="flex-1 min-w-[120px] border-0 outline-none py-1 text-sm"
+          value={input}
+          placeholder={placeholder || 'Type to search tags'}
+          onFocus={() => setTouched(true)}
+          onChange={(e) => { setTouched(true); setInput(e.target.value) }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ',') {
+              e.preventDefault()
+              add(input)
+              setInput('')
+            } else if (e.key === 'Backspace' && input === '' && value.length > 0) {
+              remove(value[value.length - 1])
+            }
+          }}
+          onBlur={() => {
+            add(input)
+            setInput('')
+          }}
+        />
+        {(loading && touched) ? (
+          <div className="basis-full mt-1 text-xs text-muted-foreground">Loading suggestions…</div>
+        ) : null}
+        {!loading && merged.length ? (
+          <div className="basis-full mt-1 flex flex-wrap gap-1">
+            {merged.map((t) => (
+              <button key={t} type="button" className="text-xs rounded border px-1.5 py-0.5 hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => add(t)}>
+                {t}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
   )
 }

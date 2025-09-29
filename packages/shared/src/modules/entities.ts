@@ -35,11 +35,21 @@ export type CustomFieldDefinition = {
   required?: boolean
   multi?: boolean // allow multiple values
   options?: string[] // for 'select'
+  // Optional dynamic options source for selects/tags relations
+  optionsUrl?: string
   defaultValue?: string | number | boolean | null
   filterable?: boolean
   // whether field should be editable in generated CRUD forms
   formEditable?: boolean
   indexed?: boolean
+  // Optional UI hints for generated forms/filters
+  // Editors for multiline-rich text fields:
+  //  - 'markdown' -> UIW Markdown editor
+  //  - 'simpleMarkdown' -> minimal toolbar markdown
+  //  - 'htmlRichText' -> contenteditable rich text
+  editor?: 'markdown' | 'simpleMarkdown' | 'htmlRichText'
+  // Input hint for plain text fields (e.g., tags input when multi=true)
+  input?: 'tags'
 }
 
 export type CustomFieldSet = {

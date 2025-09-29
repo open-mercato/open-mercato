@@ -3,6 +3,11 @@ import { renderToString } from 'react-dom/server'
 import { DataTable } from '../DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 
+// Mock next/navigation for SSR compatibility of client components
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
+}))
+
 type Row = { id: string; name: string }
 
 describe('DataTable SSR render', () => {
@@ -26,4 +31,3 @@ describe('DataTable SSR render', () => {
     expect(html).toContain('Name')
   })
 })
-

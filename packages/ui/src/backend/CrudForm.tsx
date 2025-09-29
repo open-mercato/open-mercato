@@ -264,21 +264,39 @@ type MDEditorProps = {
 const MDEditor = dynamic<MDEditorProps>(() => import('@uiw/react-md-editor'), { ssr: false });
 const MarkdownEditor = React.memo(({ value = '', onChange }: MDProps) => {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const [local, setLocal] = React.useState<string>(value)
+  const typingRef = React.useRef(false)
+
+  // Sync down from parent when not actively typing
+  React.useEffect(() => {
+    if (!typingRef.current) setLocal(value)
+  }, [value])
+
   const handleChange = React.useCallback((v?: string) => {
-    onChange(v ?? '')
+    typingRef.current = true
+    setLocal(v ?? '')
+  }, [])
+
+  const commit = React.useCallback(() => {
+    if (!typingRef.current) return
+    typingRef.current = false
+    const current = local
+    onChange(current)
     // Try to preserve focus after parent re-render
     requestAnimationFrame(() => {
       const ta = containerRef.current?.querySelector('textarea') as HTMLTextAreaElement | null
       ta?.focus()
     })
-  }, [onChange])
+  }, [local, onChange])
   return (
     <div ref={containerRef} data-color-mode="light" className="w-full">
       <MDEditor
-        value={value}
+        value={local}
         height={220}
         onChange={handleChange}
         previewOptions={{ remarkPlugins: [remarkGfm] }}
+        // Commit changes only on blur to avoid parent re-render while typing
+        onBlur={commit as any}
       />
     </div>
   )
@@ -289,13 +307,14 @@ type HtmlRTProps = { value?: string; onChange: (html: string) => void }
 const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', onChange }: HtmlRTProps) {
   const ref = React.useRef<HTMLDivElement | null>(null)
   const applyingExternal = React.useRef(false)
+  const typingRef = React.useRef(false)
 
   // Sync DOM when external value changes (but don't fight user typing)
   React.useEffect(() => {
     const el = ref.current
     if (!el) return
     const current = el.innerHTML
-    if (current !== value) {
+    if (!typingRef.current && current !== value) {
       applyingExternal.current = true
       el.innerHTML = value || ''
       // release the flag next tick
@@ -309,7 +328,7 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
     el.focus()
     try {
       document.execCommand(cmd, false, arg)
-      onChange(el.innerHTML)
+      // do not call onChange eagerly; rely on blur commit
     } catch (_) {}
   }
 
@@ -347,9 +366,12 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
         contentEditable
         suppressContentEditableWarning
         onKeyDown={onKeyDown}
-        onInput={(e) => {
-          if (applyingExternal.current) return
-          onChange((e.target as HTMLDivElement).innerHTML)
+        onInput={() => { if (!applyingExternal.current) typingRef.current = true }}
+        onBlur={() => {
+          const el = ref.current
+          if (!el) return
+          typingRef.current = false
+          onChange(el.innerHTML)
         }}
       />
     </div>
@@ -360,6 +382,12 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
 type SimpleMDProps = { value?: string; onChange: (md: string) => void }
 const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange }: SimpleMDProps) {
   const taRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const [local, setLocal] = React.useState<string>(value)
+  const typingRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!typingRef.current) setLocal(value)
+  }, [value])
 
   const wrap = (before: string, after: string = before) => {
     const el = taRef.current
@@ -395,8 +423,10 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       <textarea
         ref={taRef}
         className="w-full min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        spellCheck={false}
+        value={local}
+        onChange={(e) => { typingRef.current = true; setLocal(e.target.value) }}
+        onBlur={() => { if (typingRef.current) { typingRef.current = false; onChange(local) } }}
         onKeyDown={onKeyDown}
         placeholder="Write markdown..."
       />
@@ -475,7 +505,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'tags' && (
-          <TagsInput value={Array.isArray(value) ? (value as string[]) : []} onChange={fieldSetValue} placeholder={(f as any).placeholder} />
+          <TagsInput value={Array.isArray(value) ? (value as string[]) : []} onChange={fieldSetValue} placeholder={(f as any).placeholder} suggestions={options.map((o) => o.label)} />
         )}
         {f.type === 'checkbox' && (
           <label className="inline-flex items-center gap-2">
@@ -493,7 +523,53 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             {options.map((opt) => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
           </select>
         )}
-        {f.type === 'select' && ((f as any).multiple) && (
+        {f.type === 'select' && ((f as any).multiple) && (f as any).listbox === true && (() => {
+          const selected: string[] = Array.isArray(value) ? (value as string[]) : []
+          const [query, setQuery] = React.useState('')
+          const filtered = React.useMemo(() => {
+            const q = query.toLowerCase().trim()
+            if (!q) return options
+            return options.filter(o => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q))
+          }, [options, query])
+          const toggle = (val: string) => {
+            const set = new Set(selected)
+            if (set.has(val)) set.delete(val)
+            else set.add(val)
+            setValue(f.id, Array.from(set))
+          }
+          return (
+            <div className="w-full">
+              <input
+                className="mb-2 w-full h-8 rounded border px-2 text-sm"
+                placeholder={(f as any).placeholder || 'Search...'}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <div className="rounded border max-h-48 overflow-auto divide-y">
+                {filtered.map((opt) => {
+                  const isSel = selected.includes(opt.value)
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => toggle(opt.value)}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${isSel ? 'bg-muted' : ''}`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <input type="checkbox" className="size-4" readOnly checked={isSel} />
+                        <span>{opt.label}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+                {!filtered.length ? (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">No matches</div>
+                ) : null}
+              </div>
+            </div>
+          )
+        })()}
+        {f.type === 'select' && ((f as any).multiple) && !((f as any).listbox === true) && (
           <div className="flex flex-wrap gap-3">
             {options.map((opt) => {
               const arr: string[] = Array.isArray(value) ? (value as string[]) : []
@@ -780,10 +856,12 @@ function TagsInput({
   value,
   onChange,
   placeholder,
+  suggestions,
 }: {
   value: string[]
   onChange: (v: string[]) => void
   placeholder?: string
+  suggestions?: string[]
 }) {
   const [input, setInput] = React.useState('')
 
@@ -793,6 +871,12 @@ function TagsInput({
     if (!value.includes(t)) onChange([...value, t])
   }
   const remove = (t: string) => onChange(value.filter((x) => x !== t))
+
+  const sugg = React.useMemo(() => {
+    const s = (suggestions || []).filter((t) => !value.includes(t))
+    const q = input.toLowerCase().trim()
+    return q ? s.filter((t) => t.toLowerCase().includes(q)) : s.slice(0, 8)
+  }, [suggestions, value, input])
 
   return (
     <div className="w-full rounded border px-2 py-1">
@@ -827,6 +911,15 @@ function TagsInput({
             setInput('')
           }}
         />
+        {sugg.length ? (
+          <div className="basis-full mt-1 flex flex-wrap gap-1">
+            {sugg.map((t) => (
+              <button key={t} type="button" className="text-xs rounded border px-1.5 py-0.5 hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => add(t)}>
+                {t}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -929,6 +1022,7 @@ function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v:
       onKeyDown={handleKeyDown}
       onFocus={handleFocus}
       onBlur={handleBlur}
+      spellCheck={false}
     />
   )
 }

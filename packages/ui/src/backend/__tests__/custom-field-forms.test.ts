@@ -21,8 +21,8 @@ describe('buildFormFieldsFromCustomFields', () => {
     if (byId['cf_labels']?.type === 'select') {
       expect(byId['cf_labels'].multiple).toBe(true)
     }
-    expect(byId['cf_notes']?.type).toBe('textarea')
+    // Multiline now defaults to richtext (markdown editor)
+    expect(byId['cf_notes']?.type).toBe('richtext')
     expect(byId['cf_hidden']).toBeUndefined()
   })
 })
-

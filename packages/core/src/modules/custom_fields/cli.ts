@@ -61,6 +61,10 @@ const seedDefs: ModuleCli = {
         if (f.indexed !== undefined) configJson.indexed = f.indexed
         if (f.label !== undefined) configJson.label = f.label
         if (f.description !== undefined) configJson.description = f.description
+        // UI hints passthrough
+        if ((f as any).editor !== undefined) configJson.editor = (f as any).editor
+        if ((f as any).input !== undefined) configJson.input = (f as any).input
+        if ((f as any).optionsUrl !== undefined) configJson.optionsUrl = (f as any).optionsUrl
         if (!existing) {
           if (!dry) await em.persistAndFlush(em.create(CustomFieldDef, {
             entityId: s.entity,
@@ -83,6 +87,96 @@ const seedDefs: ModuleCli = {
       }
     }
     console.log(`Field definitions ensured: created=${created}, updated=${updated}${dry ? ' (dry-run)' : ''}`)
+  },
+}
+
+// Reinstall: remove existing definitions for target scope and re-seed from modules
+const reinstallDefs: ModuleCli = {
+  command: 'reinstall',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const orgIdArg = (args.org as string) || (args.organizationId as string)
+    const tenantIdArg = (args.tenant as string) || (args.tenantId as string)
+    const globalFlag = Boolean(args.global)
+    const dry = Boolean(args['dry-run'] || args.dry)
+    if (!globalFlag && !orgIdArg) {
+      console.error('Usage: mercato custom_fields reinstall [--global] [--org <id>] [--tenant <id>] [--dry-run]')
+      return
+    }
+    const targetOrgId = globalFlag ? null : (orgIdArg as string)
+    const targetTenantId = globalFlag ? null : (tenantIdArg as string)
+
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
+
+    // Collect all declared fieldSets from enabled modules to know which entities to reset
+    const { modules } = await import('@/generated/modules.generated')
+    const sets: Array<{ entity: string; fields: any[] }> = []
+    for (const m of modules) {
+      const fieldSets = (m as any).customFieldSets as any[] | undefined
+      if (!fieldSets?.length) continue
+      for (const s of fieldSets) sets.push({ entity: s.entity, fields: s.fields })
+    }
+    if (!sets.length) { console.log('No fieldSets declared by modules. Nothing to reinstall.'); return }
+
+    const entityIds = Array.from(new Set(sets.map((s) => s.entity)))
+
+    // Delete current definitions for those entities in the exact target scope
+    const whereBase: any = { entityId: { $in: entityIds }, isActive: true }
+    if (targetOrgId == null) whereBase.organizationId = null
+    else whereBase.organizationId = targetOrgId
+    if (targetTenantId == null) whereBase.tenantId = null
+    else whereBase.tenantId = targetTenantId
+
+    const existingCount = await em.count(CustomFieldDef, whereBase)
+    if (dry) {
+      console.log(`Would delete ${existingCount} definition(s) for scope ${targetOrgId ?? 'GLOBAL'} / ${targetTenantId ?? 'GLOBAL'}`)
+    } else if (existingCount > 0) {
+      await em.nativeDelete(CustomFieldDef, whereBase)
+      console.log(`Deleted ${existingCount} old definition(s) in scope ${targetOrgId ?? 'GLOBAL'} / ${targetTenantId ?? 'GLOBAL'}`)
+    }
+
+    // Re-seed like install
+    let created = 0, updated = 0
+    for (const s of sets) {
+      for (const f of s.fields) {
+        const where = { entityId: s.entity, organizationId: targetOrgId, tenantId: targetTenantId, key: f.key }
+        const existing = await em.findOne(CustomFieldDef, where)
+        const configJson: any = {}
+        if (f.options) configJson.options = f.options
+        if (f.defaultValue !== undefined) configJson.defaultValue = f.defaultValue
+        if (f.required !== undefined) configJson.required = f.required
+        if (f.multi !== undefined) configJson.multi = f.multi
+        if (f.filterable !== undefined) configJson.filterable = f.filterable
+        if ((f as any).formEditable !== undefined) configJson.formEditable = (f as any).formEditable
+        if (f.indexed !== undefined) configJson.indexed = f.indexed
+        if (f.label !== undefined) configJson.label = f.label
+        if (f.description !== undefined) configJson.description = f.description
+        if ((f as any).editor !== undefined) configJson.editor = (f as any).editor
+        if ((f as any).input !== undefined) configJson.input = (f as any).input
+
+        if (!existing) {
+          if (!dry) await em.persistAndFlush(em.create(CustomFieldDef, {
+            entityId: s.entity,
+            organizationId: targetOrgId,
+            tenantId: targetTenantId,
+            key: f.key,
+            kind: f.kind,
+            configJson,
+            isActive: true,
+          }))
+          created++
+        } else {
+          const patch: any = {}
+          if (existing.kind !== f.kind) patch.kind = f.kind
+          patch.configJson = configJson
+          patch.isActive = true
+          if (!dry) { em.assign(existing, patch); await em.flush() }
+          updated++
+        }
+      }
+    }
+    console.log(`Field definitions reinstalled: created=${created}, updated=${updated}${dry ? ' (dry-run)' : ''}`)
   },
 }
 
@@ -177,4 +271,4 @@ const addField: ModuleCli = {
 }
 
 // Keep default export stable (install first for help listing)
-export default [seedDefs, addField]
+export default [seedDefs, reinstallDefs, addField]

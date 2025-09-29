@@ -31,4 +31,15 @@ describe('buildFilterDefsFromCustomFields', () => {
     // non-filterable omitted
     expect(out.some(f => f.id === 'cf_hidden')).toBe(false)
   })
+
+  it('maps multi text to tags with async suggestions support', () => {
+    const defs: CustomFieldDefDto[] = [
+      { key: 'labels', kind: 'text', filterable: true, multi: true, options: ['bug','feature'] },
+    ]
+    const out = buildFilterDefsFromCustomFields(defs)
+    const labels = out.find(f => f.id === 'cf_labelsIn')!
+    expect(labels.type).toBe('tags')
+    if (labels.type !== 'tags') throw new Error('expected tags')
+    expect((labels.options || []).map((o) => o.value)).toEqual(['bug','feature'])
+  })
 })

@@ -15,7 +15,7 @@ export type PageMetadata = {
   // Ordering and visuals
   order?: number
   pageOrder?: number
-  icon?: string
+  icon?: ReactNode
   navHidden?: boolean
   // Dynamic flags
   visible?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
@@ -35,7 +35,7 @@ export type ModuleRoute = {
   requireRoles?: string[]
   title?: string
   group?: string
-  icon?: string
+  icon?: ReactNode
   order?: number
   navHidden?: boolean
   visible?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>

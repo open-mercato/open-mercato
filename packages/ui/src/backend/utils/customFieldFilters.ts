@@ -6,9 +6,13 @@ export type CustomFieldDefDto = {
   label?: string
   description?: string
   options?: string[]
+  optionsUrl?: string
   multi?: boolean
   filterable?: boolean
   formEditable?: boolean
+  // Optional UI hints
+  editor?: string
+  input?: string
 }
 
 export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): FilterDef[] {
@@ -17,10 +21,48 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
     if (!d.filterable) continue
     const id = `cf_${d.key}`
     const label = d.label || d.key
-    if (d.kind === 'boolean') f.push({ id, label, type: 'checkbox' })
-    else if (d.kind === 'select') {
+    if (d.kind === 'boolean') {
+      f.push({ id, label, type: 'checkbox' })
+    } else if (d.kind === 'select') {
       const options = (d.options || []).map((o) => ({ value: String(o), label: String(o).charAt(0).toUpperCase() + String(o).slice(1) }))
-      f.push({ id: d.multi ? `${id}In` : id, label, type: 'select', multiple: !!d.multi, options })
+      const base: FilterDef = { id: d.multi ? `${id}In` : id, label, type: 'select', multiple: !!d.multi, options }
+      // When optionsUrl is provided, allow async options loading for filters too
+      if (d.optionsUrl) {
+        ;(base as any).loadOptions = async () => {
+          try {
+            const res = await fetch(d.optionsUrl!)
+            const json = await res.json()
+            const items = Array.isArray(json?.items) ? json.items : []
+            return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
+          } catch {
+            return []
+          }
+        }
+      }
+      f.push(base)
+    } else if (d.kind === 'text' && d.multi) {
+      // Multi-text custom field → use tags input in filters
+      const base: FilterDef = {
+        id: `${id}In`,
+        label,
+        type: 'tags',
+        // If static options provided, pass them for suggestions
+        options: (d.options || []).map((o) => ({ value: String(o), label: String(o) })),
+      } as any
+      // Enable async suggestions when optionsUrl provided
+      if (d.optionsUrl) {
+        ;(base as any).loadOptions = async () => {
+          try {
+            const res = await fetch(d.optionsUrl!)
+            const json = await res.json()
+            const items = Array.isArray(json?.items) ? json.items : []
+            return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
+          } catch {
+            return []
+          }
+        }
+      }
+      f.push(base)
     } else {
       f.push({ id, label, type: 'text' })
     }

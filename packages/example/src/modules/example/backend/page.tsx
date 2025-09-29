@@ -12,9 +12,6 @@ export default function ExampleAdminIndex() {
           <div className="text-sm mb-2">Resources</div>
           <ul className="list-disc list-inside text-sm">
             <li>
-              <Link className="underline" href="/backend/products">Products list</Link>
-            </li>
-            <li>
               <Link className="underline" href="/backend/todos">Todos list</Link>
             </li>
           </ul>

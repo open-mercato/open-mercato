@@ -238,7 +238,7 @@ function scan() {
           metaExpr = `${pageModName}['metadata']`
           imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
-        backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`)
+        backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`)
       }
     }
 
