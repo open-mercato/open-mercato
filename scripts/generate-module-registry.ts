@@ -62,7 +62,16 @@ function scan() {
       }
       if (fs.existsSync(fePkg)) walk(fePkg)
       if (fs.existsSync(feApp)) walk(feApp)
-      const files = Array.from(new Set(found))
+      let files = Array.from(new Set(found))
+      // Ensure static routes win over dynamic ones (e.g., 'create' before '[id]')
+      const isDynamic = (p: string) => /\/(\[|\[\[\.\.\.)/.test(p) || /^\[/.test(p)
+      files.sort((a, b) => {
+        const ad = isDynamic(a) ? 1 : 0
+        const bd = isDynamic(b) ? 1 : 0
+        if (ad !== bd) return ad - bd // static first
+        // Longer, more specific paths later to not shadow peers
+        return a.localeCompare(b)
+      })
       // Next-style page.tsx
       for (const rel of files.filter(f => f.endsWith('/page.tsx') || f === 'page.tsx')) {
         const segs = rel.split('/')
@@ -174,7 +183,14 @@ function scan() {
       }
       if (fs.existsSync(bePkg)) walk(bePkg)
       if (fs.existsSync(beApp)) walk(beApp)
-      const files = Array.from(new Set(found))
+      let files = Array.from(new Set(found))
+      const isDynamic = (p: string) => /\/(\[|\[\[\.\.\.)/.test(p) || /^\[/.test(p)
+      files.sort((a, b) => {
+        const ad = isDynamic(a) ? 1 : 0
+        const bd = isDynamic(b) ? 1 : 0
+        if (ad !== bd) return ad - bd
+        return a.localeCompare(b)
+      })
       // Next-style
       for (const rel of files.filter(f => f.endsWith('/page.tsx') || f === 'page.tsx')) {
         const segs = rel.split('/')

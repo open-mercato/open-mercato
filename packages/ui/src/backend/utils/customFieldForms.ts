@@ -30,6 +30,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
         break
       }
       case 'select':
+      case 'relation':
         fields.push({
           id,
           label,
