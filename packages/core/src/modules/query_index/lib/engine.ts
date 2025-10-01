@@ -8,43 +8,76 @@ export class HybridQueryEngine implements QueryEngine {
   constructor(private em: EntityManager, private fallback: BasicQueryEngine) {}
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
-    if (!(await this.indexAvailable(entity))) {
+    // Base table first; left-join index for cf:* only
+    const knex = (this.em as any).getConnection().getKnex()
+    const [, name] = entity.split(':')
+    const baseTable = name.endsWith('s') ? name : `${name}s`
+
+    // Fallback when base table is missing
+    const baseExists = await this.tableExists(baseTable)
+    if (!baseExists) return this.fallback.query(entity, opts)
+
+    // Heuristic: if query needs cf:* but there are no index rows for this entity, fall back
+    const arrayFilters = this.normalizeFilters(opts.filters)
+    const wantsCf = (
+      (opts.fields || []).some((f) => typeof f === 'string' && f.startsWith('cf:')) ||
+      arrayFilters.some((f) => f.field.startsWith('cf:')) ||
+      opts.includeCustomFields === true ||
+      (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.length > 0)
+    )
+    if (wantsCf && !(await this.indexAnyRows(entity))) {
       return this.fallback.query(entity, opts)
     }
-    const knex = (this.em as any).getConnection().getKnex()
-    const table = 'entity_indexes'
-    let q = knex({ ei: table }).where('ei.entity_type', entity)
 
-    // Multi-tenant guard
-    if (opts.organizationId) q = q.andWhere('ei.organization_id', opts.organizationId)
-    if (opts.tenantId) q = q.andWhere('ei.tenant_id', opts.tenantId)
-    if (!opts.withDeleted) q = q.whereNull('ei.deleted_at')
+    const qualify = (col: string) => `b.${col}`
+    let q = knex({ b: baseTable })
+
+    // Multi-tenant guard on base
+    if (opts.organizationId && (await this.columnExists(baseTable, 'organization_id'))) {
+      q = q.where(qualify('organization_id'), opts.organizationId)
+    }
+    if (opts.tenantId && (await this.columnExists(baseTable, 'tenant_id'))) {
+      q = q.where(qualify('tenant_id'), opts.tenantId)
+    }
+    if (!opts.withDeleted && (await this.columnExists(baseTable, 'deleted_at'))) {
+      q = q.whereNull(qualify('deleted_at'))
+    }
+
+    // Left join index for this entity and matching row scope (prefer per-row org/tenant)
+    const joinOn: string[] = []
+    joinOn.push(`ei.entity_type = ${knex.raw('?', [entity]).toString()}`)
+    joinOn.push(`ei.entity_id = (${qualify('id')}::text)`)
+    if (await this.columnExists(baseTable, 'organization_id')) joinOn.push(`(ei.organization_id is not distinct from ${qualify('organization_id')})`)
+    if (await this.columnExists(baseTable, 'tenant_id')) joinOn.push(`(ei.tenant_id is not distinct from ${qualify('tenant_id')})`)
+    if (!opts.withDeleted) joinOn.push(`ei.deleted_at is null`)
+    q = q.leftJoin({ ei: 'entity_indexes' }, knex.raw(joinOn.join(' AND ')))
 
     const columns = await this.getBaseColumnsForEntity(entity)
-    const arrayFilters = this.normalizeFilters(opts.filters)
 
-    // Where conditions for base and cf paths via JSONB
+    // Base-field filters use real columns; cf:* use JSONB in index
     for (const f of arrayFilters) {
-      const isCf = f.field.startsWith('cf:')
-      const key = f.field
-      const colType = isCf ? null : columns.get(key)
-      const expr = this.jsonbExtractExpr(knex, key, colType)
-      switch (f.op) {
-        case 'eq': q = q.where(expr, '=', f.value); break
-        case 'ne': q = q.where(expr, '!=', f.value); break
-        case 'gt': q = q.where(expr, '>', f.value); break
-        case 'gte': q = q.where(expr, '>=', f.value); break
-        case 'lt': q = q.where(expr, '<', f.value); break
-        case 'lte': q = q.where(expr, '<=', f.value); break
-        case 'in': q = q.whereIn(expr as any, f.value ?? []); break
-        case 'nin': q = q.whereNotIn(expr as any, f.value ?? []); break
-        case 'like': q = q.where(expr, 'like', f.value); break
-        case 'ilike': q = q.where(expr, 'ilike', f.value); break
-        case 'exists': f.value ? q = q.whereNotNull(expr) : q = q.whereNull(expr); break
+      if (f.field.startsWith('cf:')) {
+        const key = f.field
+        q = this.applyCfFilter(knex, q, key, f.op, f.value)
+      } else {
+        const col = qualify(f.field)
+        switch (f.op) {
+          case 'eq': q = q.where(col, f.value); break
+          case 'ne': q = q.whereNot(col, f.value); break
+          case 'gt': q = q.where(col, '>', f.value); break
+          case 'gte': q = q.where(col, '>=', f.value); break
+          case 'lt': q = q.where(col, '<', f.value); break
+          case 'lte': q = q.where(col, '<=', f.value); break
+          case 'in': q = q.whereIn(col as any, f.value ?? []); break
+          case 'nin': q = q.whereNotIn(col as any, f.value ?? []); break
+          case 'like': q = q.where(col, 'like', f.value); break
+          case 'ilike': q = q.where(col, 'ilike', f.value); break
+          case 'exists': f.value ? q = q.whereNotNull(col) : q = q.whereNull(col); break
+        }
       }
     }
 
-    // Select projections
+    // Selection: base columns from base, cf:* from index JSONB
     const selectFields = (opts.fields && opts.fields.length) ? opts.fields : ['id']
     for (const field of selectFields) {
       if (String(field).startsWith('cf:')) {
@@ -52,37 +85,48 @@ export class HybridQueryEngine implements QueryEngine {
         const expr = this.jsonbRaw(knex, String(field))
         q = q.select(knex.raw(`${expr} as ??`, [alias]))
       } else {
-        const colType = columns.get(String(field))
-        const expr = this.jsonbExtractExpr(knex, String(field), colType)
-        q = q.select(knex.raw(`${expr} as ??`, [String(field)]))
+        if (columns.has(String(field))) q = q.select(knex.raw('?? as ??', [qualify(String(field)), String(field)]))
       }
     }
 
-    // Sorting
+    // Sorting: base via columns; cf:* via JSONB
     for (const s of (opts.sort || [])) {
-      const colType = columns.get(String(s.field))
-      const expr = this.jsonbExtractExpr(knex, String(s.field), colType)
-      q = q.orderBy(expr, s.dir ?? SortDir.Asc)
+      if (String(s.field).startsWith('cf:')) {
+        const expr = this.cfTextExpr(knex, String(s.field))
+        q = q.orderBy(expr, s.dir ?? SortDir.Asc)
+      } else {
+        q = q.orderBy(qualify(String(s.field)), s.dir ?? SortDir.Asc)
+      }
     }
 
-    // Count and pagination
+    // Count and pagination (count base rows with current filters)
     const page = opts.page?.page ?? 1
     const pageSize = opts.page?.pageSize ?? 20
-    const countQ = q.clone().clearSelect().clearOrder().count<{ count: string }>('ei.id as count').first()
+    const countQ = q.clone().clearSelect().clearOrder().countDistinct<{ count: string }>(qualify('id') + ' as count').first()
     const countRow = await countQ
     const total = Number((countRow as any)?.count ?? 0)
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)
     return { items, page, pageSize, total }
   }
 
-  private async indexAvailable(entity: string): Promise<boolean> {
+  private async tableExists(table: string): Promise<boolean> {
     const knex = (this.em as any).getConnection().getKnex()
-    const exists = await knex('information_schema.tables')
-      .where({ table_name: 'entity_indexes' })
+    const exists = await knex('information_schema.tables').where({ table_name: table }).first()
+    return !!exists
+  }
+
+  private async indexAnyRows(entity: string): Promise<boolean> {
+    const knex = (this.em as any).getConnection().getKnex()
+    const exists = await knex('entity_indexes').where({ entity_type: entity }).first()
+    return !!exists
+  }
+
+  private async columnExists(table: string, column: string): Promise<boolean> {
+    const knex = (this.em as any).getConnection().getKnex()
+    const exists = await knex('information_schema.columns')
+      .where({ table_name: table, column_name: column })
       .first()
-    if (!exists) return false
-    const anyRow = await knex('entity_indexes').where({ entity_type: entity }).first()
-    return !!anyRow
+    return !!exists
   }
 
   private async getBaseColumnsForEntity(entity: string): Promise<Map<string, string>> {
@@ -97,9 +141,8 @@ export class HybridQueryEngine implements QueryEngine {
     return map
   }
 
-  private jsonbRaw(knex: any, key: string): string {
-    return knex.raw(`ei.doc -> ?`, [key]).toString()
-  }
+  private jsonbRaw(knex: any, key: string): string { return knex.raw(`ei.doc -> ?`, [key]).toString() }
+  private cfTextExpr(knex: any, key: string): any { return knex.raw(`(ei.doc ->> ?)`, [key]) }
 
   private jsonbExtractExpr(knex: any, key: string, dataType?: string | null): any {
     // Prefer casting text to base type when known for comparators and sorting
@@ -156,5 +199,38 @@ export class HybridQueryEngine implements QueryEngine {
   private sanitize(s: string): string {
     return s.replace(/[^a-zA-Z0-9_]/g, '_')
   }
-}
 
+  private applyCfFilter(knex: any, q: any, key: string, op: any, value: any) {
+    const text = this.cfTextExpr(knex, key)
+    const arrExpr = knex.raw(`(ei.doc -> ?)`, [key])
+    const arrContains = (val: any) => knex.raw(`${arrExpr.toString()} @> ?::jsonb`, [JSON.stringify([val])])
+    switch (op) {
+      case 'eq':
+        // Match scalar equality OR array membership
+        return q.where((b: any) => b.orWhere(text, '=', value).orWhere(arrContains(value)))
+      case 'ne':
+        return q.whereNot(text, '=', value)
+      case 'in':
+        return q.where((b: any) => {
+          const vals = Array.isArray(value) ? value : [value]
+          for (const v of vals) b.orWhere(text, '=', v).orWhere(arrContains(v))
+        })
+      case 'nin':
+        return q.whereNotIn(text as any, (Array.isArray(value) ? value : [value]))
+      case 'like':
+        return q.where(text, 'like', value)
+      case 'ilike':
+        return q.where(text, 'ilike', value)
+      case 'exists':
+        return value ? q.whereNotNull(text) : q.whereNull(text)
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte':
+        // Numeric compares on scalar text cast; arrays are not supported here
+        return q.where(text, op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<=', value)
+      default:
+        return q
+    }
+  }
+}
