@@ -2,6 +2,8 @@
 
 The query layer provides a consistent API to fetch data across base entities, module extensions, and custom fields. It is available via DI as `queryEngine`.
 
+When the optional hybrid JSONB index is enabled and populated for a given entity, queries are routed through the index automatically; otherwise the engine falls back to a join-based plan. See `docs/query-index.md` for the index design, backfill CLI, and performance tips.
+
 ## Why
 - Build generic list/detail APIs and UI that work for any entity.
 - Centralize filtering, pagination, sorting, and selected fields.

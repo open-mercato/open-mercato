@@ -8,8 +8,9 @@ const formIcon = React.createElement(
 )
 
 export const metadata = {
-  requireAuth: false,
-  pageTitle: 'Definitions',
+  requireAuth: true,
+  requireRoles: ['admin'] as const,
+  pageTitle: 'Entities',
   pageGroup: 'Custom fields',
   pageOrder: 10,
   icon: formIcon,

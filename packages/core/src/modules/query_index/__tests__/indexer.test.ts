@@ -1,0 +1,126 @@
+import { buildIndexDoc, upsertIndexRow, markDeleted } from '../../query_index/lib/indexer'
+
+function createFakeKnex(data: {
+  baseTable: string
+  baseRows: any[]
+  cfValues: any[]
+}) {
+  const calls: any[] = []
+  const inserts: any[] = []
+  const updates: any[] = []
+
+  function raw(sql: string, params?: any[]) { return { toString: () => sql, sql, params } }
+
+  function builderFor(table: string) {
+    const ops = { table, wheres: [] as any[], selects: [] as any[] }
+    const b: any = {
+      _ops: ops,
+      select: function (...cols: any[]) { ops.selects.push(cols); return this },
+      where: function (...args: any[]) { ops.wheres.push(args[0]); return this },
+      andWhere: function (...args: any[]) { ops.wheres.push(args[0]); return this },
+      orWhereNull: function (col: any) { ops.wheres.push(['orWhereNull', col]); return this },
+      modify: function (fn: Function) {
+        const qb: any = {
+          andWhere: (cb: any) => {
+            const inner: any = {
+              where: (obj: any) => ({
+                orWhereNull: (col: any) => { ops.wheres.push(['andWhereFn', obj, ['orWhereNull', col]]); return inner },
+              }),
+            }
+            cb(inner)
+            return qb
+          },
+          whereNull: (col: any) => { ops.wheres.push(['isNull', col]); return qb },
+        }
+        fn(qb)
+        return this
+      },
+      first: async function () {
+        if (table === data.baseTable) return data.baseRows[0]
+        return undefined
+      },
+      then: function (resolve: any) {
+        if (table === 'custom_field_values') return Promise.resolve(resolve(data.cfValues))
+        if (table === data.baseTable) return Promise.resolve(resolve(data.baseRows))
+        return Promise.resolve(resolve([]))
+      },
+      insert: function (payload: any) {
+        inserts.push({ table, payload })
+        return {
+          onConflict: (keys: string[]) => ({
+            merge: (mergePayload: any) => { inserts[inserts.length - 1].conflict = keys; inserts[inserts.length - 1].merge = mergePayload; return Promise.resolve() },
+          }),
+        }
+      },
+      update: function (payload: any) { updates.push({ table, wheres: ops.wheres, payload }); return Promise.resolve(1) },
+      raw,
+    }
+    calls.push(b)
+    return b
+  }
+  const fn: any = (t: any) => builderFor(t)
+  fn._calls = calls
+  fn._inserts = inserts
+  fn._updates = updates
+  fn.raw = raw
+  fn.fn = { now: () => 'now()' }
+  return fn
+}
+
+describe('Indexer', () => {
+  test('buildIndexDoc composes base row and custom fields (singleton and arrays)', async () => {
+    const fakeKnex = createFakeKnex({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'A', organization_id: 'org1', tenant_id: 't1' }],
+      cfValues: [
+        { field_key: 'vip', value_bool: true },
+        { field_key: 'tags', value_text: 'a' },
+        { field_key: 'tags', value_text: 'b' },
+      ],
+    })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const doc = await buildIndexDoc(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1' })
+    expect(doc).toBeTruthy()
+    expect(doc!.id).toBe('1')
+    expect(doc!['cf:vip']).toBe(true)
+    expect(doc!['cf:tags']).toEqual(['a','b'])
+  })
+
+  test('upsertIndexRow inserts or merges index row with built doc', async () => {
+    const fakeKnex = createFakeKnex({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'A' }],
+      cfValues: [{ field_key: 'vip', value_bool: false }],
+    })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    await upsertIndexRow(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1' })
+    const lastInsert = fakeKnex._inserts[fakeKnex._inserts.length - 1]
+    expect(lastInsert.table).toBe('entity_indexes')
+    expect(lastInsert.conflict).toEqual(['entity_type', 'entity_id', 'organization_id_coalesced'])
+    expect(lastInsert.merge.entity_type).toBe('example:todo')
+    expect(lastInsert.merge.entity_id).toBe('1')
+    expect(lastInsert.merge.organization_id).toBe('org1')
+    expect(lastInsert.merge.tenant_id).toBe('t1')
+    expect(lastInsert.merge.doc['cf:vip']).toBe(false)
+  })
+
+  test('upsertIndexRow marks deleted when base row missing', async () => {
+    const fakeKnex = createFakeKnex({ baseTable: 'todos', baseRows: [], cfValues: [] })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    await upsertIndexRow(em, { entityType: 'example:todo', recordId: 'x', organizationId: 'org1' })
+    const lastUpdate = fakeKnex._updates[fakeKnex._updates.length - 1]
+    expect(lastUpdate.table).toBe('entity_indexes')
+    // Ensure where contains expected matching keys
+    const whereObj = lastUpdate.wheres.find((w: any) => typeof w === 'object')
+    expect(whereObj.entity_type).toBe('example:todo')
+    expect(whereObj.entity_id).toBe('x')
+  })
+
+  test('markDeleted updates deleted_at for index row', async () => {
+    const fakeKnex = createFakeKnex({ baseTable: 'todos', baseRows: [], cfValues: [] })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    await markDeleted(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1' })
+    const upd = fakeKnex._updates[fakeKnex._updates.length - 1]
+    expect(upd.table).toBe('entity_indexes')
+  })
+})

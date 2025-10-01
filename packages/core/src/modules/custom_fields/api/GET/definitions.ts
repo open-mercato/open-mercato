@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import { CustomFieldDef } from '@open-mercato/core/modules/custom_fields/data/entities'
+import { CustomFieldDef, CustomEntity } from '@open-mercato/core/modules/custom_fields/data/entities'
 
 export const metadata = {
   GET: { requireAuth: true, requireRoles: ['admin'] },
@@ -34,6 +34,19 @@ export default async function handler(req: Request) {
   } as any
   const defs = await em.find(CustomFieldDef, where)
 
+  // Resolve default editor preference for this entity (tenant/org scoped)
+  let entityDefaultEditor: string | undefined
+  try {
+    const ent = await em.findOne(CustomEntity as any, {
+      entityId,
+      $and: [
+        { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+        { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+      ],
+    } as any)
+    if (ent && typeof (ent as any).defaultEditor === 'string') entityDefaultEditor = (ent as any).defaultEditor
+  } catch {}
+
   // Choose best definition per key with clear tie-breakers:
   // 1) Scope specificity: tenant > org > global
   // 2) Latest updatedAt wins within same scope
@@ -61,8 +74,10 @@ export default async function handler(req: Request) {
     optionsUrl: typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined,
     filterable: Boolean(d.configJson?.filterable),
     formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
-    // Optional UI hints for client renderers
-    editor: typeof d.configJson?.editor === 'string' ? d.configJson.editor : undefined,
+    // Optional UI hints for client renderers; fallback to entity default for multiline
+    editor: typeof d.configJson?.editor === 'string'
+      ? d.configJson.editor
+      : (d.kind === 'multiline' ? entityDefaultEditor : undefined),
     input: typeof d.configJson?.input === 'string' ? d.configJson.input : undefined,
   }))
 

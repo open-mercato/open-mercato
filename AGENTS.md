@@ -67,15 +67,23 @@ This repository is designed for extensibility. Agents should leverage the module
 - Hash passwords with `bcryptjs` (cost ≥10). Never log credentials.
 - Return minimal error messages for auth (avoid revealing whether email exists).
 
+### HTTP calls in UI
+- In client components and utilities, use `apiFetch` from `@open-mercato/ui/backend/utils/api` instead of the global `fetch`. It automatically attaches proper headers and base URL handling consistent with the app.
+
 ## Code Style
 - Keep modules self-contained; re-use common utilities via `src/lib/`.
 - No one-letter variable names.
 - Avoid in-line comments; prefer self-documenting code.
 - Keep exports minimal and typed.
-- Avoid casting to `any`; prefer precise types and union narrowing with runtime checks.
+- Avoid casting to `any`; prefer precise types and union narrowing with runtime checks. When in doubt, extract and reuse shared types instead of `any`.
  - Prefer small, reusable libraries and utilities with minimal or no external dependencies where it makes sense.
  - Favor functional programming (pure functions, data-first utilities) over classes.
  - Write any necessary code comments in English.
+
+### Type Safety Addendum
+- Centralize reusable types and constants (e.g., custom field kinds) in `packages/shared` and import them everywhere to avoid drift.
+- Do not introduce new `any`-typed APIs; define DTOs via zod schemas and `z.infer` for runtime + compile-time safety.
+- If a helper requires dynamic behavior, expose narrow interfaces (e.g., `QueryEngine`) rather than passing `any`/`unknown`.
 
 ## What’s new (data model evolution)
 - Keep modules separated and isomorphic: when extending another module’s data, add a separate extension entity and declare a link in `data/extensions.ts` (do not mutate core entities). Pattern mirrors Medusa’s module links.

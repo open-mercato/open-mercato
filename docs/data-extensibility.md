@@ -78,3 +78,48 @@ Why not migrations? Migrations are module-scoped, run in isolation, and should a
 ## Migrations
 - Add your extension entity as normal.
 - The `custom_fields` module migrations are generated like any other module.
+
+### Declaring virtual entities from module code
+
+Modules can register additional logical entities (not backed by a new table) so that users can attach custom fields to them. Use the helper provided by the core module:
+
+```
+import { upsertCustomEntity } from '@open-mercato/core/modules/custom_fields/lib/register'
+
+// inside a CLI command, module init, or DI registrar where you have an EM
+await upsertCustomEntity(em, 'example:calendar_entity', {
+  label: 'Calendar Entity',
+  description: 'Events and availability',
+  // optional scope
+  organizationId: null,
+  tenantId: null,
+})
+```
+
+If the entity exists, label/description are updated; if not, it is created. After registering, admins can define fields for it under Backend → Custom fields → Entities.
+
+Registering from DI (on boot)
+
+```ts
+// src/modules/<module>/di.ts
+import type { AppContainer } from '@/lib/di/container'
+import { upsertCustomEntity } from '@open-mercato/core/modules/custom_fields/lib/register'
+
+let registered = false
+export function register(container: AppContainer) {
+  if (registered) return
+  registered = true
+  ;(async () => {
+    const em = container.resolve('em') as any
+    await upsertCustomEntity(em, '<module>:<entity>', {
+      label: 'My Entity',
+      description: 'Declared from DI on boot',
+      // Optionally scope to org/tenant
+      organizationId: null,
+      tenantId: null,
+    })
+  })().catch(() => {})
+}
+```
+
+Note: DI registrars may run per request container; the helper is idempotent and safe to call multiple times.

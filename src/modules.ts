@@ -7,5 +7,6 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'auth', from: '@open-mercato/core' },
   { id: 'directory', from: '@open-mercato/core' },
   { id: 'custom_fields', from: '@open-mercato/core' },
+  { id: 'query_index', from: '@open-mercato/core' },
   { id: 'example', from: '@open-mercato/example' },
 ]

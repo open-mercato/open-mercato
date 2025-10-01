@@ -1,3 +1,4 @@
+"use client"
 // Simple fetch wrapper that redirects to session refresh on 401 (Unauthorized)
 // Used across UI data utilities to avoid duplication.
 import { flash } from '../FlashMessages'
@@ -32,23 +33,23 @@ export class ForbiddenError extends Error {
   }
 }
 
-const DEFAULT_FORBIDDEN_ROLES = ['admin'] as const;
+let DEFAULT_FORBIDDEN_ROLES: string[] = ['admin']
 
-// Remove setAuthRedirectConfig and mutable config.
+export function setAuthRedirectConfig(cfg: { defaultForbiddenRoles?: readonly string[] }) {
+  if (cfg?.defaultForbiddenRoles && cfg.defaultForbiddenRoles.length) {
+    DEFAULT_FORBIDDEN_ROLES = [...cfg.defaultForbiddenRoles].map(String)
+  }
+}
 
 export function redirectToForbiddenLogin(
-  requiredRoles?: string[] | null,
-  config?: { defaultForbiddenRoles?: readonly string[] }
+  requiredRoles?: string[] | null
 ) {
   if (typeof window === 'undefined') return
   // We don't know required roles from the API response; use a generic hint.
   if (window.location.pathname.startsWith('/login')) return
   try {
     const current = window.location.pathname + window.location.search
-    const roles =
-      requiredRoles && requiredRoles.length
-        ? requiredRoles
-        : (config?.defaultForbiddenRoles ?? DEFAULT_FORBIDDEN_ROLES)
+    const roles = requiredRoles && requiredRoles.length ? requiredRoles : DEFAULT_FORBIDDEN_ROLES
     const url = `/login?requireRole=${encodeURIComponent(roles.join(','))}&redirect=${encodeURIComponent(current)}`
     flash('Insufficient permissions. Redirecting to login…', 'warning')
     setTimeout(() => { window.location.href = url }, 60)

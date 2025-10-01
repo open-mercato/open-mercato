@@ -4,7 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromCookies, type AuthContext } from '@/lib/auth/server'
 import type { QueryEngine, Where, Sort, Page } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
-import { setRecordCustomFields } from '@open-mercato/core/modules/custom_fields/lib/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 
 export type CrudEventAction = 'created' | 'updated' | 'deleted'
 
@@ -250,8 +250,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const cfc = opts.create.customFields as Exclude<CustomFieldsConfig, false>
         const values = cfc.map ? cfc.map(body) : (cfc.pickPrefixed ? pickCustomFields(body) : {})
         if (values && Object.keys(values).length > 0) {
-          await setRecordCustomFields(em, {
-            entityId: cfc.entityId,
+          const de = ctx.container.resolve<DataEngine>('dataEngine')
+          await de.setCustomFields({
+            entityId: cfc.entityId as any,
             recordId: String((entity as any)[ormCfg.idField!]),
             organizationId: ctx.auth.orgId!,
             tenantId: ctx.auth.tenantId!,
@@ -297,8 +298,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const cfc = opts.update.customFields as Exclude<CustomFieldsConfig, false>
         const values = cfc.map ? cfc.map(body) : (cfc.pickPrefixed ? pickCustomFields(body) : {})
         if (values && Object.keys(values).length > 0) {
-          await setRecordCustomFields(em, {
-            entityId: cfc.entityId,
+          const de = ctx.container.resolve<DataEngine>('dataEngine')
+          await de.setCustomFields({
+            entityId: cfc.entityId as any,
             recordId: String((entity as any)[ormCfg.idField!]),
             organizationId: ctx.auth.orgId!,
             tenantId: ctx.auth.tenantId!,

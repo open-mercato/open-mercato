@@ -44,6 +44,51 @@ export class CustomFieldDef {
   deletedAt?: Date | null
 }
 
+// User-defined logical entities registry (for dynamic data types)
+@Entity({ tableName: 'custom_entities' })
+export class CustomEntity {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  // Identifier: '<module>:<entity>' (snake_case entity part preferred)
+  @Property({ name: 'entity_id', type: 'text' })
+  entityId!: string
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  // Preferred display label field for relation options (e.g., 'name')
+  @Property({ name: 'label_field', type: 'text', nullable: true })
+  labelField?: string | null
+
+  // Default editor preference for multiline custom fields
+  // Allowed: 'markdown' | 'simpleMarkdown' | 'htmlRichText'
+  @Property({ name: 'default_editor', type: 'text', nullable: true })
+  defaultEditor?: string | null
+
+  // Optional org/tenant scoping
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 // Values for custom fields (EAV); recordId is a text to support any PK
 @Entity({ tableName: 'custom_field_values' })
 export class CustomFieldValue {

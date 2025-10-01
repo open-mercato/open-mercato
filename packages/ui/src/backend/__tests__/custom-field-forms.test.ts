@@ -9,6 +9,8 @@ describe('buildFormFieldsFromCustomFields', () => {
       { key: 'severity', kind: 'select', options: ['low','high'], multi: false, filterable: true, formEditable: true },
       { key: 'labels', kind: 'select', options: ['bug','feature'], multi: true, filterable: true, formEditable: true },
       { key: 'notes', kind: 'multiline', filterable: false, formEditable: true },
+      // text with editor hint should render richtext
+      { key: 'desc', kind: 'text', filterable: false, formEditable: true, editor: 'htmlRichText' },
       { key: 'hidden', kind: 'text', filterable: true, formEditable: false },
     ]
 
@@ -23,6 +25,10 @@ describe('buildFormFieldsFromCustomFields', () => {
     }
     // Multiline now defaults to richtext (markdown editor)
     expect(byId['cf_notes']?.type).toBe('richtext')
+    expect(byId['cf_desc']?.type).toBe('richtext')
+    if (byId['cf_desc']?.type === 'richtext') {
+      expect(byId['cf_desc'].editor).toBe('html')
+    }
     expect(byId['cf_hidden']).toBeUndefined()
   })
 })

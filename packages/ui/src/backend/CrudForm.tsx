@@ -118,7 +118,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   entityId,
   groups,
   isLoading = false,
-  loadingMessage = 'Loading form...',
+  loadingMessage = 'Loading data...',
 }: CrudFormProps<TValues>) {
   const router = useRouter()
   const formId = React.useId()
@@ -493,7 +493,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <input type="date" className="w-full h-9 rounded border px-2 text-sm" value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value || undefined)} />
         )}
         {f.type === 'textarea' && (
-          <textarea className="w-full rounded border px-2 py-2 min-h-[120px] text-sm" placeholder={(f as any).placeholder} value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value)} />
+          <TextAreaInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={fieldSetValue} />
         )}
         {f.type === 'richtext' && ((f as any).editor === 'simple') && (
           <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
@@ -681,8 +681,8 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           ) : null}
           <DataLoader
             isLoading={isCustomFieldsGroup && isLoadingCustomFields}
-            loadingMessage="Loading custom fields..."
-            spinnerSize="sm"
+            loadingMessage="Loading data..."
+            spinnerSize="md"
             className="min-h-[1px]"
           >
             {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
@@ -733,7 +733,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         <DataLoader
           isLoading={isLoading}
           loadingMessage={loadingMessage}
-          spinnerSize="lg"
+          spinnerSize="md"
           className="min-h-[400px]"
         >
           <form id={formId} onSubmit={handleSubmit} className="space-y-4">
@@ -809,7 +809,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       <DataLoader
         isLoading={isLoading}
         loadingMessage={loadingMessage}
-        spinnerSize="lg"
+        spinnerSize="md"
         className="min-h-[400px]"
       >
         <div>
@@ -1069,6 +1069,34 @@ function NumberInput({ value, onChange, placeholder }: { value: any; onChange: (
       value={local}
       onChange={handleChange}
       onKeyDown={handleKeyDown}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+    />
+  )
+}
+
+// Local-buffer textarea to avoid form-wide re-renders while typing
+function TextAreaInput({ value, onChange, placeholder }: { value: any; onChange: (v: string) => void; placeholder?: string }) {
+  const [local, setLocal] = React.useState<string>(value ?? '')
+  const isFocusedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!isFocusedRef.current) setLocal(value ?? '')
+  }, [value])
+
+  const handleChange = React.useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setLocal(e.target.value)
+  }, [])
+
+  const handleFocus = React.useCallback(() => { isFocusedRef.current = true }, [])
+  const handleBlur = React.useCallback(() => { isFocusedRef.current = false; onChange(local) }, [local, onChange])
+
+  return (
+    <textarea
+      className="w-full rounded border px-2 py-2 min-h-[120px] text-sm"
+      placeholder={placeholder}
+      value={local}
+      onChange={handleChange}
       onFocus={handleFocus}
       onBlur={handleBlur}
     />
