@@ -71,6 +71,14 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
             }
           }
           fields.push(base)
+        } else if (d.kind === 'text' && typeof d.editor === 'string' && d.editor) {
+          // Allow per-field editor override even when kind is 'text'
+          // Map to richtext when an editor hint is provided
+          let editor: 'simple' | 'uiw' | 'html' = 'uiw'
+          if (d.editor === 'simpleMarkdown') editor = 'simple'
+          else if (d.editor === 'htmlRichText') editor = 'html'
+          // Any other value (including 'markdown') falls back to 'uiw'
+          fields.push({ id, label, type: 'richtext', description: d.description, editor })
         } else {
           fields.push({ id, label, type: 'text', description: d.description })
         }

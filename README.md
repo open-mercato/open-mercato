@@ -11,6 +11,7 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 - 🧱 Strong multi‑tenant model (tenants + organizations)
 - 🧰 Dependency Injection (Awilix) for service/component overrides
 - 🔔 Event Bus with subscribers (local/redis) + offline processing
+- ⚡ Hybrid JSONB index for fast custom fields queries (optional)
 - 🔐 Authentication, roles, sessions included
 - ⚙️ Next.js app router, TypeScript, zod, bcryptjs
 
@@ -205,6 +206,8 @@ Notes:
 - <a href="./docs/routes-and-pages.md">Creating Routes and Pages</a>
 - <a href="./docs/data-extensibility.md">Entity extensions and custom fields</a>
 - <a href="./docs/query-layer.md">Unified query layer (filters, paging, fields)</a>
+- <a href="./docs/query-index.md">JSONB indexing layer (hybrid)</a>
+- <a href="./docs/data-engine.md">DataEngine (write layer)</a>
 - <a href="./docs/events-and-subscribers.md">Events & subscribers</a>
 - <a href="./docs/api/crud-factory.md">CRUD API factory (reusable handlers, hooks, events)</a>
 

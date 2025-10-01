@@ -27,8 +27,11 @@ export function register(container: AppContainer) {
   } catch {}
 
   // Programmatically register generic subscribers for all entity CRUD to maintain index
-  try {
-    const bus = container.resolve<any>('eventBus')
+  const setup = () => {
+    let bus: any
+    try { bus = container.resolve<any>('eventBus') } catch { bus = null }
+    if (!bus) { setTimeout(setup, 0); return }
+
     const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any) => {
       try {
         const em = ctx.resolve('em')
@@ -81,37 +84,41 @@ export function register(container: AppContainer) {
     }
 
     // Build list of entity ids to subscribe to
-    const em = container.resolve<any>('em')
-    const knex = (em as any).getConnection().getKnex()
-    const cfEntityIds: string[] = []
-    knex('custom_field_defs').distinct('entity_id')
-      .then((rows: any[]) => {
-        for (const r of rows || []) cfEntityIds.push(String(r.entity_id))
-      })
-      .catch(() => {})
-      .finally(() => {
-        const proceed = (ids: string[]) => {
-          for (const entityType of Array.from(new Set(ids))) {
-            const [mod, ent] = entityType.split(':')
-            if (!mod || !ent) continue
-            bus.on(`${mod}.${ent}.created`, makeUpsertHandler(entityType))
-            bus.on(`${mod}.${ent}.updated`, makeUpsertHandler(entityType))
-            bus.on(`${mod}.${ent}.deleted`, makeDeleteHandler(entityType))
+    try {
+      const em = container.resolve<any>('em')
+      const knex = (em as any).getConnection().getKnex()
+      const cfEntityIds: string[] = []
+      knex('custom_field_defs').distinct('entity_id')
+        .then((rows: any[]) => {
+          for (const r of rows || []) cfEntityIds.push(String(r.entity_id))
+        })
+        .catch(() => {})
+        .finally(() => {
+          const proceed = (ids: string[]) => {
+            for (const entityType of Array.from(new Set(ids))) {
+              const [mod, ent] = entityType.split(':')
+              if (!mod || !ent) continue
+              bus.on(`${mod}.${ent}.created`, makeUpsertHandler(entityType))
+              bus.on(`${mod}.${ent}.updated`, makeUpsertHandler(entityType))
+              bus.on(`${mod}.${ent}.deleted`, makeDeleteHandler(entityType))
+            }
           }
-        }
-        if (cfEntityIds.length > 0) {
-          proceed(cfEntityIds)
-        } else {
-          // Fallback to generated entity ids without await
-          Promise.all([
-            import('@open-mercato/core/datamodel/entities').catch(() => ({} as any)),
-            import('@open-mercato/example/datamodel/entities').catch(() => ({} as any)),
-          ]).then(([core, example]) => {
-            const flatten = (E: any) => Object.values(E || {}).flatMap((o: any) => Object.values(o || {}))
-            const guesses = new Set<string>([...flatten((core as any).E), ...flatten((example as any).E)])
-            proceed(Array.from(guesses))
-          }).catch(() => {})
-        }
-      })
-  } catch {}
+          if (cfEntityIds.length > 0) {
+            proceed(cfEntityIds)
+          } else {
+            // Fallback to generated entity ids without await
+            Promise.all([
+              import('@open-mercato/core/datamodel/entities').catch(() => ({} as any)),
+              import('@open-mercato/example/datamodel/entities').catch(() => ({} as any)),
+            ]).then(([core, example]) => {
+              const flatten = (E: any) => Object.values(E || {}).flatMap((o: any) => Object.values(o || {}))
+              const guesses = new Set<string>([...flatten((core as any).E), ...flatten((example as any).E)])
+              proceed(Array.from(guesses))
+            }).catch(() => {})
+          }
+        })
+    } catch {}
+  }
+
+  try { setup() } catch {}
 }
