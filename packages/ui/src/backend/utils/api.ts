@@ -58,10 +58,11 @@ export function redirectToForbiddenLogin(
 }
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const baseFetch: typeof fetch = (typeof window !== 'undefined' && (window as any).__omOriginalFetch)
-    ? (window as any).__omOriginalFetch
-    : fetch
-  const res = await baseFetch(input as any, init as any)
+  type FetchType = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  const baseFetch: FetchType = (typeof window !== 'undefined' && (window as any).__omOriginalFetch)
+    ? ((window as any).__omOriginalFetch as FetchType)
+    : fetch;
+  const res = await baseFetch(input, init);
   if (res.status === 401) {
     // Trigger same redirect flow as protected pages
     redirectToSessionRefresh()
