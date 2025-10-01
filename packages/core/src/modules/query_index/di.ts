@@ -3,6 +3,19 @@ import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
 import { upsertIndexRow, markDeleted } from './lib/indexer'
 
+function toEntityTypeFromEvent(event: string): string | null {
+  // Expect '<module>.<entity>.<action>'
+  const parts = event.split('.')
+  if (parts.length !== 3) return null
+  const [mod, ent] = parts
+  return `${mod}:${ent}`
+}
+
+function toBaseTableFromEntityType(entityType: string): string {
+  const [, ent] = entityType.split(':')
+  return ent.endsWith('s') ? ent : `${ent}s`
+}
+
 export function register(container: AppContainer) {
   // Override queryEngine with hybrid that prefers JSONB index when available
   try {
@@ -13,10 +26,10 @@ export function register(container: AppContainer) {
     ;(container as any).register({ queryEngine: { resolve: () => hybrid } })
   } catch {}
 
-  // Programmatically register subscribers for example.todo CRUD to maintain index
+  // Programmatically register generic subscribers for all entity CRUD to maintain index
   try {
     const bus = container.resolve<any>('eventBus')
-    const handler = async (payload: any, ctx: any) => {
+    const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any) => {
       try {
         const em = ctx.resolve('em')
         let orgId = payload?.organizationId || payload?.orgId || null
@@ -26,15 +39,30 @@ export function register(container: AppContainer) {
         if (!orgId || !tenantId) {
           try {
             const knex = (em as any).getConnection().getKnex()
-            const row = await knex('todos').select(['organization_id', 'tenant_id']).where({ id }).first()
+            const table = toBaseTableFromEntityType(entityType)
+            const row = await knex(table).select(['organization_id', 'tenant_id']).where({ id }).first()
             orgId = row?.organization_id ?? orgId
             tenantId = row?.tenant_id ?? tenantId
           } catch {}
         }
-        await upsertIndexRow(em, { entityType: 'example:todo', recordId: id, organizationId: orgId, tenantId })
+        // Optional: only index when custom field definitions exist for this entity (org/global)
+        try {
+          const knex = (em as any).getConnection().getKnex()
+          const hasCf = await knex('custom_field_defs')
+            .where({ entity_id: entityType, is_active: true })
+            .modify((qb: any) => {
+              if (orgId != null) qb.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
+              else qb.whereNull('organization_id')
+              if (tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantId }).orWhereNull('tenant_id'))
+              else qb.whereNull('tenant_id')
+            })
+            .first()
+          if (!hasCf) return
+        } catch {}
+        await upsertIndexRow(em, { entityType, recordId: id, organizationId: orgId, tenantId })
       } catch {}
     }
-    const delHandler = async (payload: any, ctx: any) => {
+    const makeDeleteHandler = (entityType: string) => async (payload: any, ctx: any) => {
       try {
         const em = ctx.resolve('em')
         let orgId = payload?.organizationId || payload?.orgId || null
@@ -43,15 +71,47 @@ export function register(container: AppContainer) {
         if (!orgId) {
           try {
             const knex = (em as any).getConnection().getKnex()
-            const row = await knex('todos').select(['organization_id']).where({ id }).first()
+            const table = toBaseTableFromEntityType(entityType)
+            const row = await knex(table).select(['organization_id']).where({ id }).first()
             orgId = row?.organization_id ?? orgId
           } catch {}
         }
-        await markDeleted(em, { entityType: 'example:todo', recordId: id, organizationId: orgId })
+        await markDeleted(em, { entityType, recordId: id, organizationId: orgId })
       } catch {}
     }
-    bus.on('example.todo.created', handler)
-    bus.on('example.todo.updated', handler)
-    bus.on('example.todo.deleted', delHandler)
+
+    // Build list of entity ids to subscribe to
+    const em = container.resolve<any>('em')
+    const knex = (em as any).getConnection().getKnex()
+    const cfEntityIds: string[] = []
+    knex('custom_field_defs').distinct('entity_id')
+      .then((rows: any[]) => {
+        for (const r of rows || []) cfEntityIds.push(String(r.entity_id))
+      })
+      .catch(() => {})
+      .finally(() => {
+        const proceed = (ids: string[]) => {
+          for (const entityType of Array.from(new Set(ids))) {
+            const [mod, ent] = entityType.split(':')
+            if (!mod || !ent) continue
+            bus.on(`${mod}.${ent}.created`, makeUpsertHandler(entityType))
+            bus.on(`${mod}.${ent}.updated`, makeUpsertHandler(entityType))
+            bus.on(`${mod}.${ent}.deleted`, makeDeleteHandler(entityType))
+          }
+        }
+        if (cfEntityIds.length > 0) {
+          proceed(cfEntityIds)
+        } else {
+          // Fallback to generated entity ids without await
+          Promise.all([
+            import('@open-mercato/core/datamodel/entities').catch(() => ({} as any)),
+            import('@open-mercato/example/datamodel/entities').catch(() => ({} as any)),
+          ]).then(([core, example]) => {
+            const flatten = (E: any) => Object.values(E || {}).flatMap((o: any) => Object.values(o || {}))
+            const guesses = new Set<string>([...flatten((core as any).E), ...flatten((example as any).E)])
+            proceed(Array.from(guesses))
+          }).catch(() => {})
+        }
+      })
   } catch {}
 }

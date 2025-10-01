@@ -70,10 +70,13 @@ export async function upsertIndexRow(em: EntityManager, args: { entityType: stri
     deleted_at: null,
   }
   // Upsert on unique (entity_type, entity_id, organization_id)
-  await knex('entity_indexes')
-    .insert({ ...payload, created_at: knex.fn.now() })
-    .onConflict(['entity_type', 'entity_id', 'organization_id'])
-    .merge(payload)
+  const insertQ = knex('entity_indexes').insert({ ...payload, created_at: knex.fn.now() })
+  if (args.organizationId == null) {
+    // Global rows conflict on (entity_type, entity_id)
+    await insertQ.onConflict(['entity_type', 'entity_id']).merge(payload)
+  } else {
+    await insertQ.onConflict(['entity_type', 'entity_id', 'organization_id']).merge(payload)
+  }
 }
 
 export async function markDeleted(em: EntityManager, args: { entityType: string; recordId: string; organizationId?: string | null }): Promise<void> {
@@ -82,4 +85,3 @@ export async function markDeleted(em: EntityManager, args: { entityType: string;
     .where({ entity_type: args.entityType, entity_id: String(args.recordId), organization_id: args.organizationId ?? null })
     .update({ deleted_at: knex.fn.now(), updated_at: knex.fn.now() })
 }
-

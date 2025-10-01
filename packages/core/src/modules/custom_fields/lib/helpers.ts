@@ -12,6 +12,8 @@ export type SetRecordCustomFieldsOptions = {
   values: Record<string, PrimitiveOrArray>
   // When true (default), try to use field definitions to decide storage column
   preferDefs?: boolean
+  // Optional: notify external systems (e.g., indexing) when values changed
+  onChanged?: (payload: { entityId: string; recordId: string; organizationId: string | null; tenantId: string | null }) => Promise<void> | void
 }
 
 function columnFromKind(kind: string): keyof CustomFieldValue {
@@ -139,4 +141,12 @@ export async function setRecordCustomFields(
 
   if (toPersist.length) em.persist(toPersist)
   await em.flush()
+  // Emit hook for indexing if requested (outside CRUD flows)
+  try {
+    if (typeof opts.onChanged === 'function') {
+      await opts.onChanged({ entityId, recordId, organizationId, tenantId })
+    }
+  } catch {
+    // Non-blocking
+  }
 }
