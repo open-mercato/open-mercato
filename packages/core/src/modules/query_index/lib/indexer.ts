@@ -71,12 +71,8 @@ export async function upsertIndexRow(em: EntityManager, args: { entityType: stri
   }
   // Upsert on unique (entity_type, entity_id, organization_id)
   const insertQ = knex('entity_indexes').insert({ ...payload, created_at: knex.fn.now() })
-  if (args.organizationId == null) {
-    // Global rows conflict on (entity_type, entity_id)
-    await insertQ.onConflict(['entity_type', 'entity_id']).merge(payload)
-  } else {
-    await insertQ.onConflict(['entity_type', 'entity_id', 'organization_id']).merge(payload)
-  }
+  // Use generated coalesced column to unify conflict target for both scoped and global rows
+  await insertQ.onConflict(['entity_type', 'entity_id', 'organization_id_coalesced']).merge(payload)
 }
 
 export async function markDeleted(em: EntityManager, args: { entityType: string; recordId: string; organizationId?: string | null }): Promise<void> {
