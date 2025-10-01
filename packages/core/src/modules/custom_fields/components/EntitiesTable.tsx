@@ -88,6 +88,7 @@ export default function EntitiesTable() {
         <RowActions
           items={[
             { label: 'Edit', href: `/backend/definitions/${encodeURIComponent(row.entityId)}` },
+            { label: 'Show records', href: `/backend/definitions/${encodeURIComponent(row.entityId)}/records` },
           ]}
         />
       )}

@@ -17,7 +17,7 @@ export class HybridQueryEngine implements QueryEngine {
     const baseExists = await this.tableExists(baseTable)
     if (!baseExists) return this.fallback.query(entity, opts)
 
-    // Heuristic: if query needs cf:* but there are no index rows for this entity, fall back
+    // Heuristic: if query needs cf:* but index is not fully populated for this scope, fall back
     const arrayFilters = this.normalizeFilters(opts.filters)
     const wantsCf = (
       (opts.fields || []).some((f) => typeof f === 'string' && f.startsWith('cf:')) ||
@@ -25,8 +25,22 @@ export class HybridQueryEngine implements QueryEngine {
       opts.includeCustomFields === true ||
       (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.length > 0)
     )
-    if (wantsCf && !(await this.indexAnyRows(entity))) {
-      return this.fallback.query(entity, opts)
+    if (wantsCf) {
+      // If no index rows exist at all OR partial coverage vs base table, fall back
+      const hasAny = await this.indexAnyRows(entity)
+      if (!hasAny) return this.fallback.query(entity, opts)
+
+      const coverageOk = await this.indexCoverageComplete(entity, baseTable, opts)
+      if (!coverageOk) {
+        // Warn once per query to surface potential indexing issues
+        try {
+          const { baseCount, indexedCount } = await this.indexCoverageStats(entity, baseTable, opts)
+          console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount, indexedCount })
+        } catch (_) {
+          console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
+        }
+        return this.fallback.query(entity, opts)
+      }
     }
 
     const qualify = (col: string) => `b.${col}`
@@ -119,6 +133,40 @@ export class HybridQueryEngine implements QueryEngine {
     const knex = (this.em as any).getConnection().getKnex()
     const exists = await knex('entity_indexes').where({ entity_type: entity }).first()
     return !!exists
+  }
+
+  private async indexCoverageComplete(entity: string, baseTable: string, opts: QueryOptions): Promise<boolean> {
+    const { baseCount, indexedCount } = await this.indexCoverageStats(entity, baseTable, opts)
+    if (baseCount === 0) return true
+    return indexedCount >= baseCount
+  }
+
+  private async indexCoverageStats(entity: string, baseTable: string, opts: QueryOptions): Promise<{ baseCount: number; indexedCount: number }> {
+    const knex = (this.em as any).getConnection().getKnex()
+
+    // Base count within scope (org/tenant/soft-delete)
+    let bq = knex({ b: baseTable }).clearSelect().clearOrder()
+    if (opts.organizationId && (await this.columnExists(baseTable, 'organization_id'))) {
+      bq = bq.where('b.organization_id', opts.organizationId)
+    }
+    if (opts.tenantId && (await this.columnExists(baseTable, 'tenant_id'))) {
+      bq = bq.where('b.tenant_id', opts.tenantId)
+    }
+    if (!opts.withDeleted && (await this.columnExists(baseTable, 'deleted_at'))) {
+      bq = bq.whereNull('b.deleted_at')
+    }
+    const baseRow = await bq.countDistinct<{ count: string }>('b.id as count').first()
+    const baseCount = Number((baseRow as any)?.count ?? 0)
+
+    // Index count within same scope
+    let iq = knex({ ei: 'entity_indexes' }).clearSelect().clearOrder().where('ei.entity_type', entity)
+    if (!opts.withDeleted) iq = iq.whereNull('ei.deleted_at')
+    if (opts.organizationId) iq = iq.where('ei.organization_id', opts.organizationId)
+    if (opts.tenantId) iq = iq.where('ei.tenant_id', opts.tenantId)
+    const idxRow = await iq.countDistinct<{ count: string }>('ei.entity_id as count').first()
+    const indexedCount = Number((idxRow as any)?.count ?? 0)
+
+    return { baseCount, indexedCount }
   }
 
   private async columnExists(table: string, column: string): Promise<boolean> {

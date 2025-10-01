@@ -8,6 +8,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/custom_fields/data/validators'
 import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { Plus, Trash2 } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
@@ -189,7 +190,17 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     }
   }
 
-  if (!entityId) return <div className="p-6">Invalid entity</div>
+  if (!entityId) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="p-6">
+            <ErrorNotice title="Invalid entity" message="The requested entity ID is missing or invalid." />
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
   // Unify loader via CrudForm isLoading; do not return early here
 
   // Schema for inline field-level validation in CrudForm
