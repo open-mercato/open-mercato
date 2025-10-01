@@ -23,6 +23,34 @@ export default async function handler(req: Request) {
       { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
     ],
   }, { orderBy: { key: 'asc' } as any })
-  return NextResponse.json({ items: defs.map((d: any) => ({ id: d.id, key: d.key, kind: d.kind, configJson: d.configJson, isActive: d.isActive, organizationId: d.organizationId ?? null, tenantId: d.tenantId ?? null })) })
-}
 
+  // Deduplicate by key, keeping the last defined (most recently updated)
+  const byKey = new Map<string, any>()
+  const ts = (x: any) => {
+    const u = (x?.updatedAt instanceof Date) ? x.updatedAt.getTime() : (x?.updatedAt ? new Date(x.updatedAt).getTime() : 0)
+    if (u) return u
+    const c = (x?.createdAt instanceof Date) ? x.createdAt.getTime() : (x?.createdAt ? new Date(x.createdAt).getTime() : 0)
+    return c
+  }
+  const scopeScore = (x: any) => (x?.tenantId ? 2 : 0) + (x?.organizationId ? 1 : 0)
+  for (const d of defs) {
+    const existing = byKey.get(d.key)
+    if (!existing) { byKey.set(d.key, d); continue }
+    const tNew = ts(d)
+    const tOld = ts(existing)
+    if (tNew > tOld) { byKey.set(d.key, d); continue }
+    if (tNew < tOld) continue
+    // tie-breaker on scope when timestamps equal
+    if (scopeScore(d) >= scopeScore(existing)) byKey.set(d.key, d)
+  }
+  const items = Array.from(byKey.values()).map((d: any) => ({
+    id: d.id,
+    key: d.key,
+    kind: d.kind,
+    configJson: d.configJson,
+    isActive: d.isActive,
+    organizationId: d.organizationId ?? null,
+    tenantId: d.tenantId ?? null,
+  }))
+  return NextResponse.json({ items })
+}

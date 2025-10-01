@@ -186,8 +186,16 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   if (!entityId) return <div className="p-6">Invalid entity</div>
   if (loading) return <div className="p-6">Loading…</div>
 
+  // Schema for inline field-level validation in CrudForm
+  const entityFormSchema = upsertCustomEntitySchema
+    .pick({ label: true, description: true, defaultEditor: true as any })
+    .extend({
+      // Allow empty string in the UI select, treat as undefined later
+      defaultEditor: z.union([z.enum(['markdown','simpleMarkdown','htmlRichText']).optional(), z.literal('')]).optional(),
+    }) as unknown as z.ZodTypeAny
+
   const fields: CrudField[] = [
-    { id: 'label', label: 'Label', type: 'text' },
+    { id: 'label', label: 'Label', type: 'text', required: true },
     { id: 'description', label: 'Description', type: 'textarea' },
     {
       id: 'defaultEditor',
@@ -237,6 +245,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     <Page>
       <PageBody>
         <CrudForm
+          schema={entityFormSchema}
           title={`Edit Entity: ${entityId}`}
           backHref="/backend/definitions"
           fields={fields}
@@ -249,10 +258,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           onSubmit={async (vals) => {
           // Save entity settings
           const partial = upsertCustomEntitySchema.pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any }) as unknown as z.ZodTypeAny
-          const parsed = partial.safeParse(vals)
+          const normalized = { ...(vals as any), defaultEditor: (vals as any)?.defaultEditor || undefined }
+          const parsed = partial.safeParse(normalized)
           if (!parsed.success) throw new Error('Validation failed')
           const res1 = await apiFetch('/api/custom_fields/entities', {
-            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, ...parsed.data, defaultEditor: (vals as any)?.defaultEditor || undefined })
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, ...parsed.data })
           })
           if (!res1.ok) {
             const j = await res1.json().catch(() => ({}))
