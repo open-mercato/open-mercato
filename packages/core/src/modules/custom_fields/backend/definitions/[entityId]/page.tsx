@@ -9,6 +9,7 @@ import { upsertCustomEntitySchema } from '@open-mercato/core/modules/custom_fiel
 import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Plus, Trash2 } from 'lucide-react'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
 type Def = { key: string; kind: string; configJson?: any; isActive?: boolean }
 
@@ -189,7 +190,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   }
 
   if (!entityId) return <div className="p-6">Invalid entity</div>
-  if (loading) return <div className="p-6">Loading…</div>
+  // Unify loader via CrudForm isLoading; do not return early here
 
   // Schema for inline field-level validation in CrudForm
   const entityFormSchema = upsertCustomEntitySchema
@@ -256,7 +257,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           fields={fields}
           groups={groups}
           initialValues={entityInitial as any}
-          isLoading={entityFormLoading}
+          isLoading={entityFormLoading || loading}
           submitLabel="Save"
           cancelHref="/backend/definitions"
           successRedirect="/backend/definitions?flash=Definitions%20saved&type=success"
