@@ -34,7 +34,14 @@ export default async function handler(req: Request) {
     { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
   ]
   const customs = await em.find(CustomEntity as any, where as any, { orderBy: { entityId: 'asc' } as any })
-  const custom = (customs as any[]).map((c) => ({ entityId: c.entityId, source: 'custom' as const, label: c.label, description: c.description ?? undefined }))
+  const custom = (customs as any[]).map((c) => ({
+    entityId: c.entityId,
+    source: 'custom' as const,
+    label: c.label,
+    description: c.description ?? undefined,
+    labelField: (c as any).labelField ?? undefined,
+    defaultEditor: (c as any).defaultEditor ?? undefined,
+  }))
 
   // Merge by entityId preferring custom label where duplicates exist
   const byId = new Map<string, any>()

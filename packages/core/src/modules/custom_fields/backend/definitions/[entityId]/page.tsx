@@ -18,25 +18,24 @@ function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => voi
   const [local, setLocal] = useState<Def>(d)
   // Sync local only when identity/key changes
   useEffect(() => setLocal(d), [d.key])
-  const update = (patch: Partial<Def>) => {
-    const next: Def = { ...local, ...patch }
-    setLocal(next)
-    onChange(next)
+  const updateLocal = (patch: Partial<Def>) => {
+    setLocal((prev) => ({ ...prev, ...patch }))
   }
+  const commit = () => onChange(local)
   return (
     <>
       <tr className="align-top">
         <td className="py-2 pr-2" style={{ width: 220 }}>
-          <input value={local.key} onChange={(e) => update({ key: e.target.value })} className="border rounded w-full px-2 py-1 font-mono" placeholder="snake_case" />
+          <input value={local.key} onChange={(e) => updateLocal({ key: e.target.value })} onBlur={commit} className="border rounded w-full px-2 py-1 font-mono" placeholder="snake_case" />
         </td>
         <td className="py-2 pr-2" style={{ width: 200 }}>
-          <select value={local.kind} onChange={(e) => update({ kind: e.target.value })} className="border rounded w-full px-2 py-1">
+          <select value={local.kind} onChange={(e) => { updateLocal({ kind: e.target.value }); queueMicrotask(commit) }} className="border rounded w-full px-2 py-1">
             {KIND_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </td>
         <td className="py-2 pr-2 text-sm text-muted-foreground">Config</td>
         <td className="py-2 pr-2" style={{ width: 140 }}>
-          <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={local.isActive !== false} onChange={(e) => update({ isActive: e.target.checked })} /> Active</label>
+          <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={local.isActive !== false} onChange={(e) => { updateLocal({ isActive: e.target.checked }); queueMicrotask(commit) }} /> Active</label>
         </td>
         <td className="py-2 text-right" style={{ width: 80 }}>
           <button type="button" onClick={onRemove} className="px-2 py-1 border rounded hover:bg-gray-50" aria-label="Remove field">
@@ -49,16 +48,16 @@ function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => voi
           <div className="grid grid-cols-2 gap-3 py-2">
             <div>
               <label className="text-xs">Label</label>
-              <input value={local.configJson?.label || ''} onChange={(e) => update({ configJson: { ...(local.configJson||{}), label: e.target.value } })} className="border rounded w-full px-2 py-1" />
+              <input value={local.configJson?.label || ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), label: e.target.value } })} onBlur={commit} className="border rounded w-full px-2 py-1" />
             </div>
             <div>
               <label className="text-xs">Description</label>
-              <input value={local.configJson?.description || ''} onChange={(e) => update({ configJson: { ...(local.configJson||{}), description: e.target.value } })} className="border rounded w-full px-2 py-1" />
+              <input value={local.configJson?.description || ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), description: e.target.value } })} onBlur={commit} className="border rounded w-full px-2 py-1" />
             </div>
             {(local.kind === 'text' || local.kind === 'multiline') && (
               <div>
                 <label className="text-xs">Editor</label>
-                <select value={local.configJson?.editor || ''} onChange={(e) => update({ configJson: { ...(local.configJson||{}), editor: e.target.value || undefined } })} className="border rounded w-full px-2 py-1">
+                <select value={local.configJson?.editor || ''} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), editor: e.target.value || undefined } }); queueMicrotask(commit) }} className="border rounded w-full px-2 py-1">
                   <option value="">Default</option>
                   <option value="markdown">Markdown (UIW)</option>
                   <option value="simpleMarkdown">Simple Markdown</option>
@@ -70,14 +69,14 @@ function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => voi
               <>
                 <div>
                   <label className="text-xs">Options (comma-separated)</label>
-                  <input value={Array.isArray(local.configJson?.options) ? local.configJson.options.join(',') : ''} onChange={(e) => update({ configJson: { ...(local.configJson||{}), options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })} className="border rounded w-full px-2 py-1" />
+                  <input value={Array.isArray(local.configJson?.options) ? local.configJson.options.join(',') : ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })} onBlur={commit} className="border rounded w-full px-2 py-1" />
                 </div>
                 <div>
                   <label className="text-xs">Options URL</label>
-                  <input value={local.configJson?.optionsUrl || ''} onChange={(e) => update({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })} className="border rounded w-full px-2 py-1" placeholder="/api/..." />
+                  <input value={local.configJson?.optionsUrl || ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })} onBlur={commit} className="border rounded w-full px-2 py-1" placeholder="/api/..." />
                 </div>
                 <div className="col-span-2">
-                  <label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => update({ configJson: { ...(local.configJson||{}), multi: e.target.checked } })} /> Multiple</label>
+                  <label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }); queueMicrotask(commit) }} /> Multiple</label>
                 </div>
               </>
             )}
@@ -88,15 +87,15 @@ function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => voi
                   <input value={local.configJson?.relatedEntityId || ''} onChange={(e) => {
                     const relatedEntityId = e.target.value
                     const defOptionsUrl = relatedEntityId ? `/api/custom_fields/relations/options?entityId=${encodeURIComponent(relatedEntityId)}` : ''
-                    update({ configJson: { ...(local.configJson||{}), relatedEntityId, optionsUrl: local.configJson?.optionsUrl || defOptionsUrl } })
-                  }} className="border rounded w-full px-2 py-1 font-mono" placeholder="module:entity" />
+                    updateLocal({ configJson: { ...(local.configJson||{}), relatedEntityId, optionsUrl: local.configJson?.optionsUrl || defOptionsUrl } })
+                  }} onBlur={commit} className="border rounded w-full px-2 py-1 font-mono" placeholder="module:entity" />
                 </div>
                 <div>
                   <label className="text-xs">Options URL</label>
-                  <input value={local.configJson?.optionsUrl || ''} onChange={(e) => update({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })} className="border rounded w-full px-2 py-1" placeholder="/api/custom_fields/relations/options?..." />
+                  <input value={local.configJson?.optionsUrl || ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })} onBlur={commit} className="border rounded w-full px-2 py-1" placeholder="/api/custom_fields/relations/options?..." />
                 </div>
                 <div className="col-span-2">
-                  <label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => update({ configJson: { ...(local.configJson||{}), multi: e.target.checked } })} /> Multiple</label>
+                  <label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }); queueMicrotask(commit) }} /> Multiple</label>
                 </div>
               </>
             )}
@@ -113,7 +112,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [label, setLabel] = useState('')
   const [entitySource, setEntitySource] = useState<'code'|'custom'>('custom')
   const [entityFormLoading, setEntityFormLoading] = useState(true)
-  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string }>({})
+  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string }>({})
   const [defs, setDefs] = useState<Def[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -130,7 +129,12 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         if (mounted) {
           setLabel(ent?.label || entityId)
           if (ent?.source === 'code' || ent?.source === 'custom') setEntitySource(ent.source)
-          setEntityInitial({ label: ent?.label || '', description: ent?.description || '', labelField: (ent as any)?.labelField || 'name' })
+          setEntityInitial({
+            label: ent?.label || entityId,
+            description: ent?.description || '',
+            labelField: (ent as any)?.labelField || 'name',
+            defaultEditor: (ent as any)?.defaultEditor || '',
+          })
           setEntityFormLoading(false)
         }
         const res = await apiFetch(`/api/custom_fields/definitions.manage?entityId=${encodeURIComponent(entityId)}`)
@@ -185,6 +189,17 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const fields: CrudField[] = [
     { id: 'label', label: 'Label', type: 'text' },
     { id: 'description', label: 'Description', type: 'textarea' },
+    {
+      id: 'defaultEditor',
+      label: 'Default Editor (multiline)',
+      type: 'select',
+      options: [
+        { value: '', label: 'Default (Markdown)' },
+        { value: 'markdown', label: 'Markdown (UIW)' },
+        { value: 'simpleMarkdown', label: 'Simple Markdown' },
+        { value: 'htmlRichText', label: 'HTML Rich Text' },
+      ],
+    } as any,
   ]
   const groups: CrudFormGroup[] = [
     { id: 'settings', title: 'Entity Settings', column: 1, fields: ['label','description','defaultEditor'] },
@@ -209,7 +224,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           </table>
         </div>
         <div>
-          <button type="button" onClick={addField} className="px-3 py-1.5 border rounded hover:bg-gray-50 inline-flex items-center gap-1">
+          <button type="button" onClick={addField} className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 inline-flex items-center gap-1">
             <Plus className="h-4 w-4" /> Add Field
           </button>
           <div className="text-xs text-gray-500 mt-2">Supported kinds: text, multiline, integer, float, boolean, select (with options/optionsUrl), relation (set relatedEntityId and optionsUrl).</div>
@@ -233,11 +248,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           successRedirect="/backend/definitions?flash=Definitions%20saved&type=success"
           onSubmit={async (vals) => {
           // Save entity settings
-          const partial = upsertCustomEntitySchema.pick({ label: true, description: true, labelField: true as any }) as unknown as z.ZodTypeAny
+          const partial = upsertCustomEntitySchema.pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any }) as unknown as z.ZodTypeAny
           const parsed = partial.safeParse(vals)
           if (!parsed.success) throw new Error('Validation failed')
           const res1 = await apiFetch('/api/custom_fields/entities', {
-            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, ...parsed.data })
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, ...parsed.data, defaultEditor: (vals as any)?.defaultEditor || undefined })
           })
           if (!res1.ok) {
             const j = await res1.json().catch(() => ({}))
@@ -265,35 +280,6 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           flash('Entity deleted', 'success')
         } : undefined}
       />
-        <div className="mt-6">
-          <h2 className="text-lg font-semibold mb-2">Field Definitions</h2>
-          <div className="space-y-2">
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-left border-b">
-                    <th className="py-2 pr-2">Key</th>
-                    <th className="py-2 pr-2">Kind</th>
-                    <th className="py-2 pr-2">Config</th>
-                    <th className="py-2 pr-2">Status</th>
-                    <th className="py-2 pr-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {defs.map((d, i) => (
-                    <FieldRow key={i} d={d} onChange={(nd) => setDefs((arr) => arr.map((x, idx) => (idx === i ? nd : x)))} onRemove={() => removeField(i)} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div>
-              <button type="button" onClick={addField} className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 inline-flex items-center gap-1">
-                <Plus className="h-4 w-4" /> Add Field
-              </button>
-              <div className="text-xs text-gray-500 mt-2">Supported kinds: text, multiline, integer, float, boolean, select (with options/optionsUrl), relation (set relatedEntityId and optionsUrl).</div>
-            </div>
-          </div>
-        </div>
       </PageBody>
     </Page>
   )

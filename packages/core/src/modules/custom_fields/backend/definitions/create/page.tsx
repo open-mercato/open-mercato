@@ -14,6 +14,17 @@ export default function CreateEntityPage() {
     { id: 'entityId', label: 'Entity ID', type: 'text', required: true, placeholder: 'module:entity' },
     { id: 'label', label: 'Label', type: 'text', required: true },
     { id: 'description', label: 'Description', type: 'textarea' },
+    {
+      id: 'defaultEditor',
+      label: 'Default Editor (multiline)',
+      type: 'select',
+      options: [
+        { value: '', label: 'Default (Markdown)' },
+        { value: 'markdown', label: 'Markdown (UIW)' },
+        { value: 'simpleMarkdown', label: 'Simple Markdown' },
+        { value: 'htmlRichText', label: 'HTML Rich Text' },
+      ],
+    } as any,
   ]
 
   return (
@@ -37,7 +48,7 @@ export default function CreateEntityPage() {
             const res = await apiFetch('/api/custom_fields/entities', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ ...(vals as any), labelField: 'name' }),
+              body: JSON.stringify({ ...(vals as any), labelField: 'name', defaultEditor: (vals as any)?.defaultEditor || undefined }),
             })
             if (!res.ok) {
               const j = await res.json().catch(() => ({}))

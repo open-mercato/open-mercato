@@ -493,7 +493,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <input type="date" className="w-full h-9 rounded border px-2 text-sm" value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value || undefined)} />
         )}
         {f.type === 'textarea' && (
-          <textarea className="w-full rounded border px-2 py-2 min-h-[120px] text-sm" placeholder={(f as any).placeholder} value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value)} />
+          <TextAreaInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={fieldSetValue} />
         )}
         {f.type === 'richtext' && ((f as any).editor === 'simple') && (
           <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
@@ -1069,6 +1069,34 @@ function NumberInput({ value, onChange, placeholder }: { value: any; onChange: (
       value={local}
       onChange={handleChange}
       onKeyDown={handleKeyDown}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+    />
+  )
+}
+
+// Local-buffer textarea to avoid form-wide re-renders while typing
+function TextAreaInput({ value, onChange, placeholder }: { value: any; onChange: (v: string) => void; placeholder?: string }) {
+  const [local, setLocal] = React.useState<string>(value ?? '')
+  const isFocusedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!isFocusedRef.current) setLocal(value ?? '')
+  }, [value])
+
+  const handleChange = React.useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setLocal(e.target.value)
+  }, [])
+
+  const handleFocus = React.useCallback(() => { isFocusedRef.current = true }, [])
+  const handleBlur = React.useCallback(() => { isFocusedRef.current = false; onChange(local) }, [local, onChange])
+
+  return (
+    <textarea
+      className="w-full rounded border px-2 py-2 min-h-[120px] text-sm"
+      placeholder={placeholder}
+      value={local}
+      onChange={handleChange}
       onFocus={handleFocus}
       onBlur={handleBlur}
     />

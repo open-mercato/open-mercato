@@ -97,3 +97,29 @@ await upsertCustomEntity(em, 'example:calendar_entity', {
 ```
 
 If the entity exists, label/description are updated; if not, it is created. After registering, admins can define fields for it under Backend → Custom fields → Entities.
+
+Registering from DI (on boot)
+
+```ts
+// src/modules/<module>/di.ts
+import type { AppContainer } from '@/lib/di/container'
+import { upsertCustomEntity } from '@open-mercato/core/modules/custom_fields/lib/register'
+
+let registered = false
+export function register(container: AppContainer) {
+  if (registered) return
+  registered = true
+  ;(async () => {
+    const em = container.resolve('em') as any
+    await upsertCustomEntity(em, '<module>:<entity>', {
+      label: 'My Entity',
+      description: 'Declared from DI on boot',
+      // Optionally scope to org/tenant
+      organizationId: null,
+      tenantId: null,
+    })
+  })().catch(() => {})
+}
+```
+
+Note: DI registrars may run per request container; the helper is idempotent and safe to call multiple times.
