@@ -32,19 +32,23 @@ export class ForbiddenError extends Error {
   }
 }
 
-let authRedirectConfig = { defaultForbiddenRoles: ['admin'] as string[] }
+const DEFAULT_FORBIDDEN_ROLES = ['admin'] as const;
 
-export function setAuthRedirectConfig(cfg: Partial<typeof authRedirectConfig>) {
-  authRedirectConfig = { ...authRedirectConfig, ...cfg }
-}
+// Remove setAuthRedirectConfig and mutable config.
 
-export function redirectToForbiddenLogin(requiredRoles?: string[] | null) {
+export function redirectToForbiddenLogin(
+  requiredRoles?: string[] | null,
+  config?: { defaultForbiddenRoles?: readonly string[] }
+) {
   if (typeof window === 'undefined') return
   // We don't know required roles from the API response; use a generic hint.
   if (window.location.pathname.startsWith('/login')) return
   try {
     const current = window.location.pathname + window.location.search
-    const roles = (requiredRoles && requiredRoles.length ? requiredRoles : authRedirectConfig.defaultForbiddenRoles)
+    const roles =
+      requiredRoles && requiredRoles.length
+        ? requiredRoles
+        : (config?.defaultForbiddenRoles ?? DEFAULT_FORBIDDEN_ROLES)
     const url = `/login?requireRole=${encodeURIComponent(roles.join(','))}&redirect=${encodeURIComponent(current)}`
     flash('Insufficient permissions. Redirecting to login…', 'warning')
     setTimeout(() => { window.location.href = url }, 60)
