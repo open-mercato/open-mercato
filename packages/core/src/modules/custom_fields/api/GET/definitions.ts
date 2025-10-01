@@ -61,7 +61,7 @@ export default async function handler(req: Request) {
     optionsUrl: typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined,
     filterable: Boolean(d.configJson?.filterable),
     formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
-    // Optional UI hints for client renderers
+    // Optional UI hints for client renderers (per-field only)
     editor: typeof d.configJson?.editor === 'string' ? d.configJson.editor : undefined,
     input: typeof d.configJson?.input === 'string' ? d.configJson.input : undefined,
   }))

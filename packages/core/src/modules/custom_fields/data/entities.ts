@@ -64,6 +64,11 @@ export class CustomEntity {
   @Property({ name: 'label_field', type: 'text', nullable: true })
   labelField?: string | null
 
+  // Default editor preference for multiline custom fields
+  // Allowed: 'markdown' | 'simpleMarkdown' | 'htmlRichText'
+  @Property({ name: 'default_editor', type: 'text', nullable: true })
+  defaultEditor?: string | null
+
   // Optional org/tenant scoping
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null

@@ -7,38 +7,46 @@ import { upsertCustomEntitySchema } from '@open-mercato/core/modules/custom_fiel
 
 const schema = upsertCustomEntitySchema
 
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+
 export default function CreateEntityPage() {
   const fields: CrudField[] = [
     { id: 'entityId', label: 'Entity ID', type: 'text', required: true, placeholder: 'module:entity' },
     { id: 'label', label: 'Label', type: 'text', required: true },
     { id: 'description', label: 'Description', type: 'textarea' },
-    { id: 'labelField', label: 'Default Label Field', type: 'text', placeholder: 'name' },
   ]
 
   return (
-    <div className="p-6">
-      <CrudForm
-        title="New Custom Entity"
-        schema={schema}
-        fields={fields}
-        initialValues={{ entityId: 'example:calendar_entity', label: 'Calendar Entity', labelField: 'name' }}
-        submitLabel="Create"
-        cancelHref="/backend/definitions"
-        successRedirect="/backend/definitions"
-        onSubmit={async (vals) => {
-          const res = await apiFetch('/api/custom_fields/entities', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(vals),
-          })
-          if (!res.ok) {
-            const j = await res.json().catch(() => ({}))
-            throw new Error(j?.error || 'Failed to create')
-          }
-          flash('Entity created', 'success')
-          // Redirect handled by successRedirect
-        }}
-      />
-    </div>
+    <Page>
+      <PageBody>
+        <CrudForm
+          title="Create Entity"
+          backHref="/backend/definitions"
+          schema={schema}
+          fields={fields}
+          initialValues={{ entityId: 'example:calendar_entity', label: 'Calendar Entity' }}
+          submitLabel="Create"
+          cancelHref="/backend/definitions"
+          successRedirect="/backend/definitions"
+          onSubmit={async (vals) => {
+            // Validate uniqueness client-side
+            const listRes = await apiFetch('/api/custom_fields/entities')
+            const listJson = await listRes.json().catch(() => ({ items: [] }))
+            const exists = Array.isArray(listJson?.items) && listJson.items.some((it: any) => it?.entityId === (vals as any).entityId && it?.source === 'custom')
+            if (exists) throw new Error('Entity ID already exists')
+            const res = await apiFetch('/api/custom_fields/entities', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ ...(vals as any), labelField: 'name' }),
+            })
+            if (!res.ok) {
+              const j = await res.json().catch(() => ({}))
+              throw new Error(j?.error || 'Failed to create')
+            }
+            flash('Entity created', 'success')
+          }}
+        />
+      </PageBody>
+    </Page>
   )
 }

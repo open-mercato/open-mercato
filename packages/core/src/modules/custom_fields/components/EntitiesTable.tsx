@@ -59,7 +59,7 @@ export default function EntitiesTable() {
 
   return (
     <DataTable
-      title="Custom Field Definitions"
+      title="Entities"
       actions={(
         <>
           <Button variant="outline" size="sm" onClick={() => {

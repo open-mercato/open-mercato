@@ -3,7 +3,6 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { CustomEntity } from '@open-mercato/core/modules/custom_fields/data/entities'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/custom_fields/data/validators'
-import { E as Gen } from '@open-mercato/core/datamodel/entities'
 
 export const metadata = {
   POST: { requireAuth: true, requireRoles: ['admin'] },
@@ -19,13 +18,7 @@ export default async function handler(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   const input = parsed.data
 
-  // Collision check against code-generated entities
-  for (const modId of Object.keys(Gen)) {
-    const map = (Gen as any)[modId] as Record<string,string>
-    if (Object.values(map).includes(input.entityId)) {
-      return NextResponse.json({ error: 'EntityId conflicts with a code-defined entity' }, { status: 409 })
-    }
-  }
+  // Allow overlays for code-defined entities: no collision check.
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
@@ -38,6 +31,7 @@ export default async function handler(req: Request) {
   ent.description = input.description ?? null
   ent.isActive = input.isActive ?? true
   ent.labelField = input.labelField ?? ent.labelField ?? null
+  ent.defaultEditor = input.defaultEditor ?? ent.defaultEditor ?? null
   ent.updatedAt = new Date()
   em.persist(ent)
   await em.flush()
