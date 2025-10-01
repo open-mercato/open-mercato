@@ -1,5 +1,6 @@
 // Simple fetch wrapper that redirects to session refresh on 401 (Unauthorized)
 // Used across UI data utilities to avoid duplication.
+import { flash } from '../FlashMessages'
 export class UnauthorizedError extends Error {
   readonly status = 401
   constructor(message = 'Unauthorized') {
@@ -14,7 +15,10 @@ export function redirectToSessionRefresh() {
   // Avoid redirect loops if already on an auth/session route
   if (window.location.pathname.startsWith('/api/auth')) return
   try {
-    window.location.href = `/api/auth/session/refresh?redirect=${encodeURIComponent(current)}`
+    flash('Session expired. Redirecting to sign in…', 'warning')
+    setTimeout(() => {
+      window.location.href = `/api/auth/session/refresh?redirect=${encodeURIComponent(current)}`
+    }, 20)
   } catch {
     // no-op
   }
@@ -42,7 +46,8 @@ export function redirectToForbiddenLogin(requiredRoles?: string[] | null) {
     const current = window.location.pathname + window.location.search
     const roles = (requiredRoles && requiredRoles.length ? requiredRoles : authRedirectConfig.defaultForbiddenRoles)
     const url = `/login?requireRole=${encodeURIComponent(roles.join(','))}&redirect=${encodeURIComponent(current)}`
-    window.location.href = url
+    flash('Insufficient permissions. Redirecting to login…', 'warning')
+    setTimeout(() => { window.location.href = url }, 60)
   } catch {
     // no-op
   }
