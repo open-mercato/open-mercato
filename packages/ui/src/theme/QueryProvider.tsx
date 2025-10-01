@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { redirectToSessionRefresh, redirectToForbiddenLogin, UnauthorizedError, ForbiddenError, apiFetch } from '../backend/utils/api'
+import { redirectToSessionRefresh, redirectToForbiddenLogin, UnauthorizedError, ForbiddenError, apiFetch, setAuthRedirectConfig } from '../backend/utils/api'
 
 // Ensure global fetch calls also respect our redirect-on-401/403 policy.
 function ensureGlobalFetchInterception() {
@@ -33,9 +33,14 @@ const client = new QueryClient({
   }),
 })
 
-export function QueryProvider({ children }: { children: React.ReactNode }) {
+type QueryProviderProps = { children: React.ReactNode; defaultForbiddenRoles?: string[] }
+
+export function QueryProvider({ children, defaultForbiddenRoles }: QueryProviderProps) {
   React.useEffect(() => {
     ensureGlobalFetchInterception()
+    if (defaultForbiddenRoles && defaultForbiddenRoles.length) {
+      setAuthRedirectConfig({ defaultForbiddenRoles })
+    }
   }, [])
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }

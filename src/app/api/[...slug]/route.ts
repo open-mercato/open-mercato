@@ -14,7 +14,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
   const methodMetadata = api.metadata?.GET
   if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
   }
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   const methodMetadata = api.metadata?.POST
   if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
   }
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -48,7 +48,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug
   const methodMetadata = api.metadata?.PUT
   if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
   }
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -65,7 +65,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ sl
   const methodMetadata = api.metadata?.PATCH
   if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
   }
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -82,7 +82,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ s
   const methodMetadata = api.metadata?.DELETE
   if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
   }
   
   return (api.handler as any)(req, { params: api.params, auth })
