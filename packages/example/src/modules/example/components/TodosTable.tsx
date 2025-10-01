@@ -9,6 +9,7 @@ import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList, buildCrudCsvUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import Link from 'next/link'
 
@@ -121,7 +122,7 @@ export default function TodosTable() {
     queryKey: ['organizations', organizationIds],
     queryFn: async () => {
       if (organizationIds.length === 0) return { items: [] }
-      const response = await fetch(`/api/example/organizations?ids=${organizationIds.join(',')}`)
+      const response = await apiFetch(`/api/example/organizations?ids=${organizationIds.join(',')}`)
       if (!response.ok) {
         throw new Error('Failed to fetch organizations')
       }

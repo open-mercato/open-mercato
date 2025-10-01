@@ -1,4 +1,5 @@
 import type { FilterDef } from '../FilterOverlay'
+import { apiFetch } from './api'
 
 export type CustomFieldDefDto = {
   key: string
@@ -30,7 +31,7 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
       if (d.optionsUrl) {
         ;(base as any).loadOptions = async () => {
           try {
-            const res = await fetch(d.optionsUrl!)
+            const res = await apiFetch(d.optionsUrl!)
             const json = await res.json()
             const items = Array.isArray(json?.items) ? json.items : []
             return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
@@ -53,7 +54,7 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
       if (d.optionsUrl) {
         ;(base as any).loadOptions = async () => {
           try {
-            const res = await fetch(d.optionsUrl!)
+            const res = await apiFetch(d.optionsUrl!)
             const json = await res.json()
             const items = Array.isArray(json?.items) ? json.items : []
             return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
@@ -70,8 +71,8 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
   return f
 }
 
-export async function fetchCustomFieldFilterDefs(entityId: string, fetchImpl: typeof fetch = fetch): Promise<FilterDef[]> {
-  const res = await fetchImpl(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
+export async function fetchCustomFieldFilterDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<FilterDef[]> {
+  const res = await fetchImpl(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } } as any)
   const data = await res.json().catch(() => ({ items: [] }))
   const defs: CustomFieldDefDto[] = data?.items || []
   return buildFilterDefsFromCustomFields(defs)

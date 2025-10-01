@@ -1,5 +1,6 @@
 import type { CrudField } from '../CrudForm'
 import type { CustomFieldDefDto } from './customFieldFilters'
+import { apiFetch } from './api'
 
 export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): CrudField[] {
   const fields: CrudField[] = []
@@ -40,7 +41,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
             ? {
                 loadOptions: async () => {
                   try {
-                    const res = await fetch(d.optionsUrl!)
+                    const res = await apiFetch(d.optionsUrl!)
                     const json = await res.json()
                     const items = Array.isArray(json?.items) ? json.items : []
                     return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
@@ -61,7 +62,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
           if (d.optionsUrl) {
             base.loadOptions = async () => {
               try {
-                const res = await fetch(d.optionsUrl!)
+                const res = await apiFetch(d.optionsUrl!)
                 const json = await res.json()
                 const items = Array.isArray(json?.items) ? json.items : []
                 return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
@@ -77,8 +78,8 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
   return fields
 }
 
-export async function fetchCustomFieldFormFields(entityId: string, fetchImpl: typeof fetch = fetch): Promise<CrudField[]> {
-  const res = await fetchImpl(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
+export async function fetchCustomFieldFormFields(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<CrudField[]> {
+  const res = await fetchImpl(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } } as any)
   const data = await res.json().catch(() => ({ items: [] }))
   const defs: CustomFieldDefDto[] = data?.items || []
   return buildFormFieldsFromCustomFields(defs)
