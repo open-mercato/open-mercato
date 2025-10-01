@@ -47,6 +47,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
   const [totalPages, setTotalPages] = React.useState(1)
   const [loading, setLoading] = React.useState(false)
   const [cfDefs, setCfDefs] = React.useState<CfDef[]>([])
+  const [showAllColumns, setShowAllColumns] = React.useState(false)
 
   // Load CF definitions for labeling and filters
   React.useEffect(() => {
@@ -102,25 +103,55 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
           })
         }
 
-        // Build columns dynamically on first load or when shape changes
+        // Build columns dynamically with heuristics to hide GUID/hash-like columns
         const keys = Array.from(new Set(items.flatMap((it: any) => Object.keys(it || {}))))
-        // Prefer predictable order: id, label-like, timestamps, then others; cf_ last
-        const preferred = ['id', 'name', 'title', 'label', 'created_at', 'updated_at']
         const base = keys.filter((k) => !k.startsWith('cf_'))
         const cfs = keys.filter((k) => k.startsWith('cf_'))
+
+        const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        const hexLongRe = /^[0-9a-f]{24,}$/i
+        const looksSensitive = (k: string) => /(password|token|secret|hash|salt|signature|key)$/i.test(k)
+        const looksTechnicalId = (k: string) => /(^id$|_id$|^uuid$)/i.test(k)
+        const sampleVal = (k: string) => {
+          for (const row of items) {
+            const v = (row as any)[k]
+            if (v != null && v !== '') return Array.isArray(v) ? v[0] : v
+          }
+          return undefined
+        }
+        const isGuidLike = (k: string) => {
+          const v = sampleVal(k)
+          if (typeof v !== 'string') return false
+          return uuidRe.test(v) || hexLongRe.test(v)
+        }
+
+        const rank = (k: string) => {
+          // Lower number = higher priority
+          if (['name','title','label'].includes(k)) return 0
+          if (k === 'id') return 5 // de-prioritize id but not last
+          if (k.endsWith('_at')) return 6
+          if (k.startsWith('cf_')) return 7
+          return 3
+        }
+        const hideByHeuristic = (k: string) => !showAllColumns && (looksSensitive(k) || looksTechnicalId(k) || isGuidLike(k))
+
         const ordered = [
-          ...preferred.filter((k) => base.includes(k)),
-          ...base.filter((k) => !preferred.includes(k)),
+          ...['id','name','title','label','created_at','updated_at'].filter((k) => base.includes(k)),
+          ...base.filter((k) => !['id','name','title','label','created_at','updated_at'].includes(k)).sort((a,b) => rank(a) - rank(b) || a.localeCompare(b)),
           ...cfs,
-        ]
+        ].filter((k) => !hideByHeuristic(k))
+
+        // Limit to a reasonable number to fit width; remaining get higher responsive priority (hidden on smaller screens)
+        const maxVisible = 10
         const cfLabel = (k: string) => cfDefs.find((d) => `cf_${d.key}` === k)?.label || k
         const cols: ColumnDef<any>[] = ordered.map((k, idx) => ({
           accessorKey: k,
           header: k.startsWith('cf_') ? cfLabel(k) : k,
-          meta: { priority: idx < 2 ? 1 : idx < 4 ? 2 : idx < 6 ? 3 : 4 },
+          // Priority: first 4 always, next hidden <sm, then <md, etc.
+          meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
           cell: ({ getValue }) => {
             const v = getValue() as any
-            return <span>{normalizeCell(v)}</span>
+            return <span className="truncate max-w-[24ch] inline-block align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
           },
         }))
         if (!cancelled) {
@@ -142,10 +173,13 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     }
     if (entityId) run()
     return () => { cancelled = true }
-  }, [entityId, page, pageSize, sorting, filterValues, search, cfDefs])
+  }, [entityId, page, pageSize, sorting, filterValues, search, cfDefs, showAllColumns])
 
   const actions = (
     <>
+      <Button variant="outline" size="sm" onClick={() => setShowAllColumns((v) => !v)}>
+        {showAllColumns ? 'Compact columns' : 'Show all columns'}
+      </Button>
       <Button asChild variant="outline" size="sm">
         <a
           href={(() => {
