@@ -16,10 +16,15 @@ const KIND_OPTIONS = CUSTOM_FIELD_KINDS.map((k) => ({ value: k, label: k.charAt(
 
 function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => void; onRemove: () => void }) {
   const [local, setLocal] = useState<Def>(d)
-  // Sync local only when identity/key changes
-  useEffect(() => setLocal(d), [d.key])
+  // Sync local when upstream def changes identity (key) or receives external edits
+  useEffect(() => setLocal(d), [d.key, d.kind, JSON.stringify(d.configJson), d.isActive])
   const updateLocal = (patch: Partial<Def>) => {
-    setLocal((prev) => ({ ...prev, ...patch }))
+    setLocal((prev) => {
+      const next = { ...prev, ...patch }
+      // propagate immediately to parent to avoid stale microtask commits
+      onChange(next)
+      return next
+    })
   }
   const commit = () => onChange(local)
   return (
@@ -29,7 +34,7 @@ function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => voi
           <input value={local.key} onChange={(e) => updateLocal({ key: e.target.value })} onBlur={commit} className="border rounded w-full px-2 py-1 font-mono" placeholder="snake_case" />
         </td>
         <td className="py-2 pr-2" style={{ width: 200 }}>
-          <select value={local.kind} onChange={(e) => { updateLocal({ kind: e.target.value }); queueMicrotask(commit) }} className="border rounded w-full px-2 py-1">
+          <select value={local.kind} onChange={(e) => { updateLocal({ kind: e.target.value }) }} className="border rounded w-full px-2 py-1">
             {KIND_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </td>
@@ -57,7 +62,7 @@ function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => voi
             {(local.kind === 'text' || local.kind === 'multiline') && (
               <div>
                 <label className="text-xs">Editor</label>
-                <select value={local.configJson?.editor || ''} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), editor: e.target.value || undefined } }); queueMicrotask(commit) }} className="border rounded w-full px-2 py-1">
+                <select value={local.configJson?.editor || ''} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), editor: e.target.value || undefined } }) }} className="border rounded w-full px-2 py-1">
                   <option value="">Default</option>
                   <option value="markdown">Markdown (UIW)</option>
                   <option value="simpleMarkdown">Simple Markdown</option>
@@ -95,7 +100,7 @@ function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => voi
                   <input value={local.configJson?.optionsUrl || ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })} onBlur={commit} className="border rounded w-full px-2 py-1" placeholder="/api/custom_fields/relations/options?..." />
                 </div>
                 <div className="col-span-2">
-                  <label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }); queueMicrotask(commit) }} /> Multiple</label>
+                  <label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }) }} /> Multiple</label>
                 </div>
               </>
             )}

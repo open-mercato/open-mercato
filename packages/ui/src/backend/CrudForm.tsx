@@ -118,7 +118,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   entityId,
   groups,
   isLoading = false,
-  loadingMessage = 'Loading form...',
+  loadingMessage = 'Loading data...',
 }: CrudFormProps<TValues>) {
   const router = useRouter()
   const formId = React.useId()
@@ -681,8 +681,8 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           ) : null}
           <DataLoader
             isLoading={isCustomFieldsGroup && isLoadingCustomFields}
-            loadingMessage="Loading custom fields..."
-            spinnerSize="sm"
+            loadingMessage="Loading data..."
+            spinnerSize="md"
             className="min-h-[1px]"
           >
             {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
@@ -733,7 +733,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         <DataLoader
           isLoading={isLoading}
           loadingMessage={loadingMessage}
-          spinnerSize="lg"
+          spinnerSize="md"
           className="min-h-[400px]"
         >
           <form id={formId} onSubmit={handleSubmit} className="space-y-4">
@@ -809,7 +809,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       <DataLoader
         isLoading={isLoading}
         loadingMessage={loadingMessage}
-        spinnerSize="lg"
+        spinnerSize="md"
         className="min-h-[400px]"
       >
         <div>
