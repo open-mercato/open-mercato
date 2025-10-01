@@ -72,7 +72,7 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
 }
 
 export async function fetchCustomFieldFilterDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<FilterDef[]> {
-  const res = await fetchImpl(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } } as any)
+  const res = await fetchImpl(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
   const data = await res.json().catch(() => ({ items: [] }))
   const defs: CustomFieldDefDto[] = data?.items || []
   return buildFilterDefsFromCustomFields(defs)
