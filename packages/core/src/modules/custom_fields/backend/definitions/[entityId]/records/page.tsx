@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import { filterCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -106,7 +107,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
         // Build columns dynamically with heuristics to hide GUID/hash-like columns
         const keys = Array.from(new Set(items.flatMap((it: any) => Object.keys(it || {}))))
         const base = keys.filter((k) => !k.startsWith('cf_'))
-        const allowedCf = new Set(cfDefs.filter((d: any) => (d as any).listVisible !== false).map((d) => `cf_${d.key}`))
+        const allowedCf = new Set(filterCustomFieldDefs(cfDefs as any, 'list').map((d: any) => `cf_${d.key}`))
         const cfs = keys.filter((k) => k.startsWith('cf_') && allowedCf.has(k))
 
         const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

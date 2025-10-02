@@ -148,4 +148,23 @@ defineFields(E.example.todo, [
   cf.text('labels', { label: 'Labels', multi: true, input: 'tags' }),
   cf.multiline('description', { label: 'Description', editor: 'markdown' }),
 ])
+
+## Custom Fields → Visibility
+Custom field visibility is controlled per field via `custom_field_defs.config_json` and affects forms, filters, and list pages:
+
+- `formEditable` (default true): include the field in CrudForm when `entityId` is provided.
+- `filterable` (default false): include the field in DataTable filter overlays.
+- `listVisible` (default true): show the field as a column in generic records lists.
+
+You can edit these flags in the admin under Backend → Custom Fields → Definitions. For programmatic control, set them in your DSL or seeding CLI.
+
+To apply list visibility to a table, fetch definitions and filter columns via helper:
+
+```ts
+import { fetchCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
+
+const defs = await fetchCustomFieldDefs('example:todo')
+const visibleColumns = applyCustomFieldVisibility(columns, defs)
+```
 ```

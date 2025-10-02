@@ -1,26 +1,12 @@
 import type { FilterDef } from '../FilterOverlay'
 import { apiFetch } from './api'
-
-export type CustomFieldDefDto = {
-  key: string
-  kind: string
-  label?: string
-  description?: string
-  options?: string[]
-  optionsUrl?: string
-  multi?: boolean
-  filterable?: boolean
-  formEditable?: boolean
-  listVisible?: boolean
-  // Optional UI hints
-  editor?: string
-  input?: string
-}
+import type { CustomFieldDefDto } from './customFieldDefs'
+import { filterCustomFieldDefs } from './customFieldDefs'
 
 export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): FilterDef[] {
   const f: FilterDef[] = []
-  for (const d of defs) {
-    if (!d.filterable) continue
+  const visible = filterCustomFieldDefs(defs, 'filter')
+  for (const d of visible) {
     const id = `cf_${d.key}`
     const label = d.label || d.key
     if (d.kind === 'boolean') {

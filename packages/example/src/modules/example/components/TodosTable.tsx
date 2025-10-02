@@ -10,6 +10,8 @@ import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend
 import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList, buildCrudCsvUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { fetchCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import Link from 'next/link'
 
@@ -27,7 +29,7 @@ type OrganizationsResponse = {
   items: Array<{ id: string; name: string }>
 }
 
-const columns: ColumnDef<TodoRow>[] = [
+const baseColumns: ColumnDef<TodoRow>[] = [
   { accessorKey: 'title', header: 'Title', meta: { priority: 1 } },
   { accessorKey: 'organization_name', header: 'Organization', enableSorting: false, meta: { priority: 3 } },
   { accessorKey: 'is_done', header: 'Done', meta: { priority: 2 },
@@ -107,6 +109,17 @@ export default function TodosTable() {
     queryKey: ['todos', queryParams],
     queryFn: async () => fetchCrudList<TodoListItem>('example/todos', Object.fromEntries(new URLSearchParams(queryParams))),
   })
+
+  // Load custom field definitions for column visibility and labels
+  const { data: cfDefs } = useQuery({
+    queryKey: ['cf-defs', 'example:todo'],
+    queryFn: async () => fetchCustomFieldDefs('example:todo'),
+  })
+
+  const columns = React.useMemo(() => {
+    if (!cfDefs) return baseColumns
+    return applyCustomFieldVisibility(baseColumns, cfDefs)
+  }, [cfDefs])
 
   // Get unique organization IDs from todos
   const organizationIds = React.useMemo(() => {

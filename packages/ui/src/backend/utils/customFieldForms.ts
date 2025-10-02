@@ -1,11 +1,12 @@
 import type { CrudField } from '../CrudForm'
-import type { CustomFieldDefDto } from './customFieldFilters'
+import type { CustomFieldDefDto } from './customFieldDefs'
+import { filterCustomFieldDefs } from './customFieldDefs'
 import { apiFetch } from './api'
 
 export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): CrudField[] {
   const fields: CrudField[] = []
-  for (const d of defs) {
-    if (d.formEditable === false) continue
+  const visible = filterCustomFieldDefs(defs, 'form')
+  for (const d of visible) {
     const id = `cf_${d.key}`
     const label = d.label || d.key
     switch (d.kind) {
