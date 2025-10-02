@@ -190,6 +190,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           organizationId: ctx.auth.orgId!,
           tenantId: ctx.auth.tenantId!,
           fields: opts.list.fields!,
+          // Ensure CF projections are available even if not explicitly listed;
+          // transformItem will only pick the ones it needs.
+          includeCustomFields: true,
           sort,
           page,
           filters,
