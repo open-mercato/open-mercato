@@ -44,7 +44,20 @@ export default async function handler(req: Request) {
   for (const g of generated) byId.set(g.entityId, g)
   for (const cu of custom) byId.set(cu.entityId, { ...byId.get(cu.entityId), ...cu } as any)
 
-  const entityIds = Array.from(byId.values()).map((x) => x.entityId).sort()
+  let entityIds = Array.from(byId.values()).map((x) => x.entityId).sort()
+
+  // Limit to entities that have active custom field definitions in current scope
+  try {
+    const cfRows = await knex('custom_field_defs')
+      .distinct('entity_id')
+      .where({ is_active: true })
+      .modify((qb: any) => {
+        qb.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
+        if (tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantId }).orWhereNull('tenant_id'))
+      })
+    const enabled = new Set<string>((cfRows || []).map((r: any) => String(r.entity_id)))
+    entityIds = entityIds.filter((id) => enabled.has(id))
+  } catch {}
 
   async function countBase(entityType: string, orgIdParam: string, tenantIdParam: string | null): Promise<number> {
     const table = toBaseTableFromEntityType(entityType)
