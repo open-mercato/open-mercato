@@ -675,41 +675,6 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       else col1.push(g)
     }
 
-    const GroupCard = React.memo(({ g }: { g: CrudFormGroup }) => {
-      const groupFields = React.useMemo(() => resolveGroupFields(g), [g, allFields, cfFields])
-      const isCustomFieldsGroup = g.kind === 'customFields'
-      
-      return (
-        <div className="rounded-lg border bg-card p-4 space-y-3">
-          {g.title || isCustomFieldsGroup ? (
-            <div className="text-sm font-medium">{g.title || 'Custom Fields'}</div>
-          ) : null}
-          {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
-          {g.component ? (
-            <div>{g.component({ values, setValue, errors })}</div>
-          ) : null}
-          <DataLoader
-            isLoading={isCustomFieldsGroup && isLoadingCustomFields}
-            loadingMessage="Loading data..."
-            spinnerSize="md"
-            className="min-h-[1px]"
-          >
-            {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
-          </DataLoader>
-        </div>
-      )
-    }, (prev, next) => {
-      // Only re-render if the group config or relevant dependencies change
-      return (
-        prev.g.id === next.g.id &&
-        prev.g.title === next.g.title &&
-        prev.g.description === next.g.description &&
-        prev.g.kind === next.g.kind &&
-        prev.g.column === next.g.column &&
-        JSON.stringify(prev.g.fields) === JSON.stringify(next.g.fields)
-      )
-    })
-
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
@@ -748,14 +713,54 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <form id={formId} onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4">
               <div className="space-y-4">
-                {col1.map((g) => (
-                  <GroupCard key={g.id} g={g} />
-                ))}
+                {col1.map((g) => {
+                  const isCustomFieldsGroup = g.kind === 'customFields'
+                  const groupFields = resolveGroupFields(g)
+                  return (
+                    <div key={g.id} className="rounded-lg border bg-card p-4 space-y-3">
+                      {g.title || isCustomFieldsGroup ? (
+                        <div className="text-sm font-medium">{g.title || 'Custom Fields'}</div>
+                      ) : null}
+                      {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
+                      {g.component ? (
+                        <div>{g.component({ values, setValue, errors })}</div>
+                      ) : null}
+                      <DataLoader
+                        isLoading={isCustomFieldsGroup && isLoadingCustomFields}
+                        loadingMessage="Loading data..."
+                        spinnerSize="md"
+                        className="min-h-[1px]"
+                      >
+                        {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
+                      </DataLoader>
+                    </div>
+                  )
+                })}
               </div>
               <div className="space-y-4">
-                {col2.map((g) => (
-                  <GroupCard key={g.id} g={g} />
-                ))}
+                {col2.map((g) => {
+                  const isCustomFieldsGroup = g.kind === 'customFields'
+                  const groupFields = resolveGroupFields(g)
+                  return (
+                    <div key={g.id} className="rounded-lg border bg-card p-4 space-y-3">
+                      {g.title || isCustomFieldsGroup ? (
+                        <div className="text-sm font-medium">{g.title || 'Custom Fields'}</div>
+                      ) : null}
+                      {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
+                      {g.component ? (
+                        <div>{g.component({ values, setValue, errors })}</div>
+                      ) : null}
+                      <DataLoader
+                        isLoading={isCustomFieldsGroup && isLoadingCustomFields}
+                        loadingMessage="Loading data..."
+                        spinnerSize="md"
+                        className="min-h-[1px]"
+                      >
+                        {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
+                      </DataLoader>
+                    </div>
+                  )
+                })}
               </div>
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}

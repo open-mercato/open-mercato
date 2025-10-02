@@ -25,7 +25,10 @@ export async function createRequestContainer(): Promise<AppContainer> {
   try {
     const appDi = await import('@/di') as any
     if (appDi?.register) {
-      try { appDi.register(container) } catch {}
+      try {
+        const maybe = appDi.register(container)
+        if (maybe && typeof maybe.then === 'function') await maybe
+      } catch {}
     }
   } catch {}
   return container
