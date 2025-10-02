@@ -5,7 +5,7 @@ import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/custom_fields/k
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { upsertCustomEntitySchema } from '@open-mercato/core/modules/custom_fields/data/validators'
+import { upsertCustomEntitySchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/custom_fields/data/validators'
 import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
@@ -18,7 +18,9 @@ const KIND_OPTIONS = CUSTOM_FIELD_KINDS.map((k) => ({ value: k, label: k.charAt(
 
 // A memoized card for a single field definition.
 // Uses local buffered inputs and commits on blur/toggle to avoid form-wide re-renders and focus loss.
-const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => void; onRemove: () => void }) {
+type DefErrors = { key?: string; kind?: string }
+
+const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }: { d: Def; error?: DefErrors; onChange: (d: Def) => void; onRemove: () => void }) {
   const [local, setLocal] = useState<Def>(d)
   // Only initialize from props once (on mount). Avoid syncing on each keystroke to preserve caret focus.
   // Consumers should replace the component (key change) when identity truly changes.
@@ -57,22 +59,24 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
         <div className="md:col-span-6">
           <label className="text-xs">Key</label>
           <input
-            className="border rounded w-full px-2 py-1 text-sm font-mono"
+            className={`rounded w-full px-2 py-1 text-sm font-mono ${error?.key ? 'border-red-500 border' : 'border'}`}
             placeholder="snake_case"
             value={local.key}
             onChange={(e) => apply({ key: e.target.value })}
             onBlur={commit}
           />
+          {error?.key && <div className="text-xs text-red-600 mt-1">{error.key}</div>}
         </div>
         <div className="md:col-span-6">
           <label className="text-xs">Kind</label>
           <select
-            className="border rounded w-full px-2 py-1 text-sm"
+            className={`rounded w-full px-2 py-1 text-sm ${error?.kind ? 'border-red-500 border' : 'border'}`}
             value={local.kind}
             onChange={(e) => { apply({ kind: e.target.value }, true) }}
           >
             {KIND_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
+          {error?.kind && <div className="text-xs text-red-600 mt-1">{error.kind}</div>}
         </div>
       </div>
 
@@ -208,6 +212,33 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [deletedKeys, setDeletedKeys] = useState<string[]>([])
+  const [defErrors, setDefErrors] = useState<Record<number, DefErrors>>({})
+
+  const validateDef = React.useCallback((d: Def): DefErrors => {
+    const parsed = upsertCustomFieldDefSchema.safeParse({ entityId, key: d.key, kind: d.kind, configJson: d.configJson, isActive: d.isActive })
+    if (parsed.success) return {}
+    const errs: DefErrors = {}
+    for (const issue of parsed.error.issues) {
+      if ((issue.path || []).includes('key')) errs.key = issue.message
+      if ((issue.path || []).includes('kind')) errs.kind = issue.message
+    }
+    return errs
+  }, [entityId])
+
+  const validateAndSetErrorAt = (index: number, d: Def) => {
+    const errs = validateDef(d)
+    setDefErrors((prev) => ({ ...prev, [index]: errs }))
+    return !errs.key && !errs.kind
+  }
+
+  const validateAll = () => {
+    const nextErrors: Record<number, DefErrors> = {}
+    defs.forEach((d, i) => {
+      nextErrors[i] = validateDef(d)
+    })
+    setDefErrors(nextErrors)
+    return Object.values(nextErrors).every(e => !e.key && !e.kind)
+  }
 
   useEffect(() => {
     let mounted = true
@@ -234,6 +265,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           const loaded: Def[] = (json.items || []).map((d: any) => ({ key: d.key, kind: d.kind, configJson: d.configJson || {}, isActive: d.isActive !== false }))
           loaded.sort((a, b) => (a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0))
           setDefs(loaded)
+          setDefErrors({})
           setDeletedKeys(Array.isArray(json.deletedKeys) ? json.deletedKeys : [])
         }
       } catch (e: any) {
@@ -278,6 +310,10 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     setSaving(true)
     setError(null)
     try {
+      if (!validateAll()) {
+        flash('Please fix validation errors in field definitions', 'error')
+        throw new Error('Validation failed')
+      }
       const payload = {
         entityId,
         definitions: defs.filter(d => !!d.key).map((d) => ({
@@ -317,6 +353,8 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     if (!orderDirty) return
     setOrderSaving(true)
     try {
+      // Do not save order when there are invalid keys/kinds
+      if (!validateAll()) throw new Error('Validation failed')
       const payload = {
         entityId,
         definitions: defs.filter(d => !!d.key).map((d) => ({
@@ -444,7 +482,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
               }
             }}
           >
-            <FieldCard d={d} onChange={(nd) => setDefs((arr) => arr.map((x, idx) => (idx === i ? nd : x)))} onRemove={() => removeField(i)} />
+            <FieldCard d={d} error={defErrors[i]} onChange={(nd) => {
+              setDefs((arr) => arr.map((x, idx) => (idx === i ? nd : x)))
+              // Validate after change to provide instant feedback on blur/commit
+              validateAndSetErrorAt(i, nd)
+            }} onRemove={() => removeField(i)} />
           </div>
         ))}
         <div>
@@ -483,6 +525,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           cancelHref="/backend/definitions"
           successRedirect="/backend/definitions?flash=Definitions%20saved&type=success"
           onSubmit={async (vals) => {
+            // Validate fields client-side before hitting the API
+            if (!validateAll()) {
+              flash('Please fix validation errors in field definitions', 'error')
+              throw new Error('Validation failed')
+            }
             // Save entity settings
             const partial = upsertCustomEntitySchema.pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any }) as unknown as z.ZodTypeAny
             const normalized = { ...(vals as any), defaultEditor: (vals as any)?.defaultEditor || undefined }
