@@ -19,11 +19,11 @@ type RecordsResponse = {
 type CfDef = { key: string; label?: string; kind?: string }
 
 function toCsvUrl(base: string, params: URLSearchParams) {
-  const u = new URL(base, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
+  // Build a relative URL to avoid SSR/CSR origin mismatch hydration issues
   const p = new URLSearchParams(params)
   p.set('format', 'csv')
-  u.search = p.toString()
-  return u.toString()
+  const qs = p.toString()
+  return qs ? `${base}?${qs}` : base
 }
 
 function normalizeCell(v: any): string {

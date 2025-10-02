@@ -20,7 +20,7 @@ export default async function handler(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
 
-  // Upsert by entityId + org/tenant + key
+  // Upsert by entityId + org/tenant + key (simple, no implicit undelete logic)
   const where: any = { entityId: input.entityId, key: input.key, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
   let def = await em.findOne(CustomFieldDef, where)
   if (!def) def = em.create(CustomFieldDef, { ...where, createdAt: new Date() })
@@ -32,4 +32,3 @@ export default async function handler(req: Request) {
   await em.flush()
   return NextResponse.json({ ok: true, item: { id: def.id, key: def.key, kind: def.kind, configJson: def.configJson, isActive: def.isActive } })
 }
-

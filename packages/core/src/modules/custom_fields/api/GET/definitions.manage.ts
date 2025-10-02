@@ -16,15 +16,33 @@ export default async function handler(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  // Load all scoped records (active/inactive/deleted) so that per-scope tombstones
+  // can shadow global definitions. We'll filter out deleted winners later.
   const defs = await em.find(CustomFieldDef, {
     entityId,
+    deletedAt: null,
+    isActive: true,
     $and: [
       { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
       { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
     ],
   }, { orderBy: { key: 'asc' } as any })
 
-  // Deduplicate by key, keeping the last defined (most recently updated)
+  // Also load tombstones to shadow lower-scope/global entries with the same key
+  const tombstones = await em.find(CustomFieldDef, {
+    entityId,
+    deletedAt: { $ne: null } as any,
+    $and: [
+      { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+      { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+    ],
+  })
+  const tombstonedKeys = new Set<string>((tombstones as any[]).map((d: any) => d.key))
+
+  // Deduplicate by key, with clear precedence that allows higher-scope tombstones
+  // to shadow lower-scope active definitions:
+  // 1) Scope specificity first: tenant > org > global
+  // 2) Within the same scope, latest updatedAt wins
   const byKey = new Map<string, any>()
   const ts = (x: any) => {
     const u = (x?.updatedAt instanceof Date) ? x.updatedAt.getTime() : (x?.updatedAt ? new Date(x.updatedAt).getTime() : 0)
@@ -36,14 +54,18 @@ export default async function handler(req: Request) {
   for (const d of defs) {
     const existing = byKey.get(d.key)
     if (!existing) { byKey.set(d.key, d); continue }
+    const sNew = scopeScore(d)
+    const sOld = scopeScore(existing)
+    if (sNew > sOld) { byKey.set(d.key, d); continue }
+    if (sNew < sOld) continue
     const tNew = ts(d)
     const tOld = ts(existing)
-    if (tNew > tOld) { byKey.set(d.key, d); continue }
-    if (tNew < tOld) continue
-    // tie-breaker on scope when timestamps equal
-    if (scopeScore(d) >= scopeScore(existing)) byKey.set(d.key, d)
+    if (tNew >= tOld) byKey.set(d.key, d)
   }
-  const items = Array.from(byKey.values()).map((d: any) => ({
+  // Exclude winners that have a tombstone in scope
+  console.log('Tombstoned keys in scope:', Array.from(tombstonedKeys).join(', '))
+  const winners = Array.from(byKey.values()).filter((d: any) => !tombstonedKeys.has(d.key))
+  const items = winners.map((d: any) => ({
     id: d.id,
     key: d.key,
     kind: d.kind,

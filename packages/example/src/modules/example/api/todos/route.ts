@@ -166,7 +166,6 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
         const em = ctx.container.resolve<any>('em')
         const defs = await em.find(CustomFieldDef, {
           entityId: E.example.todo as any,
-          isActive: true,
           $and: [
             { $or: [ { organizationId: ctx.auth.orgId as any }, { organizationId: null } ] },
             { $or: [ { tenantId: ctx.auth.tenantId as any }, { tenantId: null } ] },
@@ -180,7 +179,13 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
           const sNew = score(d); const sOld = score(ex)
           if (sNew > sOld) byKey.set(d.key, d)
         }
-        const keysFromDb = Array.from(byKey.values()).sort((a: any, b: any) => ((a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0))).map((d: any) => d.key)
+        // Hide any key that has a tombstoned record in scope
+        const tombstonedKeys = new Set<string>((defs as any[]).filter((d: any) => !!d.deletedAt).map((d: any) => d.key))
+        // Take winners only when active and not tombstoned; sort by priority
+        const keysFromDb = Array.from(byKey.values())
+          .filter((d: any) => d.isActive !== false && !d.deletedAt && !tombstonedKeys.has(d.key))
+          .sort((a: any, b: any) => ((a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0)))
+          .map((d: any) => d.key)
         // Merge with code-declared keys and de-dupe
         dynamicCfKeys = Array.from(new Set([ ...cfSel.keys, ...keysFromDb ]))
         const selectors = dynamicCfKeys.map((k) => `cf:${k}`)

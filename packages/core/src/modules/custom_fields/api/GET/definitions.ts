@@ -26,13 +26,24 @@ export default async function handler(req: Request) {
 
   const where = {
     entityId,
-    isActive: true,
+    // Never include soft-deleted rows in candidates
+    deletedAt: null,
     $and: [
       { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
       { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
     ],
   } as any
-  const defs = await em.find(CustomFieldDef, where)
+  const defs = await em.find(CustomFieldDef, where as any)
+  // Load tombstones to shadow lower-scope/global entries with the same key
+  const tombstones = await em.find(CustomFieldDef, {
+    entityId,
+    deletedAt: { $ne: null } as any,
+    $and: [
+      { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+      { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+    ],
+  } as any)
+  const tombstonedKeys = new Set<string>((tombstones as any[]).map((d: any) => d.key))
 
   // Resolve default editor preference for this entity (tenant/org scoped)
   let entityDefaultEditor: string | undefined
@@ -64,7 +75,9 @@ export default async function handler(req: Request) {
     if (tNew >= tOld) byKey.set(d.key, d)
   }
 
-  let items = Array.from(byKey.values()).map((d) => ({
+  // Exclude keys whose winning definition is not active, and those shadowed by a tombstone
+  const winning = Array.from(byKey.values()).filter((d: any) => (d.isActive !== false) && !tombstonedKeys.has(d.key))
+  let items = winning.map((d) => ({
     key: d.key,
     kind: d.kind,
     label: d.configJson?.label || d.key,
