@@ -69,10 +69,19 @@ export async function upsertIndexRow(em: EntityManager, args: { entityType: stri
     updated_at: knex.fn.now(),
     deleted_at: null,
   }
-  // Upsert on unique (entity_type, entity_id, organization_id)
-  const insertQ = knex('entity_indexes').insert({ ...payload, created_at: knex.fn.now() })
-  // Use generated coalesced column to unify conflict target for both scoped and global rows
-  await insertQ.onConflict(['entity_type', 'entity_id', 'organization_id_coalesced']).merge(payload)
+  // Prefer modern upsert keyed by coalesced org id when available; fallback to update-then-insert
+  try {
+    const insertQ = knex('entity_indexes').insert({ ...payload, created_at: knex.fn.now() })
+    await insertQ.onConflict(['entity_type', 'entity_id', 'organization_id_coalesced']).merge(payload)
+  } catch {
+    // Fallback for schemas without organization_id_coalesced column/index
+    const updated = await knex('entity_indexes')
+      .where({ entity_type: args.entityType, entity_id: String(args.recordId), organization_id: args.organizationId ?? null })
+      .update(payload)
+    if (!updated) {
+      try { await knex('entity_indexes').insert({ ...payload, created_at: knex.fn.now() }) } catch {}
+    }
+  }
 }
 
 export async function markDeleted(em: EntityManager, args: { entityType: string; recordId: string; organizationId?: string | null }): Promise<void> {

@@ -7,8 +7,9 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
   const entityType = String(payload?.entityType || '')
   if (!entityType) return
-  const orgId = payload?.organizationId ?? null
-  const tenantId = payload?.tenantId ?? null
+  // Keep undefined to mean "no filter"; null to mean "global-only"
+  const orgId: string | null | undefined = payload?.organizationId
+  const tenantId: string | null | undefined = payload?.tenantId
 
   const table = (() => {
     const [, ent] = entityType.split(':')
@@ -27,10 +28,21 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   } catch {}
 
   try {
-    const where: any = { deleted_at: null }
-    if (orgId !== undefined) where.organization_id = orgId
-    if (tenantId !== undefined) where.tenant_id = tenantId
-    const rows = await knex(table).where(where).select('id', 'organization_id', 'tenant_id')
+    const rows = await knex(table)
+      .modify((qb: any) => {
+        // Apply org scope
+        if (orgId !== undefined) {
+          if (orgId === null) qb.whereNull('organization_id')
+          else qb.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
+        }
+        // Apply tenant scope
+        if (tenantId !== undefined) {
+          if (tenantId === null) qb.whereNull('tenant_id')
+          else qb.andWhere((b: any) => b.where({ tenant_id: tenantId }).orWhereNull('tenant_id'))
+        }
+        qb.andWhere({ deleted_at: null })
+      })
+      .select('id', 'organization_id', 'tenant_id')
     for (const r of rows) {
       const scopeOrg = orgId !== undefined ? orgId : (r.organization_id ?? null)
       const scopeTenant = tenantId !== undefined ? tenantId : (r.tenant_id ?? null)
