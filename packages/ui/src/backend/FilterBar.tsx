@@ -44,6 +44,7 @@ export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Se
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder={searchPlaceholder}
               className="h-9 w-full rounded border pl-8 pr-2 text-sm"
+              suppressHydrationWarning
             />
             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground">🔍</span>
           </div>
