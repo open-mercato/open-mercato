@@ -278,9 +278,18 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     setSaving(true)
     setError(null)
     try {
+      const withDefaults = (d: Def, idx: number) => {
+        const cfg = { ...(d.configJson || {}) }
+        if (cfg.label == null || String(cfg.label).trim() === '') cfg.label = d.key
+        if (cfg.formEditable === undefined) cfg.formEditable = true
+        if (cfg.listVisible === undefined) cfg.listVisible = true
+        // Preserve user-chosen editor; otherwise do not force here (server will default for multiline)
+        cfg.priority = idx
+        return cfg
+      }
       for (const [idx, d] of defs.entries()) {
         if (!d.key) continue
-        const payload = { entityId, key: d.key, kind: d.kind, configJson: { ...(d.configJson || {}), priority: idx }, isActive: d.isActive !== false }
+        const payload = { entityId, key: d.key, kind: d.kind, configJson: withDefaults(d, idx), isActive: d.isActive !== false }
         const res = await apiFetch('/api/custom_fields/definitions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
         if (!res.ok) {
           const j = await res.json().catch(() => ({}))
