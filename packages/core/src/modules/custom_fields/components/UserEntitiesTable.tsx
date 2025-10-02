@@ -1,11 +1,10 @@
+
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { DataTable, RowActions, Button } from '@open-mercato/ui'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 
 type EntityRow = {
@@ -88,7 +87,7 @@ export default function UserEntitiesTable() {
             URL.revokeObjectURL(url)
           }}>Export</Button>
           <Button asChild variant="outline" size="sm">
-            <Link href="/backend/definitions/create">Create</Link>
+            <Link href="/backend/user-entities/create">Create</Link>
           </Button>
         </>
       )}
@@ -102,8 +101,8 @@ export default function UserEntitiesTable() {
       rowActions={(row) => (
         <RowActions
           items={[
-            { label: 'Edit', href: `/backend/definitions/${encodeURIComponent(row.entityId)}` },
-            { label: 'Show records', href: `/backend/definitions/${encodeURIComponent(row.entityId)}/records` },
+            { label: 'Edit', href: `/backend/user-entities/${encodeURIComponent(row.entityId)}` },
+            { label: 'Show records', href: `/backend/user-entities/${encodeURIComponent(row.entityId)}/records` },
           ]}
         />
       )}

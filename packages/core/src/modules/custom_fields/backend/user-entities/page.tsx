@@ -1,5 +1,5 @@
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import UserEntitiesTable from '../../components/UserEntitiesTable'
+import UserEntitiesTable from '@open-mercato/core/modules/custom_fields/components/UserEntitiesTable'
 
 export default function UserEntitiesPage() {
   return (

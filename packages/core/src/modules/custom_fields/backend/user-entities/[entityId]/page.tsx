@@ -333,7 +333,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         const j = await res.json().catch(() => ({}))
         throw new Error(j?.error || 'Failed to save definitions')
       }
-      router.push(`/backend/definitions?flash=Definitions%20saved&type=success`)
+      router.push(`/backend/user-entities?flash=Definitions%20saved&type=success`)
     } catch (e: any) {
       setError(e.message || 'Failed to save')
     } finally {

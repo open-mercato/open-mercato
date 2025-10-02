@@ -16,7 +16,7 @@ export const metadata = {
   pageOrder: 11,
   icon: filePlusIcon,
   breadcrumb: [
-    { label: 'Entities', href: '/backend/definitions' },
+    { label: 'User Entities', href: '/backend/user-entities' },
     { label: 'Create' },
   ],
 }

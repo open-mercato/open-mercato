@@ -73,21 +73,19 @@ export async function buildAdminNav(
 
   // Add dynamic user entities to the navigation
   if (userEntities && userEntities.length > 0) {
-    // Find the "Data designer" group
-    const dataDesignerGroup = roots.find(g => g.group === 'Data designer')
-    if (dataDesignerGroup) {
-      // Find the User Entities item in the group
-      const userEntitiesItem = dataDesignerGroup.items.find(item => item.title === 'User Entities')
-      if (userEntitiesItem) {
-        // Add dynamic user entities as children
-        userEntitiesItem.children = userEntities.map((entity) => ({
-          group: 'Data designer',
-          title: entity.label,
-          href: entity.href,
-          enabled: true,
-          order: 1000, // High order to appear at the end
-        }))
-      }
+    // Find the "User Entities" item in the Data designer group (it should be a root item)
+    const userEntitiesItem = roots.find(item => item.group === 'Data designer' && item.title === 'User Entities')
+    if (userEntitiesItem) {
+      // Merge user entities with existing children instead of replacing
+      const existingChildren = userEntitiesItem.children || []
+      const dynamicUserEntities = userEntities.map((entity) => ({
+        group: 'Data designer',
+        title: entity.label,
+        href: entity.href,
+        enabled: true,
+        order: 1000, // High order to appear at the end
+      }))
+      userEntitiesItem.children = [...existingChildren, ...dynamicUserEntities]
     }
   }
 

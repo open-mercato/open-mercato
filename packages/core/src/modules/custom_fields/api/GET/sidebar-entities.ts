@@ -30,7 +30,7 @@ export default async function handler(req: Request) {
   const items = (entities as any[]).map((e) => ({
     entityId: e.entityId,
     label: e.label,
-    href: `/backend/definitions/${encodeURIComponent(e.entityId)}/records`
+    href: `/backend/user-entities/${encodeURIComponent(e.entityId)}/records`
   }))
 
   return NextResponse.json({ items })

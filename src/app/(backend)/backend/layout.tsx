@@ -46,7 +46,7 @@ export default async function BackendLayout({ children, params }: { children: Re
       userEntities = (entities as any[]).map((e) => ({
         entityId: e.entityId,
         label: e.label,
-        href: `/backend/definitions/${encodeURIComponent(e.entityId)}/records`
+        href: `/backend/user-entities/${encodeURIComponent(e.entityId)}/records`
       }))
     }
   } catch (error) {
