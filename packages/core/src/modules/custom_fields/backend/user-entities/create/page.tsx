@@ -4,12 +4,15 @@ import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/custom_fields/data/validators'
+import { useRouter } from 'next/navigation'
+import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
 
 const schema = upsertCustomEntitySchema
 
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 
 export default function CreateEntityPage() {
+  const router = useRouter()
   const fields: CrudField[] = [
     { id: 'entityId', label: 'Entity ID', type: 'text', required: true, placeholder: 'module:entity' },
     { id: 'label', label: 'Label', type: 'text', required: true },
@@ -39,7 +42,6 @@ export default function CreateEntityPage() {
           initialValues={{ entityId: 'example:calendar_entity', label: 'Calendar Entity', showInSidebar: false }}
           submitLabel="Create"
           cancelHref="/backend/user-entities"
-          successRedirect="/backend/user-entities"
           onSubmit={async (vals) => {
             // Validate uniqueness client-side
             const listRes = await apiFetch('/api/custom_fields/entities')
@@ -60,7 +62,8 @@ export default function CreateEntityPage() {
               const j = await res.json().catch(() => ({}))
               throw new Error(j?.error || 'Failed to create')
             }
-            flash('Entity created', 'success')
+            const entityId = (vals as any).entityId as string
+            pushWithFlash(router, `/backend/user-entities/${encodeURIComponent(entityId)}`, 'Entity created', 'success')
           }}
         />
       </PageBody>
