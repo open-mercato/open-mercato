@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { User, LogOut } from 'lucide-react'
 
 export function UserMenu({ email }: { email?: string }) {
   const [open, setOpen] = React.useState(false)
@@ -9,6 +10,10 @@ export function UserMenu({ email }: { email?: string }) {
 
   // Toggle menu open/close
   const toggle = () => setOpen((v) => !v)
+
+  // Open on hover, close when mouse leaves the menu area
+  const onMouseEnter = () => setOpen(true)
+  const onMouseLeave = () => setOpen(false)
 
   // Close menu when clicking outside
   React.useEffect(() => {
@@ -56,24 +61,25 @@ export function UserMenu({ email }: { email?: string }) {
   }, [open])
 
   return (
-    <div className="relative">
+    <div className="relative" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       <button
         ref={buttonRef}
-        className="text-sm px-2 py-1 rounded hover:bg-accent"
-        onClick={toggle}
+        className="text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2"
+        onClick={() => setOpen(true)}
         aria-expanded={open}
         aria-haspopup="menu"
         aria-controls="user-menu-dropdown"
         id="user-menu-button"
         type="button"
+        title={email || 'User'}
       >
-        {email || 'User'}
+        <User className="size-4" />
       </button>
       {open && (
         <div
           ref={menuRef}
           id="user-menu-dropdown"
-          className="absolute right-0 mt-2 w-40 rounded-md border bg-background p-1 shadow"
+          className="absolute right-0 top-full mt-0 w-40 rounded-md border bg-background p-1 shadow z-50"
           role="menu"
           aria-labelledby="user-menu-button"
           tabIndex={-1}
@@ -81,7 +87,7 @@ export function UserMenu({ email }: { email?: string }) {
           <form action="/api/auth/logout" method="POST">
             <button
               ref={logoutButtonRef}
-              className="w-full text-left text-sm px-2 py-1 rounded hover:bg-accent"
+              className="w-full text-left text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
               type="submit"
               role="menuitem"
               tabIndex={0}
@@ -92,7 +98,8 @@ export function UserMenu({ email }: { email?: string }) {
                 }
               }}
             >
-              Logout
+              <LogOut className="size-4" />
+              <span>Logout</span>
             </button>
           </form>
         </div>
