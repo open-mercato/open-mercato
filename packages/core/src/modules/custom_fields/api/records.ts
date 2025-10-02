@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import type { QueryEngine, Where, Sort } from '@open-mercato/shared/lib/query/types'
+import { setRecordCustomFields } from '../lib/helpers'
+import { CustomFieldValue } from '../data/entities'
 
 export const metadata = {
   GET: { requireAuth: true, requireRoles: ['admin'] },
+  POST: { requireAuth: true, requireRoles: ['admin'] },
+  PUT: { requireAuth: true, requireRoles: ['admin'] },
+  DELETE: { requireAuth: true, requireRoles: ['admin'] },
 }
 
 function parseBool(v: string | null, d = false) {
@@ -13,7 +19,7 @@ function parseBool(v: string | null, d = false) {
   return s === '1' || s === 'true' || s === 'yes'
 }
 
-export default async function handler(req: Request) {
+export async function GET(req: Request) {
   const url = new URL(req.url)
   const entityId = url.searchParams.get('entityId') || ''
   if (!entityId) return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
@@ -29,18 +35,15 @@ export default async function handler(req: Request) {
   const sortDir = (url.searchParams.get('sortDir') || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc'
   const withDeleted = parseBool(url.searchParams.get('withDeleted'), false)
 
-  // Build filters: accept cf_* params and forward base field params verbatim where reasonable
   const filtersObj: Where<any> = {}
   for (const [key, val] of url.searchParams.entries()) {
     if (key === 'entityId' || key === 'page' || key === 'pageSize' || key === 'sortField' || key === 'sortDir' || key === 'withDeleted' || key === 'format') continue
     if (key.startsWith('cf_')) {
-      // cf_keyIn => $in; cf_key => $eq (or array -> $in)
       if (key.endsWith('In')) {
-        const base = key.slice(0, -2) // remove 'In'
+        const base = key.slice(0, -2)
         const values = val.split(',').map((s) => s.trim()).filter(Boolean)
         ;(filtersObj as any)[base] = { $in: values }
       } else {
-        // allow comma-separated to be treated as $in
         if (val.includes(',')) {
           const values = val.split(',').map((s) => s.trim()).filter(Boolean)
           ;(filtersObj as any)[key] = { $in: values }
@@ -51,7 +54,6 @@ export default async function handler(req: Request) {
         }
       }
     } else {
-      // Opportunistically forward some base field filters (eq only)
       if (['id', 'created_at', 'updated_at', 'deleted_at', 'name', 'title', 'email'].includes(key)) {
         ;(filtersObj as any)[key] = val
       }
@@ -64,7 +66,6 @@ export default async function handler(req: Request) {
     const res = await qe.query(entityId as any, {
       organizationId: auth.orgId!,
       tenantId: auth.tenantId!,
-      // Select all base columns; include all custom fields
       includeCustomFields: true,
       page: { page, pageSize },
       sort: [{ field: sortField as any, dir: sortDir as any }] as Sort<any>[],
@@ -80,7 +81,6 @@ export default async function handler(req: Request) {
       totalPages: Math.ceil((res.total || 0) / (res.pageSize || pageSize)),
     }
 
-    // Exports when requested (CSV, JSON, XML). For exports we return all rows when all=true
     if (format === 'csv') {
       const items = payload.items as any[]
       const headers = Array.from(new Set(items.flatMap((it) => Object.keys(it || {}))))
@@ -143,4 +143,128 @@ export default async function handler(req: Request) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+
+const postBodySchema = z.object({
+  entityId: z.string().min(1),
+  recordId: z.string().min(1).optional(),
+  values: z.record(z.string(), z.any()).default({}),
+})
+
+export async function POST(req: Request) {
+  const auth = getAuthFromRequest(req)
+  if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  let json: unknown
+  try { json = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+  const parsed = postBodySchema.safeParse(json)
+  if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
+  const { entityId } = parsed.data
+  let { recordId, values } = parsed.data as { recordId?: string; values: Record<string, any> }
+
+  try {
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
+
+    const id = (!recordId || String(recordId).toLowerCase() === 'create') ? crypto.randomUUID() : recordId
+
+    await setRecordCustomFields(em, {
+      entityId,
+      recordId: id!,
+      organizationId: auth.orgId!,
+      tenantId: auth.tenantId!,
+      values: normalizeValues(values),
+    })
+
+    return NextResponse.json({ ok: true, item: { entityId, recordId: id } })
+  } catch (e) {
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+const putBodySchema = z.object({
+  entityId: z.string().min(1),
+  recordId: z.string().min(1),
+  values: z.record(z.any()).default({}),
+})
+
+export async function PUT(req: Request) {
+  const auth = getAuthFromRequest(req)
+  if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  let json: unknown
+  try { json = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+  const parsed = putBodySchema.safeParse(json)
+  if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
+  const { entityId, recordId, values } = parsed.data
+
+  try {
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
+
+    await setRecordCustomFields(em, {
+      entityId,
+      recordId,
+      organizationId: auth.orgId!,
+      tenantId: auth.tenantId!,
+      values: normalizeValues(values),
+    })
+
+    return NextResponse.json({ ok: true, item: { entityId, recordId } })
+  } catch (e) {
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+const deleteBodySchema = z.object({
+  entityId: z.string().min(1),
+  recordId: z.string().min(1),
+})
+
+export async function DELETE(req: Request) {
+  const auth = getAuthFromRequest(req)
+  if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const url = new URL(req.url)
+  const qpEntityId = url.searchParams.get('entityId')
+  const qpRecordId = url.searchParams.get('recordId')
+  let payload: any = qpEntityId && qpRecordId ? { entityId: qpEntityId, recordId: qpRecordId } : null
+  if (!payload) {
+    try { payload = await req.json() } catch { payload = null }
+  }
+  const parsed = deleteBodySchema.safeParse(payload)
+  if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
+  const { entityId, recordId } = parsed.data
+
+  try {
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
+
+    const rows = await em.find(CustomFieldValue, {
+      entityId,
+      recordId,
+      organizationId: auth.orgId!,
+      tenantId: auth.tenantId!,
+    })
+    if (!rows.length) return NextResponse.json({ ok: true })
+    const now = new Date()
+    for (const r of rows) {
+      r.deletedAt = r.deletedAt ?? now
+    }
+    await em.persistAndFlush(rows)
+
+    return NextResponse.json({ ok: true })
+  } catch (e) {
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+function normalizeValues(input: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {}
+  for (const [k, v] of Object.entries(input || {})) {
+    const key = k.startsWith('cf_') ? k.replace(/^cf_/, '') : k
+    out[key] = v
+  }
+  return out
+}
+
 

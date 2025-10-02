@@ -10,7 +10,7 @@ export const metadata = {
   GET: { requireAuth: true, requireRoles: ['admin'] },
 }
 
-export default async function handler(req: Request) {
+export async function GET(req: Request) {
   const url = new URL(req.url)
   const entityId = url.searchParams.get('entityId') || ''
   let labelField = url.searchParams.get('labelField') || ''
@@ -23,7 +23,6 @@ export default async function handler(req: Request) {
   const qe = container.resolve('queryEngine') as QueryEngine
   const em = container.resolve('em') as EntityManager
 
-  // Resolve label field from custom entity config or heuristics
   if (!labelField) {
     const cfg = await em.findOne(CustomEntity, {
       entityId,
@@ -57,3 +56,5 @@ export default async function handler(req: Request) {
   const items = (res.items || []).map((it: any) => ({ value: String(it.id), label: String(it[labelField] ?? it.id) }))
   return NextResponse.json({ items })
 }
+
+

@@ -4,10 +4,10 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { CustomFieldDef } from '@open-mercato/core/modules/custom_fields/data/entities'
 
 export const metadata = {
-  DELETE: { requireAuth: true, requireRoles: ['admin'] },
+  POST: { requireAuth: true, requireRoles: ['admin'] },
 }
 
-export default async function handler(req: Request) {
+export async function POST(req: Request) {
   const auth = getAuthFromRequest(req)
   if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   let body: any
@@ -17,14 +17,16 @@ export default async function handler(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+
   const where: any = { entityId, key, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
   const def = await em.findOne(CustomFieldDef, where)
   if (!def) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  def.isActive = false
-  def.updatedAt = new Date()
-  def.deletedAt = def.deletedAt ?? new Date()
+  ;(def as any).deletedAt = null
+  ;(def as any).isActive = true
+  ;(def as any).updatedAt = new Date()
   em.persist(def)
   await em.flush()
   return NextResponse.json({ ok: true })
 }
+
 

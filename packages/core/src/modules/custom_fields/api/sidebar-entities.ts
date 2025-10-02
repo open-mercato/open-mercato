@@ -8,14 +8,13 @@ export const metadata = {
   GET: { requireAuth: true, requireRoles: ['admin'] },
 }
 
-export default async function handler(req: Request) {
+export async function GET(req: Request) {
   const auth = getAuthFromRequest(req)
   if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
 
-  // Get user entities that are marked to show in sidebar
   const where: any = { 
     isActive: true,
     showInSidebar: true
@@ -35,3 +34,5 @@ export default async function handler(req: Request) {
 
   return NextResponse.json({ items })
 }
+
+

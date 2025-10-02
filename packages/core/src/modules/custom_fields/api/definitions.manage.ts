@@ -7,7 +7,7 @@ export const metadata = {
   GET: { requireAuth: true, requireRoles: ['admin'] },
 }
 
-export default async function handler(req: Request) {
+export async function GET(req: Request) {
   const url = new URL(req.url)
   const entityId = url.searchParams.get('entityId') || ''
   if (!entityId) return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
@@ -63,7 +63,6 @@ export default async function handler(req: Request) {
     if (tNew >= tOld) byKey.set(d.key, d)
   }
   // Exclude winners that have a tombstone in scope
-  console.log('Tombstoned keys in scope:', Array.from(tombstonedKeys).join(', '))
   const winners = Array.from(byKey.values()).filter((d: any) => !tombstonedKeys.has(d.key))
   const items = winners.map((d: any) => ({
     id: d.id,
@@ -74,7 +73,8 @@ export default async function handler(req: Request) {
     organizationId: d.organizationId ?? null,
     tenantId: d.tenantId ?? null,
   }))
-  // Expose deleted keys so the editor can offer quick restore
   const deletedKeys = Array.from(tombstonedKeys)
   return NextResponse.json({ items, deletedKeys })
 }
+
+
