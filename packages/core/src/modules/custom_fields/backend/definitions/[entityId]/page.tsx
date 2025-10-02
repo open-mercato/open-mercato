@@ -9,7 +9,7 @@ import { upsertCustomEntitySchema } from '@open-mercato/core/modules/custom_fiel
 import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, GripVertical } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
 type Def = { key: string; kind: string; configJson?: any; isActive?: boolean }
@@ -23,7 +23,13 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
   // Only initialize from props once (on mount). Avoid syncing on each keystroke to preserve caret focus.
   // Consumers should replace the component (key change) when identity truly changes.
 
-  const updateLocal = (patch: Partial<Def>) => setLocal((prev) => ({ ...prev, ...patch }))
+  const apply = (patch: Partial<Def>, propagateNow = false) => {
+    setLocal((prev) => {
+      const next = { ...prev, ...patch }
+      if (propagateNow) onChange(next)
+      return next
+    })
+  }
   const commit = () => onChange(local)
 
   return (
@@ -33,19 +39,19 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
         <div className="md:col-span-3">
           <label className="text-xs">Key</label>
           <input
-            className="border rounded w-full px-2 py-1 font-mono"
+            className="border rounded w-full px-2 py-1 text-sm font-mono"
             placeholder="snake_case"
             value={local.key}
-            onChange={(e) => updateLocal({ key: e.target.value })}
+            onChange={(e) => apply({ key: e.target.value })}
             onBlur={commit}
           />
         </div>
         <div className="md:col-span-3">
           <label className="text-xs">Kind</label>
           <select
-            className="border rounded w-full px-2 py-1"
+            className="border rounded w-full px-2 py-1 text-sm"
             value={local.kind}
-            onChange={(e) => { updateLocal({ kind: e.target.value }); queueMicrotask(commit) }}
+            onChange={(e) => { apply({ kind: e.target.value }, true) }}
           >
             {KIND_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -55,21 +61,21 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
             <span className="text-xs text-muted-foreground">Visibility:</span>
             <label className="inline-flex items-center gap-2 text-xs">
               <input type="checkbox" checked={local.configJson?.listVisible !== false}
-                onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), listVisible: e.target.checked } }); queueMicrotask(commit) }} /> List
+                onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), listVisible: e.target.checked } }, true) }} /> List
             </label>
             <label className="inline-flex items-center gap-2 text-xs">
               <input type="checkbox" checked={!!local.configJson?.filterable}
-                onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), filterable: e.target.checked } }); queueMicrotask(commit) }} /> Filter
+                onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), filterable: e.target.checked } }, true) }} /> Filter
             </label>
             <label className="inline-flex items-center gap-2 text-xs">
               <input type="checkbox" checked={local.configJson?.formEditable !== false}
-                onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), formEditable: e.target.checked } }); queueMicrotask(commit) }} /> Form
+                onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), formEditable: e.target.checked } }, true) }} /> Form
             </label>
           </div>
         </div>
         <div className="md:col-span-2 flex items-center justify-between md:justify-end gap-3">
           <label className="inline-flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={local.isActive !== false} onChange={(e) => { updateLocal({ isActive: e.target.checked }); queueMicrotask(commit) }} /> Active
+            <input type="checkbox" checked={local.isActive !== false} onChange={(e) => { apply({ isActive: e.target.checked }, true) }} /> Active
           </label>
           <button type="button" onClick={onRemove} className="px-2 py-1 border rounded hover:bg-gray-50" aria-label="Remove field">
             <Trash2 className="h-4 w-4" />
@@ -82,18 +88,18 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
         <div>
           <label className="text-xs">Label</label>
           <input
-            className="border rounded w-full px-2 py-1"
+            className="border rounded w-full px-2 py-1 text-sm"
             value={local.configJson?.label || ''}
-            onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), label: e.target.value } })}
+            onChange={(e) => apply({ configJson: { ...(local.configJson||{}), label: e.target.value } })}
             onBlur={commit}
           />
         </div>
         <div>
           <label className="text-xs">Description</label>
           <input
-            className="border rounded w-full px-2 py-1"
+            className="border rounded w-full px-2 py-1 text-sm"
             value={local.configJson?.description || ''}
-            onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), description: e.target.value } })}
+            onChange={(e) => apply({ configJson: { ...(local.configJson||{}), description: e.target.value } })}
             onBlur={commit}
           />
         </div>
@@ -102,9 +108,9 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
           <div>
             <label className="text-xs">Editor</label>
             <select
-              className="border rounded w-full px-2 py-1"
+              className="border rounded w-full px-2 py-1 text-sm"
               value={local.configJson?.editor || ''}
-              onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), editor: e.target.value || undefined } }); queueMicrotask(commit) }}
+              onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), editor: e.target.value || undefined } }, true) }}
             >
               <option value="">Default</option>
               <option value="markdown">Markdown (UIW)</option>
@@ -119,25 +125,25 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
             <div>
               <label className="text-xs">Options (comma-separated)</label>
               <input
-                className="border rounded w-full px-2 py-1"
+                className="border rounded w-full px-2 py-1 text-sm"
                 value={Array.isArray(local.configJson?.options) ? local.configJson.options.join(',') : ''}
-                onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })}
+                onChange={(e) => apply({ configJson: { ...(local.configJson||{}), options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })}
                 onBlur={commit}
               />
             </div>
             <div>
               <label className="text-xs">Options URL</label>
               <input
-                className="border rounded w-full px-2 py-1"
+                className="border rounded w-full px-2 py-1 text-sm"
                 placeholder="/api/..."
                 value={local.configJson?.optionsUrl || ''}
-                onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })}
+                onChange={(e) => apply({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })}
                 onBlur={commit}
               />
             </div>
             <div className="md:col-span-2">
               <label className="inline-flex items-center gap-2 text-xs">
-                <input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }); queueMicrotask(commit) }} /> Multiple
+                <input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }, true) }} /> Multiple
               </label>
             </div>
           </>
@@ -148,13 +154,13 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
             <div>
               <label className="text-xs">Related Entity ID</label>
               <input
-                className="border rounded w-full px-2 py-1 font-mono"
+                className="border rounded w-full px-2 py-1 text-sm font-mono"
                 placeholder="module:entity"
                 value={local.configJson?.relatedEntityId || ''}
                 onChange={(e) => {
                   const relatedEntityId = e.target.value
                   const defOptionsUrl = relatedEntityId ? `/api/custom_fields/relations/options?entityId=${encodeURIComponent(relatedEntityId)}` : ''
-                  updateLocal({ configJson: { ...(local.configJson||{}), relatedEntityId, optionsUrl: local.configJson?.optionsUrl || defOptionsUrl } })
+                  apply({ configJson: { ...(local.configJson||{}), relatedEntityId, optionsUrl: local.configJson?.optionsUrl || defOptionsUrl } })
                 }}
                 onBlur={commit}
               />
@@ -162,10 +168,10 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
             <div>
               <label className="text-xs">Options URL</label>
               <input
-                className="border rounded w-full px-2 py-1"
+                className="border rounded w-full px-2 py-1 text-sm"
                 placeholder="/api/custom_fields/relations/options?..."
                 value={local.configJson?.optionsUrl || ''}
-                onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })}
+                onChange={(e) => apply({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })}
                 onBlur={commit}
               />
             </div>
@@ -184,6 +190,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [entityFormLoading, setEntityFormLoading] = useState(true)
   const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string }>({})
   const [defs, setDefs] = useState<Def[]>([])
+  const dragIndex = React.useRef<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -209,7 +216,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         }
         const res = await apiFetch(`/api/custom_fields/definitions.manage?entityId=${encodeURIComponent(entityId)}`)
         const json = await res.json().catch(() => ({ items: [] }))
-        if (mounted) setDefs((json.items || []).map((d: any) => ({ key: d.key, kind: d.kind, configJson: d.configJson || {}, isActive: d.isActive !== false })))
+        if (mounted) {
+          const loaded: Def[] = (json.items || []).map((d: any) => ({ key: d.key, kind: d.kind, configJson: d.configJson || {}, isActive: d.isActive !== false }))
+          loaded.sort((a, b) => (a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0))
+          setDefs(loaded)
+        }
       } catch (e: any) {
         if (mounted) setError(e.message || 'Failed to load')
       } finally {
@@ -228,9 +239,9 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     setSaving(true)
     setError(null)
     try {
-      for (const d of defs) {
+      for (const [idx, d] of defs.entries()) {
         if (!d.key) continue
-        const payload = { entityId, key: d.key, kind: d.kind, configJson: d.configJson, isActive: d.isActive !== false }
+        const payload = { entityId, key: d.key, kind: d.kind, configJson: { ...(d.configJson || {}), priority: idx }, isActive: d.isActive !== false }
         const res = await apiFetch('/api/custom_fields/definitions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
         if (!res.ok) {
           const j = await res.json().catch(() => ({}))
@@ -294,7 +305,31 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     { id: 'definitions', title: 'Field Definitions', column: 1, component: () => (
       <div className="space-y-3">
         {defs.map((d, i) => (
-          <FieldCard key={i} d={d} onChange={(nd) => setDefs((arr) => arr.map((x, idx) => (idx === i ? nd : x)))} onRemove={() => removeField(i)} />
+          <div
+            key={i}
+            className="group"
+            draggable
+            onDragStart={() => { dragIndex.current = i }}
+            onDragOver={(e) => { e.preventDefault() }}
+            onDrop={() => {
+              const from = dragIndex.current
+              if (from == null || from === i) return
+              setDefs((arr) => {
+                const next = [...arr]
+                const [m] = next.splice(from, 1)
+                next.splice(i, 0, m)
+                return next
+              })
+              dragIndex.current = null
+            }}
+            onDragEnd={() => { dragIndex.current = null }}
+          >
+            <div className="-mb-2 flex items-center gap-2 text-xs text-muted-foreground pl-2">
+              <GripVertical className="h-3.5 w-3.5 opacity-60" />
+              Drag to reorder
+            </div>
+            <FieldCard d={d} onChange={(nd) => setDefs((arr) => arr.map((x, idx) => (idx === i ? nd : x)))} onRemove={() => removeField(i)} />
+          </div>
         ))}
         <div>
           <button type="button" onClick={addField} className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 inline-flex items-center gap-1">

@@ -64,7 +64,7 @@ export default async function handler(req: Request) {
     if (tNew >= tOld) byKey.set(d.key, d)
   }
 
-  const items = Array.from(byKey.values()).map((d) => ({
+  let items = Array.from(byKey.values()).map((d) => ({
     key: d.key,
     kind: d.kind,
     label: d.configJson?.label || d.key,
@@ -80,7 +80,10 @@ export default async function handler(req: Request) {
       ? d.configJson.editor
       : (d.kind === 'multiline' ? entityDefaultEditor : undefined),
     input: typeof d.configJson?.input === 'string' ? d.configJson.input : undefined,
+    priority: typeof d.configJson?.priority === 'number' ? d.configJson.priority : 0,
   }))
+  // Sort by priority ascending to provide deterministic ordering for clients
+  items.sort((a: any, b: any) => (a.priority ?? 0) - (b.priority ?? 0))
 
   return NextResponse.json({ items })
 }

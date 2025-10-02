@@ -68,6 +68,9 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
     seen.add(item.id)
     out.push(item)
   }
+  // Preserve the original visible order (already sorted by priority) by mapping back
+  const order = new Map(visible.map((v, idx) => [v.key, idx]))
+  out.sort((a, b) => (order.get(a.id.replace(/^cf_/, '').replace(/In$/, '')) ?? 0) - (order.get(b.id.replace(/^cf_/, '').replace(/In$/, '')) ?? 0))
   return out
 }
 

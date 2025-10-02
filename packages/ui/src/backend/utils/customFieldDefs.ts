@@ -13,12 +13,15 @@ export type CustomFieldDefDto = {
   listVisible?: boolean
   editor?: string
   input?: string
+  priority?: number
 }
 
 export async function fetchCustomFieldDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<CustomFieldDefDto[]> {
   const res = await fetchImpl(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
   const data = await res.json().catch(() => ({ items: [] }))
-  return (data?.items || []) as CustomFieldDefDto[]
+  const items = (data?.items || []) as CustomFieldDefDto[]
+  items.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
+  return items
 }
 
 export type CustomFieldVisibility = 'list' | 'form' | 'filter'
@@ -37,5 +40,7 @@ export function isDefVisible(def: CustomFieldDefDto, mode: CustomFieldVisibility
 }
 
 export function filterCustomFieldDefs(defs: CustomFieldDefDto[], mode: CustomFieldVisibility): CustomFieldDefDto[] {
-  return defs.filter((d) => isDefVisible(d, mode))
+  return defs
+    .filter((d) => isDefVisible(d, mode))
+    .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
 }
