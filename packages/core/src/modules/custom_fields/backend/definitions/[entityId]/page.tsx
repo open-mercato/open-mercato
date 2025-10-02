@@ -278,23 +278,23 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     setSaving(true)
     setError(null)
     try {
-      const withDefaults = (d: Def, idx: number) => {
-        const cfg = { ...(d.configJson || {}) }
-        if (cfg.label == null || String(cfg.label).trim() === '') cfg.label = d.key
-        if (cfg.formEditable === undefined) cfg.formEditable = true
-        if (cfg.listVisible === undefined) cfg.listVisible = true
-        // Preserve user-chosen editor; otherwise do not force here (server will default for multiline)
-        cfg.priority = idx
-        return cfg
+      const payload = {
+        entityId,
+        definitions: defs.filter(d => !!d.key).map((d) => ({
+          key: d.key,
+          kind: d.kind,
+          configJson: d.configJson,
+          isActive: d.isActive !== false,
+        })),
       }
-      for (const [idx, d] of defs.entries()) {
-        if (!d.key) continue
-        const payload = { entityId, key: d.key, kind: d.kind, configJson: withDefaults(d, idx), isActive: d.isActive !== false }
-        const res = await apiFetch('/api/custom_fields/definitions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}))
-          throw new Error(j?.error || `Failed to save ${d.key}`)
-        }
+      const res = await apiFetch('/api/custom_fields/definitions.batch', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j?.error || 'Failed to save definitions')
       }
       router.push(`/backend/definitions?flash=Definitions%20saved&type=success`)
     } catch (e: any) {
@@ -310,6 +310,35 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     setOrderDirty(true)
     if (d?.key) {
       await apiFetch('/api/custom_fields/definitions', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, key: d.key }) })
+    }
+  }
+
+  async function saveOrderIfDirty() {
+    if (!orderDirty) return
+    setOrderSaving(true)
+    try {
+      const payload = {
+        entityId,
+        definitions: defs.filter(d => !!d.key).map((d) => ({
+          key: d.key,
+          kind: d.kind,
+          configJson: d.configJson,
+          isActive: d.isActive !== false,
+        })),
+      }
+      const res = await apiFetch('/api/custom_fields/definitions.batch', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j?.error || 'Failed to save order')
+      }
+      setOrderDirty(false)
+      flash('Order saved', 'success')
+    } catch (e: any) {
+      flash(e?.message || 'Failed to save order', 'error')
+    } finally {
+      setOrderSaving(false)
     }
   }
 
@@ -454,52 +483,37 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           cancelHref="/backend/definitions"
           successRedirect="/backend/definitions?flash=Definitions%20saved&type=success"
           onSubmit={async (vals) => {
-          // Save entity settings
-          const partial = upsertCustomEntitySchema.pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any }) as unknown as z.ZodTypeAny
-          const normalized = { ...(vals as any), defaultEditor: (vals as any)?.defaultEditor || undefined }
-          const parsed = partial.safeParse(normalized)
-          if (!parsed.success) throw new Error('Validation failed')
-          const res1 = await apiFetch('/api/custom_fields/entities', {
-            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, ...parsed.data })
-          })
-          if (!res1.ok) {
-            const j = await res1.json().catch(() => ({}))
-            throw new Error(j?.error || 'Failed to save entity')
-          }
-          // Save definitions
-          for (const d of defs) {
-            if (!d.key) continue
-            const payload = { entityId, key: d.key, kind: d.kind, configJson: d.configJson, isActive: d.isActive !== false }
-            const res = await apiFetch('/api/custom_fields/definitions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
-            if (!res.ok) {
-              const j = await res.json().catch(() => ({}))
-              throw new Error(j?.error || `Failed to save ${d.key}`)
-  async function saveOrderIfDirty() {
-    if (!orderDirty) return
-    setOrderSaving(true)
-    try {
-      for (const [idx, d] of defs.entries()) {
-        if (!d.key) continue
-        const payload = { entityId, key: d.key, kind: d.kind, configJson: { ...(d.configJson || {}), priority: idx }, isActive: d.isActive !== false }
-        const res = await apiFetch('/api/custom_fields/definitions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}))
-          throw new Error(j?.error || `Failed to save order for ${d.key}`)
-        }
-      }
-      setOrderDirty(false)
-      flash('Order saved', 'success')
-    } catch (e: any) {
-      flash(e?.message || 'Failed to save order', 'error')
-    } finally {
-      setOrderSaving(false)
-    }
-  }
-
+            // Save entity settings
+            const partial = upsertCustomEntitySchema.pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any }) as unknown as z.ZodTypeAny
+            const normalized = { ...(vals as any), defaultEditor: (vals as any)?.defaultEditor || undefined }
+            const parsed = partial.safeParse(normalized)
+            if (!parsed.success) throw new Error('Validation failed')
+            const res1 = await apiFetch('/api/custom_fields/entities', {
+              method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, ...parsed.data })
+            })
+            if (!res1.ok) {
+              const j = await res1.json().catch(() => ({}))
+              throw new Error(j?.error || 'Failed to save entity')
             }
-          }
-          flash('Definitions saved', 'success')
-        }}
+            // Save definitions in a single batch (transactional)
+            const defsPayload = {
+              entityId,
+              definitions: defs.filter(d => !!d.key).map((d) => ({
+                key: d.key,
+                kind: d.kind,
+                configJson: d.configJson,
+                isActive: d.isActive !== false,
+              })),
+            }
+            const res2 = await apiFetch('/api/custom_fields/definitions.batch', {
+              method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(defsPayload)
+            })
+            if (!res2.ok) {
+              const j = await res2.json().catch(() => ({}))
+              throw new Error(j?.error || 'Failed to save definitions')
+            }
+            flash('Definitions saved', 'success')
+          }}
         onDelete={entitySource === 'custom' ? async () => {
           if (!window.confirm('Delete this custom entity and its definitions?')) return
           const res = await apiFetch('/api/custom_fields/entities', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId }) })
