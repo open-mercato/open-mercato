@@ -15,7 +15,7 @@ export const metadata = {
   GET: { requireAuth: true, requireRoles: ['admin'] as const },
 }
 
-export default async function handler(req: Request) {
+export async function GET(req: Request) {
   const auth = getAuthFromRequest(req)
   if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 

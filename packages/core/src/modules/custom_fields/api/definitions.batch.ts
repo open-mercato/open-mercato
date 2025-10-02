@@ -15,13 +15,12 @@ const batchSchema = z.object({
     upsertCustomFieldDefSchema
       .omit({ entityId: true })
       .extend({
-        // Allow optional configJson; defaults will be filled in server-side
         configJson: z.any().optional(),
       })
   ),
 })
 
-export default async function handler(req: Request) {
+export async function POST(req: Request) {
   const auth = getAuthFromRequest(req)
   if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   let body: any
@@ -34,7 +33,6 @@ export default async function handler(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
 
-  // Transactional upsert of all definitions
   await em.begin()
   try {
     for (const [idx, d] of definitions.entries()) {
@@ -53,9 +51,7 @@ export default async function handler(req: Request) {
       if (cfg.label == null || String(cfg.label).trim() === '') cfg.label = d.key
       if (cfg.formEditable === undefined) cfg.formEditable = true
       if (cfg.listVisible === undefined) cfg.listVisible = true
-      // Default editor for multiline when not specified
       if (d.kind === 'multiline' && (cfg.editor == null || String(cfg.editor).trim() === '')) cfg.editor = 'markdown'
-      // Persist order by array index
       cfg.priority = idx
 
       def.configJson = cfg
@@ -72,4 +68,5 @@ export default async function handler(req: Request) {
 
   return NextResponse.json({ ok: true })
 }
+
 
