@@ -207,6 +207,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [deletedKeys, setDeletedKeys] = useState<string[]>([])
 
   useEffect(() => {
     let mounted = true
@@ -233,6 +234,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           const loaded: Def[] = (json.items || []).map((d: any) => ({ key: d.key, kind: d.kind, configJson: d.configJson || {}, isActive: d.isActive !== false }))
           loaded.sort((a, b) => (a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0))
           setDefs(loaded)
+          setDeletedKeys(Array.isArray(json.deletedKeys) ? json.deletedKeys : [])
         }
       } catch (e: any) {
         if (mounted) setError(e.message || 'Failed to load')
@@ -246,6 +248,30 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
 
   function addField() {
     setDefs((arr) => [...arr, { key: '', kind: 'text', configJson: {}, isActive: true }])
+  }
+
+  async function restoreField(key: string) {
+    try {
+      const res = await apiFetch('/api/custom_fields/definitions.restore', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId, key }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j?.error || 'Failed to restore field')
+      }
+      // Reload definitions & deleted keys
+      const r2 = await apiFetch(`/api/custom_fields/definitions.manage?entityId=${encodeURIComponent(entityId)}`)
+      const j2 = await r2.json().catch(() => ({ items: [], deletedKeys: [] }))
+      const loaded: Def[] = (j2.items || []).map((d: any) => ({ key: d.key, kind: d.kind, configJson: d.configJson || {}, isActive: d.isActive !== false }))
+      loaded.sort((a, b) => (a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0))
+      setDefs(loaded)
+      setDeletedKeys(Array.isArray(j2.deletedKeys) ? j2.deletedKeys : [])
+      flash(`Restored ${key}`, 'success')
+    } catch (e: any) {
+      flash(e?.message || 'Failed to restore field', 'error')
+    }
   }
 
   async function saveAll() {
@@ -388,6 +414,17 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             <Plus className="h-4 w-4" /> Add Field
           </button>
           <div className="text-xs text-gray-500 mt-2">Supported kinds: text, multiline, integer, float, boolean, select (with options/optionsUrl), relation (set relatedEntityId and optionsUrl).</div>
+          {deletedKeys.length > 0 && (
+            <div className="text-xs text-gray-500 mt-2">
+              Restore deleted fields: {' '}
+              {deletedKeys.map((k, i) => (
+                <span key={k}>
+                  <button type="button" className="underline hover:no-underline text-blue-600 disabled:opacity-50" onClick={() => restoreField(k)}>{k}</button>
+                  {i < deletedKeys.length - 1 ? ', ' : ''}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     ) },

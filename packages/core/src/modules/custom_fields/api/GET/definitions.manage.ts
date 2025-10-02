@@ -74,5 +74,7 @@ export default async function handler(req: Request) {
     organizationId: d.organizationId ?? null,
     tenantId: d.tenantId ?? null,
   }))
-  return NextResponse.json({ items })
+  // Expose deleted keys so the editor can offer quick restore
+  const deletedKeys = Array.from(tombstonedKeys)
+  return NextResponse.json({ items, deletedKeys })
 }

@@ -57,7 +57,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   let initialCollapsed = false
   try {
     const { cookies } = await import('next/headers')
-    const c = cookies()
+    const c = await cookies()
     const v = c.get('om_sidebar_collapsed')?.value
     initialCollapsed = v === '1'
   } catch {}
