@@ -6,7 +6,11 @@ import { filterCustomFieldDefs } from './customFieldDefs'
 export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): FilterDef[] {
   const f: FilterDef[] = []
   const visible = filterCustomFieldDefs(defs, 'filter')
+  const seenKeys = new Set<string>() // case-insensitive de-dupe by key
   for (const d of visible) {
+    const keyLower = String(d.key).toLowerCase()
+    if (seenKeys.has(keyLower)) continue
+    seenKeys.add(keyLower)
     const id = `cf_${d.key}`
     const label = d.label || d.key
     if (d.kind === 'boolean') {

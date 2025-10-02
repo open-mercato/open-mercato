@@ -47,7 +47,6 @@ function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => voi
               <label className="inline-flex items-center gap-2"><input type="checkbox" checked={local.configJson?.listVisible !== false} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), listVisible: e.target.checked } }); queueMicrotask(commit) }} /> List</label>
               <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!local.configJson?.filterable} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), filterable: e.target.checked } }); queueMicrotask(commit) }} /> Filter</label>
               <label className="inline-flex items-center gap-2"><input type="checkbox" checked={local.configJson?.formEditable !== false} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), formEditable: e.target.checked } }); queueMicrotask(commit) }} /> Form</label>
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }); queueMicrotask(commit) }} /> Multiple</label>
             </div>
             <div className="text-muted-foreground">Config</div>
           </div>
@@ -112,9 +111,7 @@ function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => voi
                   <label className="text-xs">Options URL</label>
                   <input value={local.configJson?.optionsUrl || ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })} onBlur={commit} className="border rounded w-full px-2 py-1" placeholder="/api/custom_fields/relations/options?..." />
                 </div>
-                <div className="col-span-2">
-                  <label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }) }} /> Multiple</label>
-                </div>
+                {/* For now, multiple selection is only supported for 'select' kind */}
               </>
             )}
           </div>
