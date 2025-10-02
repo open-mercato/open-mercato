@@ -124,8 +124,10 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
                 {open && (
                   <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
                     {g.items.map((i) => {
-                      const isParentActive = pathname === i.href
+                      // Mark parent active when we're inside it BUT no visible child matches
                       const showChildren = !!pathname && pathname.startsWith(i.href)
+                      const hasActiveChild = !!(i.children && pathname && i.children.some((c) => pathname.startsWith(c.href)))
+                      const isParentActive = (pathname === i.href) || (showChildren && !hasActiveChild)
                       const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
                       return (
                         <React.Fragment key={i.href}>
