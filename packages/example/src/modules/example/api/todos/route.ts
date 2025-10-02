@@ -182,12 +182,30 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
         // Hide any key that has a tombstoned record in scope
         const tombstonedKeys = new Set<string>((defs as any[]).filter((d: any) => !!d.deletedAt).map((d: any) => d.key))
         // Take winners only when active and not tombstoned; sort by priority
-        const keysFromDb = Array.from(byKey.values())
+        const keysFromDefs = Array.from(byKey.values())
           .filter((d: any) => d.isActive !== false && !d.deletedAt && !tombstonedKeys.has(d.key))
           .sort((a: any, b: any) => ((a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0)))
           .map((d: any) => d.key)
-        // Merge with code-declared keys and de-dupe
-        dynamicCfKeys = Array.from(new Set([ ...cfSel.keys, ...keysFromDb ]))
+        // Fallback discovery: keys that have values even if no definition exists
+        try {
+          const knex = (em as any).getConnection().getKnex()
+          const rows = await knex('custom_field_values')
+            .distinct('field_key')
+            .where({ entity_id: E.example.todo as any })
+            .modify((qb: any) => {
+              if (ctx.auth.orgId != null) qb.andWhere((b: any) => b.where({ organization_id: ctx.auth.orgId }).orWhereNull('organization_id'))
+              else qb.whereNull('organization_id')
+              if (ctx.auth.tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: ctx.auth.tenantId }).orWhereNull('tenant_id'))
+              else qb.whereNull('tenant_id')
+            })
+            .whereNull('deleted_at')
+          const keysFromValues = (rows || []).map((r: any) => String(r.field_key))
+          // Merge with code-declared keys and de-dupe
+          dynamicCfKeys = Array.from(new Set([ ...cfSel.keys, ...keysFromDefs, ...keysFromValues ]))
+        } catch {
+          // Merge with code-declared keys and de-dupe (no values fallback)
+          dynamicCfKeys = Array.from(new Set([ ...cfSel.keys, ...keysFromDefs ]))
+        }
         const selectors = dynamicCfKeys.map((k) => `cf:${k}`)
         ;(opts.list as any).fields = [id, title, tenant_id, organization_id, is_done, ...selectors]
         const map: Record<string, unknown> = { id, title, tenant_id, organization_id, is_done }
