@@ -7,6 +7,7 @@ import type { Where, WhereValue } from '@open-mercato/shared/lib/query/types'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 import fieldSets from '@open-mercato/example/modules/example/data/fields'
 import { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
+import { CustomFieldDef } from '@open-mercato/core/modules/custom_fields/data/entities'
 
 // Query (list) schema
 const querySchema = z
@@ -46,11 +47,13 @@ type Query = z.infer<typeof querySchema>
 type CreateInput = z.infer<typeof createSchema>
 type UpdateInput = z.infer<typeof updateSchema>
 
+// Start from code-declared field sets; will be extended per-request from DB definitions
 const cfSel = buildCustomFieldSelectorsForEntity(E.example.todo, fieldSets)
+let dynamicCfKeys: string[] = [...cfSel.keys]
 
-const sortFieldMap: Record<string, unknown> = (() => {
+let sortFieldMap: Record<string, unknown> = (() => {
   const map: Record<string, unknown> = { id, title, tenant_id, organization_id, is_done }
-  for (const k of cfSel.keys) map[`cf_${k}`] = `cf:${k}`
+  for (const k of dynamicCfKeys) map[`cf_${k}`] = `cf:${k}`
   return map
 })()
 
@@ -131,12 +134,12 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
         organization_id: (item.organization_id as string | null) ?? null,
         is_done: Boolean(item.is_done),
       }
-      const cf = extractCustomFieldsFromItem(item as any, cfSel.keys)
+      const cf = extractCustomFieldsFromItem(item as any, dynamicCfKeys)
       return { ...base, ...(cf as any) } as TodoListItem
     },
     allowCsv: true,
     csv: {
-      headers: ['id', 'title', 'is_done', 'organization_id', 'tenant_id', ...cfSel.outputKeys],
+      headers: ['id', 'title', 'is_done', 'organization_id', 'tenant_id', ...dynamicCfKeys.map((k) => `cf_${k}`)],
       row: (t: TodoListItem) => {
         const base = [
           t.id,
@@ -145,7 +148,8 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
           t.organization_id ?? '',
           t.tenant_id ?? '',
         ]
-        const cfVals = cfSel.outputKeys.map((ok) => {
+        const cfVals = dynamicCfKeys.map((k) => {
+          const ok = `cf_${k}`
           const v = (t as Record<string, unknown>)[ok]
           if (Array.isArray(v)) return (v as string[]).join('|')
           return v == null ? '' : String(v)
@@ -154,6 +158,40 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       },
       filename: 'todos.csv',
     },
+  },
+  hooks: {
+    // Per-request: merge DB field definitions with code-declared set and update selectors + sort map
+    beforeList: async (_q, ctx) => {
+      try {
+        const em = ctx.container.resolve<any>('em')
+        const defs = await em.find(CustomFieldDef, {
+          entityId: E.example.todo as any,
+          isActive: true,
+          $and: [
+            { $or: [ { organizationId: ctx.auth.orgId as any }, { organizationId: null } ] },
+            { $or: [ { tenantId: ctx.auth.tenantId as any }, { tenantId: null } ] },
+          ],
+        })
+        const byKey = new Map<string, any>()
+        const score = (x: any) => (x.tenantId ? 2 : 0) + (x.organizationId ? 1 : 0)
+        for (const d of defs) {
+          const ex = byKey.get(d.key)
+          if (!ex) { byKey.set(d.key, d); continue }
+          const sNew = score(d); const sOld = score(ex)
+          if (sNew > sOld) byKey.set(d.key, d)
+        }
+        const keysFromDb = Array.from(byKey.values()).sort((a: any, b: any) => ((a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0))).map((d: any) => d.key)
+        // Merge with code-declared keys and de-dupe
+        dynamicCfKeys = Array.from(new Set([ ...cfSel.keys, ...keysFromDb ]))
+        const selectors = dynamicCfKeys.map((k) => `cf:${k}`)
+        ;(opts.list as any).fields = [id, title, tenant_id, organization_id, is_done, ...selectors]
+        const map: Record<string, unknown> = { id, title, tenant_id, organization_id, is_done }
+        for (const k of dynamicCfKeys) map[`cf_${k}`] = `cf:${k}`
+        ;(opts.list as any).sortFieldMap = map
+      } catch {
+        // ignore; fall back to code-declared selectors
+      }
+    }
   },
   create: {
     schema: createSchema,

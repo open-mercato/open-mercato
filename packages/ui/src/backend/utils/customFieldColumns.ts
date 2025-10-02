@@ -38,5 +38,26 @@ export function applyCustomFieldVisibility<T>(columns: ColumnDef<T, any>[], defs
     const next = cfEntries[cfIdx++]?.col ?? c
     return next
   })
+
+  // Append any missing cf columns (defs visible but not present in incoming columns)
+  const existingCfKeys = new Set<string>(result
+    .map((c) => String((c as any).accessorKey || ''))
+    .filter((k) => k.startsWith('cf_'))
+    .map((k) => k.slice(3)))
+
+  const visibleSorted = defs
+    .filter((d) => isDefVisible(d, mode))
+    .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
+
+  const missing = visibleSorted.filter((d) => !existingCfKeys.has(d.key))
+  for (const d of missing) {
+    const col: ColumnDef<T, any> = {
+      accessorKey: `cf_${d.key}` as any,
+      header: d.label || `cf_${d.key}`,
+      // Respect responsive priority when provided; default leaves it visible
+      meta: { priority: (d as any).priority } as any,
+    }
+    result.push(col)
+  }
   return result
 }
