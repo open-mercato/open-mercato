@@ -74,6 +74,7 @@ export default async function handler(req: Request) {
     optionsUrl: typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined,
     filterable: Boolean(d.configJson?.filterable),
     formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
+    listVisible: d.configJson?.listVisible !== undefined ? Boolean(d.configJson.listVisible) : true,
     // Optional UI hints for client renderers; fallback to entity default for multiline
     editor: typeof d.configJson?.editor === 'string'
       ? d.configJson.editor

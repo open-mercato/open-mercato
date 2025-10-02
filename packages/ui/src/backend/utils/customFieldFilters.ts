@@ -11,6 +11,7 @@ export type CustomFieldDefDto = {
   multi?: boolean
   filterable?: boolean
   formEditable?: boolean
+  listVisible?: boolean
   // Optional UI hints
   editor?: string
   input?: string

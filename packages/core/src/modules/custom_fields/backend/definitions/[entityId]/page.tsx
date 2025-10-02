@@ -40,7 +40,17 @@ function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => voi
             {KIND_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </td>
-        <td className="py-2 pr-2 text-sm text-muted-foreground">Config</td>
+        <td className="py-2 pr-2 text-sm">
+          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+            <div className="flex flex-wrap gap-3">
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!local.configJson?.listVisible !== false} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), listVisible: e.target.checked } }); queueMicrotask(commit) }} /> List</label>
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!local.configJson?.filterable} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), filterable: e.target.checked } }); queueMicrotask(commit) }} /> Filter</label>
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={local.configJson?.formEditable !== false} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), formEditable: e.target.checked } }); queueMicrotask(commit) }} /> Form</label>
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }); queueMicrotask(commit) }} /> Multi</label>
+            </div>
+            <div className="text-muted-foreground">Config</div>
+          </div>
+        </td>
         <td className="py-2 pr-2" style={{ width: 140 }}>
           <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={local.isActive !== false} onChange={(e) => { updateLocal({ isActive: e.target.checked }); queueMicrotask(commit) }} /> Active</label>
         </td>

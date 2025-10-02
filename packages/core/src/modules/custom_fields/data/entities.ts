@@ -69,6 +69,9 @@ export class CustomEntity {
   @Property({ name: 'default_editor', type: 'text', nullable: true })
   defaultEditor?: string | null
 
+  // Note: Per-field UI preferences (list visibility, filter visibility, form editability)
+  // are stored in CustomFieldDef.configJson, not at entity level.
+
   // Optional org/tenant scoping
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
