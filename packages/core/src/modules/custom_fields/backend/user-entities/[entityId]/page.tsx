@@ -102,19 +102,53 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
         </div>
 
         {(local.kind === 'text' || local.kind === 'multiline') && (
-          <div>
-            <label className="text-xs">Editor</label>
-            <select
-              className="border rounded w-full px-2 py-1 text-sm"
-              value={local.configJson?.editor || ''}
-              onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), editor: e.target.value || undefined } }, true) }}
-            >
-              <option value="">Default</option>
-              <option value="markdown">Markdown (UIW)</option>
-              <option value="simpleMarkdown">Simple Markdown</option>
-              <option value="htmlRichText">HTML Rich Text</option>
-            </select>
-          </div>
+          <>
+            <div>
+              <label className="text-xs">Editor</label>
+              <select
+                className="border rounded w-full px-2 py-1 text-sm"
+                value={local.configJson?.editor || ''}
+                onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), editor: e.target.value || undefined } }, true) }}
+              >
+                <option value="">Default</option>
+                <option value="markdown">Markdown (UIW)</option>
+                <option value="simpleMarkdown">Simple Markdown</option>
+                <option value="htmlRichText">HTML Rich Text</option>
+              </select>
+            </div>
+            {local.kind === 'text' && (
+              <>
+                <div className="md:col-span-2">
+                  <label className="inline-flex items-center gap-2 text-xs">
+                    <input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }, true) }} /> Multiple
+                  </label>
+                </div>
+                {!!local.configJson?.multi && (
+                  <>
+                    <div>
+                      <label className="text-xs">Options (comma-separated)</label>
+                      <input
+                        className="border rounded w-full px-2 py-1 text-sm"
+                        value={Array.isArray(local.configJson?.options) ? local.configJson.options.join(',') : ''}
+                        onChange={(e) => apply({ configJson: { ...(local.configJson||{}), options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })}
+                        onBlur={commit}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs">Options URL</label>
+                      <input
+                        className="border rounded w-full px-2 py-1 text-sm"
+                        placeholder="/api/..."
+                        value={local.configJson?.optionsUrl || ''}
+                        onChange={(e) => apply({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })}
+                        onBlur={commit}
+                      />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </>
         )}
 
         {local.kind === 'select' && (
@@ -400,6 +434,8 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     .extend({
       // Allow empty string in the UI select, treat as undefined later
       defaultEditor: z.union([z.enum(['markdown','simpleMarkdown','htmlRichText']).optional(), z.literal('')]).optional(),
+      // Include showInSidebar so CrudForm doesn't strip it on submit
+      showInSidebar: z.boolean().optional(),
     }) as unknown as z.ZodTypeAny
 
   const fields: CrudField[] = [
@@ -534,7 +570,10 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             }
             // Save entity settings only for custom entities
             if (entitySource === 'custom') {
-              const partial = upsertCustomEntitySchema.pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any, showInSidebar: true as any }) as unknown as z.ZodTypeAny
+              // Treat showInSidebar as optional to avoid defaulting to false when omitted
+              const partial = upsertCustomEntitySchema
+                .pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any })
+                .extend({ showInSidebar: z.boolean().optional() }) as unknown as z.ZodTypeAny
               const normalized = { 
                 ...(vals as any), 
                 defaultEditor: (vals as any)?.defaultEditor || undefined,

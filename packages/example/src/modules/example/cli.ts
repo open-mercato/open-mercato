@@ -50,7 +50,8 @@ const seedTodos: ModuleCli = {
       { key: 'priority', kind: 'integer', configJson: { label: 'Priority', description: '1 (low) to 5 (high)', defaultValue: 3, filterable: true } },
       { key: 'severity', kind: 'select', configJson: { label: 'Severity', options: ['low', 'medium', 'high'], defaultValue: 'medium', filterable: true } },
       { key: 'blocked', kind: 'boolean', configJson: { label: 'Blocked', defaultValue: false, filterable: true } },
-      { key: 'labels', kind: 'select', configJson: { label: 'Labels', options: ['frontend', 'backend', 'ops', 'bug', 'feature'], multi: true, filterable: true } },
+      // Use text + multi so UI renders TagsInput in forms and tags filter in filters
+      { key: 'labels', kind: 'text', configJson: { label: 'Labels', options: ['frontend', 'backend', 'ops', 'bug', 'feature'], multi: true, filterable: true, optionsUrl: '/api/example/tags' } },
     ]
     for (const d of defs) {
       const existing = await em.findOne(CustomFieldDef, { entityId, organizationId: orgId, tenantId: tenantId, key: d.key })

@@ -65,6 +65,11 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
         // If text + multi => render as tags input for free-form tagging
         if (d.kind === 'text' && d.multi) {
           const base: any = { id, label, type: 'tags', description: d.description }
+          // Provide static suggestions from options if present
+          if (Array.isArray(d.options) && d.options.length > 0) {
+            base.options = d.options.map((o) => ({ value: String(o), label: String(o) }))
+          }
+          // Enable async suggestions when optionsUrl provided
           if (d.optionsUrl) {
             base.loadOptions = async () => {
               try {
