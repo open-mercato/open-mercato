@@ -1,7 +1,7 @@
 import type { AppContainer } from '@/lib/di/container'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
-import { upsertIndexRow, markDeleted } from './lib/indexer'
+import { markDeleted } from './lib/indexer'
 
 function toEntityTypeFromEvent(event: string): string | null {
   // Expect '<module>.<entity>.<action>'
@@ -26,7 +26,7 @@ export function register(container: AppContainer) {
     ;(container as any).register({ queryEngine: { resolve: () => hybrid } })
   } catch {}
 
-  // Programmatically register generic subscribers for all entity CRUD to maintain index
+  // Subscribe to CRUD events and forward to query_index subscribers for unified handling
   const setup = () => {
     let bus: any
     try { bus = container.resolve<any>('eventBus') } catch { bus = null }
@@ -62,7 +62,10 @@ export function register(container: AppContainer) {
             .first()
           if (!hasCf) return
         } catch {}
-        await upsertIndexRow(em, { entityType, recordId: id, organizationId: orgId, tenantId })
+        try {
+          const bus = ctx.resolve('eventBus') as any
+          await bus.emitEvent('query_index.upsert_one', { entityType, recordId: id, organizationId: orgId, tenantId })
+        } catch {}
       } catch {}
     }
     const makeDeleteHandler = (entityType: string) => async (payload: any, ctx: any) => {
@@ -79,7 +82,10 @@ export function register(container: AppContainer) {
             orgId = row?.organization_id ?? orgId
           } catch {}
         }
-        await markDeleted(em, { entityType, recordId: id, organizationId: orgId })
+        try {
+          const bus = ctx.resolve('eventBus') as any
+          await bus.emitEvent('query_index.delete_one', { entityType, recordId: id, organizationId: orgId })
+        } catch {}
       } catch {}
     }
 
@@ -107,11 +113,11 @@ export function register(container: AppContainer) {
             proceed(cfEntityIds)
           } else {
             // Fallback to generated entity ids without await
-            Promise.all([
-              import('@open-mercato/core/datamodel/entities').catch(() => ({} as any)),
-              import('@open-mercato/example/datamodel/entities').catch(() => ({} as any)),
-            ]).then(([core, example]) => {
-              const flatten = (E: any) => Object.values(E || {}).flatMap((o: any) => Object.values(o || {}))
+          Promise.all([
+            import('@open-mercato/core/datamodel/entities').catch(() => ({} as any)),
+            import('@open-mercato/example/datamodel/entities').catch(() => ({} as any)),
+          ]).then(([core, example]) => {
+              const flatten = (E: any): string[] => Object.values(E || {}).flatMap((o: any) => Object.values(o || {}) as string[])
               const guesses = new Set<string>([...flatten((core as any).E), ...flatten((example as any).E)])
               proceed(Array.from(guesses))
             }).catch(() => {})

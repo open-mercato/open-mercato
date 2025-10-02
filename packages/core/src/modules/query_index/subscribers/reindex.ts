@@ -1,6 +1,7 @@
 export const metadata = { event: 'query_index.reindex', persistent: true }
 
 export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
+  console.log('Reindex event received:', payload)
   const em = ctx.resolve<any>('em')
   const knex = (em as any).getConnection().getKnex()
   const eventBus = ctx.resolve<any>('eventBus')
