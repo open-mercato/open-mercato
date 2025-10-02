@@ -400,6 +400,8 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     .extend({
       // Allow empty string in the UI select, treat as undefined later
       defaultEditor: z.union([z.enum(['markdown','simpleMarkdown','htmlRichText']).optional(), z.literal('')]).optional(),
+      // Include showInSidebar so CrudForm doesn't strip it on submit
+      showInSidebar: z.boolean().optional(),
     }) as unknown as z.ZodTypeAny
 
   const fields: CrudField[] = [
@@ -534,7 +536,10 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             }
             // Save entity settings only for custom entities
             if (entitySource === 'custom') {
-              const partial = upsertCustomEntitySchema.pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any, showInSidebar: true as any }) as unknown as z.ZodTypeAny
+              // Treat showInSidebar as optional to avoid defaulting to false when omitted
+              const partial = upsertCustomEntitySchema
+                .pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any })
+                .extend({ showInSidebar: z.boolean().optional() }) as unknown as z.ZodTypeAny
               const normalized = { 
                 ...(vals as any), 
                 defaultEditor: (vals as any)?.defaultEditor || undefined,
