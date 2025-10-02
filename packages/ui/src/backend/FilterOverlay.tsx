@@ -183,14 +183,22 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
                     )
                   })()}
                   {f.type === 'checkbox' && (
-                    <label className="inline-flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={!!values[f.id]}
-                        onChange={(e) => setValue(f.id, e.target.checked ? true : undefined)}
-                      />
-                      <span className="text-sm">Enable</span>
-                    </label>
+                    <div>
+                      <select
+                        className="w-full h-9 rounded border px-2 text-sm"
+                        value={values[f.id] === true ? 'true' : values[f.id] === false ? 'false' : ''}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if (v === '') setValue(f.id, undefined)
+                          else if (v === 'true') setValue(f.id, true)
+                          else if (v === 'false') setValue(f.id, false)
+                        }}
+                      >
+                        <option value="">—</option>
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                      </select>
+                    </div>
                   )}
                 </div>
               ))}

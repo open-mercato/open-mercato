@@ -24,6 +24,7 @@ Admin UI (Entities)
 APIs (selected)
 - GET `/api/custom_fields/definitions?entityId=<id>` → returns normalized definitions used by UI and forms.
 - POST `/api/custom_fields/definitions` → upsert a definition (admin-only, scoped by org/tenant).
+- POST `/api/custom_fields/definitions.batch` → upsert many definitions in one transaction (admin-only).
 - DELETE `/api/custom_fields/definitions` → soft-deactivate a definition (admin-only).
 - GET `/api/custom_fields/entities` → list entities (code + custom) for the admin UI.
 - POST `/api/custom_fields/entities` → upsert a virtual entity’s label/description (admin-only).

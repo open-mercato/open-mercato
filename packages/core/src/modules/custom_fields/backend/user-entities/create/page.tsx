@@ -25,6 +25,7 @@ export default function CreateEntityPage() {
         { value: 'htmlRichText', label: 'HTML Rich Text' },
       ],
     } as any,
+    { id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' } as CrudField,
   ]
 
   return (
@@ -32,23 +33,28 @@ export default function CreateEntityPage() {
       <PageBody>
         <CrudForm
           title="Create Entity"
-          backHref="/backend/definitions"
+          backHref="/backend/user-entities"
           schema={schema}
           fields={fields}
-          initialValues={{ entityId: 'example:calendar_entity', label: 'Calendar Entity' }}
+          initialValues={{ entityId: 'example:calendar_entity', label: 'Calendar Entity', showInSidebar: false }}
           submitLabel="Create"
-          cancelHref="/backend/definitions"
-          successRedirect="/backend/definitions"
+          cancelHref="/backend/user-entities"
+          successRedirect="/backend/user-entities"
           onSubmit={async (vals) => {
             // Validate uniqueness client-side
             const listRes = await apiFetch('/api/custom_fields/entities')
             const listJson = await listRes.json().catch(() => ({ items: [] }))
             const exists = Array.isArray(listJson?.items) && listJson.items.some((it: any) => it?.entityId === (vals as any).entityId && it?.source === 'custom')
             if (exists) throw new Error('Entity ID already exists')
+            
             const res = await apiFetch('/api/custom_fields/entities', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ ...(vals as any), labelField: 'name', defaultEditor: (vals as any)?.defaultEditor || undefined }),
+              body: JSON.stringify({ 
+                ...(vals as any), 
+                labelField: 'name', 
+                defaultEditor: (vals as any)?.defaultEditor || undefined,
+              }),
             })
             if (!res.ok) {
               const j = await res.json().catch(() => ({}))

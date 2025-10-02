@@ -27,7 +27,19 @@ const queryEngine = {
 }
 
 jest.mock('@/lib/di/container', () => ({
-  createRequestContainer: async () => ({ resolve: (name: string) => ({ em, queryEngine, eventBus: mockEventBus } as any)[name] })
+  createRequestContainer: async () => ({
+    resolve: (name: string) => ({
+      em,
+      queryEngine,
+      eventBus: mockEventBus,
+      dataEngine: {
+        setCustomFields: async (args: any) => {
+          // Bridge into helper so existing expectations still work
+          await (setRecordCustomFields as any)(em, args)
+        },
+      },
+    } as any)[name],
+  })
 }))
 
 jest.mock('@/lib/auth/server', () => ({
@@ -136,4 +148,3 @@ describe('CRUD Factory', () => {
     expect(db[created.id].deletedAt).toBeInstanceOf(Date)
   })
 })
-

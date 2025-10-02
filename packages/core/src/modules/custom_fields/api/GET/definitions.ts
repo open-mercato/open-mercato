@@ -26,13 +26,24 @@ export default async function handler(req: Request) {
 
   const where = {
     entityId,
-    isActive: true,
+    // Never include soft-deleted rows in candidates
+    deletedAt: null,
     $and: [
       { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
       { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
     ],
   } as any
-  const defs = await em.find(CustomFieldDef, where)
+  const defs = await em.find(CustomFieldDef, where as any)
+  // Load tombstones to shadow lower-scope/global entries with the same key
+  const tombstones = await em.find(CustomFieldDef, {
+    entityId,
+    deletedAt: { $ne: null } as any,
+    $and: [
+      { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+      { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+    ],
+  } as any)
+  const tombstonedKeys = new Set<string>((tombstones as any[]).map((d: any) => d.key))
 
   // Resolve default editor preference for this entity (tenant/org scoped)
   let entityDefaultEditor: string | undefined
@@ -64,7 +75,9 @@ export default async function handler(req: Request) {
     if (tNew >= tOld) byKey.set(d.key, d)
   }
 
-  const items = Array.from(byKey.values()).map((d) => ({
+  // Exclude keys whose winning definition is not active, and those shadowed by a tombstone
+  const winning = Array.from(byKey.values()).filter((d: any) => (d.isActive !== false) && !tombstonedKeys.has(d.key))
+  let items = winning.map((d) => ({
     key: d.key,
     kind: d.kind,
     label: d.configJson?.label || d.key,
@@ -74,12 +87,16 @@ export default async function handler(req: Request) {
     optionsUrl: typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined,
     filterable: Boolean(d.configJson?.filterable),
     formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
+    listVisible: d.configJson?.listVisible !== undefined ? Boolean(d.configJson.listVisible) : true,
     // Optional UI hints for client renderers; fallback to entity default for multiline
     editor: typeof d.configJson?.editor === 'string'
       ? d.configJson.editor
       : (d.kind === 'multiline' ? entityDefaultEditor : undefined),
     input: typeof d.configJson?.input === 'string' ? d.configJson.input : undefined,
+    priority: typeof d.configJson?.priority === 'number' ? d.configJson.priority : 0,
   }))
+  // Sort by priority ascending to provide deterministic ordering for clients
+  items.sort((a: any, b: any) => (a.priority ?? 0) - (b.priority ?? 0))
 
   return NextResponse.json({ items })
 }

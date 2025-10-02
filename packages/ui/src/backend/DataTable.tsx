@@ -57,6 +57,72 @@ export type DataTableProps<T> = {
 
 export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId }: DataTableProps<T>) {
   const router = useRouter()
+  // Date formatting setup
+  const DATE_FORMAT = (process.env.NEXT_PUBLIC_DATE_FORMAT || 'YYYY-MM-DD HH:mm') as string
+
+  const pad2 = (n: number) => (n < 10 ? `0${n}` : String(n))
+  const simpleFormat = (d: Date, fmt: string) => {
+    // Supports tokens: YYYY, MM, DD, HH, mm, ss
+    const YYYY = String(d.getFullYear())
+    const MM = pad2(d.getMonth() + 1)
+    const DD = pad2(d.getDate())
+    const HH = pad2(d.getHours())
+    const mm = pad2(d.getMinutes())
+    const ss = pad2(d.getSeconds())
+    return fmt
+      .replace(/YYYY/g, YYYY)
+      .replace(/MM/g, MM)
+      .replace(/DD/g, DD)
+      .replace(/HH/g, HH)
+      .replace(/mm/g, mm)
+      .replace(/ss/g, ss)
+  }
+
+  const tryParseDate = (v: unknown): Date | null => {
+    if (v == null) return null
+    if (v instanceof Date) return isNaN(v.getTime()) ? null : v
+    if (typeof v === 'number') {
+      const d = new Date(v)
+      return isNaN(d.getTime()) ? null : d
+    }
+    if (typeof v === 'string') {
+      const s = v.trim()
+      if (!s) return null
+      // ISO-like detection (YYYY-MM-DD ...)
+      if (/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(s)) {
+        const d = new Date(s)
+        return isNaN(d.getTime()) ? null : d
+      }
+      // Fallback: Date.parse
+      const d = new Date(s)
+      return isNaN(d.getTime()) ? null : d
+    }
+    return null
+  }
+
+  // Guess date columns once using first non-empty row
+  const [dateColumnIds, setDateColumnIds] = React.useState<Set<string> | null>(null)
+  React.useEffect(() => {
+    if (dateColumnIds) return
+    if (!data || data.length === 0) return
+    // Build a cheap row accessor using column defs
+    const accessors = columns.map((c) => {
+      const key = (c as any).accessorKey as string | undefined
+      const id = (c as any).id as string | undefined
+      return { id: id || key || '', key }
+    })
+    const guessed = new Set<string>()
+    accessors.forEach((a) => {
+      if (!a.id) return
+      const name = a.id
+      // Name-based guess: snake_case '_at' suffix
+      if (name.endsWith('_at')) {
+        guessed.add(name)
+        return
+      }
+    })
+    setDateColumnIds(guessed)
+  }, [dateColumnIds, data, columns])
   // Map column meta.priority (1..6) to Tailwind responsive visibility
   // 1 => always visible, 2 => hidden <sm, 3 => hidden <md, 4 => hidden <lg, 5 => hidden <xl, 6 => hidden <2xl
   const responsiveClass = (priority?: number) => {
@@ -143,7 +209,11 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
     const anySearch = onSearchChange != null
     const anyFilters = (baseFilters && baseFilters.length > 0) || (cfFilters && cfFilters.length > 0)
     if (!anySearch && !anyFilters) return null
-    const combined: FilterDef[] = [...(baseFilters || []), ...(cfFilters || [])]
+    // Merge base filters with CF filters, preferring base definitions when ids collide
+    const baseList = baseFilters || []
+    const existing = new Set(baseList.map((f) => f.id))
+    const cfOnly = (cfFilters || []).filter((f) => !existing.has(f.id))
+    const combined: FilterDef[] = [...baseList, ...cfOnly]
     return (
       <FilterBar
         searchValue={searchValue}
@@ -247,11 +317,27 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
                       }
                     } : undefined}
                   >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className={responsiveClass((cell.column.columnDef as any)?.meta?.priority)}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
+                    {row.getVisibleCells().map((cell) => {
+                      const priority = (cell.column.columnDef as any)?.meta?.priority
+                      const hasCustomCell = Boolean(cell.column.columnDef.cell)
+                      const columnId = String((cell.column as any).id || '')
+                      const isDateCol = dateColumnIds ? dateColumnIds.has(columnId) : false
+
+                      let content: React.ReactNode
+                      if (isDateCol) {
+                        const raw = cell.getValue() as any
+                        const d = tryParseDate(raw)
+                        content = d ? simpleFormat(d, DATE_FORMAT) : (raw as any)
+                      } else {
+                        content = flexRender(cell.column.columnDef.cell, cell.getContext())
+                      }
+
+                      return (
+                        <TableCell key={cell.id} className={responsiveClass(priority)}>
+                          {content}
+                        </TableCell>
+                      )
+                    })}
                     {rowActions ? (
                       <TableCell className="text-right whitespace-nowrap" data-actions-cell>
                         {rowActions(row.original as T)}

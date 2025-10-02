@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import { filterCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -18,11 +19,11 @@ type RecordsResponse = {
 type CfDef = { key: string; label?: string; kind?: string }
 
 function toCsvUrl(base: string, params: URLSearchParams) {
-  const u = new URL(base, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
+  // Build a relative URL to avoid SSR/CSR origin mismatch hydration issues
   const p = new URLSearchParams(params)
   p.set('format', 'csv')
-  u.search = p.toString()
-  return u.toString()
+  const qs = p.toString()
+  return qs ? `${base}?${qs}` : base
 }
 
 function normalizeCell(v: any): string {
@@ -49,14 +50,14 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
   const [cfDefs, setCfDefs] = React.useState<CfDef[]>([])
   const [showAllColumns, setShowAllColumns] = React.useState(false)
 
-  // Load CF definitions for labeling and filters
+  // Load CF definitions for labeling and to respect per-field visibility (listVisible)
   React.useEffect(() => {
     let cancelled = false
     const load = async () => {
       try {
         const res = await apiFetch(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`)
         const j = await res.json().catch(() => ({ items: [] }))
-        if (!cancelled) setCfDefs((j.items || []).map((d: any) => ({ key: d.key, label: d.label, kind: d.kind })))
+        if (!cancelled) setCfDefs((j.items || []).map((d: any) => ({ key: d.key, label: d.label, kind: d.kind, listVisible: (d as any).listVisible !== false })))
       } catch {}
     }
     if (entityId) load()
@@ -106,7 +107,8 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
         // Build columns dynamically with heuristics to hide GUID/hash-like columns
         const keys = Array.from(new Set(items.flatMap((it: any) => Object.keys(it || {}))))
         const base = keys.filter((k) => !k.startsWith('cf_'))
-        const cfs = keys.filter((k) => k.startsWith('cf_'))
+        const allowedCf = new Set(filterCustomFieldDefs(cfDefs as any, 'list').map((d: any) => `cf_${d.key}`))
+        const cfs = keys.filter((k) => k.startsWith('cf_') && allowedCf.has(k))
 
         const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
         const hexLongRe = /^[0-9a-f]{24,}$/i

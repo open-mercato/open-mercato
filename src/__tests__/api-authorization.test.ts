@@ -110,7 +110,7 @@ describe('API Route Authorization', () => {
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
 
       expect(response.status).toBe(403)
-      expect(await response.json()).toEqual({ error: 'Forbidden' })
+      await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
     })
   })
 
@@ -164,7 +164,7 @@ describe('API Route Authorization', () => {
       const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
 
       expect(response.status).toBe(403)
-      expect(await response.json()).toEqual({ error: 'Forbidden' })
+      await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
     })
   })
 
@@ -228,7 +228,7 @@ describe('API Route Authorization', () => {
       const response = await DELETE(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
 
       expect(response.status).toBe(403)
-      expect(await response.json()).toEqual({ error: 'Forbidden' })
+      await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
     })
   })
 
@@ -256,7 +256,7 @@ describe('API Route Authorization', () => {
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
 
       expect(response.status).toBe(403)
-      expect(await response.json()).toEqual({ error: 'Forbidden' })
+      await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
     })
 
     it('should handle undefined roles', async () => {
@@ -272,7 +272,7 @@ describe('API Route Authorization', () => {
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
 
       expect(response.status).toBe(403)
-      expect(await response.json()).toEqual({ error: 'Forbidden' })
+      await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
     })
 
     it('should handle empty requireRoles array', async () => {

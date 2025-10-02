@@ -11,12 +11,12 @@ const filePlusIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireRoles: ['admin'] as const,
-  pageTitle: 'Create Todo',
-  pageGroup: 'Example',
-  pageOrder: 20001,
+  pageTitle: 'Create Entity',
+  pageGroup: 'Data designer',
+  pageOrder: 11,
   icon: filePlusIcon,
   breadcrumb: [
-    { label: 'Todos', href: '/backend/todos' },
+    { label: 'User Entities', href: '/backend/user-entities' },
     { label: 'Create' },
   ],
 }

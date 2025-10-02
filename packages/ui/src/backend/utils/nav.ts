@@ -13,7 +13,8 @@ export type AdminNavItem = {
 
 export async function buildAdminNav(
   modules: any[],
-  ctx: { auth?: { roles?: string[] }; path?: string }
+  ctx: { auth?: { roles?: string[] }; path?: string },
+  userEntities?: Array<{ entityId: string; label: string; href: string }>
 ): Promise<AdminNavItem[]> {
   function capitalize(s: string) {
     return s.charAt(0).toUpperCase() + s.slice(1)
@@ -67,6 +68,24 @@ export async function buildAdminNav(
       parent.children.push(e)
     } else {
       roots.push(e)
+    }
+  }
+
+  // Add dynamic user entities to the navigation
+  if (userEntities && userEntities.length > 0) {
+    // Find the "User Entities" item in the Data designer group (it should be a root item)
+    const userEntitiesItem = roots.find(item => item.group === 'Data designer' && item.title === 'User Entities')
+    if (userEntitiesItem) {
+      // Merge user entities with existing children instead of replacing
+      const existingChildren = userEntitiesItem.children || []
+      const dynamicUserEntities = userEntities.map((entity) => ({
+        group: 'Data designer',
+        title: entity.label,
+        href: entity.href,
+        enabled: true,
+        order: 1000, // High order to appear at the end
+      }))
+      userEntitiesItem.children = [...existingChildren, ...dynamicUserEntities]
     }
   }
 

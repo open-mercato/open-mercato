@@ -1,25 +1,17 @@
+import { Filter } from '@/lib/query/types'
 import type { FilterDef } from '../FilterOverlay'
 import { apiFetch } from './api'
-
-export type CustomFieldDefDto = {
-  key: string
-  kind: string
-  label?: string
-  description?: string
-  options?: string[]
-  optionsUrl?: string
-  multi?: boolean
-  filterable?: boolean
-  formEditable?: boolean
-  // Optional UI hints
-  editor?: string
-  input?: string
-}
+import type { CustomFieldDefDto } from './customFieldDefs'
+import { filterCustomFieldDefs } from './customFieldDefs'
 
 export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): FilterDef[] {
   const f: FilterDef[] = []
-  for (const d of defs) {
-    if (!d.filterable) continue
+  const visible = filterCustomFieldDefs(defs, 'filter')
+  const seenKeys = new Set<string>() // case-insensitive de-dupe by key
+  for (const d of visible) {
+    const keyLower = String(d.key).toLowerCase()
+    if (seenKeys.has(keyLower)) continue
+    seenKeys.add(keyLower)
     const id = `cf_${d.key}`
     const label = d.label || d.key
     if (d.kind === 'boolean') {
@@ -29,7 +21,7 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
       const base: FilterDef = { id: d.multi ? `${id}In` : id, label, type: 'select', multiple: !!d.multi, options }
       // When optionsUrl is provided, allow async options loading for filters too
       if (d.optionsUrl) {
-        ;(base as any).loadOptions = async () => {
+        ;(base as FilterDef).loadOptions = async () => {
           try {
             const res = await apiFetch(d.optionsUrl!)
             const json = await res.json()
@@ -68,7 +60,18 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
       f.push({ id, label, type: 'text' })
     }
   }
-  return f
+  // De-duplicate by id in case of overlaps; keep first occurrence
+  const out: FilterDef[] = []
+  const seen = new Set<string>()
+  for (const item of f) {
+    if (seen.has(item.id)) continue
+    seen.add(item.id)
+    out.push(item)
+  }
+  // Preserve the original visible order (already sorted by priority) by mapping back
+  const order = new Map(visible.map((v, idx) => [v.key, idx]))
+  out.sort((a, b) => (order.get(a.id.replace(/^cf_/, '').replace(/In$/, '')) ?? 0) - (order.get(b.id.replace(/^cf_/, '').replace(/In$/, '')) ?? 0))
+  return out
 }
 
 export async function fetchCustomFieldFilterDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<FilterDef[]> {
