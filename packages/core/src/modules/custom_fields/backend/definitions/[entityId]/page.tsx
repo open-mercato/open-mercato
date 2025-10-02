@@ -47,7 +47,7 @@ function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => voi
               <label className="inline-flex items-center gap-2"><input type="checkbox" checked={local.configJson?.listVisible !== false} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), listVisible: e.target.checked } }); queueMicrotask(commit) }} /> List</label>
               <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!local.configJson?.filterable} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), filterable: e.target.checked } }); queueMicrotask(commit) }} /> Filter</label>
               <label className="inline-flex items-center gap-2"><input type="checkbox" checked={local.configJson?.formEditable !== false} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), formEditable: e.target.checked } }); queueMicrotask(commit) }} /> Form</label>
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }); queueMicrotask(commit) }} /> Multi</label>
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }); queueMicrotask(commit) }} /> Multiple</label>
             </div>
             <div className="text-muted-foreground">Config</div>
           </div>

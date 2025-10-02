@@ -55,7 +55,15 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
       f.push({ id, label, type: 'text' })
     }
   }
-  return f
+  // De-duplicate by id in case of overlaps; keep first occurrence
+  const out: FilterDef[] = []
+  const seen = new Set<string>()
+  for (const item of f) {
+    if (seen.has(item.id)) continue
+    seen.add(item.id)
+    out.push(item)
+  }
+  return out
 }
 
 export async function fetchCustomFieldFilterDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<FilterDef[]> {

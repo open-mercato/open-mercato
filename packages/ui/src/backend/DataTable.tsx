@@ -143,7 +143,11 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
     const anySearch = onSearchChange != null
     const anyFilters = (baseFilters && baseFilters.length > 0) || (cfFilters && cfFilters.length > 0)
     if (!anySearch && !anyFilters) return null
-    const combined: FilterDef[] = [...(baseFilters || []), ...(cfFilters || [])]
+    // Merge base filters with CF filters, preferring base definitions when ids collide
+    const baseList = baseFilters || []
+    const existing = new Set(baseList.map((f) => f.id))
+    const cfOnly = (cfFilters || []).filter((f) => !existing.has(f.id))
+    const combined: FilterDef[] = [...baseList, ...cfOnly]
     return (
       <FilterBar
         searchValue={searchValue}
