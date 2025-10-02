@@ -11,7 +11,7 @@ export const metadata = {
   requireAuth: true,
   requireRoles: ['admin'] as const,
   pageTitle: 'Entities',
-  pageGroup: 'Custom fields',
+  pageGroup: 'Data designer',
   pageOrder: 10,
   icon: formIcon,
 }

@@ -16,110 +16,165 @@ type Def = { key: string; kind: string; configJson?: any; isActive?: boolean }
 
 const KIND_OPTIONS = CUSTOM_FIELD_KINDS.map((k) => ({ value: k, label: k.charAt(0).toUpperCase() + k.slice(1) }))
 
-function FieldRow({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => void; onRemove: () => void }) {
+// A memoized card for a single field definition.
+// Uses local buffered inputs and commits on blur/toggle to avoid form-wide re-renders and focus loss.
+const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: Def; onChange: (d: Def) => void; onRemove: () => void }) {
   const [local, setLocal] = useState<Def>(d)
-  // Sync local when upstream def changes identity (key) or receives external edits
-  useEffect(() => setLocal(d), [d.key, d.kind, JSON.stringify(d.configJson), d.isActive])
-  const updateLocal = (patch: Partial<Def>) => {
-    setLocal((prev) => {
-      const next = { ...prev, ...patch }
-      // propagate immediately to parent to avoid stale microtask commits
-      onChange(next)
-      return next
-    })
-  }
+  // Only initialize from props once (on mount). Avoid syncing on each keystroke to preserve caret focus.
+  // Consumers should replace the component (key change) when identity truly changes.
+
+  const updateLocal = (patch: Partial<Def>) => setLocal((prev) => ({ ...prev, ...patch }))
   const commit = () => onChange(local)
+
   return (
-    <>
-      <tr className="align-top">
-        <td className="py-2 pr-2" style={{ width: 220 }}>
-          <input value={local.key} onChange={(e) => updateLocal({ key: e.target.value })} onBlur={commit} className="border rounded w-full px-2 py-1 font-mono" placeholder="snake_case" />
-        </td>
-        <td className="py-2 pr-2" style={{ width: 200 }}>
-          <select value={local.kind} onChange={(e) => { updateLocal({ kind: e.target.value }) }} className="border rounded w-full px-2 py-1">
+    <div className="rounded border p-3 bg-white">
+      {/* Header row: key, kind, visibility, status, actions */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+        <div className="md:col-span-3">
+          <label className="text-xs">Key</label>
+          <input
+            className="border rounded w-full px-2 py-1 font-mono"
+            placeholder="snake_case"
+            value={local.key}
+            onChange={(e) => updateLocal({ key: e.target.value })}
+            onBlur={commit}
+          />
+        </div>
+        <div className="md:col-span-3">
+          <label className="text-xs">Kind</label>
+          <select
+            className="border rounded w-full px-2 py-1"
+            value={local.kind}
+            onChange={(e) => { updateLocal({ kind: e.target.value }); queueMicrotask(commit) }}
+          >
             {KIND_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-        </td>
-        <td className="py-2 pr-2 text-sm">
-          <div className="flex flex-col gap-1 text-xs">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-muted-foreground">Visibility:</span>
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={local.configJson?.listVisible !== false} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), listVisible: e.target.checked } }); queueMicrotask(commit) }} /> List</label>
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!local.configJson?.filterable} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), filterable: e.target.checked } }); queueMicrotask(commit) }} /> Filter</label>
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={local.configJson?.formEditable !== false} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), formEditable: e.target.checked } }); queueMicrotask(commit) }} /> Form</label>
-            </div>
-            <div className="text-muted-foreground">Config</div>
+        </div>
+        <div className="md:col-span-4">
+          <div className="flex flex-wrap items-center gap-4 pt-5 md:pt-0">
+            <span className="text-xs text-muted-foreground">Visibility:</span>
+            <label className="inline-flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={local.configJson?.listVisible !== false}
+                onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), listVisible: e.target.checked } }); queueMicrotask(commit) }} /> List
+            </label>
+            <label className="inline-flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={!!local.configJson?.filterable}
+                onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), filterable: e.target.checked } }); queueMicrotask(commit) }} /> Filter
+            </label>
+            <label className="inline-flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={local.configJson?.formEditable !== false}
+                onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), formEditable: e.target.checked } }); queueMicrotask(commit) }} /> Form
+            </label>
           </div>
-        </td>
-        <td className="py-2 pr-2" style={{ width: 140 }}>
-          <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={local.isActive !== false} onChange={(e) => { updateLocal({ isActive: e.target.checked }); queueMicrotask(commit) }} /> Active</label>
-        </td>
-        <td className="py-2 text-right" style={{ width: 80 }}>
+        </div>
+        <div className="md:col-span-2 flex items-center justify-between md:justify-end gap-3">
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={local.isActive !== false} onChange={(e) => { updateLocal({ isActive: e.target.checked }); queueMicrotask(commit) }} /> Active
+          </label>
           <button type="button" onClick={onRemove} className="px-2 py-1 border rounded hover:bg-gray-50" aria-label="Remove field">
             <Trash2 className="h-4 w-4" />
           </button>
-        </td>
-      </tr>
-      <tr className="border-b">
-        <td className="pt-0" colSpan={5}>
-          <div className="grid grid-cols-2 gap-3 py-2">
-            <div>
-              <label className="text-xs">Label</label>
-              <input value={local.configJson?.label || ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), label: e.target.value } })} onBlur={commit} className="border rounded w-full px-2 py-1" />
-            </div>
-            <div>
-              <label className="text-xs">Description</label>
-              <input value={local.configJson?.description || ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), description: e.target.value } })} onBlur={commit} className="border rounded w-full px-2 py-1" />
-            </div>
-            {(local.kind === 'text' || local.kind === 'multiline') && (
-              <div>
-                <label className="text-xs">Editor</label>
-                <select value={local.configJson?.editor || ''} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), editor: e.target.value || undefined } }) }} className="border rounded w-full px-2 py-1">
-                  <option value="">Default</option>
-                  <option value="markdown">Markdown (UIW)</option>
-                  <option value="simpleMarkdown">Simple Markdown</option>
-                  <option value="htmlRichText">HTML Rich Text</option>
-                </select>
-              </div>
-            )}
-            {local.kind === 'select' && (
-              <>
-                <div>
-                  <label className="text-xs">Options (comma-separated)</label>
-                  <input value={Array.isArray(local.configJson?.options) ? local.configJson.options.join(',') : ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })} onBlur={commit} className="border rounded w-full px-2 py-1" />
-                </div>
-                <div>
-                  <label className="text-xs">Options URL</label>
-                  <input value={local.configJson?.optionsUrl || ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })} onBlur={commit} className="border rounded w-full px-2 py-1" placeholder="/api/..." />
-                </div>
-                <div className="col-span-2">
-                  <label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }); queueMicrotask(commit) }} /> Multiple</label>
-                </div>
-              </>
-            )}
-            {local.kind === 'relation' && (
-              <>
-                <div>
-                  <label className="text-xs">Related Entity ID</label>
-                  <input value={local.configJson?.relatedEntityId || ''} onChange={(e) => {
-                    const relatedEntityId = e.target.value
-                    const defOptionsUrl = relatedEntityId ? `/api/custom_fields/relations/options?entityId=${encodeURIComponent(relatedEntityId)}` : ''
-                    updateLocal({ configJson: { ...(local.configJson||{}), relatedEntityId, optionsUrl: local.configJson?.optionsUrl || defOptionsUrl } })
-                  }} onBlur={commit} className="border rounded w-full px-2 py-1 font-mono" placeholder="module:entity" />
-                </div>
-                <div>
-                  <label className="text-xs">Options URL</label>
-                  <input value={local.configJson?.optionsUrl || ''} onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })} onBlur={commit} className="border rounded w-full px-2 py-1" placeholder="/api/custom_fields/relations/options?..." />
-                </div>
-                {/* For now, multiple selection is only supported for 'select' kind */}
-              </>
-            )}
+        </div>
+      </div>
+
+      {/* Details grid: responsive two columns */}
+      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs">Label</label>
+          <input
+            className="border rounded w-full px-2 py-1"
+            value={local.configJson?.label || ''}
+            onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), label: e.target.value } })}
+            onBlur={commit}
+          />
+        </div>
+        <div>
+          <label className="text-xs">Description</label>
+          <input
+            className="border rounded w-full px-2 py-1"
+            value={local.configJson?.description || ''}
+            onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), description: e.target.value } })}
+            onBlur={commit}
+          />
+        </div>
+
+        {(local.kind === 'text' || local.kind === 'multiline') && (
+          <div>
+            <label className="text-xs">Editor</label>
+            <select
+              className="border rounded w-full px-2 py-1"
+              value={local.configJson?.editor || ''}
+              onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), editor: e.target.value || undefined } }); queueMicrotask(commit) }}
+            >
+              <option value="">Default</option>
+              <option value="markdown">Markdown (UIW)</option>
+              <option value="simpleMarkdown">Simple Markdown</option>
+              <option value="htmlRichText">HTML Rich Text</option>
+            </select>
           </div>
-        </td>
-      </tr>
-    </>
+        )}
+
+        {local.kind === 'select' && (
+          <>
+            <div>
+              <label className="text-xs">Options (comma-separated)</label>
+              <input
+                className="border rounded w-full px-2 py-1"
+                value={Array.isArray(local.configJson?.options) ? local.configJson.options.join(',') : ''}
+                onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })}
+                onBlur={commit}
+              />
+            </div>
+            <div>
+              <label className="text-xs">Options URL</label>
+              <input
+                className="border rounded w-full px-2 py-1"
+                placeholder="/api/..."
+                value={local.configJson?.optionsUrl || ''}
+                onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })}
+                onBlur={commit}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="inline-flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { updateLocal({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }); queueMicrotask(commit) }} /> Multiple
+              </label>
+            </div>
+          </>
+        )}
+
+        {local.kind === 'relation' && (
+          <>
+            <div>
+              <label className="text-xs">Related Entity ID</label>
+              <input
+                className="border rounded w-full px-2 py-1 font-mono"
+                placeholder="module:entity"
+                value={local.configJson?.relatedEntityId || ''}
+                onChange={(e) => {
+                  const relatedEntityId = e.target.value
+                  const defOptionsUrl = relatedEntityId ? `/api/custom_fields/relations/options?entityId=${encodeURIComponent(relatedEntityId)}` : ''
+                  updateLocal({ configJson: { ...(local.configJson||{}), relatedEntityId, optionsUrl: local.configJson?.optionsUrl || defOptionsUrl } })
+                }}
+                onBlur={commit}
+              />
+            </div>
+            <div>
+              <label className="text-xs">Options URL</label>
+              <input
+                className="border rounded w-full px-2 py-1"
+                placeholder="/api/custom_fields/relations/options?..."
+                value={local.configJson?.optionsUrl || ''}
+                onChange={(e) => updateLocal({ configJson: { ...(local.configJson||{}), optionsUrl: e.target.value } })}
+                onBlur={commit}
+              />
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   )
-}
+})
 
 export default function EditDefinitionsPage({ params }: { params?: { entityId?: string } }) {
   const router = useRouter()
@@ -237,25 +292,10 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const groups: CrudFormGroup[] = [
     { id: 'settings', title: 'Entity Settings', column: 1, fields: ['label','description','defaultEditor'] },
     { id: 'definitions', title: 'Field Definitions', column: 1, component: () => (
-      <div className="space-y-2">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left border-b">
-                <th className="py-2 pr-2">Key</th>
-                <th className="py-2 pr-2">Kind</th>
-                <th className="py-2 pr-2">Config</th>
-                <th className="py-2 pr-2">Status</th>
-                <th className="py-2 pr-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {defs.map((d, i) => (
-                <FieldRow key={i} d={d} onChange={(nd) => setDefs((arr) => arr.map((x, idx) => (idx === i ? nd : x)))} onRemove={() => removeField(i)} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="space-y-3">
+        {defs.map((d, i) => (
+          <FieldCard key={i} d={d} onChange={(nd) => setDefs((arr) => arr.map((x, idx) => (idx === i ? nd : x)))} onRemove={() => removeField(i)} />
+        ))}
         <div>
           <button type="button" onClick={addField} className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50 inline-flex items-center gap-1">
             <Plus className="h-4 w-4" /> Add Field

@@ -1,3 +1,4 @@
+import { Filter } from '@/lib/query/types'
 import type { FilterDef } from '../FilterOverlay'
 import { apiFetch } from './api'
 import type { CustomFieldDefDto } from './customFieldDefs'
@@ -20,7 +21,7 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
       const base: FilterDef = { id: d.multi ? `${id}In` : id, label, type: 'select', multiple: !!d.multi, options }
       // When optionsUrl is provided, allow async options loading for filters too
       if (d.optionsUrl) {
-        ;(base as any).loadOptions = async () => {
+        ;(base as FilterDef).loadOptions = async () => {
           try {
             const res = await apiFetch(d.optionsUrl!)
             const json = await res.json()
