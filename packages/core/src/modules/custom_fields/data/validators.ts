@@ -9,6 +9,7 @@ export const upsertCustomEntitySchema = z.object({
   description: z.string().max(2000).optional().nullable(),
   labelField: z.string().min(1).max(100).regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/).optional(),
   defaultEditor: z.enum(['markdown','simpleMarkdown','htmlRichText']).optional(),
+  showInSidebar: z.boolean().default(false),
   isActive: z.boolean().optional(),
 })
 

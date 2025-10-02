@@ -23,7 +23,37 @@ export default async function BackendLayout({ children, params }: { children: Re
   }
 
   const ctx = { auth, path }
-  const entries = await buildAdminNav(modules as any[], ctx)
+  
+  // Fetch user entities for sidebar
+  let userEntities: Array<{ entityId: string; label: string; href: string }> = []
+  try {
+    if (auth?.orgId) {
+      const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+      const container = await createRequestContainer()
+      const em = container.resolve('em')
+      const { CustomEntity } = await import('@open-mercato/core/modules/custom_fields/data/entities')
+      
+      const where: any = { 
+        isActive: true,
+        showInSidebar: true
+      }
+      where.$and = [
+        { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+        { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+      ]
+      
+      const entities = await em.find(CustomEntity as any, where as any, { orderBy: { label: 'asc' } as any })
+      userEntities = (entities as any[]).map((e) => ({
+        entityId: e.entityId,
+        label: e.label,
+        href: `/backend/definitions/${encodeURIComponent(e.entityId)}/records`
+      }))
+    }
+  } catch (error) {
+    console.warn('Failed to fetch user entities for sidebar:', error)
+  }
+  
+  const entries = await buildAdminNav(modules as any[], ctx, userEntities)
   // Group entries and sort groups by the smallest priority/order among their roots
   const groupMap = new Map<string, {
     name: string,

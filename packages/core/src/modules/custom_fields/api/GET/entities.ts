@@ -41,6 +41,7 @@ export default async function handler(req: Request) {
     description: c.description ?? undefined,
     labelField: (c as any).labelField ?? undefined,
     defaultEditor: (c as any).defaultEditor ?? undefined,
+    showInSidebar: (c as any).showInSidebar ?? false,
   }))
 
   // Merge by entityId preferring custom label where duplicates exist

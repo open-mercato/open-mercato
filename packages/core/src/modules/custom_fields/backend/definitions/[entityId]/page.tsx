@@ -202,7 +202,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [label, setLabel] = useState('')
   const [entitySource, setEntitySource] = useState<'code'|'custom'>('custom')
   const [entityFormLoading, setEntityFormLoading] = useState(true)
-  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string }>({})
+  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean }>({})
   const [defs, setDefs] = useState<Def[]>([])
   const dragIndex = React.useRef<number | null>(null)
   const [orderDirty, setOrderDirty] = useState(false)
@@ -256,6 +256,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             description: ent?.description || '',
             labelField: (ent as any)?.labelField || 'name',
             defaultEditor: (ent as any)?.defaultEditor || '',
+            showInSidebar: (ent as any)?.showInSidebar || false,
           })
           setEntityFormLoading(false)
         }
@@ -415,9 +416,10 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         { value: 'htmlRichText', label: 'HTML Rich Text' },
       ],
     } as any,
+    ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' }] : []),
   ]
   const groups: CrudFormGroup[] = [
-    { id: 'settings', title: 'Entity Settings', column: 1, fields: ['label','description','defaultEditor'] },
+    { id: 'settings', title: 'Entity Settings', column: 1, fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar'] : ['label','description','defaultEditor'] },
     { id: 'definitions', title: 'Field Definitions', column: 1, component: () => (
       <div ref={listRef} className="space-y-3" tabIndex={-1} onBlur={(e) => {
         const cur = listRef.current
@@ -516,31 +518,36 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         <CrudForm
           schema={entityFormSchema}
           title={`Edit Entity: ${entityId}`}
-          backHref="/backend/definitions"
+          backHref={entitySource === 'code' ? "/backend/system-entities" : "/backend/user-entities"}
           fields={fields}
           groups={groups}
           initialValues={entityInitial as any}
           isLoading={entityFormLoading || loading}
           submitLabel="Save"
-          cancelHref="/backend/definitions"
-          successRedirect="/backend/definitions?flash=Definitions%20saved&type=success"
+          cancelHref={entitySource === 'code' ? "/backend/system-entities" : "/backend/user-entities"}
+          successRedirect={entitySource === 'code' ? "/backend/system-entities?flash=Definitions%20saved&type=success" : "/backend/user-entities?flash=Definitions%20saved&type=success"}
           onSubmit={async (vals) => {
             // Validate fields client-side before hitting the API
             if (!validateAll()) {
               flash('Please fix validation errors in field definitions', 'error')
               throw new Error('Validation failed')
             }
-            // Save entity settings
-            const partial = upsertCustomEntitySchema.pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any }) as unknown as z.ZodTypeAny
-            const normalized = { ...(vals as any), defaultEditor: (vals as any)?.defaultEditor || undefined }
-            const parsed = partial.safeParse(normalized)
-            if (!parsed.success) throw new Error('Validation failed')
-            const res1 = await apiFetch('/api/custom_fields/entities', {
-              method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, ...parsed.data })
-            })
-            if (!res1.ok) {
-              const j = await res1.json().catch(() => ({}))
-              throw new Error(j?.error || 'Failed to save entity')
+            // Save entity settings only for custom entities
+            if (entitySource === 'custom') {
+              const partial = upsertCustomEntitySchema.pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any, showInSidebar: true as any }) as unknown as z.ZodTypeAny
+              const normalized = { 
+                ...(vals as any), 
+                defaultEditor: (vals as any)?.defaultEditor || undefined,
+              }
+              const parsed = partial.safeParse(normalized)
+              if (!parsed.success) throw new Error('Validation failed')
+              const res1 = await apiFetch('/api/custom_fields/entities', {
+                method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, ...(parsed.data as any) })
+              })
+              if (!res1.ok) {
+                const j = await res1.json().catch(() => ({}))
+                throw new Error(j?.error || 'Failed to save entity')
+              }
             }
             // Save definitions in a single batch (transactional)
             const defsPayload = {
