@@ -69,4 +69,48 @@ function baseTableFromEntity(entityType: string): string {
     },
   }
 
-export default [rebuild]
+// Additional CLI commands: reindex and purge via events for an entity or all
+const reindex: ModuleCli = {
+  command: 'reindex',
+  async run(rest: string[]) {
+    const args = parseArgs(rest)
+    const { resolve } = await createRequestContainer()
+    const bus = resolve('eventBus') as any
+    const entity = (args.entity as string) || (args.e as string)
+    if (entity) {
+      await bus.emitEvent('query_index.reindex', { entityType: entity, organizationId: args.org || args.organizationId, tenantId: args.tenant || args.tenantId }, { persistent: true })
+      console.log(`Scheduled reindex for ${entity}`)
+      return
+    }
+    // all entities
+    const { E: All } = await import('@/generated/entities.ids.generated') as any
+    const ids: string[] = Object.values(All).flatMap((o: any) => Object.values(o || {}))
+    for (const id of ids) {
+      await bus.emitEvent('query_index.reindex', { entityType: id, organizationId: args.org || args.organizationId, tenantId: args.tenant || args.tenantId }, { persistent: true })
+    }
+    console.log(`Scheduled reindex for ${ids.length} entities`)
+  },
+}
+
+const purge: ModuleCli = {
+  command: 'purge',
+  async run(rest: string[]) {
+    const args = parseArgs(rest)
+    const { resolve } = await createRequestContainer()
+    const bus = resolve('eventBus') as any
+    const entity = (args.entity as string) || (args.e as string)
+    if (entity) {
+      await bus.emitEvent('query_index.purge', { entityType: entity, organizationId: args.org || args.organizationId, tenantId: args.tenant || args.tenantId }, { persistent: true })
+      console.log(`Scheduled purge for ${entity}`)
+      return
+    }
+    const { E: All } = await import('@/generated/entities.ids.generated') as any
+    const ids: string[] = Object.values(All).flatMap((o: any) => Object.values(o || {}))
+    for (const id of ids) {
+      await bus.emitEvent('query_index.purge', { entityType: id, organizationId: args.org || args.organizationId, tenantId: args.tenant || args.tenantId }, { persistent: true })
+    }
+    console.log(`Scheduled purge for ${ids.length} entities`)
+  },
+}
+
+export default [rebuild, reindex, purge]

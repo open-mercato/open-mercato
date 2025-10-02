@@ -27,6 +27,10 @@ export class EntityIndexRow {
   @Property({ name: 'doc', type: 'json' })
   doc!: any
 
+  // Optional embedding vector or metadata produced by secondary indexers
+  @Property({ name: 'embedding', type: 'json', nullable: true })
+  embedding?: any | null
+
   @Property({ name: 'index_version', type: 'int', default: 1 })
   indexVersion: number = 1
 
@@ -38,5 +42,33 @@ export class EntityIndexRow {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+// Track long-running index jobs (reindex/purge) per entity and org scope
+@Entity({ tableName: 'entity_index_jobs' })
+export class EntityIndexJob {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'entity_type', type: 'text' })
+  @Index({ name: 'entity_index_jobs_type_idx' })
+  entityType!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  @Index({ name: 'entity_index_jobs_org_idx' })
+  organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  // 'reindexing' | 'purging'
+  @Property({ name: 'status', type: 'text' })
+  status!: string
+
+  @Property({ name: 'started_at', type: Date, onCreate: () => new Date() })
+  startedAt: Date = new Date()
+
+  @Property({ name: 'finished_at', type: Date, nullable: true })
+  finishedAt?: Date | null
 }
 

@@ -6,6 +6,8 @@ import { filterCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFiel
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import Link from 'next/link'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 
 type RecordsResponse = {
@@ -182,21 +184,60 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
       <Button variant="outline" size="sm" onClick={() => setShowAllColumns((v) => !v)}>
         {showAllColumns ? 'Compact columns' : 'Show all columns'}
       </Button>
+      <Button asChild size="sm">
+        <Link href={`/backend/user-entities/${encodeURIComponent(entityId)}/records/create`}>
+          Create
+        </Link>
+      </Button>
       <Button asChild variant="outline" size="sm">
         <a
           href={(() => {
-            const qp = new URLSearchParams({ entityId, page: String(page), pageSize: String(pageSize), sortField: String(sorting?.[0]?.id || 'id'), sortDir: sorting?.[0]?.desc ? 'desc' : 'asc' })
+            const qp = new URLSearchParams({ entityId, sortField: String(sorting?.[0]?.id || 'id'), sortDir: sorting?.[0]?.desc ? 'desc' : 'asc', format: 'csv', all: 'true' })
             for (const [k, v] of Object.entries(filterValues)) {
               if (v == null) continue
               if (Array.isArray(v)) { if (v.length) qp.set(k, v.join(',')) }
               else if (typeof v !== 'object') qp.set(k, String(v))
             }
-            return toCsvUrl('/api/custom_fields/records', qp)
+            return `/api/custom_fields/records?${qp.toString()}`
           })()}
           target="_blank"
           rel="noreferrer"
         >
           Export CSV
+        </a>
+      </Button>
+      <Button asChild variant="outline" size="sm">
+        <a
+          href={(() => {
+            const qp = new URLSearchParams({ entityId, sortField: String(sorting?.[0]?.id || 'id'), sortDir: sorting?.[0]?.desc ? 'desc' : 'asc', format: 'json', all: 'true' })
+            for (const [k, v] of Object.entries(filterValues)) {
+              if (v == null) continue
+              if (Array.isArray(v)) { if (v.length) qp.set(k, v.join(',')) }
+              else if (typeof v !== 'object') qp.set(k, String(v))
+            }
+            return `/api/custom_fields/records?${qp.toString()}`
+          })()}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Export JSON
+        </a>
+      </Button>
+      <Button asChild variant="outline" size="sm">
+        <a
+          href={(() => {
+            const qp = new URLSearchParams({ entityId, sortField: String(sorting?.[0]?.id || 'id'), sortDir: sorting?.[0]?.desc ? 'desc' : 'asc', format: 'xml', all: 'true' })
+            for (const [k, v] of Object.entries(filterValues)) {
+              if (v == null) continue
+              if (Array.isArray(v)) { if (v.length) qp.set(k, v.join(',')) }
+              else if (typeof v !== 'object') qp.set(k, String(v))
+            }
+            return `/api/custom_fields/records?${qp.toString()}`
+          })()}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Export XML
         </a>
       </Button>
     </>
@@ -211,6 +252,24 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
           actions={actions}
           columns={columns}
           data={data}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                { label: 'Edit', href: `/backend/user-entities/${encodeURIComponent(entityId)}/records/${encodeURIComponent(String((row as any).id))}` },
+                { label: 'Delete', destructive: true, onSelect: async () => {
+                  try {
+                    await apiFetch(`/api/custom_fields/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(String((row as any).id))}`, { method: 'DELETE' })
+                    // Refresh
+                    const res = await apiFetch(`/api/custom_fields/records?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=${pageSize}`)
+                    const j: RecordsResponse = await res.json()
+                    setData(j.items || [])
+                    setTotal(j.total || 0)
+                    setTotalPages(j.totalPages || 1)
+                  } catch {}
+                } },
+              ]}
+            />
+          )}
           sortable
           sorting={sorting}
           onSortingChange={setSorting}

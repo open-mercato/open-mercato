@@ -21,8 +21,10 @@ export default async function handler(req: Request) {
   const auth = getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10) || 1, 1)
-  const pageSize = Math.min(Math.max(parseInt(url.searchParams.get('pageSize') || '50', 10) || 50, 1), 100)
+  const format = (url.searchParams.get('format') || '').toLowerCase()
+  const exportAll = parseBool(url.searchParams.get('all'), false)
+  const page = exportAll ? 1 : Math.max(parseInt(url.searchParams.get('page') || '1', 10) || 1, 1)
+  const pageSize = exportAll ? 100000 : Math.min(Math.max(parseInt(url.searchParams.get('pageSize') || '50', 10) || 50, 1), 100)
   const sortField = url.searchParams.get('sortField') || 'id'
   const sortDir = (url.searchParams.get('sortDir') || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc'
   const withDeleted = parseBool(url.searchParams.get('withDeleted'), false)
@@ -78,8 +80,8 @@ export default async function handler(req: Request) {
       totalPages: Math.ceil((res.total || 0) / (res.pageSize || pageSize)),
     }
 
-    // CSV export when requested
-    if ((url.searchParams.get('format') || '').toLowerCase() === 'csv') {
+    // Exports when requested (CSV, JSON, XML). For exports we return all rows when all=true
+    if (format === 'csv') {
       const items = payload.items as any[]
       const headers = Array.from(new Set(items.flatMap((it) => Object.keys(it || {}))))
       const esc = (s: any) => {
@@ -91,6 +93,47 @@ export default async function handler(req: Request) {
         headers: {
           'content-type': 'text/csv; charset=utf-8',
           'content-disposition': `attachment; filename="${(entityId || 'records').replace(/[^a-z0-9_\-]/gi, '_')}.csv"`,
+        },
+      })
+    }
+
+    if (format === 'json') {
+      const body = JSON.stringify(payload.items || [])
+      return new Response(body, {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'content-disposition': `attachment; filename="${(entityId || 'records').replace(/[^a-z0-9_\-]/gi, '_')}.json"`,
+        },
+      })
+    }
+
+    if (format === 'xml') {
+      const items = (payload.items || []) as any[]
+      const escapeXml = (s: any) => String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;')
+      const toXml = (obj: Record<string, any>) => {
+        const parts: string[] = []
+        for (const [k, v] of Object.entries(obj)) {
+          const tag = k.replace(/[^a-zA-Z0-9_:-]/g, '_')
+          if (Array.isArray(v)) {
+            for (const vv of v) parts.push(`<${tag}>${escapeXml(vv)}</${tag}>`)
+          } else if (v != null && typeof v === 'object') {
+            parts.push(`<${tag}>${toXml(v)}</${tag}>`)
+          } else {
+            parts.push(`<${tag}>${escapeXml(v)}</${tag}>`)
+          }
+        }
+        return parts.join('')
+      }
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<records>${items.map((it) => `<record>${toXml(it || {})}</record>`).join('')}</records>`
+      return new Response(xml, {
+        headers: {
+          'content-type': 'application/xml; charset=utf-8',
+          'content-disposition': `attachment; filename="${(entityId || 'records').replace(/[^a-z0-9_\-]/gi, '_')}.xml"`,
         },
       })
     }

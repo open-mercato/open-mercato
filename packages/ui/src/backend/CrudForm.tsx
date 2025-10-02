@@ -289,14 +289,12 @@ const MarkdownEditor = React.memo(({ value = '', onChange }: MDProps) => {
     })
   }, [local, onChange])
   return (
-    <div ref={containerRef} data-color-mode="light" className="w-full">
+    <div ref={containerRef} data-color-mode="light" className="w-full" onBlur={commit as any}>
       <MDEditor
         value={local}
         height={220}
         onChange={handleChange}
         previewOptions={{ remarkPlugins: [remarkGfm] }}
-        // Commit changes only on blur to avoid parent re-render while typing
-        onBlur={commit as any}
       />
     </div>
   )
@@ -992,8 +990,10 @@ function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v:
   }, [value])
   
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocal(e.target.value)
-  }, [])
+    const next = e.target.value
+    setLocal(next)
+    onChange(next)
+  }, [onChange])
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -1040,8 +1040,11 @@ function NumberInput({ value, onChange, placeholder }: { value: any; onChange: (
   }, [value])
   
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocal(e.target.value)
-  }, [])
+    const next = e.target.value
+    setLocal(next)
+    const numValue = next === '' ? undefined : Number(next)
+    onChange(numValue)
+  }, [onChange])
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -1085,8 +1088,10 @@ function TextAreaInput({ value, onChange, placeholder }: { value: any; onChange:
   }, [value])
 
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setLocal(e.target.value)
-  }, [])
+    const next = e.target.value
+    setLocal(next)
+    onChange(next)
+  }, [onChange])
 
   const handleFocus = React.useCallback(() => { isFocusedRef.current = true }, [])
   const handleBlur = React.useCallback(() => { isFocusedRef.current = false; onChange(local) }, [local, onChange])
