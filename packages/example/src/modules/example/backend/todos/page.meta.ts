@@ -12,7 +12,7 @@ export const metadata = {
   requireRoles: ['admin'] as const,
   pageTitle: 'Todos',
   pageGroup: 'Example',
-  pageOrder: 1,
+  pageOrder: 20000,
   icon: checkboxIcon,
   breadcrumb: [
     { label: 'Todos' },

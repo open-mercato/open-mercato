@@ -69,8 +69,8 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
   const toggleGroup = (name: string) => setOpenGroups((prev) => ({ ...prev, [name]: !prev[name] }))
 
   const asideWidth = collapsed ? '72px' : '240px'
-  // Use min-h-svh so the border extends with tall content
-  const asideClassesBase = `border-r bg-background/60 py-4 min-h-svh`;
+  // Use min-h-svh so the border extends with tall content; keep overflow for long menus
+  const asideClassesBase = `border-r bg-background/60 py-4 min-h-svh overflow-y-auto`;
 
   // Persist collapse state to localStorage and cookie
   React.useEffect(() => {

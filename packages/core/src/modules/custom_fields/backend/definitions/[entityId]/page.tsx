@@ -33,10 +33,28 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
   const commit = () => onChange(local)
 
   return (
-    <div className="rounded border p-3 bg-white">
-      {/* Header row: key, kind, visibility, status, actions */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-        <div className="md:col-span-3">
+    <div className="rounded border p-3 bg-white transition-colors hover:border-muted-foreground/60">
+      {/* Top bar: drag handle on the left, Active + delete on the right */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-muted cursor-grab active:cursor-grabbing">
+            <GripVertical className="h-4 w-4 opacity-70" />
+          </span>
+          Drag to reorder
+        </div>
+        <div className="flex items-center gap-3">
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={local.isActive !== false} onChange={(e) => { apply({ isActive: e.target.checked }, true) }} /> Active
+          </label>
+          <button type="button" onClick={onRemove} className="px-2 py-1 border rounded hover:bg-gray-50" aria-label="Remove field">
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Main grid: key + kind */}
+      <div className="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+        <div className="md:col-span-6">
           <label className="text-xs">Key</label>
           <input
             className="border rounded w-full px-2 py-1 text-sm font-mono"
@@ -46,7 +64,7 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
             onBlur={commit}
           />
         </div>
-        <div className="md:col-span-3">
+        <div className="md:col-span-6">
           <label className="text-xs">Kind</label>
           <select
             className="border rounded w-full px-2 py-1 text-sm"
@@ -55,31 +73,6 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
           >
             {KIND_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-        </div>
-        <div className="md:col-span-4">
-          <div className="flex flex-wrap items-center gap-4 pt-5 md:pt-0">
-            <span className="text-xs text-muted-foreground">Visibility:</span>
-            <label className="inline-flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={local.configJson?.listVisible !== false}
-                onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), listVisible: e.target.checked } }, true) }} /> List
-            </label>
-            <label className="inline-flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={!!local.configJson?.filterable}
-                onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), filterable: e.target.checked } }, true) }} /> Filter
-            </label>
-            <label className="inline-flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={local.configJson?.formEditable !== false}
-                onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), formEditable: e.target.checked } }, true) }} /> Form
-            </label>
-          </div>
-        </div>
-        <div className="md:col-span-2 flex items-center justify-between md:justify-end gap-3">
-          <label className="inline-flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={local.isActive !== false} onChange={(e) => { apply({ isActive: e.target.checked }, true) }} /> Active
-          </label>
-          <button type="button" onClick={onRemove} className="px-2 py-1 border rounded hover:bg-gray-50" aria-label="Remove field">
-            <Trash2 className="h-4 w-4" />
-          </button>
         </div>
       </div>
 
@@ -178,6 +171,23 @@ const FieldCard = React.memo(function FieldCard({ d, onChange, onRemove }: { d: 
           </>
         )}
       </div>
+
+      {/* Bottom row: visibility toggles to keep top clean */}
+      <div className="mt-3 pt-2 border-t flex flex-wrap items-center gap-4">
+        <span className="text-xs text-muted-foreground">Visibility:</span>
+        <label className="inline-flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={local.configJson?.listVisible !== false}
+            onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), listVisible: e.target.checked } }, true) }} /> List
+        </label>
+        <label className="inline-flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={!!local.configJson?.filterable}
+            onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), filterable: e.target.checked } }, true) }} /> Filter
+        </label>
+        <label className="inline-flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={local.configJson?.formEditable !== false}
+            onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), formEditable: e.target.checked } }, true) }} /> Form
+        </label>
+      </div>
     </div>
   )
 })
@@ -191,6 +201,9 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string }>({})
   const [defs, setDefs] = useState<Def[]>([])
   const dragIndex = React.useRef<number | null>(null)
+  const [orderDirty, setOrderDirty] = useState(false)
+  const [orderSaving, setOrderSaving] = useState(false)
+  const listRef = React.useRef<HTMLDivElement | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -259,6 +272,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   async function removeField(idx: number) {
     const d = defs[idx]
     setDefs((arr) => arr.filter((_, i) => i !== idx))
+    setOrderDirty(true)
     if (d?.key) {
       await apiFetch('/api/custom_fields/definitions', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, key: d.key }) })
     }
@@ -303,7 +317,22 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const groups: CrudFormGroup[] = [
     { id: 'settings', title: 'Entity Settings', column: 1, fields: ['label','description','defaultEditor'] },
     { id: 'definitions', title: 'Field Definitions', column: 1, component: () => (
-      <div className="space-y-3">
+      <div ref={listRef} className="space-y-3" tabIndex={-1} onBlur={(e) => {
+        const cur = listRef.current
+        const next = e.relatedTarget as Node | null
+        if (!cur) return
+        // Only trigger when focus leaves the whole list container
+        if (!next || !cur.contains(next)) {
+          saveOrderIfDirty()
+        }
+      }}>
+        {orderDirty && (
+          <div className="sticky top-0 z-10 -mt-1 -mb-1">
+            <div className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded border bg-amber-50 text-amber-800 shadow-sm">
+              {orderSaving ? 'Saving order…' : 'Reordered — will auto-save on blur'}
+            </div>
+          </div>
+        )}
         {defs.map((d, i) => (
           <div
             key={i}
@@ -321,13 +350,36 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
                 return next
               })
               dragIndex.current = null
+              setOrderDirty(true)
             }}
-            onDragEnd={() => { dragIndex.current = null }}
+            onDragEnd={() => { dragIndex.current = null; setOrderDirty(true) }}
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (!e.altKey) return
+              if (e.key === 'ArrowUp' || e.key === 'Up') {
+                e.preventDefault()
+                setDefs((arr) => {
+                  if (i <= 0) return arr
+                  const next = [...arr]
+                  const [m] = next.splice(i, 1)
+                  next.splice(i - 1, 0, m)
+                  return next
+                })
+                setOrderDirty(true)
+              }
+              if (e.key === 'ArrowDown' || e.key === 'Down') {
+                e.preventDefault()
+                setDefs((arr) => {
+                  if (i >= arr.length - 1) return arr
+                  const next = [...arr]
+                  const [m] = next.splice(i, 1)
+                  next.splice(i + 1, 0, m)
+                  return next
+                })
+                setOrderDirty(true)
+              }
+            }}
           >
-            <div className="-mb-2 flex items-center gap-2 text-xs text-muted-foreground pl-2">
-              <GripVertical className="h-3.5 w-3.5 opacity-60" />
-              Drag to reorder
-            </div>
             <FieldCard d={d} onChange={(nd) => setDefs((arr) => arr.map((x, idx) => (idx === i ? nd : x)))} onRemove={() => removeField(i)} />
           </div>
         ))}
@@ -376,6 +428,28 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             if (!res.ok) {
               const j = await res.json().catch(() => ({}))
               throw new Error(j?.error || `Failed to save ${d.key}`)
+  async function saveOrderIfDirty() {
+    if (!orderDirty) return
+    setOrderSaving(true)
+    try {
+      for (const [idx, d] of defs.entries()) {
+        if (!d.key) continue
+        const payload = { entityId, key: d.key, kind: d.kind, configJson: { ...(d.configJson || {}), priority: idx }, isActive: d.isActive !== false }
+        const res = await apiFetch('/api/custom_fields/definitions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}))
+          throw new Error(j?.error || `Failed to save order for ${d.key}`)
+        }
+      }
+      setOrderDirty(false)
+      flash('Order saved', 'success')
+    } catch (e: any) {
+      flash(e?.message || 'Failed to save order', 'error')
+    } finally {
+      setOrderSaving(false)
+    }
+  }
+
             }
           }
           flash('Definitions saved', 'success')

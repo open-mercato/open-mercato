@@ -13,7 +13,7 @@ export const metadata = {
   requireRoles: ['admin'] as const,
   pageTitle: 'Create Todo',
   pageGroup: 'Example',
-  pageOrder: 2,
+  pageOrder: 20001,
   icon: filePlusIcon,
   breadcrumb: [
     { label: 'Todos', href: '/backend/todos' },
