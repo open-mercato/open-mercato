@@ -22,7 +22,8 @@ export default async function BackendLayout({ children, params }: { children: Re
     path = '/backend' + (Array.isArray(slug) && slug.length ? '/' + slug.join('/') : '')
   }
 
-  const ctx = { auth, path }
+  const ctxAuth = auth ? { roles: auth.roles || [] } : undefined
+  const ctx = { auth: ctxAuth, path }
   
   // Fetch user entities for sidebar
   let userEntities: Array<{ entityId: string; label: string; href: string }> = []
@@ -35,7 +36,6 @@ export default async function BackendLayout({ children, params }: { children: Re
       
       const where: any = { 
         isActive: true,
-        showInSidebar: true
       }
       where.$and = [
         { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
@@ -43,11 +43,24 @@ export default async function BackendLayout({ children, params }: { children: Re
       ]
       
       const entities = await em.find(CustomEntity as any, where as any, { orderBy: { label: 'asc' } as any })
-      userEntities = (entities as any[]).map((e) => ({
-        entityId: e.entityId,
-        label: e.label,
-        href: `/backend/user-entities/${encodeURIComponent(e.entityId)}/records`
-      }))
+      // Deduplicate by entityId, prefer org/tenant-specific rows over global ones;
+      // evaluate visibility after precedence resolution
+      const byEntityId = new Map<string, any>()
+      for (const e of entities as any[]) {
+        const specificity = (e.organizationId ? 2 : 0) + (e.tenantId ? 1 : 0)
+        const prev = byEntityId.get(e.entityId)
+        const prevSpec = prev ? ((prev.organizationId ? 2 : 0) + (prev.tenantId ? 1 : 0)) : -1
+        if (!prev || specificity > prevSpec) byEntityId.set(e.entityId, e)
+      }
+      const deduped = Array.from(byEntityId.values()) as any[]
+      userEntities = deduped
+        .filter((e) => !!e.showInSidebar)
+        .sort((a, b) => String(a.label).localeCompare(String(b.label)))
+        .map((e) => ({
+          entityId: e.entityId,
+          label: e.label,
+          href: `/backend/user-entities/${encodeURIComponent(e.entityId)}/records`
+        }))
     }
   } catch (error) {
     console.warn('Failed to fetch user entities for sidebar:', error)

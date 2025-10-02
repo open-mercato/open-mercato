@@ -76,7 +76,6 @@ export async function buildAdminNav(
     // Find the "User Entities" item in the Data designer group (it should be a root item)
     const userEntitiesItem = roots.find(item => item.group === 'Data designer' && item.title === 'User Entities')
     if (userEntitiesItem) {
-      // Merge user entities with existing children instead of replacing
       const existingChildren = userEntitiesItem.children || []
       const dynamicUserEntities = userEntities.map((entity) => ({
         group: 'Data designer',
@@ -85,7 +84,13 @@ export async function buildAdminNav(
         enabled: true,
         order: 1000, // High order to appear at the end
       }))
-      userEntitiesItem.children = [...existingChildren, ...dynamicUserEntities]
+      // Merge and deduplicate by href to avoid duplicates coming from server or generator
+      const merged = [...existingChildren, ...dynamicUserEntities]
+      const byHref = new Map<string, AdminNavItem>()
+      for (const it of merged) {
+        if (!byHref.has(it.href)) byHref.set(it.href, it)
+      }
+      userEntitiesItem.children = Array.from(byHref.values())
     }
   }
 

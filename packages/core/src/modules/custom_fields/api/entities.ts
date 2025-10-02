@@ -35,7 +35,16 @@ export async function GET(req: Request) {
     { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
   ]
   const customs = await em.find(CustomEntity as any, where as any, { orderBy: { entityId: 'asc' } as any })
-  const custom = (customs as any[]).map((c) => ({
+  // Resolve overlay precedence: prefer organization/tenant-specific over global
+  const customByEntityId = new Map<string, any>()
+  for (const c of customs as any[]) {
+    const specificity = (c.organizationId ? 2 : 0) + (c.tenantId ? 1 : 0)
+    const prev = customByEntityId.get(c.entityId)
+    const prevSpec = prev ? ((prev.organizationId ? 2 : 0) + (prev.tenantId ? 1 : 0)) : -1
+    if (!prev || specificity > prevSpec) customByEntityId.set(c.entityId, c)
+  }
+
+  const custom = Array.from(customByEntityId.values()).map((c) => ({
     entityId: c.entityId,
     source: 'custom' as const,
     label: c.label,
