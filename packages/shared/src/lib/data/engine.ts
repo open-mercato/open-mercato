@@ -95,8 +95,26 @@ export class DefaultDataEngine implements DataEngine {
     return out
   }
 
+  private backcompatEavEnabled(): boolean {
+    try {
+      const v = String(process.env.ENTITIES_BACKCOMPAT_EAV_FOR_CUSTOM || '').toLowerCase().trim()
+      return v === '1' || v === 'true' || v === 'yes'
+    } catch { return false }
+  }
+
+  private async ensureStorageTableExists(): Promise<void> {
+    const knex = (this.em as any).getConnection().getKnex()
+    const exists = await knex('information_schema.tables')
+      .where({ table_name: 'custom_entities_storage' })
+      .first()
+    if (!exists) {
+      throw new Error('custom_entities_storage table is missing. Run migrations (yarn db:migrate).')
+    }
+  }
+
   async createCustomEntityRecord(opts: Parameters<DataEngine['createCustomEntityRecord']>[0]): Promise<{ id: string }> {
     const knex = (this.em as any).getConnection().getKnex()
+    await this.ensureStorageTableExists()
     const id = opts.recordId && String(opts.recordId).length ? String(opts.recordId) : ((): string => {
       const g: any = (globalThis as any)
       if (g?.crypto?.randomUUID) return g.crypto.randomUUID()
@@ -128,18 +146,24 @@ export class DefaultDataEngine implements DataEngine {
         .insert(payload)
         .onConflict(['entity_type', 'entity_id', 'organization_id'])
         .merge({ doc: payload.doc, updated_at: knex.fn.now(), deleted_at: null })
-    } catch {
+    } catch (e) {
       // Fallback for global scope uniqueness
-      const updated = await knex('custom_entities_storage')
-        .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
-        .update({ doc: payload.doc, updated_at: knex.fn.now(), deleted_at: null })
-      if (!updated) {
-        try { await knex('custom_entities_storage').insert(payload) } catch {}
+      try {
+        const updated = await knex('custom_entities_storage')
+          .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
+          .update({ doc: payload.doc, updated_at: knex.fn.now(), deleted_at: null })
+        if (!updated) {
+          await knex('custom_entities_storage').insert(payload)
+        }
+      } catch (err) {
+        // Surface a clear error so it doesn't silently fall back only to EAV
+        console.error('[DataEngine] Failed to persist custom entity doc:', err)
+        throw err
       }
     }
 
-    // Maintain EAV values for backward compatibility (+ event emission)
-    if (opts.values && Object.keys(opts.values).length > 0) {
+    // Optional EAV backward compatibility (disabled by default)
+    if (this.backcompatEavEnabled() && opts.values && Object.keys(opts.values).length > 0) {
       await this.setCustomFields({
         entityId: opts.entityId,
         recordId: id,
@@ -160,17 +184,35 @@ export class DefaultDataEngine implements DataEngine {
     const tenantId = opts.tenantId ?? null
 
     // Merge doc shallowly: load existing doc and overlay
+    await this.ensureStorageTableExists()
     const row = await knex('custom_entities_storage')
       .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
       .first()
     const prevDoc = row?.doc || { id }
     const nextDoc = { ...prevDoc, ...this.normalizeDocValues(opts.values || {}), id }
-    await knex('custom_entities_storage')
-      .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
-      .update({ doc: nextDoc, updated_at: knex.fn.now(), deleted_at: null })
+    try {
+      const updated = await knex('custom_entities_storage')
+        .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
+        .update({ doc: nextDoc, updated_at: knex.fn.now(), deleted_at: null })
+      if (!updated) {
+        await knex('custom_entities_storage').insert({
+          entity_type: opts.entityId,
+          entity_id: id,
+          organization_id: orgId,
+          tenant_id: tenantId,
+          doc: nextDoc,
+          created_at: knex.fn.now(),
+          updated_at: knex.fn.now(),
+          deleted_at: null,
+        })
+      }
+    } catch (err) {
+      console.error('[DataEngine] Failed to update custom entity doc:', err)
+      throw err
+    }
 
-    // Maintain EAV values for backward compatibility (+ event emission)
-    if (opts.values && Object.keys(opts.values).length > 0) {
+    // Optional EAV backward compatibility (disabled by default)
+    if (this.backcompatEavEnabled() && opts.values && Object.keys(opts.values).length > 0) {
       await this.setCustomFields({
         entityId: opts.entityId,
         recordId: id,

@@ -5,7 +5,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { filterCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { Button, buttonVariants } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import Link from 'next/link'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -179,6 +179,101 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     return () => { cancelled = true }
   }, [entityId, page, pageSize, sorting, filterValues, search, cfDefs, showAllColumns])
 
+  function ExportDropdown() {
+    const buildExportUrl = (format: 'csv' | 'json' | 'xml') => {
+      const qp = new URLSearchParams({
+        entityId,
+        sortField: String(sorting?.[0]?.id || 'id'),
+        sortDir: sorting?.[0]?.desc ? 'desc' : 'asc',
+        format,
+        all: 'true',
+      })
+      for (const [k, v] of Object.entries(filterValues)) {
+        if (v == null) continue
+        if (Array.isArray(v)) {
+          if (v.length) qp.set(k, v.join(','))
+        } else if (typeof v !== 'object') qp.set(k, String(v))
+      }
+      return `/api/entities/records?${qp.toString()}`
+    }
+
+    const [open, setOpen] = React.useState(false)
+    const btnRef = React.useRef<HTMLButtonElement>(null)
+    const menuRef = React.useRef<HTMLDivElement>(null)
+
+    React.useEffect(() => {
+      if (!open) return
+      const onDocClick = (e: MouseEvent) => {
+        const t = e.target as Node
+        if (menuRef.current && !menuRef.current.contains(t) && btnRef.current && !btnRef.current.contains(t)) {
+          setOpen(false)
+        }
+      }
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          setOpen(false)
+          btnRef.current?.focus()
+        }
+      }
+      document.addEventListener('mousedown', onDocClick)
+      document.addEventListener('keydown', onKey)
+      return () => {
+        document.removeEventListener('mousedown', onDocClick)
+        document.removeEventListener('keydown', onKey)
+      }
+    }, [open])
+
+    return (
+      <div className="relative inline-block">
+        <button
+          ref={btnRef}
+          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          onClick={() => setOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          type="button"
+        >
+          Export
+        </button>
+        {open ? (
+          <div
+            ref={menuRef}
+            role="menu"
+            className="absolute right-0 mt-2 w-40 rounded-md border bg-background p-1 shadow z-20"
+          >
+            <a
+              className="block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent"
+              href={buildExportUrl('csv')}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => setOpen(false)}
+            >
+              CSV
+            </a>
+            <a
+              className="block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent"
+              href={buildExportUrl('json')}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => setOpen(false)}
+            >
+              JSON
+            </a>
+            <a
+              className="block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent"
+              href={buildExportUrl('xml')}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => setOpen(false)}
+            >
+              XML
+            </a>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
   const actions = (
     <>
       <Button variant="outline" size="sm" onClick={() => setShowAllColumns((v) => !v)}>
@@ -189,57 +284,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
           Create
         </Link>
       </Button>
-      <Button asChild variant="outline" size="sm">
-        <a
-          href={(() => {
-            const qp = new URLSearchParams({ entityId, sortField: String(sorting?.[0]?.id || 'id'), sortDir: sorting?.[0]?.desc ? 'desc' : 'asc', format: 'csv', all: 'true' })
-            for (const [k, v] of Object.entries(filterValues)) {
-              if (v == null) continue
-              if (Array.isArray(v)) { if (v.length) qp.set(k, v.join(',')) }
-              else if (typeof v !== 'object') qp.set(k, String(v))
-            }
-            return `/api/entities/records?${qp.toString()}`
-          })()}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Export CSV
-        </a>
-      </Button>
-      <Button asChild variant="outline" size="sm">
-        <a
-          href={(() => {
-            const qp = new URLSearchParams({ entityId, sortField: String(sorting?.[0]?.id || 'id'), sortDir: sorting?.[0]?.desc ? 'desc' : 'asc', format: 'json', all: 'true' })
-            for (const [k, v] of Object.entries(filterValues)) {
-              if (v == null) continue
-              if (Array.isArray(v)) { if (v.length) qp.set(k, v.join(',')) }
-              else if (typeof v !== 'object') qp.set(k, String(v))
-            }
-            return `/api/entities/records?${qp.toString()}`
-          })()}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Export JSON
-        </a>
-      </Button>
-      <Button asChild variant="outline" size="sm">
-        <a
-          href={(() => {
-            const qp = new URLSearchParams({ entityId, sortField: String(sorting?.[0]?.id || 'id'), sortDir: sorting?.[0]?.desc ? 'desc' : 'asc', format: 'xml', all: 'true' })
-            for (const [k, v] of Object.entries(filterValues)) {
-              if (v == null) continue
-              if (Array.isArray(v)) { if (v.length) qp.set(k, v.join(',')) }
-              else if (typeof v !== 'object') qp.set(k, String(v))
-            }
-            return `/api/entities/records?${qp.toString()}`
-          })()}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Export XML
-        </a>
-      </Button>
+      <ExportDropdown />
     </>
   )
 
