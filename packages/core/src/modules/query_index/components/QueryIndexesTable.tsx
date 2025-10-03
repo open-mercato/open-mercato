@@ -63,8 +63,10 @@ export default function QueryIndexesTable() {
     return rowsAll.filter(r => r.entityId.toLowerCase().includes(q) || r.label.toLowerCase().includes(q))
   }, [rowsAll, search])
 
-  const trigger = async (action: 'reindex'|'purge', entityId: string) => {
-    const res = await apiFetch(`/api/query_index/${action}`, { method: 'POST', body: JSON.stringify({ entityType: entityId }) })
+  const trigger = async (action: 'reindex'|'purge', entityId: string, opts?: { force?: boolean }) => {
+    const body: any = { entityType: entityId }
+    if (opts?.force) body.force = true
+    const res = await apiFetch(`/api/query_index/${action}`, { method: 'POST', body: JSON.stringify(body) })
     if (!res.ok) alert(`Failed to ${action}`)
     qc.invalidateQueries({ queryKey: ['query-index-status'] })
   }
@@ -74,7 +76,7 @@ export default function QueryIndexesTable() {
       title="Query Indexes"
       actions={(
         <>
-          <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ['query-index-status'] })}>Refresh</Button>
+          <Button variant="outline" onClick={() => qc.invalidateQueries({ queryKey: ['query-index-status'] })}>Refresh</Button>
         </>
       )}
       columns={columns}
@@ -88,6 +90,7 @@ export default function QueryIndexesTable() {
         <RowActions
           items={[
             { label: 'Reindex', onSelect: () => trigger('reindex', row.entityId) },
+            { label: 'Force Full Reindex', onSelect: () => trigger('reindex', row.entityId, { force: true }) },
             { label: 'Purge', destructive: true, onSelect: () => trigger('purge', row.entityId) },
           ]}
         />
@@ -97,5 +100,3 @@ export default function QueryIndexesTable() {
     />
   )
 }
-
-

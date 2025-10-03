@@ -182,11 +182,11 @@ export default function TodosTable() {
       title="Todos"
       actions={(
         <>
-          <Button variant="outline" size="sm" onClick={() => {
+          <Button variant="outline" onClick={() => {
             const url = buildCrudCsvUrl('example/todos', Object.fromEntries(new URLSearchParams(queryParams)))
             window.open(url, '_blank')
           }}>Export</Button>
-          <Button asChild variant="outline" size="sm">
+          <Button asChild>
             <Link href="/backend/todos/create">Create</Link>
           </Button>
         </>

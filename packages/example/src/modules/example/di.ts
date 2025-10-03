@@ -1,5 +1,5 @@
 import type { AppContainer } from '@/lib/di/container'
-import { upsertCustomEntity } from '@open-mercato/core/modules/custom_fields/lib/register'
+import { upsertCustomEntity } from '@open-mercato/core/modules/entities/lib/register'
 
 // Ensure we upsert our virtual entities only once per process
 let entitiesRegistered = false

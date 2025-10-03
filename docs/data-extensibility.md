@@ -35,7 +35,7 @@ export const extensions = [
 - Generators include `entityExtensions` in `modules.generated.ts` for discovery.
 
 ## Custom Fields (EAV)
-- Core module `custom_fields` ships two tables:
+- Core module `entities` ships two tables:
   - `custom_field_defs` — definitions (per entity id, organization, and tenant)
   - `custom_field_values` — values (per entity record, organization, and tenant)
 
@@ -63,7 +63,7 @@ export default [
 - To seed per-organization definitions (or re-seed), run the CLI:
 
 ```
-yarn mercato custom_fields install --org <orgId> --tenant <tenantId>
+yarn mercato entities install --org <orgId> --tenant <tenantId>
 ```
 
 Why not migrations? Migrations are module-scoped, run in isolation, and should alter schema deterministically. Field sets aggregate across all enabled modules at the app level and may target specific organizations; executing them in each module’s migration would cause duplication, ordering problems, and environment coupling. Use the CLI to seed or re-seed idempotently whenever modules change.
@@ -77,14 +77,14 @@ Why not migrations? Migrations are module-scoped, run in isolation, and should a
 
 ## Migrations
 - Add your extension entity as normal.
-- The `custom_fields` module migrations are generated like any other module.
+- The `entities` module migrations are generated like any other module.
 
 ### Declaring virtual entities from module code
 
 Modules can register additional logical entities (not backed by a new table) so that users can attach custom fields to them. Use the helper provided by the core module:
 
 ```
-import { upsertCustomEntity } from '@open-mercato/core/modules/custom_fields/lib/register'
+import { upsertCustomEntity } from '@open-mercato/core/modules/entities/lib/register'
 
 // inside a CLI command, module init, or DI registrar where you have an EM
 await upsertCustomEntity(em, 'example:calendar_entity', {
@@ -96,14 +96,14 @@ await upsertCustomEntity(em, 'example:calendar_entity', {
 })
 ```
 
-If the entity exists, label/description are updated; if not, it is created. After registering, admins can define fields for it under Backend → Custom fields → Entities.
+If the entity exists, label/description are updated; if not, it is created. After registering, admins can define fields for it under Backend → Data designer → System/User Entities.
 
 Registering from DI (on boot)
 
 ```ts
 // src/modules/<module>/di.ts
 import type { AppContainer } from '@/lib/di/container'
-import { upsertCustomEntity } from '@open-mercato/core/modules/custom_fields/lib/register'
+import { upsertCustomEntity } from '@open-mercato/core/modules/entities/lib/register'
 
 let registered = false
 export function register(container: AppContainer) {

@@ -8,6 +8,10 @@ export class HybridQueryEngine implements QueryEngine {
   constructor(private em: EntityManager, private fallback: BasicQueryEngine) {}
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
+    // Custom entities: read directly from custom_entities_storage
+    if (await this.isCustomEntity(entity)) {
+      return this.queryCustomEntity<T>(entity, opts)
+    }
     // Base table first; left-join index for cf:* only
     const knex = (this.em as any).getConnection().getKnex()
     const [, name] = entity.split(':')
@@ -118,6 +122,210 @@ export class HybridQueryEngine implements QueryEngine {
     const pageSize = opts.page?.pageSize ?? 20
     const countQ = q.clone().clearSelect().clearOrder().countDistinct<{ count: string }>(qualify('id') + ' as count').first()
     const countRow = await countQ
+    const total = Number((countRow as any)?.count ?? 0)
+    const items = await q.limit(pageSize).offset((page - 1) * pageSize)
+    return { items, page, pageSize, total }
+  }
+
+  private async isCustomEntity(entity: string): Promise<boolean> {
+    try {
+      const knex = (this.em as any).getConnection().getKnex()
+      const row = await knex('custom_entities').where({ entity_id: entity, is_active: true }).first()
+      return !!row
+    } catch {
+      return false
+    }
+  }
+
+  private jsonbRawAlias(knex: any, alias: string, key: string): any {
+    // Prefer cf:<key> but fall back to bare <key> for legacy docs
+    if (key.startsWith('cf:')) {
+      const bare = key.slice(3)
+      return knex.raw(`coalesce(${alias}.doc -> ?, ${alias}.doc -> ?)`, [key, bare])
+    }
+    return knex.raw(`${alias}.doc -> ?`, [key])
+  }
+  private cfTextExprAlias(knex: any, alias: string, key: string): any {
+    if (key.startsWith('cf:')) {
+      const bare = key.slice(3)
+      return knex.raw(`coalesce((${alias}.doc ->> ?), (${alias}.doc ->> ?))`, [key, bare])
+    }
+    return knex.raw(`(${alias}.doc ->> ?)`, [key])
+  }
+  private jsonbExtractExprAlias(knex: any, alias: string, key: string, dataType?: string | null): any {
+    const textExpr = key.startsWith('cf:')
+      ? knex.raw(`coalesce((${alias}.doc ->> ?), (${alias}.doc ->> ?))`, [key, key.slice(3)]).toString()
+      : knex.raw(`(${alias}.doc ->> ?)`, [key]).toString()
+    switch ((dataType || '').toLowerCase()) {
+      case 'uuid': return knex.raw(`${textExpr}::uuid`)
+      case 'integer':
+      case 'bigint':
+      case 'smallint': return knex.raw(`${textExpr}::int`)
+      case 'double precision':
+      case 'real':
+      case 'numeric': return knex.raw(`${textExpr}::double precision`)
+      case 'boolean': return knex.raw(`${textExpr}::boolean`)
+      case 'timestamp without time zone':
+      case 'timestamp with time zone': return knex.raw(`${textExpr}::timestamptz`)
+      default: return knex.raw(textExpr)
+    }
+  }
+
+  private applyCfFilterFromAlias(knex: any, q: any, alias: string, key: string, op: any, value: any) {
+    const text = this.cfTextExprAlias(knex, alias, key)
+    const arrExpr = knex.raw(`(${alias}.doc -> ?)`, [key])
+    const arrContains = (val: any) => knex.raw(`${arrExpr.toString()} @> ?::jsonb`, [JSON.stringify([val])])
+    switch (op) {
+      case 'eq': return q.where((b: any) => b.orWhere(text, '=', value).orWhere(arrContains(value)))
+      case 'ne': return q.whereNot(text, '=', value)
+      case 'in': return q.where((b: any) => { const vals = Array.isArray(value) ? value : [value]; for (const v of vals) b.orWhere(text, '=', v).orWhere(arrContains(v)) })
+      case 'nin': return q.whereNotIn(text as any, (Array.isArray(value) ? value : [value]))
+      case 'like': return q.where(text, 'like', value)
+      case 'ilike': return q.where(text, 'ilike', value)
+      case 'exists': return value ? q.whereNotNull(text) : q.whereNull(text)
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte': return q.where(text, op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<=', value)
+      default: return q
+    }
+  }
+
+  private async queryCustomEntity<T = any>(entity: string, opts: QueryOptions = {}): Promise<QueryResult<T>> {
+    const knex = (this.em as any).getConnection().getKnex()
+    const alias = 'ce'
+    let q = knex({ [alias]: 'custom_entities_storage' }).where(`${alias}.entity_type`, entity)
+
+    // Multi-tenant guards
+    if (opts.organizationId != null) q = q.andWhere(`${alias}.organization_id`, opts.organizationId)
+    else q = q.whereNull(`${alias}.organization_id`)
+    if (opts.tenantId != null) q = q.andWhere((b: any) => b.where(`${alias}.tenant_id`, opts.tenantId).orWhereNull(`${alias}.tenant_id`))
+    else q = q.whereNull(`${alias}.tenant_id`)
+    if (!opts.withDeleted) q = q.whereNull(`${alias}.deleted_at`)
+
+    const normalizeFilters = this.normalizeFilters(opts.filters)
+
+    // Apply filters: cf:* via JSONB; other keys: special-case id/created_at/updated_at/deleted_at, otherwise from doc
+    for (const f of normalizeFilters) {
+      if (f.field.startsWith('cf:')) {
+        q = this.applyCfFilterFromAlias(knex, q, alias, f.field, f.op, f.value)
+        continue
+      }
+      const col = String(f.field)
+      const applyCol = (column: string) => {
+        switch (f.op) {
+          case 'eq': q = q.where(column, f.value); break
+          case 'ne': q = q.whereNot(column, f.value); break
+          case 'gt': q = q.where(column, '>', f.value); break
+          case 'gte': q = q.where(column, '>=', f.value); break
+          case 'lt': q = q.where(column, '<', f.value); break
+          case 'lte': q = q.where(column, '<=', f.value); break
+          case 'in': q = q.whereIn(column as any, f.value ?? []); break
+          case 'nin': q = q.whereNotIn(column as any, f.value ?? []); break
+          case 'like': q = q.where(column, 'like', f.value); break
+          case 'ilike': q = q.where(column, 'ilike', f.value); break
+          case 'exists': f.value ? q = q.whereNotNull(column) : q = q.whereNull(column); break
+        }
+      }
+      if (col === 'id') applyCol(`${alias}.entity_id`)
+      else if (col === 'created_at' || col === 'updated_at' || col === 'deleted_at') applyCol(`${alias}.${col}`)
+      else {
+        // From doc
+        const textExpr = knex.raw(`(${alias}.doc ->> ?)`, [col])
+        const column = textExpr
+        switch (f.op) {
+          case 'eq': q = q.where(column, '=', f.value); break
+          case 'ne': q = q.where(column, '!=', f.value); break
+          case 'gt': q = q.where(column, '>', f.value); break
+          case 'gte': q = q.where(column, '>=', f.value); break
+          case 'lt': q = q.where(column, '<', f.value); break
+          case 'lte': q = q.where(column, '<=', f.value); break
+          case 'in': q = q.whereIn(column as any, f.value ?? []); break
+          case 'nin': q = q.whereNotIn(column as any, f.value ?? []); break
+          case 'like': q = q.where(column, 'like', f.value); break
+          case 'ilike': q = q.where(column, 'ilike', f.value); break
+          case 'exists': f.value ? q = q.whereNotNull(column) : q = q.whereNull(column); break
+        }
+      }
+    }
+
+    // Determine CFs to include
+    const cfKeys = new Set<string>()
+    for (const f of (opts.fields || [])) if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
+    for (const f of normalizeFilters) if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
+    if (opts.includeCustomFields === true) {
+      try {
+        const rows = await knex('custom_field_defs')
+          .select('key')
+          .where({ entity_id: entity, is_active: true })
+          .modify((qb: any) => {
+            if (opts.tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: opts.tenantId }).orWhereNull('tenant_id'))
+            else qb.whereNull('tenant_id')
+            if (opts.organizationId != null) qb.andWhere((b: any) => b.where({ organization_id: opts.organizationId }).orWhereNull('organization_id'))
+            else qb.whereNull('organization_id')
+          })
+        for (const r of rows) cfKeys.add(String((r as any).key))
+      } catch {}
+    } else if (Array.isArray(opts.includeCustomFields)) {
+      for (const k of opts.includeCustomFields) cfKeys.add(k)
+    }
+
+    // Selection
+    const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, '_')
+    const requested = (opts.fields && opts.fields.length) ? opts.fields : ['id']
+    for (const field of requested) {
+      const f = String(field)
+      if (f.startsWith('cf:')) {
+        const aliasName = sanitize(f)
+        const expr = this.jsonbRawAlias(knex, alias, f)
+        q = q.select({ [aliasName]: expr })
+      } else if (f === 'id') {
+        q = q.select(knex.raw(`${alias}.entity_id as ??`, ['id']))
+      } else if (f === 'created_at' || f === 'updated_at' || f === 'deleted_at') {
+        q = q.select(knex.raw(`${alias}.?? as ??`, [f, f]))
+      } else {
+        // Non-cf from doc
+        const expr = knex.raw(`(${alias}.doc ->> ?)`, [f])
+        q = q.select({ [f]: expr })
+      }
+    }
+    // Ensure CFs necessary for sort are selected
+    const cfSelectedAliases: string[] = []
+    for (const key of cfKeys) {
+      const aliasName = sanitize(`cf:${key}`)
+      const expr = this.jsonbRawAlias(knex, alias, `cf:${key}`)
+      q = q.select({ [aliasName]: expr })
+      cfSelectedAliases.push(aliasName)
+    }
+
+    // Sorting
+    for (const s of opts.sort || []) {
+      if (s.field.startsWith('cf:')) {
+        const key = s.field.slice(3)
+        const aliasName = sanitize(`cf:${key}`)
+        if (!cfSelectedAliases.includes(aliasName)) {
+          const expr = this.jsonbRawAlias(knex, alias, `cf:${key}`)
+          q = q.select({ [aliasName]: expr })
+          cfSelectedAliases.push(aliasName)
+        }
+        q = q.orderBy(aliasName, s.dir ?? SortDir.Asc)
+      } else if (s.field === 'id') {
+        q = q.orderBy(`${alias}.entity_id`, s.dir ?? SortDir.Asc)
+      } else if (s.field === 'created_at' || s.field === 'updated_at' || s.field === 'deleted_at') {
+        q = q.orderBy(`${alias}.${s.field}`, s.dir ?? SortDir.Asc)
+      } else {
+        const expr = knex.raw(`(${alias}.doc ->> ?)`, [s.field])
+        q = q.orderBy(expr, s.dir ?? SortDir.Asc)
+      }
+    }
+
+    // Pagination + totals
+    const page = opts.page?.page ?? 1
+    const pageSize = opts.page?.pageSize ?? 20
+    const countClone: any = q.clone()
+    if (typeof countClone.clearSelect === 'function') countClone.clearSelect()
+    if (typeof countClone.clearOrder === 'function') countClone.clearOrder()
+    const countRow = await countClone.countDistinct<{ count: string }>(`${alias}.entity_id as count`).first()
     const total = Number((countRow as any)?.count ?? 0)
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)
     return { items, page, pageSize, total }

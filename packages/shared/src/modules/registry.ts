@@ -73,6 +73,8 @@ export type ModuleInfo = {
   license?: string
   homepage?: string
   copyright?: string
+  // Optional hard dependencies: module ids that must be enabled
+  requires?: string[]
 }
 
 export type Module = {

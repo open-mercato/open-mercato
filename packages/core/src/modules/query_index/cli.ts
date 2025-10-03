@@ -77,18 +77,19 @@ const reindex: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const bus = resolve('eventBus') as any
     const entity = (args.entity as string) || (args.e as string)
+    const force = Boolean(args.force) || Boolean(args.full)
     if (entity) {
-      await bus.emitEvent('query_index.reindex', { entityType: entity, organizationId: args.org || args.organizationId, tenantId: args.tenant || args.tenantId }, { persistent: true })
-      console.log(`Scheduled reindex for ${entity}`)
+      await bus.emitEvent('query_index.reindex', { entityType: entity, organizationId: args.org || args.organizationId, tenantId: args.tenant || args.tenantId, force }, { persistent: true })
+      console.log(`Scheduled${force ? ' forced full' : ''} reindex for ${entity}`)
       return
     }
     // all entities
     const { E: All } = await import('@/generated/entities.ids.generated') as any
     const ids: string[] = Object.values(All).flatMap((o: any) => Object.values(o || {}))
     for (const id of ids) {
-      await bus.emitEvent('query_index.reindex', { entityType: id, organizationId: args.org || args.organizationId, tenantId: args.tenant || args.tenantId }, { persistent: true })
+      await bus.emitEvent('query_index.reindex', { entityType: id, organizationId: args.org || args.organizationId, tenantId: args.tenant || args.tenantId, force }, { persistent: true })
     }
-    console.log(`Scheduled reindex for ${ids.length} entities`)
+    console.log(`Scheduled${force ? ' forced full' : ''} reindex for ${ids.length} entities`)
   },
 }
 

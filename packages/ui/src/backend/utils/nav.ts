@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import React from 'react'
 
 export type AdminNavItem = {
   group: string
@@ -73,6 +74,12 @@ export async function buildAdminNav(
 
   // Add dynamic user entities to the navigation
   if (userEntities && userEntities.length > 0) {
+    const tableIcon = React.createElement(
+      'svg',
+      { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 },
+      React.createElement('rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }),
+      React.createElement('path', { d: 'M3 10h18M9 4v16M15 4v16' }),
+    )
     // Find the "User Entities" item in the Data designer group (it should be a root item)
     const userEntitiesItem = roots.find(item => item.group === 'Data designer' && item.title === 'User Entities')
     if (userEntitiesItem) {
@@ -83,6 +90,7 @@ export async function buildAdminNav(
         href: entity.href,
         enabled: true,
         order: 1000, // High order to appear at the end
+        icon: tableIcon,
       }))
       // Merge and deduplicate by href to avoid duplicates coming from server or generator
       const merged = [...existingChildren, ...dynamicUserEntities]

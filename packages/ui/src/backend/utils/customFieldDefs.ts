@@ -14,10 +14,23 @@ export type CustomFieldDefDto = {
   editor?: string
   input?: string
   priority?: number
+  // attachments-specific config
+  maxAttachmentSizeMb?: number
+  acceptExtensions?: string[]
+  // optional validation rules
+  validation?: Array<
+    | { rule: 'required'; message: string }
+    | { rule: 'date'; message: string }
+    | { rule: 'integer'; message: string }
+    | { rule: 'float'; message: string }
+    | { rule: 'lt' | 'lte' | 'gt' | 'gte'; param: number; message: string }
+    | { rule: 'eq' | 'ne'; param: any; message: string }
+    | { rule: 'regex'; param: string; message: string }
+  >
 }
 
 export async function fetchCustomFieldDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<CustomFieldDefDto[]> {
-  const res = await fetchImpl(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
+  const res = await fetchImpl(`/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
   const data = await res.json().catch(() => ({ items: [] }))
   const items = (data?.items || []) as CustomFieldDefDto[]
   items.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))

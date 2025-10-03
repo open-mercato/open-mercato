@@ -125,7 +125,8 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
   }, [dateColumnIds, data, columns])
   // Map column meta.priority (1..6) to Tailwind responsive visibility
   // 1 => always visible, 2 => hidden <sm, 3 => hidden <md, 4 => hidden <lg, 5 => hidden <xl, 6 => hidden <2xl
-  const responsiveClass = (priority?: number) => {
+  const responsiveClass = (priority?: number, hidden?: boolean) => {
+    if (hidden) return 'hidden'
     switch (priority) {
       case 2: return 'hidden sm:table-cell'
       case 3: return 'hidden md:table-cell'
@@ -249,7 +250,7 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (
-                  <TableHead key={header.id} className={responsiveClass((header.column.columnDef as any)?.meta?.priority)}>
+                  <TableHead key={header.id} className={responsiveClass((header.column.columnDef as any)?.meta?.priority, (header.column.columnDef as any)?.meta?.hidden)}>
                     {header.isPlaceholder ? null : (
                       <button
                         type="button"
@@ -333,7 +334,7 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
                       }
 
                       return (
-                        <TableCell key={cell.id} className={responsiveClass(priority)}>
+                        <TableCell key={cell.id} className={responsiveClass(priority, (cell.column.columnDef as any)?.meta?.hidden)}>
                           {content}
                         </TableCell>
                       )

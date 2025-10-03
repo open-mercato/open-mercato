@@ -1,6 +1,6 @@
 # Example: Todo List with Custom Fields
 
-This example extends the `example` module with a new `Todo` entity, declares custom fields using the `custom_fields` module, seeds 10 demo rows with values, and exposes a backend page to browse the data via the query engine.
+This example extends the `example` module with a new `Todo` entity, declares custom fields using the `entities` module, seeds 10 demo rows with values, and exposes a backend page to browse the data via the query engine.
 
 ## What’s included
 - New entity `Todo` in `src/modules/example/data/entities.ts` (table: `todos`).
@@ -21,7 +21,7 @@ This example extends the `example` module with a new `Todo` entity, declares cus
    - `npm run db:migrate`
 
 3) Seed field definitions for your organization
-   - `npm run mercato -- custom_fields install -- --org <orgId>`
+   - `npm run mercato -- entities install -- --org <orgId>`
 
 4) Seed todos and their custom field values (scoped to org and tenant)
    - `npm run mercato -- example seed-todos -- --org <orgId> --tenant <tenantId>`

@@ -20,6 +20,7 @@ function scan() {
   const imports: string[] = []
   const moduleDecls: string[] = []
   let importId = 0
+  const requiresByModule = new Map<string, string[]>()
 
   for (const entry of enabled) {
     const modId = entry.id
@@ -44,6 +45,13 @@ function scan() {
       infoImportName = `I${importId++}_${toVar(modId)}`
       const importPath = indexTs.startsWith(roots.appBase) ? `${imps.appBase}/index` : `${imps.pkgBase}/index`
       imports.push(`import * as ${infoImportName} from '${importPath}'`)
+      // Try to eagerly read ModuleInfo.requires for dependency validation
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require(indexTs)
+        const reqs: string[] | undefined = (mod?.metadata && Array.isArray(mod.metadata.requires)) ? mod.metadata.requires : undefined
+        if (reqs && reqs.length) requiresByModule.set(modId, reqs)
+      } catch {}
     }
 
     // Pages: frontend
@@ -452,7 +460,25 @@ export const modules: Module[] = [
 ]
 export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
 `
-  
+  // Validate module dependencies declared via ModuleInfo.requires
+  {
+    const enabledIds = new Set(enabled.map(e => e.id))
+    const problems: string[] = []
+    for (const [modId, reqs] of requiresByModule.entries()) {
+      const missing = reqs.filter(r => !enabledIds.has(r))
+      if (missing.length) {
+        problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
+      }
+    }
+    if (problems.length) {
+      console.error('\nModule dependency check failed:')
+      for (const p of problems) console.error(p)
+      console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
+      console.error('  export const enabledModules = [ { id: \'' + Array.from(new Set(requiresByModule.values()).values()).join('\' }, { id: \'') + '\' } ]')
+      process.exit(1)
+    }
+  }
+
   // Check if content has changed
   const newChecksum = calculateChecksum(output)
   let shouldWrite = true

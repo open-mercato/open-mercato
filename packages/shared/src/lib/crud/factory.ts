@@ -240,13 +240,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       let input = opts.create.schema.parse(body)
       const modified = await opts.hooks?.beforeCreate?.(input as any, ctx)
       if (modified) input = modified
-      const em = ctx.container.resolve<any>('em')
+      const de = ctx.container.resolve<DataEngine>('dataEngine')
       const entityData = opts.create.mapToEntity(input as any, ctx)
       // Inject org/tenant
       entityData[ormCfg.orgField!] = ctx.auth.orgId
       entityData[ormCfg.tenantField!] = ctx.auth.tenantId
-      const entity = em.create(ormCfg.entity, entityData)
-      await em.persistAndFlush(entity)
+      const entity = await de.createOrmEntity({ entity: ormCfg.entity, data: entityData })
 
       // Custom fields
       if (opts.create.customFields && (opts.create.customFields as any).enabled) {
@@ -287,14 +286,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const id = opts.update.getId ? opts.update.getId(input as any) : (input as any).id
       if (!isUuid(id)) return json({ error: 'Invalid id' }, { status: 400 })
 
-      const em = ctx.container.resolve<any>('em')
-      const repo = em.getRepository(ormCfg.entity)
+      const de = ctx.container.resolve<DataEngine>('dataEngine')
       const where: any = { [ormCfg.idField!]: id, [ormCfg.orgField!]: ctx.auth.orgId, [ormCfg.tenantField!]: ctx.auth.tenantId }
-      const entity = await repo.findOne(where)
+      const entity = await de.updateOrmEntity({ entity: ormCfg.entity, where, apply: (e: any) => opts.update!.applyToEntity(e, input as any, ctx) })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })
-
-      await opts.update.applyToEntity(entity, input as any, ctx)
-      await em.persistAndFlush(entity)
 
       // Custom fields
       if (opts.update.customFields && (opts.update.customFields as any).enabled) {
@@ -331,19 +326,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         : (await request.json().catch(() => ({}))).id
       if (!isUuid(id)) return json({ error: 'ID is required' }, { status: 400 })
 
-      const em = ctx.container.resolve<any>('em')
-      const repo = em.getRepository(ormCfg.entity)
+      const de = ctx.container.resolve<DataEngine>('dataEngine')
       const where: any = { [ormCfg.idField!]: id, [ormCfg.orgField!]: ctx.auth.orgId, [ormCfg.tenantField!]: ctx.auth.tenantId }
-      const entity = await repo.findOne(where)
-      if (!entity) return json({ error: 'Not found' }, { status: 404 })
-
       await opts.hooks?.beforeDelete?.(id!, ctx)
-      if (opts.del?.softDelete !== false) {
-        ;(entity as any)[ormCfg.softDeleteField!] = new Date()
-        await em.persistAndFlush(entity)
-      } else {
-        await repo.removeAndFlush(entity)
-      }
+      const entity = await de.deleteOrmEntity({ entity: ormCfg.entity, where, soft: opts.del?.softDelete !== false, softDeleteField: ormCfg.softDeleteField })
+      if (!entity) return json({ error: 'Not found' }, { status: 404 })
       await opts.hooks?.afterDelete?.(id!, ctx)
       await emitCrudEvent(ctx.container, opts.events, 'deleted', { id })
       return json({ success: true })

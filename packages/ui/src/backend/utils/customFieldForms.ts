@@ -2,8 +2,9 @@ import type { CrudField } from '../CrudForm'
 import type { CustomFieldDefDto } from './customFieldDefs'
 import { filterCustomFieldDefs } from './customFieldDefs'
 import { apiFetch } from './api'
+import { FieldRegistry } from '../fields/registry'
 
-export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): CrudField[] {
+export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?: { bareIds?: boolean }): CrudField[] {
   const fields: CrudField[] = []
   const visible = filterCustomFieldDefs(defs, 'form')
   const seenKeys = new Set<string>() // case-insensitive de-dupe
@@ -11,15 +12,16 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
     const keyLower = String(d.key).toLowerCase()
     if (seenKeys.has(keyLower)) continue
     seenKeys.add(keyLower)
-    const id = `cf_${d.key}`
+    const id = opts?.bareIds ? d.key : `cf_${d.key}`
     const label = d.label || d.key
+    const required = Array.isArray((d as any).validation) ? ((d as any).validation as any[]).some((r) => r && r.rule === 'required') : false
     switch (d.kind) {
       case 'boolean':
-        fields.push({ id, label, type: 'checkbox', description: d.description })
+        fields.push({ id, label, type: 'checkbox', description: d.description, required })
         break
       case 'integer':
       case 'float':
-        fields.push({ id, label, type: 'number', description: d.description })
+        fields.push({ id, label, type: 'number', description: d.description, required })
         break
       case 'multiline': {
         // Prefer rich text editors for multiline; allow override via definition.editor
@@ -31,7 +33,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
         if (d.editor === 'simpleMarkdown') editor = 'simple'
         else if (d.editor === 'htmlRichText') editor = 'html'
         // Any other value (including 'markdown' or undefined) falls back to 'uiw'
-        fields.push({ id, label, type: 'richtext', description: d.description, editor })
+        fields.push({ id, label, type: 'richtext', description: d.description, editor, required })
         break
       }
       case 'select':
@@ -43,6 +45,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
           description: d.description,
           options: (d.options || []).map((o) => ({ value: String(o), label: String(o) })),
           multiple: !!d.multi,
+          required,
           ...(d.optionsUrl
             ? {
                 loadOptions: async () => {
@@ -64,7 +67,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
       default:
         // If text + multi => render as tags input for free-form tagging
         if (d.kind === 'text' && d.multi) {
-          const base: any = { id, label, type: 'tags', description: d.description }
+          const base: any = { id, label, type: 'tags', description: d.description, required }
           // Provide static suggestions from options if present
           if (Array.isArray(d.options) && d.options.length > 0) {
             base.options = d.options.map((o) => ({ value: String(o), label: String(o) }))
@@ -88,18 +91,24 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
           if (d.editor === 'simpleMarkdown') editor = 'simple'
           else if (d.editor === 'htmlRichText') editor = 'html'
           // Any other value (including 'markdown') falls back to 'uiw'
-          fields.push({ id, label, type: 'richtext', description: d.description, editor })
+          fields.push({ id, label, type: 'richtext', description: d.description, editor, required })
         } else {
-          fields.push({ id, label, type: 'text', description: d.description })
+          // Try registry-provided input for custom kind
+          const input = FieldRegistry.getInput(d.kind)
+          if (input) {
+            fields.push({ id, label, type: 'custom', component: (props) => input({ ...props, def: d }) })
+          } else {
+            fields.push({ id, label, type: 'text', description: d.description, required })
+          }
         }
     }
   }
   return fields
 }
 
-export async function fetchCustomFieldFormFields(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<CrudField[]> {
-  const res = await fetchImpl(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
+export async function fetchCustomFieldFormFields(entityId: string, fetchImpl: typeof fetch = apiFetch, options?: { bareIds?: boolean }): Promise<CrudField[]> {
+  const res = await fetchImpl(`/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
   const data = await res.json().catch(() => ({ items: [] }))
   const defs: CustomFieldDefDto[] = data?.items || []
-  return buildFormFieldsFromCustomFields(defs)
+  return buildFormFieldsFromCustomFields(defs, options)
 }

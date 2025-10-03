@@ -9,6 +9,7 @@ import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
 import { Trash2, Save } from 'lucide-react'
+import { loadGeneratedFieldRegistrations } from './fields/registry'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -50,6 +51,9 @@ export type CrudCustomFieldRenderProps = {
   autoFocus?: boolean
   disabled?: boolean
   setValue: (value: any) => void
+  // Optional context for advanced custom inputs
+  entityId?: string
+  recordId?: string
 }
 
 export type CrudCustomField = CrudFieldBase & {
@@ -66,12 +70,16 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   submitLabel?: string
   cancelHref?: string
   successRedirect?: string
+  deleteRedirect?: string
   onSubmit?: (values: TValues) => Promise<void> | void
   onDelete?: () => Promise<void> | void
   // Legacy field-only grid toggle. Use `groups` for advanced layout.
   twoColumn?: boolean
   title?: string
   backHref?: string
+  // Optional extra action buttons rendered next to Delete/Cancel/Save
+  // Useful for custom links like "Show Records" etc.
+  extraActions?: React.ReactNode
   // When provided, CrudForm will fetch custom field definitions and append
   // form-editable custom fields automatically to the provided `fields`.
   entityId?: string
@@ -80,6 +88,8 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   // Loading state for the entire form (e.g., when loading record data)
   isLoading?: boolean
   loadingMessage?: string
+  // User-defined entity mode: all fields are custom, use bare keys (no cf_)
+  customEntity?: boolean
 }
 
 // Group-level custom component context
@@ -110,6 +120,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   submitLabel = 'Save',
   cancelHref,
   successRedirect,
+  deleteRedirect,
   onSubmit,
   onDelete,
   twoColumn = false,
@@ -119,7 +130,11 @@ export function CrudForm<TValues extends Record<string, any>>({
   groups,
   isLoading = false,
   loadingMessage = 'Loading data...',
+  customEntity = false,
+  extraActions,
 }: CrudFormProps<TValues>) {
+  // Ensure module field components are registered (client-side)
+  React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
   const router = useRouter()
   const formId = React.useId()
   const [values, setValues] = React.useState<Record<string, any>>({ ...(initialValues || {}) })
@@ -129,6 +144,27 @@ export function CrudForm<TValues extends Record<string, any>>({
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
   const [cfFields, setCfFields] = React.useState<CrudField[]>([])
   const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
+  // Unified delete handler with confirmation
+  const handleDelete = React.useCallback(async () => {
+    if (!onDelete) return
+    try {
+      const ok = typeof window !== 'undefined' ? window.confirm('Delete this record? This action cannot be undone.') : true
+      if (!ok) return
+      await onDelete()
+      try { flash('Record deleted', 'success') } catch {}
+      // Redirect if requested by caller
+      if (typeof deleteRedirect === 'string' && deleteRedirect) {
+        router.push(deleteRedirect)
+      }
+    } catch {}
+  }, [onDelete, deleteRedirect, router])
+  
+  // Determine whether this form is creating a new record (no `id` yet)
+  const isNewRecord = React.useMemo(() => {
+    const id = (values as any)?.id
+    return id === undefined || id === null || id === ''
+  }, [values])
+  const showDelete = !!onDelete && !isNewRecord
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
@@ -143,7 +179,7 @@ export function CrudForm<TValues extends Record<string, any>>({
       setIsLoadingCustomFields(true)
       try {
         const mod = await import('./utils/customFieldForms')
-        const f = await mod.fetchCustomFieldFormFields(entityId)
+        const f = await mod.fetchCustomFieldFormFields(entityId, undefined, { bareIds: customEntity })
         if (!cancelled) {
           setCfFields(f)
           setIsLoadingCustomFields(false)
@@ -194,6 +230,19 @@ export function CrudForm<TValues extends Record<string, any>>({
     setFormError(null)
     setErrors({})
 
+    // Make sure any inputs that commit on blur (rich text, textarea, number)
+    // flush their local state into the form values before validation/submit.
+    // Trigger a blur on the active element and yield once to let React process onBlur.
+    try {
+      if (typeof document !== 'undefined') {
+        const ae = document.activeElement as HTMLElement | null
+        if (ae && typeof (ae as any).blur === 'function') {
+          ;(ae as any).blur()
+          await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        }
+      }
+    } catch {}
+
     // Basic required-field validation when no zod schema is provided
     const requiredErrors: Record<string, string> = {}
     for (const f of allFields) {
@@ -213,6 +262,40 @@ export function CrudForm<TValues extends Record<string, any>>({
       setErrors(requiredErrors)
       flash('Please fix the highlighted errors.', 'error')
       return
+    }
+
+    // Custom fields validation via definitions (rules)
+    if (entityId) {
+      try {
+        const mod = await import('./utils/customFieldDefs')
+        const defs = await mod.fetchCustomFieldDefs(entityId)
+        const { validateValuesAgainstDefs } = await import('@open-mercato/shared/modules/entities/validation')
+        // Build values keyed by def.key for validation
+        const cfValues: Record<string, any> = {}
+        if (customEntity) {
+          for (const d of defs as any[]) {
+            if (Object.prototype.hasOwnProperty.call(values, d.key)) cfValues[d.key] = (values as any)[d.key]
+          }
+        } else {
+          for (const [k, v] of Object.entries(values)) {
+            if (k.startsWith('cf_')) cfValues[k.replace(/^cf_/, '')] = v
+          }
+        }
+        const result = validateValuesAgainstDefs(cfValues, defs as any)
+        if (!result.ok) {
+          if (customEntity) {
+            const mapped: Record<string, string> = {}
+            for (const [ek, ev] of Object.entries(result.fieldErrors)) mapped[ek.replace(/^cf_/, '')] = String(ev)
+            setErrors((prev) => ({ ...prev, ...mapped }))
+          } else {
+            setErrors((prev) => ({ ...prev, ...result.fieldErrors }))
+          }
+          flash('Please fix the highlighted errors.', 'error')
+          return
+        }
+      } catch {
+        // ignore validation errors if helper not available
+      }
     }
 
     let parsed: any = values
@@ -235,15 +318,38 @@ export function CrudForm<TValues extends Record<string, any>>({
       await onSubmit?.(parsed)
       if (successRedirect) router.push(successRedirect)
     } catch (err: any) {
-      // Try to extract meaningful message often returned as JSON
+      // Try to extract field-level errors from structured responses
       let msg = err?.message || 'Unexpected error'
-      try {
-        const parsed = JSON.parse(msg)
-        if (parsed?.error) msg = String(parsed.error)
-        else if (parsed?.message) msg = String(parsed.message)
-      } catch {}
+      let fieldErrors: Record<string, string> | null = null
+      // Custom error shape from callers: { fieldErrors }
+      if (err && typeof err === 'object' && err.fieldErrors && typeof err.fieldErrors === 'object') {
+        fieldErrors = err.fieldErrors as Record<string, string>
+      } else {
+        // Sometimes message may be JSON with { error, fields }
+        try {
+          const parsed = JSON.parse(msg)
+          if (parsed?.fields && typeof parsed.fields === 'object') {
+            fieldErrors = parsed.fields as Record<string, string>
+            msg = parsed?.error || parsed?.message || msg
+          } else if (parsed?.error || parsed?.message) {
+            msg = parsed.error || parsed.message
+          }
+        } catch {}
+      }
+
+      if (fieldErrors) {
+        const next: Record<string, string> = {}
+        for (const [k, v] of Object.entries(fieldErrors)) {
+          // Map server keys to form field ids
+          const fid = customEntity
+            ? (k.startsWith('cf_') ? k.slice(3) : (k.startsWith('cf:') ? k.slice(3) : k))
+            : (k.startsWith('cf_') ? k : (k.startsWith('cf:') ? `cf_${k.slice(3)}` : `cf_${k}`))
+          next[fid] = String(v)
+        }
+        setErrors(next)
+      }
+
       flash(msg || 'Save failed', 'error')
-      // Also keep inline error minimal and human-friendly
       setFormError(msg)
     } finally {
       setPending(false)
@@ -557,7 +663,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'custom' && (
-          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue })}</>
+          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue, entityId, recordId: (values as any)?.id })}</>
         )}
         {(f as any).description ? (
           <div className="text-xs text-muted-foreground">{(f as any).description}</div>
@@ -687,8 +793,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             {title ? <div className="text-base font-medium">{title}</div> : null}
           </div>
           <div className="flex items-center gap-2">
-            {onDelete ? (
-              <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50 rounded-none">
+            {extraActions}
+            {showDelete ? (
+              <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
                 <Trash2 className="size-4 mr-2" />
                 Delete
               </Button>
@@ -767,8 +874,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             <div className="flex items-center justify-between gap-2">
               <div />
               <div className="flex items-center gap-2">
-                {onDelete ? (
-                  <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50 rounded-none">
+                {extraActions}
+                {showDelete ? (
+                  <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
                     <Trash2 className="size-4 mr-2" />
                     Delete
                   </Button>
@@ -803,8 +911,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           {title ? <div className="text-base font-medium">{title}</div> : null}
         </div>
         <div className="flex items-center gap-2">
-          {onDelete ? (
-            <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50">
+          {extraActions}
+          {showDelete ? (
+            <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
               <Trash2 className="size-4 mr-2" />
               Delete
             </Button>
@@ -843,8 +952,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             <div className="flex items-center justify-end gap-2">
-              {onDelete ? (
-                <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50">
+              {extraActions}
+              {showDelete ? (
+                <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50">
                   <Trash2 className="size-4 mr-2" />
                   Delete
                 </Button>

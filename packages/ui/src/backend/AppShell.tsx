@@ -15,6 +15,8 @@ export type AppShellProps = {
   sidebarCollapsedDefault?: boolean
   currentTitle?: string
   breadcrumb?: Array<{ label: string; href?: string }>
+  // Optional: dynamically augment "User Entities" via API on the client
+  userEntitiesApi?: string
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -40,17 +42,26 @@ const DefaultIcon = (
   </svg>
 )
 
+const TableIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M3 10h18M9 4v16M15 4v16" />
+  </svg>
+)
+
 function Chevron({ open }: { open: boolean }) {
   return (
     <svg className={`transition-transform ${open ? 'rotate-180' : ''}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
   )
 }
 
-export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb }: AppShellProps) {
+export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, userEntitiesApi }: AppShellProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState<boolean>(sidebarCollapsedDefault)
+  // Maintain internal nav state so we can augment it client-side
+  const [navGroups, setNavGroups] = React.useState(AppShell.cloneGroups(groups))
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() => {
     const base = Object.fromEntries(groups.map(g => [g.name, true])) as Record<string, boolean>
     if (typeof window === 'undefined') return base
@@ -85,16 +96,55 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
 
   // Ensure current route's group is expanded on load
   React.useEffect(() => {
-    const activeGroup = groups.find((g) => g.items.some((i) => pathname?.startsWith(i.href)))?.name
+    const activeGroup = navGroups.find((g) => g.items.some((i) => pathname?.startsWith(i.href)))?.name
     if (!activeGroup) return
     setOpenGroups((prev) => (prev[activeGroup] === false ? { ...prev, [activeGroup]: true } : prev))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname])
+  }, [pathname, navGroups])
   // Keep header state in sync with props (server-side updates)
   React.useEffect(() => {
     setHeaderTitle(currentTitle)
     setHeaderBreadcrumb(breadcrumb)
   }, [currentTitle, breadcrumb])
+
+  // Keep navGroups in sync when server-provided groups change
+  React.useEffect(() => {
+    setNavGroups(AppShell.cloneGroups(groups))
+  }, [groups])
+
+  // Optional client-side augmentation: fetch dynamic user entities and merge
+  React.useEffect(() => {
+    let cancelled = false
+    async function fetchAndMerge() {
+      if (!userEntitiesApi) return
+      try {
+        const res = await fetch(userEntitiesApi, { credentials: 'include' })
+        if (!res.ok) return
+        const data = await res.json() as { items?: { href: string; label: string }[] }
+        const items = data.items || []
+        if (cancelled || items.length === 0) return
+        setNavGroups((prev) => {
+          const groupsCopy = AppShell.cloneGroups(prev)
+          const dd = groupsCopy.find((g) => g.name === 'Data designer')
+          if (!dd) return prev
+          const userItem = dd.items.find((i) => i.title === 'User Entities')
+          if (!userItem) return prev
+          const existing = userItem.children || []
+          const dynamic = items.map((it) => ({ href: it.href, title: it.label, icon: TableIcon }))
+          const mergedMap = new Map<string, { href: string; title: string; icon?: React.ReactNode }>()
+          for (const e of existing) mergedMap.set(e.href, { href: e.href, title: e.title, icon: e.icon })
+          for (const d of dynamic) if (!mergedMap.has(d.href)) mergedMap.set(d.href, d)
+          userItem.children = Array.from(mergedMap.values())
+          return groupsCopy
+        })
+      } catch {}
+    }
+    fetchAndMerge()
+    // Refresh when window regains focus to reflect recent changes
+    const onFocus = () => { fetchAndMerge() }
+    window.addEventListener('focus', onFocus)
+    return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
+  }, [userEntitiesApi])
 
   function renderSidebar(compact: boolean, showCollapseToggle: boolean, hideHeader?: boolean) {
     return (
@@ -108,7 +158,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
           </div>
         )}
         <nav className="flex flex-col gap-2">
-          {groups.map((g, gi) => {
+          {navGroups.map((g, gi) => {
             const open = openGroups[g.name] !== false
             return (
               <div key={g.name} className="">
@@ -182,7 +232,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
                     })}
                   </div>
                 )}
-                {gi < groups.length - 1 && <div className="my-2 border-t border-dotted" />}
+                {gi < navGroups.length - 1 && <div className="my-2 border-t border-dotted" />}
               </div>
             )
           })}
@@ -285,4 +335,18 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
     </div>
     </HeaderContext.Provider>
   )
+}
+
+// Helper: deep-clone minimal shape we mutate (children arrays)
+AppShell.cloneGroups = function cloneGroups<T extends AppShellProps['groups'] | any>(groups: T): T {
+  return groups.map((g: any) => ({
+    name: g.name,
+    items: g.items.map((i: any) => ({
+      href: i.href,
+      title: i.title,
+      icon: i.icon,
+      enabled: i.enabled,
+      children: i.children ? i.children.map((c: any) => ({ href: c.href, title: c.title, icon: c.icon, enabled: c.enabled })) : undefined,
+    })),
+  })) as any
 }
