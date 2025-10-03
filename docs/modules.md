@@ -28,7 +28,10 @@ export const metadata: ModuleInfo = {
   version: '0.1.0',
   description: 'Short description',
   author: 'You',
-  license: 'MIT'
+  license: 'MIT',
+  // Optional: declare hard dependencies (module ids)
+  // The generator will fail with a clear message if missing
+  requires: ['some_other_module']
 }
 ```
 
