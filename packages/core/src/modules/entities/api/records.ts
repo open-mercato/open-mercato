@@ -180,20 +180,24 @@ export async function POST(req: Request) {
   }
 }
 
-const putBodySchema = z.object({
-  entityId: z.string().min(1),
-  recordId: z.string().min(1),
-  values: z.record(z.any()).default({}),
-})
+// Avoid zod here to prevent runtime import issues in some environments
+function parsePutBody(json: any): { ok: true; data: { entityId: string; recordId: string; values: Record<string, any> } } | { ok: false; error: string } {
+  if (!json || typeof json !== 'object') return { ok: false, error: 'Invalid JSON' }
+  const entityId = typeof json.entityId === 'string' && json.entityId.length ? json.entityId : ''
+  const recordId = typeof json.recordId === 'string' && json.recordId.length ? json.recordId : ''
+  const values = (json.values && typeof json.values === 'object') ? json.values as Record<string, any> : {}
+  if (!entityId || !recordId) return { ok: false, error: 'entityId and recordId are required' }
+  return { ok: true, data: { entityId, recordId, values } }
+}
 
 export async function PUT(req: Request) {
   const auth = getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  let json: unknown
+  let json: any
   try { json = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
-  const parsed = putBodySchema.safeParse(json)
-  if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
+  const parsed = parsePutBody(json)
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
   const { entityId, recordId, values } = parsed.data
 
   try {
@@ -251,4 +255,3 @@ function normalizeValues(input: Record<string, any>): Record<string, any> {
   }
   return out
 }
-

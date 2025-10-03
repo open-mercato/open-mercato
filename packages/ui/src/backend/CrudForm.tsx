@@ -129,6 +129,13 @@ export function CrudForm<TValues extends Record<string, any>>({
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
   const [cfFields, setCfFields] = React.useState<CrudField[]>([])
   const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
+  
+  // Determine whether this form is creating a new record (no `id` yet)
+  const isNewRecord = React.useMemo(() => {
+    const id = (values as any)?.id
+    return id === undefined || id === null || id === ''
+  }, [values])
+  const showDelete = !!onDelete && !isNewRecord
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
@@ -700,7 +707,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             {title ? <div className="text-base font-medium">{title}</div> : null}
           </div>
           <div className="flex items-center gap-2">
-            {onDelete ? (
+            {showDelete ? (
               <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50 rounded-none">
                 <Trash2 className="size-4 mr-2" />
                 Delete
@@ -780,7 +787,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             <div className="flex items-center justify-between gap-2">
               <div />
               <div className="flex items-center gap-2">
-                {onDelete ? (
+                {showDelete ? (
                   <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50 rounded-none">
                     <Trash2 className="size-4 mr-2" />
                     Delete
@@ -816,7 +823,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           {title ? <div className="text-base font-medium">{title}</div> : null}
         </div>
         <div className="flex items-center gap-2">
-          {onDelete ? (
+          {showDelete ? (
             <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50">
               <Trash2 className="size-4 mr-2" />
               Delete
@@ -856,7 +863,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             <div className="flex items-center justify-end gap-2">
-              {onDelete ? (
+              {showDelete ? (
                 <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50">
                   <Trash2 className="size-4 mr-2" />
                   Delete

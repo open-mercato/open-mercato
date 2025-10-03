@@ -10,8 +10,8 @@ export default function CreateRecordPage({ params }: { params: { entityId?: stri
   const entityId = decodeURIComponent(params?.entityId || '')
 
   const schema = React.useMemo(() => z.object({
-    // Dynamic: all fields are optional; validation is mainly UI-level
-  }), [])
+    // Dynamic: all fields are optional; keep unknown keys
+  }).passthrough(), [])
 
   const fields: CrudField[] = []
 
@@ -34,4 +34,3 @@ export default function CreateRecordPage({ params }: { params: { entityId?: stri
     />
   )
 }
-

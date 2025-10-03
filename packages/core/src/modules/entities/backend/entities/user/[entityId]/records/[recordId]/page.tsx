@@ -31,8 +31,7 @@ export default function EditRecordPage({ params }: { params: { entityId?: string
     return () => { cancelled = true }
   }, [entityId, recordId])
 
-  const schema = React.useMemo(() => z.object({
-  }), [])
+  const schema = React.useMemo(() => z.object({}).passthrough(), [])
 
   const fields: CrudField[] = []
 
@@ -63,4 +62,3 @@ export default function EditRecordPage({ params }: { params: { entityId?: string
     />
   )
 }
-
