@@ -42,6 +42,13 @@ const DefaultIcon = (
   </svg>
 )
 
+const TableIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M3 10h18M9 4v16M15 4v16" />
+  </svg>
+)
+
 function Chevron({ open }: { open: boolean }) {
   return (
     <svg className={`transition-transform ${open ? 'rotate-180' : ''}`} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
@@ -123,9 +130,9 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
           const userItem = dd.items.find((i) => i.title === 'User Entities')
           if (!userItem) return prev
           const existing = userItem.children || []
-          const dynamic = items.map((it) => ({ href: it.href, title: it.label }))
-          const mergedMap = new Map<string, { href: string; title: string }>()
-          for (const e of existing) mergedMap.set(e.href, { href: e.href, title: e.title })
+          const dynamic = items.map((it) => ({ href: it.href, title: it.label, icon: TableIcon }))
+          const mergedMap = new Map<string, { href: string; title: string; icon?: React.ReactNode }>()
+          for (const e of existing) mergedMap.set(e.href, { href: e.href, title: e.title, icon: e.icon })
           for (const d of dynamic) if (!mergedMap.has(d.href)) mergedMap.set(d.href, d)
           userItem.children = Array.from(mergedMap.values())
           return groupsCopy
