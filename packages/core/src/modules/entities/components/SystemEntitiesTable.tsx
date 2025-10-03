@@ -63,7 +63,7 @@ export default function SystemEntitiesTable() {
       title="System Entities"
       actions={(
         <>
-          <Button variant="outline" size="sm" onClick={() => {
+          <Button variant="outline" onClick={() => {
             const csv = toCsv(rows)
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
             const url = URL.createObjectURL(blob)

@@ -5,6 +5,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { filterCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ContextHelp } from '@open-mercato/ui/backend/ContextHelp'
 import { Button, buttonVariants } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import Link from 'next/link'
@@ -250,7 +251,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
       <div className="relative inline-block">
         <button
           ref={btnRef}
-          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          className={buttonVariants({ variant: 'outline' })}
           onClick={() => setOpen((v) => !v)}
           aria-haspopup="menu"
           aria-expanded={open}
@@ -300,21 +301,108 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
   const hasAnyFormFields = React.useMemo(() => filterCustomFieldDefs(cfDefs as any, 'form').length > 0, [cfDefs])
   const actions = (
     <>
-      {/* Remove "Show all columns" toggle for user entities */}
+      {/* Keep Export and Edit buttons outlined; primary Create on the right */}
+      <ExportDropdown />
+      <Button asChild variant="outline" size="sm">
+        <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}`}>
+          Edit Entity Definition
+        </Link>
+      </Button>
       {hasAnyFormFields && (
-        <Button asChild size="sm">
+        <Button asChild>
           <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}/records/create`}>
             Create
           </Link>
         </Button>
       )}
-      <ExportDropdown />
     </>
   )
 
   return (
     <Page>
       <PageBody>
+        <ContextHelp bulb title="API: Manage Records via cURL" className="mb-4">
+          <p className="mb-2">Interact with this custom entity via the backend API using cURL. Authenticate first, then call the endpoints below.</p>
+          <div className="space-y-2">
+            <div>
+              <div className="font-medium mb-1">1) Authenticate and get a JWT</div>
+              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`# Replace with a valid user
+BASE="http://localhost:3000"
+EMAIL="admin@example.com"
+PASSWORD="secret"
+
+# Get a token (requires the user to have admin role for these endpoints)
+TOKEN=$(curl -s -X POST "$BASE/api/auth/login" \
+  -d email=$EMAIL -d password=$PASSWORD | jq -r '.token')
+
+echo "Token: $TOKEN"`}</code></pre>
+              <p className="text-muted-foreground mt-1">Alternatively, if you already have an <code>auth_token</code> cookie, you can copy its value and use it as the Bearer token.</p>
+            </div>
+
+            <div>
+              <div className="font-medium mb-1">2) List records</div>
+              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -H "Authorization: Bearer $TOKEN" \
+  "$BASE/api/entities/records?entityId=${entityId}" | jq`}</code></pre>
+            </div>
+
+            <div>
+              <div className="font-medium mb-1">3) Read a single record (by id)</div>
+              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`RECORD_ID="<record-uuid>"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$BASE/api/entities/records?entityId=${entityId}&id=$RECORD_ID" | jq`}</code></pre>
+              <p className="text-muted-foreground mt-1">Note: Response is a list; filter by <code>id</code> to get a single item.</p>
+            </div>
+
+            <div>
+              <div className="font-medium mb-1">4) Create a record</div>
+              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityId": "${entityId}",
+    "values": {
+      "field_one": "Example",
+      "field_two": 123
+    }
+  }' \
+  "$BASE/api/entities/records" | jq`}</code></pre>
+              <p className="text-muted-foreground mt-1">For custom entities, send field keys without the <code>cf_</code> prefix. The API normalizes this server-side.</p>
+            </div>
+
+            <div>
+              <div className="font-medium mb-1">5) Update a record</div>
+              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`RECORD_ID="<record-uuid>"
+curl -s -X PUT \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityId": "${entityId}",
+    "recordId": "'$RECORD_ID'",
+    "values": {
+      "field_one": "Updated"
+    }
+  }' \
+  "$BASE/api/entities/records" | jq`}</code></pre>
+            </div>
+
+            <div>
+              <div className="font-medium mb-1">6) Delete a record</div>
+              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`RECORD_ID="<record-uuid>"
+curl -s -X DELETE \
+  -H "Authorization: Bearer $TOKEN" \
+  "$BASE/api/entities/records?entityId=${entityId}&recordId=$RECORD_ID" | jq`}</code></pre>
+            </div>
+
+            <div className="text-muted-foreground">
+              Security notes:
+              <ul className="list-disc pl-5 mt-1 space-y-1">
+                <li>All endpoints require a valid Bearer token. The token encodes tenant and organization; cross-tenant access is blocked.</li>
+                <li>Only users with the <code>admin</code> role can access these endpoints.</li>
+                <li>Never log or share tokens. Rotate if exposed.</li>
+              </ul>
+            </div>
+          </div>
+        </ContextHelp>
         <DataTable
           title={`Records: ${entityId}`}
           entityId={entityId}

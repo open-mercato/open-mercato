@@ -76,7 +76,7 @@ export default function QueryIndexesTable() {
       title="Query Indexes"
       actions={(
         <>
-          <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ['query-index-status'] })}>Refresh</Button>
+          <Button variant="outline" onClick={() => qc.invalidateQueries({ queryKey: ['query-index-status'] })}>Refresh</Button>
         </>
       )}
       columns={columns}
@@ -100,4 +100,3 @@ export default function QueryIndexesTable() {
     />
   )
 }
-

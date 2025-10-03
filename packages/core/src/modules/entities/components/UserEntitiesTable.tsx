@@ -76,7 +76,7 @@ export default function UserEntitiesTable() {
       title="User Entities"
       actions={(
         <>
-          <Button variant="outline" size="sm" onClick={() => {
+          <Button variant="outline" onClick={() => {
             const csv = toCsv(rows)
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
             const url = URL.createObjectURL(blob)
@@ -86,7 +86,7 @@ export default function UserEntitiesTable() {
             a.click()
             URL.revokeObjectURL(url)
           }}>Export</Button>
-          <Button asChild variant="outline" size="sm">
+          <Button asChild variant="outline">
             <Link href="/backend/entities/user/create">Create</Link>
           </Button>
         </>
