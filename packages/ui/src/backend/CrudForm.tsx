@@ -194,6 +194,19 @@ export function CrudForm<TValues extends Record<string, any>>({
     setFormError(null)
     setErrors({})
 
+    // Make sure any inputs that commit on blur (rich text, textarea, number)
+    // flush their local state into the form values before validation/submit.
+    // Trigger a blur on the active element and yield once to let React process onBlur.
+    try {
+      if (typeof document !== 'undefined') {
+        const ae = document.activeElement as HTMLElement | null
+        if (ae && typeof (ae as any).blur === 'function') {
+          ;(ae as any).blur()
+          await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        }
+      }
+    } catch {}
+
     // Basic required-field validation when no zod schema is provided
     const requiredErrors: Record<string, string> = {}
     for (const f of allFields) {

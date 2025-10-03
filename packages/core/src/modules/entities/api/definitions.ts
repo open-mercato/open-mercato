@@ -5,7 +5,9 @@ import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entitie
 import { upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin'] },
+  // Reading definitions is needed by record forms; keep it auth-protected but not admin-only
+  GET: { requireAuth: true },
+  // Mutations remain admin-only
   POST: { requireAuth: true, requireRoles: ['admin'] },
   DELETE: { requireAuth: true, requireRoles: ['admin'] },
 }
@@ -141,4 +143,3 @@ export async function DELETE(req: Request) {
   await em.flush()
   return NextResponse.json({ ok: true })
 }
-
