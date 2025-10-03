@@ -86,7 +86,7 @@ export default function UserEntitiesTable() {
             a.click()
             URL.revokeObjectURL(url)
           }}>Export</Button>
-          <Button asChild variant="outline">
+          <Button asChild>
             <Link href="/backend/entities/user/create">Create</Link>
           </Button>
         </>
