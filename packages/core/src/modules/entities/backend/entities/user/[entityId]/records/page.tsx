@@ -176,6 +176,11 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
             return <span className="truncate max-w-[24ch] inline-block align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
           },
         }))
+        // Ensure an 'id' column exists for sorting/state, but keep it hidden
+        const hasIdCol = cols.some((c) => (c as any).accessorKey === 'id' || (c as any).id === 'id')
+        if (!hasIdCol) {
+          cols.unshift({ accessorKey: 'id', header: 'ID', meta: { hidden: true, priority: 6 } } as any)
+        }
         if (!cancelled) {
           setColumns(cols)
           setData(items)

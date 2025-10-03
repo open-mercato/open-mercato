@@ -70,6 +70,7 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   submitLabel?: string
   cancelHref?: string
   successRedirect?: string
+  deleteRedirect?: string
   onSubmit?: (values: TValues) => Promise<void> | void
   onDelete?: () => Promise<void> | void
   // Legacy field-only grid toggle. Use `groups` for advanced layout.
@@ -138,6 +139,20 @@ export function CrudForm<TValues extends Record<string, any>>({
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
   const [cfFields, setCfFields] = React.useState<CrudField[]>([])
   const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
+  // Unified delete handler with confirmation
+  const handleDelete = React.useCallback(async () => {
+    if (!onDelete) return
+    try {
+      const ok = typeof window !== 'undefined' ? window.confirm('Delete this record? This action cannot be undone.') : true
+      if (!ok) return
+      await onDelete()
+      try { flash('Record deleted', 'success') } catch {}
+      // Redirect if requested by caller
+      if (typeof deleteRedirect === 'string' && deleteRedirect) {
+        router.push(deleteRedirect)
+      }
+    } catch {}
+  }, [onDelete, deleteRedirect, router])
   
   // Determine whether this form is creating a new record (no `id` yet)
   const isNewRecord = React.useMemo(() => {
@@ -774,7 +789,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </div>
           <div className="flex items-center gap-2">
             {showDelete ? (
-              <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50 rounded-none">
+              <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
                 <Trash2 className="size-4 mr-2" />
                 Delete
               </Button>
@@ -854,7 +869,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
               <div />
               <div className="flex items-center gap-2">
                 {showDelete ? (
-                  <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50 rounded-none">
+                  <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
                     <Trash2 className="size-4 mr-2" />
                     Delete
                   </Button>
@@ -890,7 +905,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         </div>
         <div className="flex items-center gap-2">
           {showDelete ? (
-            <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50">
+            <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
               <Trash2 className="size-4 mr-2" />
               Delete
             </Button>
@@ -930,7 +945,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             <div className="flex items-center justify-end gap-2">
               {showDelete ? (
-                <Button type="button" variant="outline" onClick={async () => { try { await onDelete() } catch {} }} className="text-red-600 border-red-200 hover:bg-red-50">
+                <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50">
                   <Trash2 className="size-4 mr-2" />
                   Delete
                 </Button>

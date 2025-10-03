@@ -12,11 +12,11 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({})) as any
   const entityType = String(body?.entityType || '')
   if (!entityType) return NextResponse.json({ error: 'Missing entityType' }, { status: 400 })
+  const force = Boolean(body?.force)
 
   const { resolve } = await createRequestContainer()
   const bus = resolve('eventBus') as any
-  await bus.emitEvent('query_index.reindex', { entityType, organizationId: auth.orgId, tenantId: auth.tenantId }, { persistent: true })
+  await bus.emitEvent('query_index.reindex', { entityType, organizationId: auth.orgId, tenantId: auth.tenantId, force }, { persistent: true })
   return NextResponse.json({ ok: true })
 }
-
 

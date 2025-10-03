@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { E as AllEntities } from '@/generated/entities.ids.generated'
-import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 function toBaseTableFromEntityType(entityType: string): string {
@@ -35,14 +34,10 @@ export async function GET(req: Request) {
     }
   }
 
-  // Custom user-defined entities (active)
-  const customs = await em.find(CustomEntity as any, { isActive: true } as any)
-  const custom = (customs as any[]).map((c) => ({ entityId: c.entityId as string, label: (c as any).label || c.entityId }))
-
-  // Merge by entityId preferring custom label
+  // Only include code-defined entities in Query Index status.
+  // User-defined entities are stored outside the index and should not appear here.
   const byId = new Map<string, { entityId: string; label: string }>()
   for (const g of generated) byId.set(g.entityId, g)
-  for (const cu of custom) byId.set(cu.entityId, { ...byId.get(cu.entityId), ...cu } as any)
 
   let entityIds = Array.from(byId.values()).map((x) => x.entityId).sort()
 
@@ -100,12 +95,13 @@ export async function GET(req: Request) {
     }
   }
 
-  async function fetchJob(entityType: string, orgIdParam: string): Promise<{ status: 'idle' | 'reindexing' | 'purging'; startedAt?: string | null; finishedAt?: string | null }> {
+  async function fetchJob(entityType: string, orgIdParam: string, tenantIdParam: string | null): Promise<{ status: 'idle' | 'reindexing' | 'purging'; startedAt?: string | null; finishedAt?: string | null }> {
     try {
       const row = await knex('entity_index_jobs')
         .where({ entity_type: entityType })
         .modify((qb: any) => {
           qb.andWhere((b: any) => b.where({ organization_id: orgIdParam }).orWhereNull('organization_id'))
+          if (tenantIdParam != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantIdParam }).orWhereNull('tenant_id'))
         })
         .orderBy('started_at', 'desc')
         .first()
@@ -119,11 +115,10 @@ export async function GET(req: Request) {
 
   const items: any[] = []
   for (const eid of entityIds) {
-    const [baseCount, indexCount, job] = await Promise.all([countBase(eid, orgId, tenantId), countIndex(eid, orgId, tenantId), fetchJob(eid, orgId)])
+    const [baseCount, indexCount, job] = await Promise.all([countBase(eid, orgId, tenantId), countIndex(eid, orgId, tenantId), fetchJob(eid, orgId, tenantId)])
     const label = (byId.get(eid)?.label) || eid
     items.push({ entityId: eid, label, baseCount, indexCount, ok: baseCount === indexCount, job })
   }
 
   return NextResponse.json({ items })
 }
-

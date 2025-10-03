@@ -25,48 +25,8 @@ export default async function BackendLayout({ children, params }: { children: Re
   const ctxAuth = auth ? { roles: auth.roles || [] } : undefined
   const ctx = { auth: ctxAuth, path }
   
-  // Fetch user entities for sidebar
-  let userEntities: Array<{ entityId: string; label: string; href: string }> = []
-  try {
-    if (auth?.orgId) {
-      const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-      const container = await createRequestContainer()
-      const em = container.resolve('em')
-      const { CustomEntity } = await import('@open-mercato/core/modules/entities/data/entities')
-      
-      const where: any = { 
-        isActive: true,
-      }
-      where.$and = [
-        { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
-        { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
-      ]
-      
-      const entities = await em.find(CustomEntity as any, where as any, { orderBy: { label: 'asc' } as any })
-      // Deduplicate by entityId, prefer org/tenant-specific rows over global ones;
-      // evaluate visibility after precedence resolution
-      const byEntityId = new Map<string, any>()
-      for (const e of entities as any[]) {
-        const specificity = (e.organizationId ? 2 : 0) + (e.tenantId ? 1 : 0)
-        const prev = byEntityId.get(e.entityId)
-        const prevSpec = prev ? ((prev.organizationId ? 2 : 0) + (prev.tenantId ? 1 : 0)) : -1
-        if (!prev || specificity > prevSpec) byEntityId.set(e.entityId, e)
-      }
-      const deduped = Array.from(byEntityId.values()) as any[]
-      userEntities = deduped
-        .filter((e) => !!e.showInSidebar)
-        .sort((a, b) => String(a.label).localeCompare(String(b.label)))
-        .map((e) => ({
-          entityId: e.entityId,
-          label: e.label,
-          href: `/backend/entities/user/${encodeURIComponent(e.entityId)}/records`
-        }))
-    }
-  } catch (error) {
-    console.warn('Failed to fetch user entities for sidebar:', error)
-  }
-  
-  const entries = await buildAdminNav(modules as any[], ctx, userEntities)
+  // Build initial nav (SSR) without dynamic user entities; they will be fetched client-side
+  const entries = await buildAdminNav(modules as any[], ctx)
   // Group entries and sort groups by the smallest priority/order among their roots
   const groupMap = new Map<string, {
     name: string,
@@ -106,7 +66,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   } catch {}
 
   return (
-    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={<UserMenu email={auth?.email} />}> 
+    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={<UserMenu email={auth?.email} />} userEntitiesApi="/api/entities/sidebar-entities"> 
       {children}
     </AppShell>
   )
