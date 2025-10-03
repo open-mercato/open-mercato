@@ -217,13 +217,16 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
           <label className="text-sm font-medium">Validation rules</label>
           <button
             type="button"
-            className="text-xs px-2 py-1 border rounded hover:bg-gray-50"
+            className="text-xs px-2 py-1 border rounded hover:bg-gray-50 inline-flex items-center gap-1"
             onClick={() => {
               const list = Array.isArray(local.configJson?.validation) ? [...local.configJson!.validation] : []
               list.push({ rule: 'required', message: 'This field is required' } as any)
               apply({ configJson: { ...(local.configJson || {}), validation: list } }, true)
             }}
-          >Add rule</button>
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add rule
+          </button>
         </div>
         <div className="space-y-2">
           {(Array.isArray(local.configJson?.validation) ? local.configJson!.validation : []).map((r: any, i: number) => (
@@ -279,16 +282,19 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
                   onBlur={commit}
                 />
               </div>
-              <div className="md:col-span-1">
+              <div className="md:col-span-1 flex justify-end">
                 <button
                   type="button"
-                  className="text-xs px-2 py-1 border rounded hover:bg-gray-50"
+                  className="px-2 py-1 border rounded hover:bg-gray-50"
+                  aria-label="Remove rule"
                   onClick={() => {
                     const list = [...(local.configJson?.validation || [])]
                     list.splice(i, 1)
                     apply({ configJson: { ...(local.configJson || {}), validation: list } }, true)
                   }}
-                >Remove</button>
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
             </div>
           ))}
