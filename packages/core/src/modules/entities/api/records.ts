@@ -163,16 +163,15 @@ export async function POST(req: Request) {
 
   try {
     const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
+    const de = resolve('dataEngine') as any
+    const norm = normalizeValues(values)
 
-    const id = (!recordId || String(recordId).toLowerCase() === 'create') ? crypto.randomUUID() : recordId
-
-    await setRecordCustomFields(em, {
+    const { id } = await de.createCustomEntityRecord({
       entityId,
-      recordId: id!,
+      recordId: (!recordId || String(recordId).toLowerCase() === 'create') ? undefined : recordId,
       organizationId: auth.orgId!,
       tenantId: auth.tenantId!,
-      values: normalizeValues(values),
+      values: norm,
     })
 
     return NextResponse.json({ ok: true, item: { entityId, recordId: id } })
@@ -199,9 +198,8 @@ export async function PUT(req: Request) {
 
   try {
     const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
-
-    await setRecordCustomFields(em, {
+    const de = resolve('dataEngine') as any
+    await de.updateCustomEntityRecord({
       entityId,
       recordId,
       organizationId: auth.orgId!,
@@ -237,21 +235,8 @@ export async function DELETE(req: Request) {
 
   try {
     const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
-
-    const rows = await em.find(CustomFieldValue, {
-      entityId,
-      recordId,
-      organizationId: auth.orgId!,
-      tenantId: auth.tenantId!,
-    })
-    if (!rows.length) return NextResponse.json({ ok: true })
-    const now = new Date()
-    for (const r of rows) {
-      r.deletedAt = r.deletedAt ?? now
-    }
-    await em.persistAndFlush(rows)
-
+    const de = resolve('dataEngine') as any
+    await de.deleteCustomEntityRecord({ entityId, recordId, organizationId: auth.orgId!, tenantId: auth.tenantId!, soft: true })
     return NextResponse.json({ ok: true })
   } catch (e) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -266,5 +251,4 @@ function normalizeValues(input: Record<string, any>): Record<string, any> {
   }
   return out
 }
-
 
