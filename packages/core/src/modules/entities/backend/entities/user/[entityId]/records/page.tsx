@@ -5,6 +5,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { filterCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import type { FilterDef } from '@open-mercato/ui/backend/FilterBar'
 import { ContextHelp } from '@open-mercato/ui/backend/ContextHelp'
 import { Button, buttonVariants } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -318,6 +319,11 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     </>
   )
 
+  // Ensure filters are visible even if no custom fields are marked filterable
+  const baseFilters: FilterDef[] = React.useMemo(() => ([
+    { id: 'id', label: 'ID', type: 'text' },
+  ]), [])
+
   return (
     <Page>
       <PageBody>
@@ -409,6 +415,7 @@ curl -s -X DELETE \
           actions={actions}
           columns={columns}
           data={data}
+          filters={baseFilters}
           filterValues={filterValues}
           rowActions={(row) => (
             <RowActions
