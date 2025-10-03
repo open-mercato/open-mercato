@@ -51,7 +51,16 @@ export default function EditRecordPage({ params }: { params: { entityId?: string
       onSubmit={async (values) => {
         const body = { entityId, recordId, values }
         const res = await apiFetch('/api/entities/records', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-        if (!res.ok) throw new Error('Failed to save')
+        if (!res.ok) {
+          let payload: any = null
+          try { payload = await res.json() } catch {}
+          if (payload?.fields) {
+            const err: any = new Error(payload?.error || 'Validation failed')
+            err.fieldErrors = payload.fields
+            throw err
+          }
+          throw new Error(payload?.error || 'Failed to save')
+        }
       }}
       onDelete={async () => {
         const res = await apiFetch(`/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`, { method: 'DELETE' })

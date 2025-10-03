@@ -164,18 +164,49 @@ export async function POST(req: Request) {
   try {
     const { resolve } = await createRequestContainer()
     const de = resolve('dataEngine') as any
+    const em = resolve('em') as any
     const norm = normalizeValues(values)
+
+    // Debug logging to trace id normalization
+    try {
+      console.log('[entities.records.POST] incoming', {
+        entityId,
+        recordId,
+        valuesId: (values as any)?.id,
+        valueKeys: Object.keys(values || {}),
+      })
+    } catch {}
+
+    // Validate against custom field definitions
+    try {
+      const { validateCustomFieldValuesServer } = await import('../lib/validation')
+      const check = await validateCustomFieldValuesServer(em, { entityId, organizationId: auth.orgId!, tenantId: auth.tenantId!, values: norm })
+      if (!check.ok) return NextResponse.json({ error: 'Validation failed', fields: check.fieldErrors }, { status: 400 })
+    } catch { /* ignore if helper missing */ }
+
+    const normalizedRecordId = (() => {
+      const raw = String(recordId || '').trim()
+      if (!raw) return undefined
+      const low = raw.toLowerCase()
+      if (low === 'create' || low === 'new' || low === 'null' || low === 'undefined') return undefined
+      // Enforce UUID only; any non-uuid is ignored so we generate one in the DE
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      return uuid.test(raw) ? raw : undefined
+    })()
+    try { console.log('[entities.records.POST] normalizedRecordId', normalizedRecordId) } catch {}
 
     const { id } = await de.createCustomEntityRecord({
       entityId,
-      recordId: (!recordId || String(recordId).toLowerCase() === 'create') ? undefined : recordId,
+      recordId: normalizedRecordId,
       organizationId: auth.orgId!,
       tenantId: auth.tenantId!,
       values: norm,
     })
 
+    try { console.log('[entities.records.POST] created id', id) } catch {}
     return NextResponse.json({ ok: true, item: { entityId, recordId: id } })
   } catch (e) {
+    try { console.error('[entities.records.POST] Error', e) } catch {}
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -203,12 +234,20 @@ export async function PUT(req: Request) {
   try {
     const { resolve } = await createRequestContainer()
     const de = resolve('dataEngine') as any
+    const em = resolve('em') as any
+    const norm = normalizeValues(values)
+    // Validate against custom field definitions
+    try {
+      const { validateCustomFieldValuesServer } = await import('../lib/validation')
+      const check = await validateCustomFieldValuesServer(em, { entityId, organizationId: auth.orgId!, tenantId: auth.tenantId!, values: norm })
+      if (!check.ok) return NextResponse.json({ error: 'Validation failed', fields: check.fieldErrors }, { status: 400 })
+    } catch { /* ignore if helper missing */ }
     await de.updateCustomEntityRecord({
       entityId,
       recordId,
       organizationId: auth.orgId!,
       tenantId: auth.tenantId!,
-      values: normalizeValues(values),
+      values: norm,
     })
 
     return NextResponse.json({ ok: true, item: { entityId, recordId } })

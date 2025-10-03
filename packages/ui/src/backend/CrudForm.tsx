@@ -9,6 +9,7 @@ import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
 import { Trash2, Save } from 'lucide-react'
+import { loadGeneratedFieldRegistrations } from './fields/registry'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -50,6 +51,9 @@ export type CrudCustomFieldRenderProps = {
   autoFocus?: boolean
   disabled?: boolean
   setValue: (value: any) => void
+  // Optional context for advanced custom inputs
+  entityId?: string
+  recordId?: string
 }
 
 export type CrudCustomField = CrudFieldBase & {
@@ -120,6 +124,8 @@ export function CrudForm<TValues extends Record<string, any>>({
   isLoading = false,
   loadingMessage = 'Loading data...',
 }: CrudFormProps<TValues>) {
+  // Ensure module field components are registered (client-side)
+  React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
   const router = useRouter()
   const formId = React.useId()
   const [values, setValues] = React.useState<Record<string, any>>({ ...(initialValues || {}) })
@@ -235,6 +241,28 @@ export function CrudForm<TValues extends Record<string, any>>({
       return
     }
 
+    // Custom fields validation via definitions (rules)
+    if (entityId) {
+      try {
+        const mod = await import('./utils/customFieldDefs')
+        const defs = await mod.fetchCustomFieldDefs(entityId)
+        const { validateValuesAgainstDefs } = await import('@open-mercato/shared/modules/entities/validation')
+        // Map form values cf_* -> key
+        const cfValues: Record<string, any> = {}
+        for (const [k, v] of Object.entries(values)) {
+          if (k.startsWith('cf_')) cfValues[k.replace(/^cf_/, '')] = v
+        }
+        const result = validateValuesAgainstDefs(cfValues, defs as any)
+        if (!result.ok) {
+          setErrors((prev) => ({ ...prev, ...result.fieldErrors }))
+          flash('Please fix the highlighted errors.', 'error')
+          return
+        }
+      } catch {
+        // ignore validation errors if helper not available
+      }
+    }
+
     let parsed: any = values
     if (schema) {
       const res = (schema as z.ZodTypeAny).safeParse(values)
@@ -255,15 +283,36 @@ export function CrudForm<TValues extends Record<string, any>>({
       await onSubmit?.(parsed)
       if (successRedirect) router.push(successRedirect)
     } catch (err: any) {
-      // Try to extract meaningful message often returned as JSON
+      // Try to extract field-level errors from structured responses
       let msg = err?.message || 'Unexpected error'
-      try {
-        const parsed = JSON.parse(msg)
-        if (parsed?.error) msg = String(parsed.error)
-        else if (parsed?.message) msg = String(parsed.message)
-      } catch {}
+      let fieldErrors: Record<string, string> | null = null
+      // Custom error shape from callers: { fieldErrors }
+      if (err && typeof err === 'object' && err.fieldErrors && typeof err.fieldErrors === 'object') {
+        fieldErrors = err.fieldErrors as Record<string, string>
+      } else {
+        // Sometimes message may be JSON with { error, fields }
+        try {
+          const parsed = JSON.parse(msg)
+          if (parsed?.fields && typeof parsed.fields === 'object') {
+            fieldErrors = parsed.fields as Record<string, string>
+            msg = parsed?.error || parsed?.message || msg
+          } else if (parsed?.error || parsed?.message) {
+            msg = parsed.error || parsed.message
+          }
+        } catch {}
+      }
+
+      if (fieldErrors) {
+        const next: Record<string, string> = {}
+        for (const [k, v] of Object.entries(fieldErrors)) {
+          // Map server keys to form field ids; prefer cf_<key>
+          const fid = k.startsWith('cf_') ? k : (k.startsWith('cf:') ? `cf_${k.slice(3)}` : `cf_${k}`)
+          next[fid] = String(v)
+        }
+        setErrors(next)
+      }
+
       flash(msg || 'Save failed', 'error')
-      // Also keep inline error minimal and human-friendly
       setFormError(msg)
     } finally {
       setPending(false)
@@ -577,7 +626,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'custom' && (
-          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue })}</>
+          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue, entityId, recordId: (values as any)?.id })}</>
         )}
         {(f as any).description ? (
           <div className="text-xs text-muted-foreground">{(f as any).description}</div>

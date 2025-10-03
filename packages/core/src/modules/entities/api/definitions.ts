@@ -85,6 +85,10 @@ export async function GET(req: Request) {
       : (d.kind === 'multiline' ? entityDefaultEditor : undefined),
     input: typeof d.configJson?.input === 'string' ? d.configJson.input : undefined,
     priority: typeof d.configJson?.priority === 'number' ? d.configJson.priority : 0,
+    validation: Array.isArray(d.configJson?.validation) ? d.configJson.validation : undefined,
+    // attachments config passthrough
+    maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
+    acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
   }))
   items.sort((a: any, b: any) => (a.priority ?? 0) - (b.priority ?? 0))
 

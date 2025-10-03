@@ -14,6 +14,19 @@ export type CustomFieldDefDto = {
   editor?: string
   input?: string
   priority?: number
+  // attachments-specific config
+  maxAttachmentSizeMb?: number
+  acceptExtensions?: string[]
+  // optional validation rules
+  validation?: Array<
+    | { rule: 'required'; message: string }
+    | { rule: 'date'; message: string }
+    | { rule: 'integer'; message: string }
+    | { rule: 'float'; message: string }
+    | { rule: 'lt' | 'lte' | 'gt' | 'gte'; param: number; message: string }
+    | { rule: 'eq' | 'ne'; param: any; message: string }
+    | { rule: 'regex'; param: string; message: string }
+  >
 }
 
 export async function fetchCustomFieldDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<CustomFieldDefDto[]> {

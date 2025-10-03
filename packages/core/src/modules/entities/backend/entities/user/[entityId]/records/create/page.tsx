@@ -28,7 +28,16 @@ export default function CreateRecordPage({ params }: { params: { entityId?: stri
       onSubmit={async (values) => {
         const body = { entityId, values }
         const res = await apiFetch('/api/entities/records', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-        if (!res.ok) throw new Error('Failed to create')
+        if (!res.ok) {
+          let payload: any = null
+          try { payload = await res.json() } catch {}
+          if (payload?.fields) {
+            const err: any = new Error(payload?.error || 'Validation failed')
+            err.fieldErrors = payload.fields
+            throw err
+          }
+          throw new Error(payload?.error || 'Failed to create')
+        }
         router.push(`/backend/entities/user/${encodeURIComponent(entityId)}/records`)
       }}
     />

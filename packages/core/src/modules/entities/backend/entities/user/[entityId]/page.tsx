@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { Plus, Trash2, GripVertical } from 'lucide-react'
+import { FieldRegistry, loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields/registry'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
 type Def = { key: string; kind: string; configJson?: any; isActive?: boolean }
@@ -210,6 +211,107 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
         )}
       </div>
 
+      {/* Validation rules */}
+      <div className="mt-3 pt-3 border-t">
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium">Validation rules</label>
+          <button
+            type="button"
+            className="text-xs px-2 py-1 border rounded hover:bg-gray-50"
+            onClick={() => {
+              const list = Array.isArray(local.configJson?.validation) ? [...local.configJson!.validation] : []
+              list.push({ rule: 'required', message: 'This field is required' } as any)
+              apply({ configJson: { ...(local.configJson || {}), validation: list } }, true)
+            }}
+          >Add rule</button>
+        </div>
+        <div className="space-y-2">
+          {(Array.isArray(local.configJson?.validation) ? local.configJson!.validation : []).map((r: any, i: number) => (
+            <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+              <div className="md:col-span-3">
+                <select
+                  className="border rounded w-full px-2 py-1 text-sm"
+                  value={r?.rule || 'required'}
+                  onChange={(e) => {
+                    const list = [...(local.configJson?.validation || [])]
+                    list[i] = { rule: e.target.value, message: r?.message || '' }
+                    apply({ configJson: { ...(local.configJson || {}), validation: list } }, true)
+                  }}
+                >
+                  <option value="required">required</option>
+                  <option value="date">date</option>
+                  <option value="integer">integer</option>
+                  <option value="float">float</option>
+                  <option value="lt">lt</option>
+                  <option value="lte">lte</option>
+                  <option value="gt">gt</option>
+                  <option value="gte">gte</option>
+                  <option value="eq">eq</option>
+                  <option value="ne">ne</option>
+                  <option value="regex">regex</option>
+                </select>
+              </div>
+              <div className="md:col-span-4">
+                <input
+                  className="border rounded w-full px-2 py-1 text-sm"
+                  placeholder={r?.rule === 'regex' ? 'Pattern (e.g. ^[a-z]+$)' : (['lt','lte','gt','gte'].includes(r?.rule) ? 'Number' : '—')}
+                  value={r?.param ?? ''}
+                  onChange={(e) => {
+                    const v = ['lt','lte','gt','gte'].includes(r?.rule) ? Number(e.target.value) : e.target.value
+                    const list = [...(local.configJson?.validation || [])]
+                    list[i] = { ...r, param: v }
+                    apply({ configJson: { ...(local.configJson || {}), validation: list } })
+                  }}
+                  onBlur={commit}
+                  disabled={r?.rule === 'required' || r?.rule === 'date' || r?.rule === 'integer' || r?.rule === 'float'}
+                />
+              </div>
+              <div className="md:col-span-4">
+                <input
+                  className="border rounded w-full px-2 py-1 text-sm"
+                  placeholder="Error message"
+                  value={r?.message || ''}
+                  onChange={(e) => {
+                    const list = [...(local.configJson?.validation || [])]
+                    list[i] = { ...r, message: e.target.value }
+                    apply({ configJson: { ...(local.configJson || {}), validation: list } })
+                  }}
+                  onBlur={commit}
+                />
+              </div>
+              <div className="md:col-span-1">
+                <button
+                  type="button"
+                  className="text-xs px-2 py-1 border rounded hover:bg-gray-50"
+                  onClick={() => {
+                    const list = [...(local.configJson?.validation || [])]
+                    list.splice(i, 1)
+                    apply({ configJson: { ...(local.configJson || {}), validation: list } }, true)
+                  }}
+                >Remove</button>
+              </div>
+            </div>
+          ))}
+          {(!Array.isArray(local.configJson?.validation) || local.configJson!.validation.length === 0) && (
+            <div className="text-xs text-muted-foreground">No validation rules defined.</div>
+          )}
+        </div>
+      </div>
+
+      {/* Kind-specific config editor via registry */}
+      <div className="mt-3">
+        {(() => {
+          const Editor = FieldRegistry.getDefEditor(local.kind)
+          if (!Editor) return null
+          return (
+            <Editor
+              def={{ key: local.key, kind: local.kind, configJson: local.configJson }}
+              onChange={(patch) => apply({ configJson: { ...(local.configJson || {}), ...(patch || {}) } }, true)}
+            />
+          )
+        })()}
+      </div>
+
       {/* Bottom row: visibility toggles to keep top clean */}
       <div className="mt-3 pt-2 border-t flex flex-wrap items-center gap-4">
         <span className="text-xs text-muted-foreground">Visibility:</span>
@@ -231,6 +333,7 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
 })
 
 export default function EditDefinitionsPage({ params }: { params?: { entityId?: string } }) {
+  React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
   const router = useRouter()
   const entityId = useMemo(() => decodeURIComponent((params?.entityId as any) || ''), [params])
   const [label, setLabel] = useState('')
