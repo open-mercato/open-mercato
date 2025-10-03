@@ -77,6 +77,9 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   twoColumn?: boolean
   title?: string
   backHref?: string
+  // Optional extra action buttons rendered next to Delete/Cancel/Save
+  // Useful for custom links like "Show Records" etc.
+  extraActions?: React.ReactNode
   // When provided, CrudForm will fetch custom field definitions and append
   // form-editable custom fields automatically to the provided `fields`.
   entityId?: string
@@ -117,6 +120,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   submitLabel = 'Save',
   cancelHref,
   successRedirect,
+  deleteRedirect,
   onSubmit,
   onDelete,
   twoColumn = false,
@@ -127,6 +131,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   isLoading = false,
   loadingMessage = 'Loading data...',
   customEntity = false,
+  extraActions,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
@@ -788,6 +793,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             {title ? <div className="text-base font-medium">{title}</div> : null}
           </div>
           <div className="flex items-center gap-2">
+            {extraActions}
             {showDelete ? (
               <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
                 <Trash2 className="size-4 mr-2" />
@@ -868,6 +874,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             <div className="flex items-center justify-between gap-2">
               <div />
               <div className="flex items-center gap-2">
+                {extraActions}
                 {showDelete ? (
                   <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
                     <Trash2 className="size-4 mr-2" />
@@ -904,6 +911,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           {title ? <div className="text-base font-medium">{title}</div> : null}
         </div>
         <div className="flex items-center gap-2">
+          {extraActions}
           {showDelete ? (
             <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
               <Trash2 className="size-4 mr-2" />
@@ -944,6 +952,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             <div className="flex items-center justify-end gap-2">
+              {extraActions}
               {showDelete ? (
                 <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50">
                   <Trash2 className="size-4 mr-2" />

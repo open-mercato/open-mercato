@@ -321,6 +321,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
           actions={actions}
           columns={columns}
           data={data}
+          filterValues={filterValues}
           rowActions={(row) => (
             <RowActions
               items={[

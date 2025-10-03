@@ -45,25 +45,36 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   }
 
   try {
-    // Build base query depending on mode
-    let q = knex({ b: table })
-      .select('b.id', 'b.organization_id', 'b.tenant_id')
-      .whereNull('b.deleted_at')
+    // Detect optional multi-tenant/deleted columns for the base table
+    const hasOrgCol = await knex.schema.hasColumn(table, 'organization_id')
+    const hasTenantCol = await knex.schema.hasColumn(table, 'tenant_id')
+    const hasDeletedCol = await knex.schema.hasColumn(table, 'deleted_at')
+
+    // Build base query depending on mode; select only columns that exist
+    const baseSelect: any[] = ['b.id']
+    if (hasOrgCol) baseSelect.push('b.organization_id')
+    if (hasTenantCol) baseSelect.push('b.tenant_id')
+    let q = knex({ b: table }).select(baseSelect)
+    if (hasDeletedCol) q = q.whereNull('b.deleted_at')
 
     // Scope base rows
-    if (orgId !== undefined) {
+    if (orgId !== undefined && hasOrgCol) {
       if (orgId === null) q = q.whereNull('b.organization_id')
       else q = q.andWhere((bld: any) => bld.where({ 'b.organization_id': orgId }).orWhereNull('b.organization_id'))
     }
-    if (tenantId !== undefined) {
+    if (tenantId !== undefined && hasTenantCol) {
       if (tenantId === null) q = q.whereNull('b.tenant_id')
       else q = q.andWhere((bld: any) => bld.where({ 'b.tenant_id': tenantId }).orWhereNull('b.tenant_id'))
     }
 
     if (!forceFull) {
       // Resume: only rows missing in index for the target scope
-      const orgExpr = (orgId !== undefined) ? knex.raw('?', [orgId]) : knex.raw('b.organization_id')
-      const tenantExpr = (tenantId !== undefined) ? knex.raw('?', [tenantId]) : knex.raw('b.tenant_id')
+      const orgExpr = (orgId !== undefined)
+        ? knex.raw('?', [orgId])
+        : (hasOrgCol ? knex.raw('b.organization_id') : knex.raw('null'))
+      const tenantExpr = (tenantId !== undefined)
+        ? knex.raw('?', [tenantId])
+        : (hasTenantCol ? knex.raw('b.tenant_id') : knex.raw('null'))
       const onParts: string[] = []
       onParts.push(knex.raw('ei.entity_type = ?', [entityType]).toString())
       onParts.push('ei.entity_id = (b.id::text)')
@@ -76,8 +87,8 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
     const rows = await q
     for (const r of rows) {
-      const scopeOrg = orgId !== undefined ? orgId : (r.organization_id ?? null)
-      const scopeTenant = tenantId !== undefined ? tenantId : (r.tenant_id ?? null)
+      const scopeOrg = orgId !== undefined ? orgId : (hasOrgCol ? (r as any).organization_id ?? null : null)
+      const scopeTenant = tenantId !== undefined ? tenantId : (hasTenantCol ? (r as any).tenant_id ?? null : null)
       await eventBus.emitEvent('query_index.upsert_one', { entityType, recordId: String(r.id), organizationId: scopeOrg, tenantId: scopeTenant })
     }
   } finally {
@@ -85,4 +96,3 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     try { await lockScope().del() } catch {}
   }
 }
-

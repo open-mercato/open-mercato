@@ -10,6 +10,8 @@ import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { Plus, Trash2, GripVertical } from 'lucide-react'
+import Link from 'next/link'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { FieldRegistry, loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields/registry'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
@@ -669,6 +671,13 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           initialValues={entityInitial as any}
           isLoading={entityFormLoading || loading}
           submitLabel="Save"
+          extraActions={entitySource === 'custom' ? (
+            <Button variant="outline" asChild>
+              <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}>
+                Show Records
+              </Link>
+            </Button>
+          ) : null}
           cancelHref={entitySource === 'code' ? "/backend/entities/system" : "/backend/entities/user"}
           successRedirect={entitySource === 'code' ? "/backend/entities/system?flash=Definitions%20saved&type=success" : "/backend/entities/user?flash=Definitions%20saved&type=success"}
           onSubmit={async (vals) => {

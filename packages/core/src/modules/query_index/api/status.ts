@@ -54,19 +54,34 @@ export async function GET(req: Request) {
     entityIds = entityIds.filter((id) => enabled.has(id))
   } catch {}
 
+  async function columnExists(table: string, column: string): Promise<boolean> {
+    try {
+      const row = await knex('information_schema.columns')
+        .where({ table_name: table, column_name: column })
+        .first()
+      return !!row
+    } catch {
+      return false
+    }
+  }
+
   async function countBase(entityType: string, orgIdParam: string, tenantIdParam: string | null): Promise<number> {
     const table = toBaseTableFromEntityType(entityType)
-    const whereScoped = (qb: any) => {
-      qb.where((b: any) => b.where({ organization_id: orgIdParam }).orWhereNull('organization_id'))
-      if (tenantIdParam != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantIdParam }).orWhereNull('tenant_id'))
-      qb.andWhere({ deleted_at: null })
-    }
+    const hasOrg = await columnExists(table, 'organization_id')
+    const hasTenant = await columnExists(table, 'tenant_id')
+    const hasDeleted = await columnExists(table, 'deleted_at')
+
+    let q = knex(table)
+    if (hasOrg) q = q.where((b: any) => b.where({ organization_id: orgIdParam }).orWhereNull('organization_id'))
+    if (hasTenant && tenantIdParam != null) q = q.andWhere((b: any) => b.where({ tenant_id: tenantIdParam }).orWhereNull('tenant_id'))
+    if (hasDeleted) q = q.andWhere({ deleted_at: null })
+
     try {
-      const r = await knex(table).modify(whereScoped).count('* as count').first()
+      const r = await q.count('* as count').first()
       const n = r && (r as any).count != null ? Number((r as any).count) : 0
       return isNaN(n) ? 0 : n
     } catch {
-      // Fallback: unscoped count if table lacks org/tenant columns
+      // Fallback: unscoped count
       try {
         const r = await knex(table).count('* as count').first()
         const n = r && (r as any).count != null ? Number((r as any).count) : 0
