@@ -9,6 +9,7 @@ import { Button, buttonVariants } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import Link from 'next/link'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 type RecordsResponse = {
   items: any[]
@@ -115,8 +116,9 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
         if (isCustomEntity) {
           const allowed = new Set(filterCustomFieldDefs(cfDefs as any, 'list').map((d: any) => d.key))
           const technical = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'organization_id', 'tenant_id'])
-          const visible = keys.filter((k) => k === 'id' || (!technical.has(k) && (allowed.size === 0 || allowed.has(k))))
-          base = visible // treat as base for ordering
+          // Exclude 'id' from columns; keep other non-technical keys visible (optionally filtered by defs)
+          const visible = keys.filter((k) => !technical.has(k) && (allowed.size === 0 || allowed.has(k)))
+          base = visible
           cfs = [] // do not use cf_ channel here
         } else {
           base = keys.filter((k) => !k.startsWith('cf_'))
@@ -290,16 +292,17 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     )
   }
 
+  const hasAnyFormFields = React.useMemo(() => filterCustomFieldDefs(cfDefs as any, 'form').length > 0, [cfDefs])
   const actions = (
     <>
-      <Button variant="outline" size="sm" onClick={() => setShowAllColumns((v) => !v)}>
-        {showAllColumns ? 'Compact columns' : 'Show all columns'}
-      </Button>
-      <Button asChild size="sm">
-        <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}/records/create`}>
-          Create
-        </Link>
-      </Button>
+      {/* Remove "Show all columns" toggle for user entities */}
+      {hasAnyFormFields && (
+        <Button asChild size="sm">
+          <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}/records/create`}>
+            Create
+          </Link>
+        </Button>
+      )}
       <ExportDropdown />
     </>
   )
@@ -319,6 +322,10 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
                 { label: 'Edit', href: `/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(String((row as any).id))}` },
                 { label: 'Delete', destructive: true, onSelect: async () => {
                   try {
+                    if (typeof window !== 'undefined') {
+                      const ok = window.confirm('Delete this record?')
+                      if (!ok) return
+                    }
                     await apiFetch(`/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(String((row as any).id))}`, { method: 'DELETE' })
                     // Refresh
                     const res = await apiFetch(`/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=${pageSize}`)
@@ -326,6 +333,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
                     setData(j.items || [])
                     setTotal(j.total || 0)
                     setTotalPages(j.totalPages || 1)
+                    flash('Record has been removed', 'success')
                   } catch {}
                 } },
               ]}
