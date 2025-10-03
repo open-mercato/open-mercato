@@ -125,6 +125,21 @@ Behavior:
 ## Validation
 Provide a Zod schema via `schema`. Field-level errors are displayed under each field; a general form error (from `onSubmit`) shows above actions.
 
+Custom fields rules:
+- Field definitions can include rule-based validation (required, integer/float, lt/lte/gt/gte, eq/ne, regex) with custom messages.
+- When `entityId` is provided, CrudForm fetches definitions, marks fields with a `required` rule, and validates values client-side before submit.
+- The API also validates the same rules server-side to keep forms and custom user entities consistent.
+
+Rules live in the field definition JSON under `validation`:
+```
+validation: [
+  { rule: 'required', message: 'Required' },
+  { rule: 'integer', message: 'Must be integer' },
+  { rule: 'gte', param: 1, message: '>= 1' },
+  { rule: 'lte', param: 5, message: '<= 5' },
+]
+```
+
 ## Notes
 - Keep field validation in Zod; mark `required: true` for labels only (the schema drives actual validation).
 - Prefer simple value shapes for portability (e.g., tags as `string[]`, relations as a single foreign key `string`).
@@ -168,3 +183,11 @@ const defs = await fetchCustomFieldDefs('example:todo')
 const visibleColumns = applyCustomFieldVisibility(columns, defs)
 ```
 ```
+New kinds can be registered via a field registry. For example, the `attachments` kind ships with an input that lets users upload files related to a record.
+
+Attachments field:
+- Kind: `attachment`
+- UI: file input + list of uploaded files (after the record is saved)
+- Definition editor options: `maxAttachmentSizeMb`, `acceptExtensions` (e.g. `['pdf','png']`)
+- Upload API: `POST /api/attachments`
+- List API: `GET /api/attachments?entityId=...&recordId=...`

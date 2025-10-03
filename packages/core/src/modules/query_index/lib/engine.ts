@@ -183,10 +183,10 @@ export class HybridQueryEngine implements QueryEngine {
 
     // Multi-tenant guards
     if (opts.organizationId != null) q = q.andWhere(`${alias}.organization_id`, opts.organizationId)
-    else q = q.andWhereNull(`${alias}.organization_id`)
+    else q = q.whereNull(`${alias}.organization_id`)
     if (opts.tenantId != null) q = q.andWhere((b: any) => b.where(`${alias}.tenant_id`, opts.tenantId).orWhereNull(`${alias}.tenant_id`))
-    else q = q.andWhereNull(`${alias}.tenant_id`)
-    if (!opts.withDeleted) q = q.andWhereNull(`${alias}.deleted_at`)
+    else q = q.whereNull(`${alias}.tenant_id`)
+    if (!opts.withDeleted) q = q.whereNull(`${alias}.deleted_at`)
 
     const normalizeFilters = this.normalizeFilters(opts.filters)
 

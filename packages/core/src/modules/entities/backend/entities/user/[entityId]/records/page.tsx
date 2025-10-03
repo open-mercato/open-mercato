@@ -137,7 +137,8 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
           if (k.startsWith('cf_')) return 7
           return 3
         }
-        const hideByHeuristic = (k: string) => !showAllColumns && (looksSensitive(k) || looksTechnicalId(k) || isGuidLike(k))
+        // Do not hide 'id' column completely; keep it available for sorting/state
+        const hideByHeuristic = (k: string) => !showAllColumns && (looksSensitive(k) || (k !== 'id' && (looksTechnicalId(k) || isGuidLike(k))))
 
         const ordered = [
           ...['id','name','title','label','created_at','updated_at'].filter((k) => base.includes(k)),

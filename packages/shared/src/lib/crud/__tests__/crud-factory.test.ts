@@ -33,6 +33,26 @@ jest.mock('@/lib/di/container', () => ({
       queryEngine,
       eventBus: mockEventBus,
       dataEngine: {
+        createOrmEntity: async ({ entity, data }: any) => {
+          const created = em.create(entity, data)
+          await em.persistAndFlush(created as any)
+          return created
+        },
+        updateOrmEntity: async ({ entity, where, apply }: any) => {
+          const current = await (em.getRepository(entity).findOne(where) as any)
+          if (!current) return null
+          await apply(current)
+          await em.persistAndFlush(current)
+          return current
+        },
+        deleteOrmEntity: async ({ entity, where, soft, softDeleteField }: any) => {
+          const repo = em.getRepository(entity)
+          const current = await (repo.findOne(where) as any)
+          if (!current) return null
+          if (soft !== false) { (current as any)[softDeleteField || 'deletedAt'] = new Date(); await em.persistAndFlush(current) }
+          else await repo.removeAndFlush(current)
+          return current
+        },
         setCustomFields: async (args: any) => {
           // Bridge into helper so existing expectations still work
           await (setRecordCustomFields as any)(em, args)

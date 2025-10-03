@@ -21,7 +21,7 @@ const AttachmentInput = ({ entityId, recordId, def }: { entityId?: string; recor
     if (!entityId || !recordId) return
     try {
       setLoading(true)
-      const res = await apiFetch(`/api/attachments.list?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`)
+      const res = await apiFetch(`/api/attachments?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`)
       const j = await res.json().catch(() => ({ items: [] }))
       setItems(Array.isArray(j.items) ? j.items : [])
     } catch (e: any) {
@@ -53,7 +53,7 @@ const AttachmentInput = ({ entityId, recordId, def }: { entityId?: string; recor
       fd.set('recordId', recordId)
       if (def?.key) fd.set('fieldKey', String(def.key))
       fd.set('file', file)
-      const res = await fetch('/api/attachments.upload', { method: 'POST', body: fd })
+      const res = await apiFetch('/api/attachments', { method: 'POST', body: fd })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
         setError(j?.error || 'Upload failed')

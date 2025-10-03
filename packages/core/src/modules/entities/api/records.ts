@@ -63,7 +63,7 @@ export async function GET(req: Request) {
   try {
     const { resolve } = await createRequestContainer()
     const qe = resolve('queryEngine') as QueryEngine
-    const res = await qe.query(entityId as any, {
+    const qopts = {
       organizationId: auth.orgId!,
       tenantId: auth.tenantId!,
       includeCustomFields: true,
@@ -71,7 +71,9 @@ export async function GET(req: Request) {
       sort: [{ field: sortField as any, dir: sortDir as any }] as Sort<any>[],
       filters: filtersObj,
       withDeleted,
-    })
+    } as const
+    try { console.log('[entities.records.GET] query', { entityId, sortField, sortDir, page, pageSize, withDeleted, filters: filtersObj }) } catch {}
+    const res = await qe.query(entityId as any, qopts as any)
 
     const payload = {
       items: res.items || [],
@@ -140,6 +142,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json(payload)
   } catch (e) {
+    try { console.error('[entities.records.GET] Error', e) } catch {}
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -236,22 +239,54 @@ export async function PUT(req: Request) {
     const de = resolve('dataEngine') as any
     const em = resolve('em') as any
     const norm = normalizeValues(values)
+
+    // Debug logging to trace recordId handling
+    try {
+      console.log('[entities.records.PUT] incoming', {
+        entityId,
+        recordId,
+        valuesId: (values as any)?.id,
+        valueKeys: Object.keys(values || {}),
+      })
+    } catch {}
+
     // Validate against custom field definitions
     try {
       const { validateCustomFieldValuesServer } = await import('../lib/validation')
       const check = await validateCustomFieldValuesServer(em, { entityId, organizationId: auth.orgId!, tenantId: auth.tenantId!, values: norm })
       if (!check.ok) return NextResponse.json({ error: 'Validation failed', fields: check.fieldErrors }, { status: 400 })
     } catch { /* ignore if helper missing */ }
+
+    // Normalize recordId: if blank/sentinel/non-uuid => create instead of update
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    const rid = String(recordId || '').trim()
+    const low = rid.toLowerCase()
+    const isSentinel = !rid || low === 'create' || low === 'new' || low === 'null' || low === 'undefined'
+    const isUuid = uuidRe.test(rid)
+    if (isSentinel || !isUuid) {
+      try { console.log('[entities.records.PUT] treating as create: generating new id') } catch {}
+      const created = await de.createCustomEntityRecord({
+        entityId,
+        recordId: undefined,
+        organizationId: auth.orgId!,
+        tenantId: auth.tenantId!,
+        values: norm,
+      })
+      try { console.log('[entities.records.PUT] created id', created.id) } catch {}
+      return NextResponse.json({ ok: true, item: { entityId, recordId: created.id } })
+    }
+
     await de.updateCustomEntityRecord({
       entityId,
-      recordId,
+      recordId: rid,
       organizationId: auth.orgId!,
       tenantId: auth.tenantId!,
       values: norm,
     })
-
-    return NextResponse.json({ ok: true, item: { entityId, recordId } })
+    try { console.log('[entities.records.PUT] updated id', rid) } catch {}
+    return NextResponse.json({ ok: true, item: { entityId, recordId: rid } })
   } catch (e) {
+    try { console.error('[entities.records.PUT] Error', e) } catch {}
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

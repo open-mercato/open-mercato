@@ -1,0 +1,33 @@
+# Custom Field Validation
+
+Custom field definitions support rule-based validation with custom error messages. Rules are enforced in the UI (CrudForm) and revalidated on the server in APIs handling custom user entities.
+
+Supported rules:
+- required: value must be present (non-empty string/array, true for checkboxes)
+- date: parseable date string
+- integer: number is an integer
+- float: number is finite
+- lt/lte/gt/gte: numerical comparisons (requires `param` number)
+- eq/ne: strict equality/inequality compared to `param`
+- regex: value matches provided regex pattern string
+
+Definition syntax (configJson.validation):
+```
+validation: [
+  { rule: 'required', message: 'Required' },
+  { rule: 'integer', message: 'Must be integer' },
+  { rule: 'gte', param: 1, message: '>= 1' },
+  { rule: 'lte', param: 5, message: '<= 5' },
+  { rule: 'regex', param: '^[a-z0-9_-]+$', message: 'Invalid slug' },
+]
+```
+
+UI behavior:
+- CrudForm reads definitions for `entityId`, displays an asterisk when a `required` rule is present, and validates client-side before submitting.
+
+Server behavior:
+- The Entities records API validates custom field values via shared logic before persisting, returning `{ error: 'Validation failed', fields: { cf_<key>: 'Message' } }` with `400` on errors.
+
+Shared helper:
+- `packages/shared/src/modules/entities/validation.ts` exports `validateValuesAgainstDefs(values, defs)` to evaluate rules.
+
