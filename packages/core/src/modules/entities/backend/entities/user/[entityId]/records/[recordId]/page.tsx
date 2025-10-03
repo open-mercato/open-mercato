@@ -42,6 +42,7 @@ export default function EditRecordPage({ params }: { params: { entityId?: string
       schema={schema}
       fields={fields}
       entityId={entityId}
+      customEntity
       initialValues={initialValues || {}}
       isLoading={loading}
       loadingMessage="Loading record..."

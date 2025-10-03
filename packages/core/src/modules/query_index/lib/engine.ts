@@ -137,10 +137,25 @@ export class HybridQueryEngine implements QueryEngine {
     }
   }
 
-  private jsonbRawAlias(knex: any, alias: string, key: string): string { return knex.raw(`${alias}.doc -> ?`, [key]).toString() }
-  private cfTextExprAlias(knex: any, alias: string, key: string): any { return knex.raw(`(${alias}.doc ->> ?)`, [key]) }
+  private jsonbRawAlias(knex: any, alias: string, key: string): any {
+    // Prefer cf:<key> but fall back to bare <key> for legacy docs
+    if (key.startsWith('cf:')) {
+      const bare = key.slice(3)
+      return knex.raw(`coalesce(${alias}.doc -> ?, ${alias}.doc -> ?)`, [key, bare])
+    }
+    return knex.raw(`${alias}.doc -> ?`, [key])
+  }
+  private cfTextExprAlias(knex: any, alias: string, key: string): any {
+    if (key.startsWith('cf:')) {
+      const bare = key.slice(3)
+      return knex.raw(`coalesce((${alias}.doc ->> ?), (${alias}.doc ->> ?))`, [key, bare])
+    }
+    return knex.raw(`(${alias}.doc ->> ?)`, [key])
+  }
   private jsonbExtractExprAlias(knex: any, alias: string, key: string, dataType?: string | null): any {
-    const textExpr = knex.raw(`(${alias}.doc ->> ?)`, [key]).toString()
+    const textExpr = key.startsWith('cf:')
+      ? knex.raw(`coalesce((${alias}.doc ->> ?), (${alias}.doc ->> ?))`, [key, key.slice(3)]).toString()
+      : knex.raw(`(${alias}.doc ->> ?)`, [key]).toString()
     switch ((dataType || '').toLowerCase()) {
       case 'uuid': return knex.raw(`${textExpr}::uuid`)
       case 'integer':
@@ -263,15 +278,15 @@ export class HybridQueryEngine implements QueryEngine {
       if (f.startsWith('cf:')) {
         const aliasName = sanitize(f)
         const expr = this.jsonbRawAlias(knex, alias, f)
-        q = q.select(knex.raw(`${expr} as ??`, [aliasName]))
+        q = q.select({ [aliasName]: expr })
       } else if (f === 'id') {
         q = q.select(knex.raw(`${alias}.entity_id as ??`, ['id']))
       } else if (f === 'created_at' || f === 'updated_at' || f === 'deleted_at') {
         q = q.select(knex.raw(`${alias}.?? as ??`, [f, f]))
       } else {
         // Non-cf from doc
-        const expr = knex.raw(`(${alias}.doc ->> ?)`, [f]).toString()
-        q = q.select(knex.raw(`${expr} as ??`, [f]))
+        const expr = knex.raw(`(${alias}.doc ->> ?)`, [f])
+        q = q.select({ [f]: expr })
       }
     }
     // Ensure CFs necessary for sort are selected
@@ -279,7 +294,7 @@ export class HybridQueryEngine implements QueryEngine {
     for (const key of cfKeys) {
       const aliasName = sanitize(`cf:${key}`)
       const expr = this.jsonbRawAlias(knex, alias, `cf:${key}`)
-      q = q.select(knex.raw(`${expr} as ??`, [aliasName]))
+      q = q.select({ [aliasName]: expr })
       cfSelectedAliases.push(aliasName)
     }
 
@@ -290,7 +305,7 @@ export class HybridQueryEngine implements QueryEngine {
         const aliasName = sanitize(`cf:${key}`)
         if (!cfSelectedAliases.includes(aliasName)) {
           const expr = this.jsonbRawAlias(knex, alias, `cf:${key}`)
-          q = q.select(knex.raw(`${expr} as ??`, [aliasName]))
+          q = q.select({ [aliasName]: expr })
           cfSelectedAliases.push(aliasName)
         }
         q = q.orderBy(aliasName, s.dir ?? SortDir.Asc)

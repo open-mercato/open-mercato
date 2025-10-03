@@ -35,15 +35,41 @@ export async function GET(req: Request) {
   const sortDir = (url.searchParams.get('sortDir') || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc'
   const withDeleted = parseBool(url.searchParams.get('withDeleted'), false)
 
-  const filtersObj: Where<any> = {}
+  const qpEntries: Array<[string, string]> = []
   for (const [key, val] of url.searchParams.entries()) {
-    if (key === 'entityId' || key === 'page' || key === 'pageSize' || key === 'sortField' || key === 'sortDir' || key === 'withDeleted' || key === 'format') continue
-    if (key.startsWith('cf_')) {
-      if (key.endsWith('In')) {
-        const base = key.slice(0, -2)
-        const values = val.split(',').map((s) => s.trim()).filter(Boolean)
-        ;(filtersObj as any)[base] = { $in: values }
-      } else {
+    if (['entityId','page','pageSize','sortField','sortDir','withDeleted','format'].includes(key)) continue
+    qpEntries.push([key, val])
+  }
+
+  try {
+    const { resolve } = await createRequestContainer()
+    const qe = resolve('queryEngine') as QueryEngine
+    const em = resolve('em') as any
+    let isCustomEntity = false
+    try {
+      const { CustomEntity } = await import('../data/entities')
+      const found = await em.findOne(CustomEntity as any, { entityId, isActive: true })
+      isCustomEntity = !!found
+    } catch {}
+    // Build filters with awareness of custom-entity mode
+    const filtersObj: Where<any> = {}
+    const buildFilter = (key: string, val: string, allowAnyKey: boolean) => {
+      if (key.startsWith('cf_')) {
+        if (key.endsWith('In')) {
+          const base = key.slice(0, -2)
+          const values = val.split(',').map((s) => s.trim()).filter(Boolean)
+          ;(filtersObj as any)[base] = { $in: values }
+        } else {
+          if (val.includes(',')) {
+            const values = val.split(',').map((s) => s.trim()).filter(Boolean)
+            ;(filtersObj as any)[key] = { $in: values }
+          } else if (val === 'true' || val === 'false') {
+            ;(filtersObj as any)[key] = (val === 'true')
+          } else {
+            ;(filtersObj as any)[key] = val
+          }
+        }
+      } else if (allowAnyKey) {
         if (val.includes(',')) {
           const values = val.split(',').map((s) => s.trim()).filter(Boolean)
           ;(filtersObj as any)[key] = { $in: values }
@@ -52,31 +78,36 @@ export async function GET(req: Request) {
         } else {
           ;(filtersObj as any)[key] = val
         }
-      }
-    } else {
-      if (['id', 'created_at', 'updated_at', 'deleted_at', 'name', 'title', 'email'].includes(key)) {
-        ;(filtersObj as any)[key] = val
+      } else {
+        if (['id', 'created_at', 'updated_at', 'deleted_at', 'name', 'title', 'email'].includes(key)) {
+          ;(filtersObj as any)[key] = val
+        }
       }
     }
-  }
 
-  try {
-    const { resolve } = await createRequestContainer()
-    const qe = resolve('queryEngine') as QueryEngine
     const qopts = {
       organizationId: auth.orgId!,
       tenantId: auth.tenantId!,
       includeCustomFields: true,
       page: { page, pageSize },
       sort: [{ field: sortField as any, dir: sortDir as any }] as Sort<any>[],
-      filters: filtersObj,
+      get filters() { return filtersObj as any },
       withDeleted,
     } as const
-    try { console.log('[entities.records.GET] query', { entityId, sortField, sortDir, page, pageSize, withDeleted, filters: filtersObj }) } catch {}
+    for (const [k, v] of qpEntries) buildFilter(k, v, isCustomEntity)
+    try { console.log('[entities.records.GET] query', { entityId, sortField, sortDir, page, pageSize, withDeleted, filters: filtersObj, isCustomEntity }) } catch {}
     const res = await qe.query(entityId as any, qopts as any)
 
     const payload = {
-      items: res.items || [],
+      items: (res.items || []).map((row: any) => {
+        if (!isCustomEntity || !row || typeof row !== 'object') return row
+        const out: any = {}
+        for (const [k, v] of Object.entries(row)) {
+          if (k.startsWith('cf_')) out[k.replace(/^cf_/, '')] = v
+          else out[k] = v
+        }
+        return out
+      }),
       total: res.total || 0,
       page: res.page || page,
       pageSize: res.pageSize || pageSize,

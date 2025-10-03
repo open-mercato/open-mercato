@@ -108,9 +108,21 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
 
         // Build columns dynamically with heuristics to hide GUID/hash-like columns
         const keys = Array.from(new Set(items.flatMap((it: any) => Object.keys(it || {}))))
-        const base = keys.filter((k) => !k.startsWith('cf_'))
-        const allowedCf = new Set(filterCustomFieldDefs(cfDefs as any, 'list').map((d: any) => `cf_${d.key}`))
-        const cfs = keys.filter((k) => k.startsWith('cf_') && allowedCf.has(k))
+        // In user-defined entities, everything except technical fields is a custom field
+        const isCustomEntity = true
+        let base: string[] = []
+        let cfs: string[] = []
+        if (isCustomEntity) {
+          const allowed = new Set(filterCustomFieldDefs(cfDefs as any, 'list').map((d: any) => d.key))
+          const technical = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'organization_id', 'tenant_id'])
+          const visible = keys.filter((k) => k === 'id' || (!technical.has(k) && (allowed.size === 0 || allowed.has(k))))
+          base = visible // treat as base for ordering
+          cfs = [] // do not use cf_ channel here
+        } else {
+          base = keys.filter((k) => !k.startsWith('cf_'))
+          const allowedCf = new Set(filterCustomFieldDefs(cfDefs as any, 'list').map((d: any) => `cf_${d.key}`))
+          cfs = keys.filter((k) => k.startsWith('cf_') && allowedCf.has(k))
+        }
 
         const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
         const hexLongRe = /^[0-9a-f]{24,}$/i
@@ -148,10 +160,13 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
 
         // Limit to a reasonable number to fit width; remaining get higher responsive priority (hidden on smaller screens)
         const maxVisible = 10
-        const cfLabel = (k: string) => cfDefs.find((d) => `cf_${d.key}` === k)?.label || k
+        const cfLabel = (k: string) => {
+          if (isCustomEntity) return cfDefs.find((d) => d.key === k)?.label || k
+          return cfDefs.find((d) => `cf_${d.key}` === k)?.label || k
+        }
         const cols: ColumnDef<any>[] = ordered.map((k, idx) => ({
           accessorKey: k,
-          header: k.startsWith('cf_') ? cfLabel(k) : k,
+          header: (isCustomEntity ? cfLabel(k) : (k.startsWith('cf_') ? cfLabel(k) : k)),
           // Priority: first 4 always, next hidden <sm, then <md, etc.
           meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
           cell: ({ getValue }) => {

@@ -4,7 +4,7 @@ import { filterCustomFieldDefs } from './customFieldDefs'
 import { apiFetch } from './api'
 import { FieldRegistry } from '../fields/registry'
 
-export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): CrudField[] {
+export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?: { bareIds?: boolean }): CrudField[] {
   const fields: CrudField[] = []
   const visible = filterCustomFieldDefs(defs, 'form')
   const seenKeys = new Set<string>() // case-insensitive de-dupe
@@ -12,7 +12,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
     const keyLower = String(d.key).toLowerCase()
     if (seenKeys.has(keyLower)) continue
     seenKeys.add(keyLower)
-    const id = `cf_${d.key}`
+    const id = opts?.bareIds ? d.key : `cf_${d.key}`
     const label = d.label || d.key
     const required = Array.isArray((d as any).validation) ? ((d as any).validation as any[]).some((r) => r && r.rule === 'required') : false
     switch (d.kind) {
@@ -106,9 +106,9 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
   return fields
 }
 
-export async function fetchCustomFieldFormFields(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<CrudField[]> {
+export async function fetchCustomFieldFormFields(entityId: string, fetchImpl: typeof fetch = apiFetch, options?: { bareIds?: boolean }): Promise<CrudField[]> {
   const res = await fetchImpl(`/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
   const data = await res.json().catch(() => ({ items: [] }))
   const defs: CustomFieldDefDto[] = data?.items || []
-  return buildFormFieldsFromCustomFields(defs)
+  return buildFormFieldsFromCustomFields(defs, options)
 }

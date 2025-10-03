@@ -84,6 +84,8 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   // Loading state for the entire form (e.g., when loading record data)
   isLoading?: boolean
   loadingMessage?: string
+  // User-defined entity mode: all fields are custom, use bare keys (no cf_)
+  customEntity?: boolean
 }
 
 // Group-level custom component context
@@ -123,6 +125,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   groups,
   isLoading = false,
   loadingMessage = 'Loading data...',
+  customEntity = false,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
@@ -156,7 +159,7 @@ export function CrudForm<TValues extends Record<string, any>>({
       setIsLoadingCustomFields(true)
       try {
         const mod = await import('./utils/customFieldForms')
-        const f = await mod.fetchCustomFieldFormFields(entityId)
+        const f = await mod.fetchCustomFieldFormFields(entityId, undefined, { bareIds: customEntity })
         if (!cancelled) {
           setCfFields(f)
           setIsLoadingCustomFields(false)
@@ -247,14 +250,26 @@ export function CrudForm<TValues extends Record<string, any>>({
         const mod = await import('./utils/customFieldDefs')
         const defs = await mod.fetchCustomFieldDefs(entityId)
         const { validateValuesAgainstDefs } = await import('@open-mercato/shared/modules/entities/validation')
-        // Map form values cf_* -> key
+        // Build values keyed by def.key for validation
         const cfValues: Record<string, any> = {}
-        for (const [k, v] of Object.entries(values)) {
-          if (k.startsWith('cf_')) cfValues[k.replace(/^cf_/, '')] = v
+        if (customEntity) {
+          for (const d of defs as any[]) {
+            if (Object.prototype.hasOwnProperty.call(values, d.key)) cfValues[d.key] = (values as any)[d.key]
+          }
+        } else {
+          for (const [k, v] of Object.entries(values)) {
+            if (k.startsWith('cf_')) cfValues[k.replace(/^cf_/, '')] = v
+          }
         }
         const result = validateValuesAgainstDefs(cfValues, defs as any)
         if (!result.ok) {
-          setErrors((prev) => ({ ...prev, ...result.fieldErrors }))
+          if (customEntity) {
+            const mapped: Record<string, string> = {}
+            for (const [ek, ev] of Object.entries(result.fieldErrors)) mapped[ek.replace(/^cf_/, '')] = String(ev)
+            setErrors((prev) => ({ ...prev, ...mapped }))
+          } else {
+            setErrors((prev) => ({ ...prev, ...result.fieldErrors }))
+          }
           flash('Please fix the highlighted errors.', 'error')
           return
         }
@@ -305,8 +320,10 @@ export function CrudForm<TValues extends Record<string, any>>({
       if (fieldErrors) {
         const next: Record<string, string> = {}
         for (const [k, v] of Object.entries(fieldErrors)) {
-          // Map server keys to form field ids; prefer cf_<key>
-          const fid = k.startsWith('cf_') ? k : (k.startsWith('cf:') ? `cf_${k.slice(3)}` : `cf_${k}`)
+          // Map server keys to form field ids
+          const fid = customEntity
+            ? (k.startsWith('cf_') ? k.slice(3) : (k.startsWith('cf:') ? k.slice(3) : k))
+            : (k.startsWith('cf_') ? k : (k.startsWith('cf:') ? `cf_${k.slice(3)}` : `cf_${k}`))
           next[fid] = String(v)
         }
         setErrors(next)

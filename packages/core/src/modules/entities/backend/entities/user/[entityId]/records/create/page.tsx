@@ -22,6 +22,7 @@ export default function CreateRecordPage({ params }: { params: { entityId?: stri
       schema={schema}
       fields={fields}
       entityId={entityId}
+      customEntity
       submitLabel="Create"
       cancelHref={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
       successRedirect={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
