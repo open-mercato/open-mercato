@@ -22,8 +22,8 @@ type DefErrors = { key?: string; kind?: string }
 
 const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }: { d: Def; error?: DefErrors; onChange: (d: Def) => void; onRemove: () => void }) {
   const [local, setLocal] = useState<Def>(d)
-  // Only initialize from props once (on mount). Avoid syncing on each keystroke to preserve caret focus.
-  // Consumers should replace the component (key change) when identity truly changes.
+  // Keep local state in sync when identity (key) changes to avoid stale UI after deletes/reorders
+  React.useEffect(() => { setLocal(d) }, [d.key])
 
   const apply = (patch: Partial<Def>, propagateNow = false) => {
     setLocal((prev) => {
@@ -475,7 +475,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         )}
         {defs.map((d, i) => (
           <div
-            key={i}
+            key={d.key || `new-${i}`}
             className="group"
             draggable
             onDragStart={() => { dragIndex.current = i }}
