@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import { setRecordCustomFields } from '@open-mercato/core/modules/custom_fields/lib/helpers'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 
 export interface DataEngine {
   setCustomFields(opts: {
@@ -38,4 +38,3 @@ export class DefaultDataEngine implements DataEngine {
     }
   }
 }
-

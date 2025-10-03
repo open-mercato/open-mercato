@@ -47,7 +47,7 @@ jest.mock('@/lib/auth/server', () => ({
 }))
 
 const setRecordCustomFields = jest.fn(async () => {})
-jest.mock('@open-mercato/core/modules/custom_fields/lib/helpers', () => ({
+jest.mock('@open-mercato/core/modules/entities/lib/helpers', () => ({
   setRecordCustomFields: (...args: any[]) => (setRecordCustomFields as any)(...args)
 }))
 

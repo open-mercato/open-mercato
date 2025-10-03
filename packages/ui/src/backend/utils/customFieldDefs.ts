@@ -17,7 +17,7 @@ export type CustomFieldDefDto = {
 }
 
 export async function fetchCustomFieldDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<CustomFieldDefDto[]> {
-  const res = await fetchImpl(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
+  const res = await fetchImpl(`/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
   const data = await res.json().catch(() => ({ items: [] }))
   const items = (data?.items || []) as CustomFieldDefDto[]
   items.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))

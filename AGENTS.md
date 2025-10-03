@@ -87,6 +87,6 @@ This repository is designed for extensibility. Agents should leverage the module
 
 ## What’s new (data model evolution)
 - Keep modules separated and isomorphic: when extending another module’s data, add a separate extension entity and declare a link in `data/extensions.ts` (do not mutate core entities). Pattern mirrors Medusa’s module links.
-- Custom fields: users can add/remove/modify fields per entity without schema forks. We store definitions and values in a dedicated `custom_fields` module (EAV). A future admin UI will let users manage fields, and generic list/detail pages will consume them for filtering and forms.
+- Custom fields: users can add/remove/modify fields per entity without schema forks. We store definitions and values in a dedicated `entities` module (EAV). A future admin UI will let users manage fields, and generic list/detail pages will consume them for filtering and forms.
 - Query layer: access via DI (`queryEngine`) to fetch base entities with optional extensions and/or custom fields using a unified API for filtering, fields selection, pagination, and sorting.
   - Soft delete: entities should include `deleted_at timestamptz null`. The query engine excludes rows with non-null `deleted_at` by default; pass `withDeleted: true` to include them.

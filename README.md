@@ -110,7 +110,7 @@ yarn greenfield
 - Migration files (`Migration*.ts`)
 - Snapshot files (`*.json` containing "snapshot")
 - Checksum files (`*.checksum`)
-- All modules (auth, custom_fields, directory, example)
+- All modules (auth, entities, directory, example)
 
 ### Database Commands
 
@@ -216,7 +216,7 @@ Notes:
 - auth: add-user, seed-roles, add-org, setup
 - events: process, emit, clear, clear-processed
 - example: hello
-- custom_fields: install (upsert module-declared field definitions; use --global or --org ,<id>), add-field
+- entities: install (upsert module-declared field definitions; use --global or --org ,<id>), add-field
 
 ## Architecture Overview
 

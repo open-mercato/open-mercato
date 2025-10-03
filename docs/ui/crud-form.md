@@ -130,7 +130,7 @@ Provide a Zod schema via `schema`. Field-level errors are displayed under each f
 - Prefer simple value shapes for portability (e.g., tags as `string[]`, relations as a single foreign key `string`).
 
 ## Custom Fields → Editors and Inputs
-When `entityId` is provided, custom fields are fetched from `/api/custom_fields/definitions` and rendered automatically:
+When `entityId` is provided, custom fields are fetched from `/api/entities/definitions` and rendered automatically:
 
 - `kind: 'boolean'` → checkbox
 - `kind: 'integer'|'float'` → number input

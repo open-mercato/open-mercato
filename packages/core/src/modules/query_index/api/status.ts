@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { E as AllEntities } from '@/generated/entities.ids.generated'
-import { CustomEntity } from '@open-mercato/core/modules/custom_fields/data/entities'
+import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 function toBaseTableFromEntityType(entityType: string): string {
@@ -126,5 +126,4 @@ export async function GET(req: Request) {
 
   return NextResponse.json({ items })
 }
-
 

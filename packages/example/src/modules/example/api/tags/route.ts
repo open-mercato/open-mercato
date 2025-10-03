@@ -1,6 +1,6 @@
 import { getAuthFromCookies } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { CustomFieldDef, CustomFieldValue } from '@open-mercato/core/modules/custom_fields/data/entities'
+import { CustomFieldDef, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 
 export const metadata = {
   GET: { requireAuth: true, requireRoles: ['admin', 'superuser'] },

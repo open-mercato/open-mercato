@@ -1,7 +1,7 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
-import { CustomFieldDef } from '@open-mercato/core/modules/custom_fields/data/entities'
+import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/example/datamodel/entities'
 

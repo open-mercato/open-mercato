@@ -9,7 +9,7 @@ Reusable factory for building consistent, multi-tenant safe CRUD APIs with Zod v
 - Validation with Zod: schemas co-located with entities per module.
 - Extensible: lifecycle hooks before/after each operation.
 - Events: emit coherent CRUD events consumable by subscribers.
-- Custom Fields: seamlessly persist prefixed `cf_` inputs via custom_fields module.
+- Custom Fields: seamlessly persist prefixed `cf_` inputs via the entities module.
 
 ## Usage
 

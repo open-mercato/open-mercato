@@ -7,7 +7,7 @@ import type { Where, WhereValue } from '@open-mercato/shared/lib/query/types'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 import fieldSets from '@open-mercato/example/modules/example/data/fields'
 import { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
-import { CustomFieldDef } from '@open-mercato/core/modules/custom_fields/data/entities'
+import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 
 // Query (list) schema
 const querySchema = z

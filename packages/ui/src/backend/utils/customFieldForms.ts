@@ -98,7 +98,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[]): Crud
 }
 
 export async function fetchCustomFieldFormFields(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<CrudField[]> {
-  const res = await fetchImpl(`/api/custom_fields/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
+  const res = await fetchImpl(`/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
   const data = await res.json().catch(() => ({ items: [] }))
   const defs: CustomFieldDefDto[] = data?.items || []
   return buildFormFieldsFromCustomFields(defs)

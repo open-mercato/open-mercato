@@ -32,7 +32,7 @@ export default async function BackendLayout({ children, params }: { children: Re
       const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
       const container = await createRequestContainer()
       const em = container.resolve('em')
-      const { CustomEntity } = await import('@open-mercato/core/modules/custom_fields/data/entities')
+      const { CustomEntity } = await import('@open-mercato/core/modules/entities/data/entities')
       
       const where: any = { 
         isActive: true,
@@ -59,7 +59,7 @@ export default async function BackendLayout({ children, params }: { children: Re
         .map((e) => ({
           entityId: e.entityId,
           label: e.label,
-          href: `/backend/user-entities/${encodeURIComponent(e.entityId)}/records`
+          href: `/backend/entities/user/${encodeURIComponent(e.entityId)}/records`
         }))
     }
   } catch (error) {
