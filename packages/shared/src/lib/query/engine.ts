@@ -18,17 +18,19 @@ export class BasicQueryEngine implements QueryEngine {
 
     let q = knex(table)
     const qualify = (col: string) => `${table}.${col}`
-    // Multi-tenant guard when present in schema
+    // Require tenant scope for all queries
+    if (!opts.tenantId) {
+      throw new Error('QueryEngine: tenantId is required')
+    }
+    // Optional organization filter (when present in schema)
     if (opts.organizationId) {
       if (await this.columnExists(table, 'organization_id')) {
         q = q.where(qualify('organization_id'), opts.organizationId)
       }
     }
-    // Tenant guard when present in schema
-    if (opts.tenantId) {
-      if (await this.columnExists(table, 'tenant_id')) {
-        q = q.where(qualify('tenant_id'), opts.tenantId)
-      }
+    // Tenant guard (required) when present in schema
+    if (await this.columnExists(table, 'tenant_id')) {
+      q = q.where(qualify('tenant_id'), opts.tenantId)
     }
     // Default soft-delete guard: exclude rows with deleted_at when column exists
     if (!opts.withDeleted && await this.columnExists(table, 'deleted_at')) {
@@ -71,8 +73,8 @@ export class BasicQueryEngine implements QueryEngine {
 
     // Resolve which custom fields to include
     const entityId = entity
-    const orgId = opts.organizationId
     const tenantId = opts.tenantId
+    // const orgId = opts.organizationId // reserved for future organization-level scoping
     const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, '_')
     const baseIdExpr = knex.raw('??::text', [`${table}.id`])
     const cfKeys = new Set<string>()
@@ -81,15 +83,15 @@ export class BasicQueryEngine implements QueryEngine {
     for (const f of arrayFilters) if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
     // includeCustomFields: boolean | string[]
     if (opts.includeCustomFields === true) {
-      // Read all defs for this entity and org/global
+      // Read all defs for this entity tenant (tenant-scoped only)
       const rows = await knex('custom_field_defs')
         .select('key')
         .where({ entity_id: entityId, is_active: true })
-        .modify((qb) => {
-          if (tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantId }).orWhereNull('tenant_id'))
-          else qb.whereNull('tenant_id')
-          if (orgId != null) qb.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
-          else qb.whereNull('organization_id')
+        .modify((qb: any) => {
+          qb.andWhere({ tenant_id: tenantId })
+          // NOTE: organization-level scoping intentionally disabled for custom fields
+          // if (orgId != null) qb.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
+          // else qb.whereNull('organization_id')
         })
       for (const r of rows) cfKeys.add(r.key)
     } else if (Array.isArray(opts.includeCustomFields)) {
@@ -103,28 +105,25 @@ export class BasicQueryEngine implements QueryEngine {
       const defAlias = `cfd_${sanitize(key)}`
       const valAlias = `cfv_${sanitize(key)}`
       // Join definitions for kind resolution
-      q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function (this: any) {
+    q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function (this: any) {
         this.on(`${defAlias}.entity_id`, '=', knex.raw('?', [entityId]))
           .andOn(`${defAlias}.key`, '=', knex.raw('?', [key]))
           .andOn(`${defAlias}.is_active`, '=', knex.raw('true'))
-        if (tenantId != null) this.andOn(function (this: any) {
-          this.on(`${defAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
-              .orOn(knex.raw('?? is null', [`${defAlias}.tenant_id`]))
-        })
-        else this.andOn(knex.raw('?? is null', [`${defAlias}.tenant_id`]))
-        if (orgId != null) this.andOn(function (this: any) {
-          this.on(`${defAlias}.organization_id`, '=', knex.raw('?', [orgId]))
-              .orOn(knex.raw('?? is null', [`${defAlias}.organization_id`]))
-        })
-        else this.andOn(knex.raw('?? is null', [`${defAlias}.organization_id`]))
+        this.andOn(`${defAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
+        // NOTE: organization-level scoping intentionally disabled for custom fields
+        // this.andOn(function (this: any) {
+        //   this.on(`${defAlias}.organization_id`, '=', knex.raw('?', [orgId]))
+        //       .orOn(knex.raw('?? is null', [`${defAlias}.organization_id`]))
+        // })
       })
       // Join values with record match
-      q = q.leftJoin({ [valAlias]: 'custom_field_values' }, function () {
+    q = q.leftJoin({ [valAlias]: 'custom_field_values' }, function (this: any) {
         this.on(`${valAlias}.entity_id`, '=', knex.raw('?', [entityId]))
           .andOn(`${valAlias}.field_key`, '=', knex.raw('?', [key]))
           .andOn(`${valAlias}.record_id`, '=', baseIdExpr)
-        if (tenantId != null) this.andOn(`${valAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
-        if (orgId != null) this.andOn(`${valAlias}.organization_id`, '=', knex.raw('?', [orgId]))
+        this.andOn(`${valAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
+        // NOTE: organization-level scoping intentionally disabled for custom fields
+        // if (orgId != null) this.andOn(`${valAlias}.organization_id`, '=', knex.raw('?', [orgId]))
       })
       // Force a common SQL type across branches to avoid Postgres CASE type conflicts
       const caseExpr = knex.raw(
@@ -185,7 +184,7 @@ export class BasicQueryEngine implements QueryEngine {
         const [, extName] = (e.extension as string).split(':')
         const extTable = extName.endsWith('s') ? extName : `${extName}s`
         const alias = `ext_${sanitize(extName)}`
-        q = q.leftJoin({ [alias]: extTable }, function () {
+        q = q.leftJoin({ [alias]: extTable }, function (this: any) {
           this.on(`${alias}.${e.join.extensionKey}`, '=', knex.raw('??', [`${table}.${e.join.baseKey}`]))
         })
       }
@@ -222,7 +221,7 @@ export class BasicQueryEngine implements QueryEngine {
     if (typeof countClone.clearOrder === 'function') countClone.clearOrder()
     if (typeof countClone.clearGroup === 'function') countClone.clearGroup()
     const countRow = await countClone
-      .countDistinct<{ count: string }>(`${table}.id as count`)
+      .countDistinct(`${table}.id as count`)
       .first()
     const total = Number((countRow as any)?.count ?? 0)
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)

@@ -29,7 +29,7 @@ export async function GET(request: Request) {
     const queryEngine = container.resolve<QueryEngine>('queryEngine')
     const auth = await getAuthFromCookies()
     
-    if (!auth?.orgId) {
+    if (!auth?.tenantId) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'content-type': 'application/json' },
@@ -47,8 +47,8 @@ export async function GET(request: Request) {
 
     // Query organizations
     const res = await queryEngine.query(E.directory.organization, {
-      tenantId: auth.tenantId || undefined,
-      organizationId: auth.orgId || undefined,
+      tenantId: auth.tenantId!,
+      organizationId: auth.orgId || undefined, // optional filter
       fields: [id, name],
       filters: [
         { field: 'id', op: 'in', value: organizationIds }

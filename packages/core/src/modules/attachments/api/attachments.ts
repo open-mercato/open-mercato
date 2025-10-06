@@ -54,7 +54,6 @@ export async function POST(req: Request) {
         entityId,
         key: fieldKey,
         $and: [
-          { $or: [ { organizationId: auth.orgId }, { organizationId: null } ] },
           { $or: [ { tenantId: auth.tenantId }, { tenantId: null } ] },
         ],
         isActive: true,

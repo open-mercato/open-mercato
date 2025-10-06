@@ -13,6 +13,11 @@ export function buildScopedWhere(base: Record<string, any>, scope: Scope & { org
   return where
 }
 
+export function extractScopeFromAuth(auth: { orgId?: string | null; tenantId?: string | null } | null | undefined): { organizationId?: string | null; tenantId?: string | null } {
+  if (!auth) return {}
+  return { organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
+}
+
 export async function findOneScoped<T extends { id: string }>(
   em: EntityManager,
   entity: { new (): T },
