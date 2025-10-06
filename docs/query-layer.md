@@ -23,7 +23,7 @@ export async function listUsers(container: AppContainer) {
   return await query.query(E.auth.user, {
     fields: [id, email, name, 'cf:vip'],
     includeExtensions: true, // joins registered extensions
-    includeCustomFields: true, // auto-discovers keys via custom_field_defs
+    includeCustomFields: true, // auto-discovers keys via custom_field_defs (tenant-scoped only)
     // Filters: array syntax (legacy)
     filters: [
       { field: 'cf:vip', op: 'eq', value: true },
@@ -31,8 +31,9 @@ export async function listUsers(container: AppContainer) {
     ],
     sort: [{ field: email, dir: SortDir.Asc }],
     page: { page: 1, pageSize: 25 },
+    // REQUIRED: tenant scope
     tenantId: 'uuid-string-here',
-    // organizationId optional; when provided, both are applied
+    // OPTIONAL: for base entities and virtual entities
     organizationId: 'uuid-string-here',
   })
 }
@@ -57,8 +58,8 @@ export async function listUsers(container: AppContainer) {
   - Both syntaxes can be mixed, the engine normalizes them internally.
 - `sort`: base fields and `cf:<key>`. Use generated field constants and `SortDir` (e.g., `{ field: email, dir: SortDir.Asc }`).
 - `page`: paging options.
-- `tenantId`: primary scoping for multi-tenant.
-- `organizationId`: optional; if provided, combined with `tenantId`.
+- `tenantId`: required. All queries must include tenant scope.
+- `organizationId`: optional. Applied in addition to `tenantId` for base entities and virtual entities.
 - `withDeleted`: include soft-deleted rows when `true`. By default, when a base table has a `deleted_at` column, queries exclude rows where `deleted_at` is not null.
 
 ## Typing filters
@@ -89,7 +90,10 @@ await query.query(E.auth.user, { filters })
 If you don’t provide the generic, `filters` falls back to a permissive shape.
 
 ## Implementation notes
-- Default implementation `BasicQueryEngine` supports base-table filters/sort/paging and now projects cf:* fields and honors filters on them (array or object syntax). It applies `tenant_id` conditions when present, and `organization_id` conditions optionally; both are combined when provided. When the base table exposes `deleted_at`, rows with a non-null value are excluded unless `withDeleted: true` is passed.
+- `BasicQueryEngine` and `HybridQueryEngine` require `tenantId`.
+- Custom fields are tenant-scoped only: discovery and joins filter by `tenant_id`; `organization_id` is not applied for CFs.
+- Custom (virtual) entity data is filtered by `tenant_id` and, if provided, additionally by `organization_id`.
+- Base entities apply `tenant_id` (required) and optional `organization_id` when the column exists. When the base table exposes `deleted_at`, rows with a non-null value are excluded unless `withDeleted: true` is passed.
 - When we iterate:
   - Read `modules.generated.ts` to discover `entityExtensions` and join them.
   - Join `custom_field_values` to surface `cf:*` fields and filter/sort them efficiently; aggregate when multiple values exist.

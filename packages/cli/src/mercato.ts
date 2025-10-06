@@ -23,9 +23,9 @@ export async function run(argv = process.argv) {
       console.log('✅ Modules prepared\n')
       
       // Step 3: Generate migrations
-      console.log('🗄️  Generating database migrations...')
-      execSync('yarn db:generate', { stdio: 'inherit' })
-      console.log('✅ Migrations generated\n')
+//      console.log('🗄️  Generating database migrations...')
+//      execSync('yarn db:generate', { stdio: 'inherit' })
+//      console.log('✅ Migrations generated\n')
       
       // Step 4: Apply migrations
       console.log('📊 Applying database migrations...')

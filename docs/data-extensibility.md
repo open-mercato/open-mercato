@@ -69,7 +69,8 @@ yarn mercato entities install --org <orgId> --tenant <tenantId>
 Why not migrations? Migrations are module-scoped, run in isolation, and should alter schema deterministically. Field sets aggregate across all enabled modules at the app level and may target specific organizations; executing them in each module’s migration would cause duplication, ordering problems, and environment coupling. Use the CLI to seed or re-seed idempotently whenever modules change.
 
 ## Multi-tenant
-- Definitions and values include both `organization_id` and `tenant_id` and must be filtered by both when relevant.
+- Custom fields and values are tenant-scoped for querying: the query layer filters by `tenant_id` only. `organization_id` is not applied to custom field discovery or value joins.
+- Virtual/custom entities are filtered by `tenant_id` and, when provided, additionally by `organization_id`.
 
 ## Validation and Types
 - Base entities continue to use zod validators and MikroORM classes.
