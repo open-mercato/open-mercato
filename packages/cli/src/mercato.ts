@@ -12,6 +12,49 @@ export async function run(argv = process.argv) {
     console.log('🚀 Initializing Open Mercato app...\n')
     
     try {
+      const reinstall = rest.includes('--reinstall') || rest.includes('-r')
+
+      if (reinstall) {
+        // Load env variables so DATABASE_URL is available
+        try { await import('dotenv/config') } catch {}
+        console.log('♻️  Reinstall mode enabled: dropping all database tables...')
+        const { Client } = await import('pg')
+        const dbUrl = process.env.DATABASE_URL
+        if (!dbUrl) {
+          console.error('DATABASE_URL is not set. Aborting reinstall.')
+          return 1
+        }
+        const client = new Client({ connectionString: dbUrl })
+        try {
+          await client.connect()
+          // Collect all user tables in public schema
+          const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)
+          const tables: string[] = (res.rows || []).map((r: any) => String(r.tablename))
+          if (tables.length === 0) {
+            console.log('   No tables found in public schema.')
+          } else {
+            // Drop all tables with CASCADE to remove constraints in one go
+            await client.query('BEGIN')
+            try {
+              // Temporarily relax constraints to avoid dependency issues
+              await client.query("SET session_replication_role = 'replica'")
+              for (const t of tables) {
+                await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+              }
+              await client.query("SET session_replication_role = 'origin'")
+              await client.query('COMMIT')
+              console.log(`   Dropped ${tables.length} tables.`)
+            } catch (e) {
+              await client.query('ROLLBACK')
+              throw e
+            }
+          }
+        } finally {
+          try { await client.end() } catch {}
+        }
+        console.log('✅ Database cleared. Proceeding with fresh initialization...\n')
+      }
+
       // Step 1: Install dependencies
       console.log('📦 Installing dependencies...')
       execSync('yarn install', { stdio: 'inherit' })
