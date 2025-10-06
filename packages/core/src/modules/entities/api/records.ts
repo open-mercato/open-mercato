@@ -7,10 +7,10 @@ import { setRecordCustomFields } from '../lib/helpers'
 import { CustomFieldValue } from '../data/entities'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin'], requireFeatures: ['entities.records.view'] },
-  POST: { requireAuth: true, requireRoles: ['admin'], requireFeatures: ['entities.records.manage'] },
-  PUT: { requireAuth: true, requireRoles: ['admin'], requireFeatures: ['entities.records.manage'] },
-  DELETE: { requireAuth: true, requireRoles: ['admin'], requireFeatures: ['entities.records.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['entities.records.view'] },
+  POST: { requireAuth: true, requireFeatures: ['entities.records.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['entities.records.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['entities.records.manage'] },
 }
 
 function parseBool(v: string | null, d = false) {

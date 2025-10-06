@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 
 export const metadata = {
-  POST: { requireAuth: true, requireRoles: ['admin'] as const, requireFeatures: ['query_index.reindex'] },
+  POST: { requireAuth: true, requireFeatures: ['query_index.reindex'] },
 }
 
 export async function POST(req: Request) {

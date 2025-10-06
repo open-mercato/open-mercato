@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { modules } from '@/generated/modules.generated'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin'], requireFeatures: ['auth.acl.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
 }
 
 export async function GET(req: Request) {

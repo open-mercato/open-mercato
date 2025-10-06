@@ -10,7 +10,6 @@ const filePlusIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireRoles: ['admin'] as const,
   requireFeatures: ['example.todos.manage'],
   pageTitle: 'Create Todo',
   pageGroup: 'Example',

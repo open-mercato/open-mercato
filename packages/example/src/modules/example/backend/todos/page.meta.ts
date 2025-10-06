@@ -9,7 +9,6 @@ const checkboxIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireRoles: ['admin'] as const,
   requireFeatures: ['example.todos.view'],
   pageTitle: 'Todos',
   pageGroup: 'Example',
