@@ -100,10 +100,10 @@ yarn init --org="My Company" --email="admin@mycompany.com" --password="mypasswor
 - Seeds example todos
 - Displays success message with admin credentials
 
-#### `yarn greenfield` - Clean Slate Setup
+#### `yarn db:greenfield` - Clean Slate Setup
 Removes all migrations, snapshots, and checksum files for a fresh start:
 ```bash
-yarn greenfield
+yarn db:greenfield
 ```
 
 **What it cleans:**

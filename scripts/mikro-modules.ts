@@ -207,7 +207,76 @@ async function runGreenfield() {
   }
   
   console.log(results.join('\n'))
-  console.log('✅ Greenfield cleanup complete! You can now run `yarn db:generate` to create fresh migrations.')
+
+  // Drop per-module MikroORM migration tables to ensure clean slate
+  console.log('🧨 Dropping per-module migration tables...')
+  try {
+    const { Client } = await import('pg')
+    const client = new Client({ connectionString: getClientUrl() })
+    await client.connect()
+    try {
+      await client.query('BEGIN')
+      for (const entry of ordered) {
+        const modId = entry.id
+        const tableName = `mikro_orm_migrations_${modId}`
+        await client.query(`DROP TABLE IF EXISTS "${tableName}"`)
+        console.log(`   ${modId}: dropped table ${tableName}`)
+      }
+      await client.query('COMMIT')
+    } catch (e) {
+      await client.query('ROLLBACK')
+      throw e
+    } finally {
+      try { await client.end() } catch {}
+    }
+  } catch (e) {
+    console.error('❌ Failed to drop migration tables:', (e as any)?.message || e)
+    throw e
+  }
+
+  // Drop all existing user tables to ensure fresh CREATE-only migrations
+  console.log('🧨 Dropping ALL public tables for true greenfield...')
+  try {
+    const { Client } = await import('pg')
+    const client = new Client({ connectionString: getClientUrl() })
+    await client.connect()
+    try {
+      const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)
+      const tables: string[] = (res.rows || []).map((r: any) => String(r.tablename))
+      if (tables.length) {
+        await client.query('BEGIN')
+        try {
+          await client.query("SET session_replication_role = 'replica'")
+          for (const t of tables) {
+            await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+          }
+          await client.query("SET session_replication_role = 'origin'")
+          await client.query('COMMIT')
+          console.log(`   Dropped ${tables.length} tables.`)
+        } catch (e) {
+          await client.query('ROLLBACK')
+          throw e
+        }
+      } else {
+        console.log('   No tables found to drop.')
+      }
+    } finally {
+      try { await client.end() } catch {}
+    }
+  } catch (e) {
+    console.error('❌ Failed to drop public tables:', (e as any)?.message || e)
+    throw e
+  }
+
+  // Generate fresh migrations for all modules
+  console.log('🗄️  Generating fresh migrations for all modules...')
+  await run('generate')
+
+  // Apply migrations
+  console.log('📊 Applying migrations...')
+  await run('apply')
+
+  console.log('✅ Greenfield reset complete! Fresh migrations generated and applied.')
 }
 
 const [, , sub] = process.argv

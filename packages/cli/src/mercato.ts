@@ -70,17 +70,17 @@ export async function run(argv = process.argv) {
 //      execSync('yarn db:generate', { stdio: 'inherit' })
 //      console.log('✅ Migrations generated\n')
       
-      // Step 4: Apply migrations
+      // Step 3: Apply migrations
       console.log('📊 Applying database migrations...')
       execSync('yarn db:migrate', { stdio: 'inherit' })
       console.log('✅ Migrations applied\n')
       
-      // Step 5: Seed roles
+      // Step 4: Seed roles
       console.log('👥 Seeding default roles...')
       execSync('yarn mercato auth seed-roles', { stdio: 'inherit' })
       console.log('✅ Roles seeded\n')
       
-      // Step 6: Setup RBAC (tenant/org, users, ACLs)
+      // Step 5: Setup RBAC (tenant/org, users, ACLs)
       const orgName = rest.find(arg => arg.startsWith('--org='))?.split('=')[1] || 'Acme Corp'
       const email = rest.find(arg => arg.startsWith('--email='))?.split('=')[1] || 'admin@acme.com'
       const password = rest.find(arg => arg.startsWith('--password='))?.split('=')[1] || 'secret'
