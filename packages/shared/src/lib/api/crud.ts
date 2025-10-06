@@ -2,6 +2,17 @@ import type { EntityManager } from '@mikro-orm/core'
 
 type Scope = { organizationId?: string | null; tenantId?: string | null }
 
+export function buildScopedWhere(base: Record<string, any>, scope: Scope & { orgField?: string; tenantField?: string; softDeleteField?: string }): Record<string, any> {
+  const where: any = { ...base }
+  const orgField = (scope.orgField as string) || 'organizationId'
+  const tenantField = (scope.tenantField as string) || 'tenantId'
+  const softField = (scope.softDeleteField as string) || 'deletedAt'
+  if (scope.organizationId !== undefined) where[orgField] = scope.organizationId
+  if (scope.tenantId !== undefined) where[tenantField] = scope.tenantId
+  where[softField] = null
+  return where
+}
+
 export async function findOneScoped<T extends { id: string }>(
   em: EntityManager,
   entity: { new (): T },

@@ -51,18 +51,17 @@ export async function buildCustomFieldFiltersFromQuery(opts: {
   entityId: EntityId
   query: Record<string, unknown>
   em: EntityManager
-  orgId: string | null | undefined
   tenantId: string | null | undefined
 }): Promise<Record<string, WhereValue>> {
   const out: Record<string, WhereValue> = {}
   const entries = Object.entries(opts.query).filter(([k]) => k.startsWith('cf_'))
   if (!entries.length) return out
 
+  // Tenant-only scope: allow global (null) or tenant match; ignore organization here
   const defs = await opts.em.find(CustomFieldDef, {
     entityId: opts.entityId as string,
     isActive: true,
     $and: [
-      { $or: [ { organizationId: opts.orgId as any }, { organizationId: null } ] },
       { $or: [ { tenantId: opts.tenantId as any }, { tenantId: null } ] },
     ],
   })

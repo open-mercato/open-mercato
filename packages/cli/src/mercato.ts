@@ -37,15 +37,15 @@ export async function run(argv = process.argv) {
       execSync('yarn mercato auth seed-roles', { stdio: 'inherit' })
       console.log('✅ Roles seeded\n')
       
-      // Step 6: Setup admin user
+      // Step 6: Setup RBAC (tenant/org, users, ACLs)
       const orgName = rest.find(arg => arg.startsWith('--org='))?.split('=')[1] || 'Acme Corp'
       const email = rest.find(arg => arg.startsWith('--email='))?.split('=')[1] || 'admin@acme.com'
       const password = rest.find(arg => arg.startsWith('--password='))?.split('=')[1] || 'secret'
-      const roles = rest.find(arg => arg.startsWith('--roles='))?.split('=')[1] || 'owner,admin'
+      const roles = rest.find(arg => arg.startsWith('--roles='))?.split('=')[1] || 'superadmin,owner,admin,employee'
       
-      console.log('👤 Setting up admin user...')
+      console.log('🔐 Setting up RBAC and users...')
       const setupOutput = execSync(`yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`, { stdio: 'pipe' }).toString()
-      console.log('✅ Admin user created\n')
+      console.log('✅ RBAC setup complete\n')
       
 
       // Extract organization ID and tenant ID from setup output
@@ -89,11 +89,12 @@ export async function run(argv = process.argv) {
   // Load modules lazily, after init handling
   const { modules } = await import('@/generated/modules.generated')
   
-  // Load optional app-level CLI commands lazily
+  // Load optional app-level CLI commands lazily without static import resolution
   let appCli: any[] = []
   try {
-    const app = await import('@/cli') as any
-    if (Array.isArray(app?.default)) appCli = app.default
+    const dynImport: any = (Function('return import') as any)()
+    const app = await dynImport.then((f: any) => f('@/cli')).catch(() => null)
+    if (app && Array.isArray(app?.default)) appCli = app.default
   } catch {}
   const all = modules.slice()
   

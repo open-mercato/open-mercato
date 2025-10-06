@@ -11,7 +11,7 @@ function toBaseTableFromEntityType(entityType: string): string {
 }
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin'] as const },
+  GET: { requireAuth: true, requireRoles: ['admin'] as const, requireFeatures: ['query_index.status.view'] },
 }
 
 export async function GET(req: Request) {

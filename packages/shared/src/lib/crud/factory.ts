@@ -20,10 +20,10 @@ export type CrudHooks<TCreate, TUpdate, TList> = {
 }
 
 export type CrudMetadata = {
-  GET?: { requireAuth?: boolean; requireRoles?: string[] }
-  POST?: { requireAuth?: boolean; requireRoles?: string[] }
-  PUT?: { requireAuth?: boolean; requireRoles?: string[] }
-  DELETE?: { requireAuth?: boolean; requireRoles?: string[] }
+  GET?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
+  POST?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
+  PUT?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
+  DELETE?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
 }
 
 export type OrmEntityConfig = {
@@ -179,7 +179,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const sortFieldRaw = (queryParams as any).sortField || 'id'
         const sortDirRaw = ((queryParams as any).sortDir || 'asc').toLowerCase() === 'desc' ? SortDir.Desc : SortDir.Asc
         const sortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
-        const sort: Sort<any>[] = [{ field: sortField as any, dir: sortDirRaw }]
+        const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
         const page: Page = {
           page: Number((queryParams as any).page ?? 1) || 1,
           pageSize: Math.min(Math.max(Number((queryParams as any).pageSize ?? 50) || 50, 1), 100),
@@ -214,7 +214,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           })
         }
 
-        const payload = { items, total: res.total, page: page.page, pageSize: page.pageSize, totalPages: Math.ceil(res.total / page.pageSize) }
+        const payload = { items, total: res.total, page: page.page, pageSize: page.pageSize, totalPages: Math.ceil(res.total / (page.pageSize || 1)) }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
         return json(payload)
       }

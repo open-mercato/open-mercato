@@ -7,6 +7,8 @@ export type RouteVisibilityContext = { path?: string; auth?: any }
 export type PageMetadata = {
   requireAuth?: boolean
   requireRoles?: readonly string[]
+  // Optional fine-grained feature requirements
+  requireFeatures?: readonly string[]
   // Titles and grouping (aliases supported)
   title?: string
   pageTitle?: string
@@ -33,6 +35,8 @@ export type ModuleRoute = {
   path?: string
   requireAuth?: boolean
   requireRoles?: string[]
+  // Optional fine-grained feature requirements
+  requireFeatures?: string[]
   title?: string
   group?: string
   icon?: ReactNode
@@ -55,6 +59,9 @@ export type ModuleApiRouteFile = {
   handlers: Partial<Record<HttpMethod, ApiHandler>>
   requireAuth?: boolean
   requireRoles?: string[]
+  // Optional fine-grained feature requirements for the entire route file
+  // Note: per-method feature requirements should be expressed inside metadata
+  requireFeatures?: string[]
 }
 
 export type ModuleApi = ModuleApiLegacy | ModuleApiRouteFile
@@ -85,6 +92,8 @@ export type Module = {
   apis?: ModuleApi[]
   cli?: ModuleCli[]
   translations?: Record<string, Record<string, string>>
+  // Optional: per-module feature declarations discovered from data/acl.ts
+  features?: Array<{ id: string; title: string; module: string }>
   // Auto-discovered event subscribers
   subscribers?: Array<{
     id: string
@@ -161,14 +170,14 @@ export function findBackendMatch(modules: Module[], pathname: string): { route: 
   }
 }
 
-export function findApi(modules: Module[], method: HttpMethod, pathname: string): { handler: ApiHandler; params: Record<string, string | string[]>; requireAuth?: boolean; requireRoles?: string[] } | undefined {
+export function findApi(modules: Module[], method: HttpMethod, pathname: string): { handler: ApiHandler; params: Record<string, string | string[]>; requireAuth?: boolean; requireRoles?: string[]; metadata?: any } | undefined {
   for (const m of modules) {
     const apis = m.apis ?? []
     for (const a of apis) {
       if ('handlers' in a) {
         const params = matchPattern(a.path, pathname)
         const handler = (a.handlers as any)[method]
-        if (params && handler) return { handler, params, requireAuth: a.requireAuth, requireRoles: (a as any).requireRoles }
+        if (params && handler) return { handler, params, requireAuth: a.requireAuth, requireRoles: (a as any).requireRoles, metadata: (a as any).metadata }
       } else {
         const al = a as ModuleApiLegacy
         if (al.method === method && al.path === pathname) {

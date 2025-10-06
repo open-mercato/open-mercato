@@ -1,7 +1,7 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import { hash } from 'bcryptjs'
-import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { User, Role, UserRole, RoleAcl, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 const addUser: ModuleCli = {
@@ -42,7 +42,7 @@ const addUser: ModuleCli = {
 const seedRoles: ModuleCli = {
   command: 'seed-roles',
   async run() {
-    const defaults = ['customer', 'employee', 'admin', 'owner']
+    const defaults = ['employee', 'admin', 'owner', 'superadmin']
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     for (const name of defaults) {
@@ -92,7 +92,7 @@ const setupApp: ModuleCli = {
     const orgName = args.orgName || args.name
     const email = args.email
     const password = args.password
-    const rolesCsv = (args.roles ?? 'owner,admin').trim()
+    const rolesCsv = (args.roles ?? 'superadmin,owner,admin,employee').trim()
     if (!orgName || !email || !password) {
       console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles owner,admin]')
       return
@@ -117,7 +117,7 @@ const setupApp: ModuleCli = {
       // Assign any missing roles
       if (roleNames.length) {
         const currentUserRoles = await em.find(UserRole, { user: existingUser.id }, { populate: ['role'] })
-        const currentRoleNames = new Set(currentUserRoles.map((ur) => ur.role?.name).filter(Boolean) as string[])
+        const currentRoleNames = new Set(currentUserRoles.map((ur: any) => ur.role?.name).filter(Boolean) as string[])
         for (const name of roleNames) {
           if (!currentRoleNames.has(name)) {
             const role = await em.findOneOrFail(Role, { name })
@@ -135,17 +135,31 @@ const setupApp: ModuleCli = {
     const org = em.create(Organization, { name: orgName, tenant })
     await em.persistAndFlush(org)
 
-    // 2) Create user in organization
-    const user = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organizationId: org.id, tenantId: tenant.id })
-    await em.persistAndFlush(user)
-
-    // 3) Assign roles if any
-    for (const name of roleNames) {
-      const role = await em.findOneOrFail(Role, { name })
-      await em.persistAndFlush(em.create(UserRole, { user, role }))
+    // 2) Create users (superadmin, admin, employee)
+    const users: Array<{ email: string; password: string; roles: string[] }> = [
+      { email, password, roles: ['superadmin'] },
+      { email: 'admin@' + (orgName || 'acme').toLowerCase() + '.com', password, roles: ['admin'] },
+      { email: 'employee@' + (orgName || 'acme').toLowerCase() + '.com', password, roles: ['employee'] },
+    ]
+    for (const udef of users) {
+      const u = em.create(User, { email: udef.email, passwordHash: await hash(udef.password, 10), isConfirmed: true, organizationId: org.id, tenantId: tenant.id })
+      await em.persistAndFlush(u)
+      for (const name of udef.roles) {
+        const role = await em.findOneOrFail(Role, { name })
+        await em.persistAndFlush(em.create(UserRole, { user: u, role }))
+      }
+      console.log('Created user', udef.email, 'password:', password)
     }
 
-    console.log('Setup complete:', { tenantId: tenant.id, organizationId: org.id, userId: user.id })
+    // 3) Seed role ACLs: owner -> superadmin; admin -> all features; employee -> example module
+    const ownerRole = await em.findOne(Role, { name: 'owner' })
+    const adminRole = await em.findOne(Role, { name: 'admin' })
+    const employeeRole = await em.findOne(Role, { name: 'employee' })
+    if (ownerRole) await em.persistAndFlush(em.create(RoleAcl, { role: ownerRole, tenantId: tenant.id, isSuperAdmin: true }))
+    if (adminRole) await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: tenant.id, featuresJson: ['*'] }))
+    if (employeeRole) await em.persistAndFlush(em.create(RoleAcl, { role: employeeRole, tenantId: tenant.id, featuresJson: ['example.*'] }))
+
+    console.log('Setup complete:', { tenantId: tenant.id, organizationId: org.id })
   },
 }
 
@@ -239,7 +253,7 @@ const listUsers: ModuleCli = {
     for (const user of users) {
       // Get user roles separately
       const userRoles = await em.find(UserRole, { user: user.id }, { populate: ['role'] })
-      const roles = userRoles.map(ur => ur.role?.name).filter(Boolean).join(', ') || 'None'
+      const roles = userRoles.map((ur: any) => ur.role?.name).filter(Boolean).join(', ') || 'None'
       
       // Get organization and tenant names if IDs exist
       let orgName = 'N/A'

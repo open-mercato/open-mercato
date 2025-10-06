@@ -67,6 +67,12 @@ This repository is designed for extensibility. Agents should leverage the module
 - Hash passwords with `bcryptjs` (cost ≥10). Never log credentials.
 - Return minimal error messages for auth (avoid revealing whether email exists).
 
+## Access control
+- Prefer declarative guards in metadata: `requireAuth`, `requireRoles`, and `requireFeatures`.
+- RBAC is two-layered: Role ACLs and User ACLs per tenant. Features are string-based and declared per module in `src/modules/<module>/data/acl.ts`.
+- Use the DI `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })` for server-side checks.
+- Special flags: `isSuperAdmin` (all features), and optional organization visibility list to restrict org scope.
+
 ### HTTP calls in UI
 - In client components and utilities, use `apiFetch` from `@open-mercato/ui/backend/utils/api` instead of the global `fetch`. It automatically attaches proper headers and base URL handling consistent with the app.
 

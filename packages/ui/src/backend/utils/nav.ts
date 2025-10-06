@@ -14,7 +14,7 @@ export type AdminNavItem = {
 
 export async function buildAdminNav(
   modules: any[],
-  ctx: { auth?: { roles?: string[] }; path?: string },
+  ctx: { auth?: { roles?: string[]; sub?: string; orgId?: string | null; tenantId?: string | null }; path?: string },
   userEntities?: Array<{ entityId: string; label: string; href: string }>
 ): Promise<AdminNavItem[]> {
   function capitalize(s: string) {
@@ -44,6 +44,16 @@ export async function buildAdminNav(
         const roles = ctx.auth?.roles || []
         const ok = required.some((role) => roles.includes(role))
         if (!ok) continue
+      }
+      // If features are required, check via API call (deferred to server via fetch)
+      const features = (r as any).requireFeatures as string[] | undefined
+      if (features && features.length) {
+        try {
+          // SSR-friendly: ask server to evaluate features for current user
+          // We avoid importing server-only DI here; the server-side layout can enrich groups post-build if needed
+          const can = await fetch('/api/auth/feature-check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ features }) }).then(res => res.ok ? res.json() : { ok: false }).catch(() => ({ ok: false }))
+          if (!can?.ok) continue
+        } catch {}
       }
       const order = (r as any).order as number | undefined
       const priority = ((r as any).priority as number | undefined) ?? order

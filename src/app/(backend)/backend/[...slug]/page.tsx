@@ -3,6 +3,7 @@ import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromCookies } from '@/lib/auth/server'
 import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
+import { createRequestContainer } from '@/lib/di/container'
 
 export default async function BackendCatchAll({ params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
@@ -17,6 +18,13 @@ export default async function BackendCatchAll({ params }: { params: Promise<{ sl
       const roles = auth.roles || []
       const ok = required.some(r => roles.includes(r))
       if (!ok) redirect('/login?requireRole=' + encodeURIComponent(required.join(',')))
+    }
+    const features = (match.route as any).requireFeatures as string[] | undefined
+    if (features && features.length) {
+      const container = await createRequestContainer()
+      const rbac = container.resolve<any>('rbacService')
+      const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: auth.orgId })
+      if (!ok) redirect('/login?requireFeature=' + encodeURIComponent(features.join(',')))
     }
   }
   const Component = match.route.Component as any

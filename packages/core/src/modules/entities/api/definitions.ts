@@ -6,10 +6,10 @@ import { upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/
 
 export const metadata = {
   // Reading definitions is needed by record forms; keep it auth-protected but not admin-only
-  GET: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
   // Mutations remain admin-only
-  POST: { requireAuth: true, requireRoles: ['admin'] },
-  DELETE: { requireAuth: true, requireRoles: ['admin'] },
+  POST: { requireAuth: true, requireRoles: ['admin'], requireFeatures: ['entities.definitions.manage'] },
+  DELETE: { requireAuth: true, requireRoles: ['admin'], requireFeatures: ['entities.definitions.manage'] },
 }
 
 export async function GET(req: Request) {
@@ -23,11 +23,11 @@ export async function GET(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
 
+  // Tenant-only scoping: allow global (null) or exact tenant match; do not scope by organization here
   const where = {
     entityId,
     deletedAt: null,
     $and: [
-      { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
       { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
     ],
   } as any
@@ -36,7 +36,6 @@ export async function GET(req: Request) {
     entityId,
     deletedAt: { $ne: null } as any,
     $and: [
-      { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
       { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
     ],
   } as any)
@@ -47,7 +46,6 @@ export async function GET(req: Request) {
     const ent = await em.findOne('@open-mercato/core/modules/entities/data/entities:CustomEntity' as any, {
       entityId,
       $and: [
-        { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
         { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
       ],
     } as any)

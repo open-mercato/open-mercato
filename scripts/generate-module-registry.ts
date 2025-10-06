@@ -36,6 +36,7 @@ function scan() {
     let infoImportName: string | null = null
     let extensionsImportName: string | null = null
     let fieldsImportName: string | null = null
+    let featuresImportName: string | null = null
 
     // Module metadata: index.ts (overrideable)
     const appIndex = path.join(roots.appBase, 'index.ts')
@@ -109,7 +110,7 @@ function scan() {
           metaExpr = `${pageModName}['metadata']`
           imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
-        frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`)
+        frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`)
       }
       // Back-compat direct files
       for (const rel of files.filter(f => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
@@ -143,7 +144,7 @@ function scan() {
           metaExpr = `${pageModName}['metadata']`
           imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
-        frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
+        frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
       }
     }
 
@@ -158,6 +159,20 @@ function scan() {
         const importPath = hasApp ? `${imps.appBase}/data/extensions` : `${imps.pkgBase}/data/extensions`
         imports.push(`import * as ${importName} from '${importPath}'`)
         extensionsImportName = importName
+      }
+    }
+
+    // RBAC feature declarations: src/modules/<module>/data/acl.ts
+    {
+      const appFile = path.join(roots.appBase, 'data', 'acl.ts')
+      const pkgFile = path.join(roots.pkgBase, 'data', 'acl.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `ACL_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${imps.appBase}/data/acl` : `${imps.pkgBase}/data/acl`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        featuresImportName = importName
       }
     }
 
@@ -229,7 +244,7 @@ function scan() {
           metaExpr = `${pageModName}['metadata']`
           imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
-        backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`)
+        backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`)
       }
       // Direct files
       for (const rel of files.filter(f => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
@@ -262,7 +277,7 @@ function scan() {
           metaExpr = `${pageModName}['metadata']`
           imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
-        backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`)
+        backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`)
       }
     }
 
@@ -448,6 +463,7 @@ function scan() {
       ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
       ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as any) || [],` : ''}
       ${fieldsImportName ? `customFieldSets: ((${fieldsImportName}.default ?? ${fieldsImportName}.fieldSets) as any) || [],` : ''}
+      ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
     }`)
   }
 

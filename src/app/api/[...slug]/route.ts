@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { findApi } from '@open-mercato/shared/modules/registry'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
+import { createRequestContainer } from '@/lib/di/container'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
@@ -13,8 +14,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
   // Check per-method metadata
   const methodMetadata = api.metadata?.GET
   if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
+  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some((r: string) => auth.roles!.includes(r)))) {
     return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
+  }
+  if (methodMetadata?.requireFeatures && methodMetadata.requireFeatures.length) {
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const container = await createRequestContainer()
+    const rbac = container.resolve<any>('rbacService')
+    const ok = await rbac.userHasAllFeatures(auth.sub, methodMetadata.requireFeatures, { tenantId: auth.tenantId, organizationId: auth.orgId })
+    if (!ok) return NextResponse.json({ error: 'Forbidden', requiredFeatures: methodMetadata.requireFeatures }, { status: 403 })
   }
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -30,8 +38,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   // Check per-method metadata
   const methodMetadata = api.metadata?.POST
   if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
+  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some((r: string) => auth.roles!.includes(r)))) {
     return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
+  }
+  if (methodMetadata?.requireFeatures && methodMetadata.requireFeatures.length) {
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const container = await createRequestContainer()
+    const rbac = container.resolve<any>('rbacService')
+    const ok = await rbac.userHasAllFeatures(auth.sub, methodMetadata.requireFeatures, { tenantId: auth.tenantId, organizationId: auth.orgId })
+    if (!ok) return NextResponse.json({ error: 'Forbidden', requiredFeatures: methodMetadata.requireFeatures }, { status: 403 })
   }
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -47,8 +62,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug
   // Check per-method metadata
   const methodMetadata = api.metadata?.PUT
   if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
+  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some((r: string) => auth.roles!.includes(r)))) {
     return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
+  }
+  if (methodMetadata?.requireFeatures && methodMetadata.requireFeatures.length) {
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const container = await createRequestContainer()
+    const rbac = container.resolve<any>('rbacService')
+    const ok = await rbac.userHasAllFeatures(auth.sub, methodMetadata.requireFeatures, { tenantId: auth.tenantId, organizationId: auth.orgId })
+    if (!ok) return NextResponse.json({ error: 'Forbidden', requiredFeatures: methodMetadata.requireFeatures }, { status: 403 })
   }
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -64,8 +86,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ sl
   // Check per-method metadata
   const methodMetadata = api.metadata?.PATCH
   if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
+  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some((r: string) => auth.roles!.includes(r)))) {
     return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
+  }
+  if (methodMetadata?.requireFeatures && methodMetadata.requireFeatures.length) {
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const container = await createRequestContainer()
+    const rbac = container.resolve<any>('rbacService')
+    const ok = await rbac.userHasAllFeatures(auth.sub, methodMetadata.requireFeatures, { tenantId: auth.tenantId, organizationId: auth.orgId })
+    if (!ok) return NextResponse.json({ error: 'Forbidden', requiredFeatures: methodMetadata.requireFeatures }, { status: 403 })
   }
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -81,8 +110,15 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ s
   // Check per-method metadata
   const methodMetadata = api.metadata?.DELETE
   if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
+  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some((r: string) => auth.roles!.includes(r)))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (methodMetadata?.requireFeatures && methodMetadata.requireFeatures.length) {
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const container = await createRequestContainer()
+    const rbac = container.resolve<any>('rbacService')
+    const ok = await rbac.userHasAllFeatures(auth.sub, methodMetadata.requireFeatures, { tenantId: auth.tenantId, organizationId: auth.orgId })
+    if (!ok) return NextResponse.json({ error: 'Forbidden', requiredFeatures: methodMetadata.requireFeatures }, { status: 403 })
   }
   
   return (api.handler as any)(req, { params: api.params, auth })

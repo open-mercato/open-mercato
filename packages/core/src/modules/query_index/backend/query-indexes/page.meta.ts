@@ -11,6 +11,7 @@ const indexIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireRoles: ['admin'] as const,
+  requireFeatures: ['query_index.status.view'],
   pageTitle: 'Query Indexes',
   pageGroup: 'Data designer',
   pageOrder: 13,

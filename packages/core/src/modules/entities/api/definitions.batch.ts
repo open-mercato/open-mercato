@@ -6,7 +6,7 @@ import { upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/
 import { z } from 'zod'
 
 export const metadata = {
-  POST: { requireAuth: true, requireRoles: ['admin'] },
+  POST: { requireAuth: true, requireRoles: ['admin'], requireFeatures: ['entities.definitions.manage'] },
 }
 
 const batchSchema = z.object({
