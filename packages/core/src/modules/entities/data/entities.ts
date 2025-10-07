@@ -96,6 +96,38 @@ export class CustomEntity {
   deletedAt?: Date | null
 }
 
+// Storage for custom entity records (JSONB document store)
+@Entity({ tableName: 'custom_entities_storage' })
+@Index({ name: 'custom_entities_storage_unique_idx', properties: ['entityType', 'entityId', 'organizationId'], options: { unique: true } })
+export class CustomEntityStorage {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'entity_type', type: 'text' })
+  entityType!: string
+
+  @Property({ name: 'entity_id', type: 'text' })
+  entityId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'doc', type: 'json' })
+  doc!: any
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 // Values for custom fields (EAV); recordId is a text to support any PK
 @Entity({ tableName: 'custom_field_values' })
 export class CustomFieldValue {
