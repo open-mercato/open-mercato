@@ -672,7 +672,8 @@ describe('RbacService', () => {
     })
 
     it('should respect cache TTL and refetch after expiration', async () => {
-      const shortTtlService = new RbacService(em as any, 100) // 100ms TTL
+      const shortTtlService = new RbacService(em as any)
+      shortTtlService.setCacheTtl(100) // 100ms TTL
       
       em.findOne.mockImplementation(async (entity: any, where: any) => {
         if (entity === User && where?.id === baseUser.id) return baseUser
@@ -694,8 +695,9 @@ describe('RbacService', () => {
       expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst + 2) // Refetched
     })
 
-    it('should use custom TTL when provided to constructor', async () => {
-      const customTtlService = new RbacService(em as any, 50) // 50ms TTL
+    it('should use custom TTL when configured via setCacheTtl', async () => {
+      const customTtlService = new RbacService(em as any)
+      customTtlService.setCacheTtl(50) // 50ms TTL
       
       em.findOne.mockImplementation(async (entity: any, where: any) => {
         if (entity === User && where?.id === baseUser.id) return baseUser

@@ -13,12 +13,13 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
 
   React.useEffect(() => {
     if (!id) return
+    const roleId = id
     let cancelled = false
     async function load() {
       try {
-        const res = await apiFetch(`/api/auth/roles?page=1&pageSize=1&search=`)
+        const res = await apiFetch(`/api/auth/roles?id=${encodeURIComponent(roleId)}`)
         const j = await res.json()
-        const found = (j.items || []).find((r: any) => String(r.id) === String(id))
+        const found = (j.items || [])[0]
         if (!cancelled) setInitial(found || null)
       } catch {}
       if (!cancelled) setLoading(false)

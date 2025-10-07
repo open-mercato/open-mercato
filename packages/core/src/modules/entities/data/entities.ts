@@ -46,6 +46,7 @@ export class CustomFieldDef {
 
 // User-defined logical entities registry (for dynamic data types)
 @Entity({ tableName: 'custom_entities' })
+@Index({ name: 'custom_entities_unique_idx', properties: ['entityId', 'organizationId', 'tenantId'], options: { unique: true } })
 export class CustomEntity {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

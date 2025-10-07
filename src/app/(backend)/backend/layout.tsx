@@ -22,7 +22,12 @@ export default async function BackendLayout({ children, params }: { children: Re
     path = '/backend' + (Array.isArray(slug) && slug.length ? '/' + slug.join('/') : '')
   }
 
-  const ctxAuth = auth ? { roles: auth.roles || [] } : undefined
+  const ctxAuth = auth ? { 
+    roles: auth.roles || [], 
+    sub: auth.sub, 
+    tenantId: auth.tenantId, 
+    orgId: auth.orgId 
+  } : undefined
   const ctx = { auth: ctxAuth, path }
   
   // Build initial nav (SSR) without dynamic user entities; they will be fetched client-side
