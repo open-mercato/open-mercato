@@ -20,7 +20,11 @@ export class BasicQueryEngine implements QueryEngine {
     const qualify = (col: string) => `${table}.${col}`
     // Require tenant scope for all queries
     if (!opts.tenantId) {
-      throw new Error('QueryEngine: tenantId is required')
+      throw new Error(
+        'QueryEngine: tenantId is now required for all queries (breaking change). ' +
+        'Please provide a tenantId in QueryOptions, e.g., query(entity, { tenantId: ... }). ' +
+        'See migration guide or documentation for details.'
+      )
     }
     // Optional organization filter (when present in schema)
     if (opts.organizationId) {
