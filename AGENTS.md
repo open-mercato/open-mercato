@@ -73,6 +73,23 @@ This repository is designed for extensibility. Agents should leverage the module
 - Use the DI `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })` for server-side checks.
 - Special flags: `isSuperAdmin` (all features), and optional organization visibility list to restrict org scope.
 
+### Features
+- Features are string-based permissions that control access to module functionality (e.g., `users.view`, `users.create`, `users.edit`, `users.delete`).
+- **Every module MUST expose all its features in `src/modules/<module>/data/acl.ts`** by exporting a `features` array of strings.
+- Feature naming convention: `<module>.<action>` (e.g., `example.view`, `example.create`, `example.edit`, `example.delete`).
+- Features are assigned to roles and users through Role ACLs and User ACLs.
+- Pages, APIs, and other protected resources use `requireFeatures` in their metadata to declare which features are required for access.
+- The `acl.ts` file serves as the single source of truth for all features provided by a module, making it easy to audit and manage permissions.
+- Example `acl.ts` structure:
+  ```typescript
+  export const features = [
+    'example.view',
+    'example.create',
+    'example.edit',
+    'example.delete',
+  ];
+  ```
+
 ### HTTP calls in UI
 - In client components and utilities, use `apiFetch` from `@open-mercato/ui/backend/utils/api` instead of the global `fetch`. It automatically attaches proper headers and base URL handling consistent with the app.
 

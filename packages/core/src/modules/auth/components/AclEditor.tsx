@@ -45,7 +45,7 @@ export function AclEditor({
         }
       } catch {}
       try {
-        const aclRes = await apiFetch(`/api/${kind === 'user' ? 'users' : 'roles'}/acl?${kind === 'user' ? 'userId' : 'roleId'}=${encodeURIComponent(targetId)}`)
+        const aclRes = await apiFetch(`/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl?${kind === 'user' ? 'userId' : 'roleId'}=${encodeURIComponent(targetId)}`)
         const aclJson = await aclRes.json()
         if (!cancelled) {
           setIsSuperAdmin(!!aclJson.isSuperAdmin)
