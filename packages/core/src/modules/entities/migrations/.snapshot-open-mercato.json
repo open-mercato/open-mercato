@@ -134,6 +134,21 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "custom_entities_unique_idx",
+          "columnNames": [
+            "entity_id",
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "options": {
+            "unique": true
+          }
+        },
+        {
           "keyName": "custom_entities_pkey",
           "columnNames": [
             "id"

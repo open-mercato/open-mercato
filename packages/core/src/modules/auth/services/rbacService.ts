@@ -14,10 +14,15 @@ export class RbacService {
   private aclCache: Map<string, AclCacheEntry> = new Map()
   private cacheTtlMs: number = 5 * 60 * 1000 // 5 minutes default
 
-  constructor(private em: EntityManager, cacheTtlMs?: number) {
-    if (cacheTtlMs !== undefined) {
-      this.cacheTtlMs = cacheTtlMs
-    }
+  constructor(private em: EntityManager) {
+  }
+
+  /**
+   * Set cache TTL in milliseconds
+   * @param ttlMs - Time to live in milliseconds
+   */
+  setCacheTtl(ttlMs: number) {
+    this.cacheTtlMs = ttlMs
   }
 
   /**
