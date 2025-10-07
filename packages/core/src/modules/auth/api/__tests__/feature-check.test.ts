@@ -38,7 +38,7 @@ describe('POST /api/auth/feature-check', () => {
     ;(getAuthFromRequest as jest.Mock).mockReturnValue({ sub: 'u1', tenantId: 't1', orgId: 'o1' })
     const res = await POST(makeReq({ features: [] }))
     expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({ ok: true })
+    await expect(res.json()).resolves.toEqual({ ok: true, granted: [] })
   })
 
   it('returns ok true when RBAC grants all features', async () => {
@@ -47,7 +47,7 @@ describe('POST /api/auth/feature-check', () => {
     mockRbac.userHasAllFeatures.mockResolvedValueOnce(true)
     const res = await POST(makeReq({ features: ['a.b'] }))
     expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({ ok: true })
+    await expect(res.json()).resolves.toEqual({ ok: true, granted: ['a.b'] })
   })
 
   it('returns ok false when RBAC denies features', async () => {
@@ -56,7 +56,9 @@ describe('POST /api/auth/feature-check', () => {
     mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
     const res = await POST(makeReq({ features: ['a.b'] }))
     expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({ ok: false })
+    const data = await res.json()
+    expect(data.ok).toBe(false)
+    expect(Array.isArray(data.granted)).toBe(true)
   })
 })
 

@@ -26,10 +26,20 @@ export async function buildAdminNav(
   }
   const entries: AdminNavItem[] = []
 
-  // Helper: server/client capable feature-check
-  async function canUserAccessFeatures(required: string[]): Promise<boolean> {
-    if (!required || required.length === 0) return true
-    // Default values for client-side
+  // Collect all unique features needed across all routes first
+  const allRequiredFeatures = new Set<string>()
+  for (const m of modules) {
+    for (const r of m.backendRoutes ?? []) {
+      const features = (r as any).requireFeatures as string[] | undefined
+      if (features && features.length) {
+        features.forEach(f => allRequiredFeatures.add(f))
+      }
+    }
+  }
+
+  // Batch check all features in a single API call
+  let userFeatures = new Set<string>()
+  if (allRequiredFeatures.size > 0) {
     let url = '/api/auth/feature-check'
     let headersInit: Record<string, string> | undefined
     if (typeof window === 'undefined') {
@@ -51,14 +61,24 @@ export async function buildAdminNav(
         method: 'POST',
         credentials: 'include' as any,
         headers: { 'content-type': 'application/json', ...(headersInit || {}) },
-        body: JSON.stringify({ features: required }),
+        body: JSON.stringify({ features: Array.from(allRequiredFeatures) }),
       } as any)
-      if (!res.ok) return false
-      const data = await res.json().catch(() => ({ ok: false }))
-      return !!data?.ok
+      if (res.ok) {
+        const data = await res.json().catch(() => ({ granted: [] }))
+        // Add all granted features to the cache
+        if (Array.isArray(data?.granted)) {
+          data.granted.forEach((f: string) => userFeatures.add(f))
+        }
+      }
     } catch {
-      return false
+      // If batch check fails, assume no features available
     }
+  }
+
+  // Helper: check if user has all required features (from cache)
+  function hasAllFeatures(required: string[]): boolean {
+    if (!required || required.length === 0) return true
+    return required.every(f => userFeatures.has(f))
   }
 
   // Icons are defined per-page in metadata; no heuristic derivation here.
@@ -80,10 +100,10 @@ export async function buildAdminNav(
         const ok = required.some((role) => roles.includes(role))
         if (!ok) continue
       }
-      // If features are required, verify with server via helper (SSR/CSR-aware)
+      // If features are required, check from cached batch result
       const features = (r as any).requireFeatures as string[] | undefined
       if (features && features.length) {
-        const ok = await canUserAccessFeatures(features)
+        const ok = hasAllFeatures(features)
         if (!ok) continue
       }
       const order = (r as any).order as number | undefined

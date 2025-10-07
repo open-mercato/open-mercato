@@ -1,14 +1,12 @@
 "use client"
 import * as React from 'react'
-import { useParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { AclEditor } from '@open-mercato/core/modules/auth/components/AclEditor'
 
-export default function EditRolePage() {
-  const params = useParams<{ id: string }>()
-  const id = Array.isArray(params?.id) ? params.id[0] : params?.id
+export default function EditRolePage({ params }: { params?: { id?: string } }) {
+  const id = params?.id
   const [initial, setInitial] = React.useState<any | null>(null)
   const [loading, setLoading] = React.useState(true)
 

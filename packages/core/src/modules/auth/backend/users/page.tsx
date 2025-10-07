@@ -49,34 +49,23 @@ export default function UsersListPage() {
   const total = usersData?.total || 0
   const totalPages = usersData?.totalPages || 1
 
-  // Get unique organization IDs from users
-  const organizationIds = React.useMemo(() => {
-    if (!rows) return []
-    const ids = rows
-      .map(user => user.organizationId)
-      .filter((id): id is string => id != null)
-    return [...new Set(ids)]
-  }, [rows])
-
-  // Fetch organizations
+  // Fetch all organizations (filtered by tenant on server)
   const { data: orgsData } = useQuery<OrganizationsResponse>({
-    queryKey: ['organizations', organizationIds],
+    queryKey: ['organizations'],
     queryFn: async () => {
-      if (organizationIds.length === 0) return { items: [] }
-      const ids = organizationIds.join(',')
-      const res = await apiFetch(`/api/directory/organizations?ids=${encodeURIComponent(ids)}`)
+      const res = await apiFetch('/api/directory/organizations')
       return res.json()
     },
-    enabled: organizationIds.length > 0,
   })
 
   // Merge organization names into user rows
-  const rowsWithOrgNames = React.useMemo(() => {
-    if (!orgsData?.items) return rows
-    const orgMap = new Map(orgsData.items.map(o => [o.id, o.name]))
+  const rowsWithOrgNames: Row[] = React.useMemo(() => {
+    const orgMap = orgsData?.items ? new Map(orgsData.items.map(o => [o.id, o.name])) : new Map()
     return rows.map(row => ({
       ...row,
-      organizationName: row.organizationId ? (orgMap.get(row.organizationId) || row.organizationId) : null,
+      organizationName: row.organizationId && orgMap.has(row.organizationId) 
+        ? orgMap.get(row.organizationId) 
+        : row.organizationId || undefined,
     }))
   }, [rows, orgsData])
 

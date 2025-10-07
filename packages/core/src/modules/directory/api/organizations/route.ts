@@ -4,7 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['directory.organizations.list'] },
+  GET: { requireAuth: true },
 }
 
 export async function GET(req: Request) {
@@ -12,8 +12,19 @@ export async function GET(req: Request) {
   if (!auth) return NextResponse.json({ items: [] }, { status: 401 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  
+  const url = new URL(req.url)
+  const idsParam = url.searchParams.get('ids')
+  
   const where: any = {}
   if (auth.tenantId) where.tenant = auth.tenantId as any
+  
+  // Support filtering by specific IDs
+  if (idsParam) {
+    const ids = idsParam.split(',').map(s => s.trim()).filter(Boolean)
+    if (ids.length > 0) where.id = { $in: ids }
+  }
+  
   try {
     const orgs = await em.find(Organization, where, { populate: ['tenant'] })
     const items = (orgs || []).map((o: any) => ({ id: String(o.id), name: String(o.name || '') }))
