@@ -3,6 +3,7 @@ import { findApi } from '@open-mercato/shared/modules/registry'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
+import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 async function checkAuthorization(
   methodMetadata: any,
@@ -22,7 +23,7 @@ async function checkAuthorization(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const container = await createRequestContainer()
-    const rbac = container.resolve<any>('rbacService')
+    const rbac = container.resolve<RbacService>('rbacService')
     const ok = await rbac.userHasAllFeatures(
       auth.sub, 
       methodMetadata.requireFeatures, 
