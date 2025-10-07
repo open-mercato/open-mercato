@@ -26,20 +26,38 @@ export async function buildAdminNav(
   }
   const entries: AdminNavItem[] = []
 
-  // Prepare server-side fetch context so feature checks can see auth cookies during SSR
-  let featureCheckUrl = '/api/auth/feature-check'
-  let serverHeaders: Record<string, string> | undefined
-  if (typeof window === 'undefined') {
+  // Helper: server/client capable feature-check
+  async function canUserAccessFeatures(required: string[]): Promise<boolean> {
+    if (!required || required.length === 0) return true
+    // Default values for client-side
+    let url = '/api/auth/feature-check'
+    let headersInit: Record<string, string> | undefined
+    if (typeof window === 'undefined') {
+      // On the server, build absolute URL and forward cookies so auth is available
+      try {
+        const { headers: getHeaders } = await import('next/headers')
+        const h = await getHeaders()
+        const host = h.get('x-forwarded-host') || h.get('host') || ''
+        const proto = h.get('x-forwarded-proto') || 'http'
+        const cookie = h.get('cookie') || ''
+        if (host) url = `${proto}://${host}/api/auth/feature-check`
+        headersInit = { cookie }
+      } catch {
+        // ignore; fall back to relative URL without forwarded cookies
+      }
+    }
     try {
-      const { headers: getHeaders } = await import('next/headers')
-      const h = await getHeaders()
-      const host = h.get('x-forwarded-host') || h.get('host') || ''
-      const proto = h.get('x-forwarded-proto') || 'http'
-      const cookie = h.get('cookie') || ''
-      if (host) featureCheckUrl = `${proto}://${host}/api/auth/feature-check`
-      serverHeaders = { cookie }
+      const res = await fetch(url, {
+        method: 'POST',
+        credentials: 'include' as any,
+        headers: { 'content-type': 'application/json', ...(headersInit || {}) },
+        body: JSON.stringify({ features: required }),
+      } as any)
+      if (!res.ok) return false
+      const data = await res.json().catch(() => ({ ok: false }))
+      return !!data?.ok
     } catch {
-      // ignore; fall back to relative fetch without cookies
+      return false
     }
   }
 
@@ -62,23 +80,11 @@ export async function buildAdminNav(
         const ok = required.some((role) => roles.includes(role))
         if (!ok) continue
       }
-      // If features are required, check via API call (deferred to server via fetch)
+      // If features are required, verify with server via helper (SSR/CSR-aware)
       const features = (r as any).requireFeatures as string[] | undefined
       if (features && features.length) {
-        try {
-          // SSR-friendly: ask server to evaluate features for current user.
-          // On the server, forward cookies so ACL checks can read auth.
-          const can = await fetch(featureCheckUrl, {
-            method: 'POST',
-            // credentials: 'include' helps in the browser; server forwarding is done via explicit headers above
-            credentials: 'include' as any,
-            headers: { 'content-type': 'application/json', ...(serverHeaders || {}) },
-            body: JSON.stringify({ features }),
-          } as any)
-            .then(res => (res.ok ? res.json() : { ok: false }))
-            .catch(() => ({ ok: false }))
-          if (!can?.ok) continue
-        } catch {}
+        const ok = await canUserAccessFeatures(features)
+        if (!ok) continue
       }
       const order = (r as any).order as number | undefined
       const priority = ((r as any).priority as number | undefined) ?? order
