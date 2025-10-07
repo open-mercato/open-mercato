@@ -5,8 +5,8 @@ import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entitie
 import { upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 
 export const metadata = {
-  // Reading definitions is needed by record forms; keep it auth-protected but not admin-only
-  GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
+  // Reading definitions is needed by record forms; keep it auth-protected but accessible to all authenticated users
+  GET: { requireAuth: true },
   // Mutations remain admin-only
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },

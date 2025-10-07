@@ -1,6 +1,12 @@
 import { detectLocale, loadDictionary } from '@/lib/i18n/server'
+import { getAuthFromCookies } from '@/lib/auth/server'
+import { redirect } from 'next/navigation'
 
 export default async function BackendIndex() {
+  // Only require authentication, no specific roles
+  const auth = await getAuthFromCookies()
+  if (!auth) redirect('/api/auth/session/refresh?redirect=/backend')
+  
   const locale = await detectLocale()
   const dict = await loadDictionary(locale)
   const t = (k: string) => dict[k] ?? k
