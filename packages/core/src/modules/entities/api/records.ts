@@ -7,10 +7,10 @@ import { setRecordCustomFields } from '../lib/helpers'
 import { CustomFieldValue } from '../data/entities'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin'] },
-  POST: { requireAuth: true, requireRoles: ['admin'] },
-  PUT: { requireAuth: true, requireRoles: ['admin'] },
-  DELETE: { requireAuth: true, requireRoles: ['admin'] },
+  GET: { requireAuth: true, requireFeatures: ['entities.records.view'] },
+  POST: { requireAuth: true, requireFeatures: ['entities.records.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['entities.records.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['entities.records.manage'] },
 }
 
 function parseBool(v: string | null, d = false) {
@@ -90,7 +90,7 @@ export async function GET(req: Request) {
       tenantId: auth.tenantId!,
       includeCustomFields: true,
       page: { page, pageSize },
-      sort: [{ field: sortField as any, dir: sortDir as any }] as Sort<any>[],
+      sort: [{ field: sortField as any, dir: sortDir as any }] as Sort[],
       get filters() { return filtersObj as any },
       withDeleted,
     } as const

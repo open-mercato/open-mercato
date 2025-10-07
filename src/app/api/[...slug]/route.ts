@@ -2,6 +2,40 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { findApi } from '@open-mercato/shared/modules/registry'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
+import { createRequestContainer } from '@/lib/di/container'
+import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+
+async function checkAuthorization(
+  methodMetadata: any,
+  auth: any
+): Promise<NextResponse | null> {
+  if (methodMetadata?.requireAuth && !auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && 
+      (!auth || !auth.roles || !methodMetadata.requireRoles.some((r: string) => auth.roles!.includes(r)))) {
+    return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
+  }
+
+  if (methodMetadata?.requireFeatures && methodMetadata.requireFeatures.length) {
+    if (!auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const container = await createRequestContainer()
+    const rbac = container.resolve<RbacService>('rbacService')
+    const ok = await rbac.userHasAllFeatures(
+      auth.sub, 
+      methodMetadata.requireFeatures, 
+      { tenantId: auth.tenantId, organizationId: auth.orgId }
+    )
+    if (!ok) {
+      return NextResponse.json({ error: 'Forbidden', requiredFeatures: methodMetadata.requireFeatures }, { status: 403 })
+    }
+  }
+
+  return null
+}
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
@@ -10,12 +44,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   
-  // Check per-method metadata
-  const methodMetadata = api.metadata?.GET
-  if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
-    return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
-  }
+  const authError = await checkAuthorization(api.metadata?.GET, auth)
+  if (authError) return authError
   
   return (api.handler as any)(req, { params: api.params, auth })
 }
@@ -27,12 +57,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   
-  // Check per-method metadata
-  const methodMetadata = api.metadata?.POST
-  if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
-    return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
-  }
+  const authError = await checkAuthorization(api.metadata?.POST, auth)
+  if (authError) return authError
   
   return (api.handler as any)(req, { params: api.params, auth })
 }
@@ -44,12 +70,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   
-  // Check per-method metadata
-  const methodMetadata = api.metadata?.PUT
-  if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
-    return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
-  }
+  const authError = await checkAuthorization(api.metadata?.PUT, auth)
+  if (authError) return authError
   
   return (api.handler as any)(req, { params: api.params, auth })
 }
@@ -61,12 +83,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ sl
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   
-  // Check per-method metadata
-  const methodMetadata = api.metadata?.PATCH
-  if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
-    return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
-  }
+  const authError = await checkAuthorization(api.metadata?.PATCH, auth)
+  if (authError) return authError
   
   return (api.handler as any)(req, { params: api.params, auth })
 }
@@ -78,12 +96,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ s
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   
-  // Check per-method metadata
-  const methodMetadata = api.metadata?.DELETE
-  if (methodMetadata?.requireAuth && !auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && (!auth || !auth.roles || !methodMetadata.requireRoles.some(r => auth.roles!.includes(r)))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const authError = await checkAuthorization(api.metadata?.DELETE, auth)
+  if (authError) return authError
   
   return (api.handler as any)(req, { params: api.params, auth })
 }

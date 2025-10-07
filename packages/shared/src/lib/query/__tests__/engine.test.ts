@@ -89,6 +89,7 @@ describe('BasicQueryEngine', () => {
       sort: [{ field: 'cf:vip', dir: 'asc' }],
       includeExtensions: true,
       organizationId: 1,
+      tenantId: 't1',
       page: { page: 1, pageSize: 10 },
     })
     expect(res).toMatchObject({ page: 1, pageSize: 10, total: 0, items: [] })
@@ -97,8 +98,9 @@ describe('BasicQueryEngine', () => {
     expect(defsCall).toBeTruthy()
     const hasEntityFilter = defsCall._ops.wheres.some((w: any) => JSON.stringify(w).includes('entity_id'))
     expect(hasEntityFilter).toBe(true)
-    const hasOrgFilter = defsCall._ops.wheres.some((w: any) => JSON.stringify(w).includes('organization_id'))
-    expect(hasOrgFilter).toBe(true)
+    // Organization-level scoping is intentionally disabled for custom field definitions; ensure tenant filter is present
+    const hasTenantFilter = defsCall._ops.wheres.some((w: any) => JSON.stringify(w).includes('tenant_id'))
+    expect(hasTenantFilter).toBe(true)
     // Assert base ordering by cf alias was recorded
     const baseCall = fakeKnex._calls.find((b: any) => b._ops.table === 'users')
     const hasCfOrder = baseCall._ops.orderBys.some((o: any) => o[0] === 'cf_vip')

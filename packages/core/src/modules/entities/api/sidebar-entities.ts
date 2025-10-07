@@ -5,7 +5,7 @@ import { EntityManager } from '@mikro-orm/core'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin'] },
+  GET: { requireAuth: true },
 }
 
 export async function GET(req: Request) {
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
     showInSidebar: true
   }
   where.$and = [
-    { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+//    { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] }, // the entities and custom fields are defined per tenant
     { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
   ]
   

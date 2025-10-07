@@ -1,7 +1,7 @@
 import { getAuthFromCookies } from '@/lib/auth/server'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin', 'superuser'] },
+  GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
 }
 
 type Option = { value: string; label: string }

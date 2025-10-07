@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { useParams, useRouter, usePathname } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { fetchCrudList, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -9,18 +9,9 @@ import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 
 type TodoItem = TodoListItem
 
-export default function EditTodoPage(props: { params?: { id?: string | string[] } }) {
-  // Prefer params passed by registry; fallback to Next hook if missing
-  const hookParams = useParams<{ id?: string | string[] }>()
+export default function EditTodoPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
-  const pathname = usePathname()
-  const idParam = (props?.params?.id ?? hookParams?.id) as string | string[] | undefined
-  let id = Array.isArray(idParam) ? idParam[0] : idParam
-  // Fallback: derive from pathname when params are missing
-  if (!id && typeof pathname === 'string') {
-    const m = pathname.match(/\/backend\/todos\/([^/]+)\/edit/)
-    if (m) id = m[1]
-  }
+  const id = params?.id
   const [initial, setInitial] = React.useState<any | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [err, setErr] = React.useState<string | null>(null)

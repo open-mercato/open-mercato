@@ -78,9 +78,14 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       const data = await clone.json()
       if (Array.isArray(data?.requiredRoles)) roles = data.requiredRoles.map((r: any) => String(r))
     } catch {}
-    redirectToForbiddenLogin(roles)
-    const msg = await res.text().catch(() => 'Forbidden')
-    throw new ForbiddenError(msg)
+    // Only redirect if not already on login page
+    const onLoginPage = typeof window !== 'undefined' && window.location.pathname.startsWith('/login')
+    if (!onLoginPage) {
+      redirectToForbiddenLogin(roles)
+      const msg = await res.text().catch(() => 'Forbidden')
+      throw new ForbiddenError(msg)
+    }
+    // If already on login, just return the response for the caller to handle
   }
   return res
 }

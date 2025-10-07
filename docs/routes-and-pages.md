@@ -67,6 +67,7 @@ Pages can have metadata for navigation, authentication, and other configuration:
 export const metadata = {
   requireAuth: true,
   requireRoles: ['admin'] as const,
+  requireFeatures: ['example.todos.view'],
   pageTitle: 'Todos',
   pageGroup: 'Example',
   pageOrder: 20,
@@ -126,7 +127,8 @@ API routes support per-HTTP-method metadata for fine-grained authorization:
 export const metadata = {
   GET: {
     requireAuth: true,
-    requireRoles: ['admin', 'user']
+    requireRoles: ['admin', 'user'],
+    requireFeatures: ['entities.records.view']
   },
   POST: {
     requireAuth: true,
@@ -134,7 +136,8 @@ export const metadata = {
   },
   PUT: {
     requireAuth: true,
-    requireRoles: ['admin']
+    requireRoles: ['admin'],
+    requireFeatures: ['entities.records.manage']
   },
   DELETE: {
     requireAuth: true,

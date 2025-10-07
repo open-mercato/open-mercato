@@ -74,6 +74,7 @@ export function register(container: AppContainer) {
 - Recognized fields (used where applicable):
   - `requireAuth: boolean`
   - `requireRoles: readonly string[]`
+  - `requireFeatures: readonly string[]` (fine-grained permissions)
   - `title` or `pageTitle: string`
   - `group` or `pageGroup: string`
   - `order` or `pageOrder: number`
@@ -94,6 +95,7 @@ Precedence: if a `*.meta.ts` file is present it is used; otherwise, the generato
 - Implement defaults under `@open-mercato/core/modules/<module>/api/...`.
 - Override by adding `src/modules/<module>/api/...`.
 - The app exposes a catch-all API route in `src/app/api/[...slug]/route.ts` and dispatches by method + path.
+  - Per-method metadata supports `requireAuth`, `requireRoles`, and `requireFeatures`.
 
 ### Database Schema and Migrations (MikroORM)
 - Place entities in `@open-mercato/core/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts`).

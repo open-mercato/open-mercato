@@ -79,11 +79,17 @@ export function UserMenu({ email }: { email?: string }) {
         <div
           ref={menuRef}
           id="user-menu-dropdown"
-          className="absolute right-0 top-full mt-0 w-40 rounded-md border bg-background p-1 shadow z-50"
+          className="absolute right-0 top-full mt-0 w-56 rounded-md border bg-background p-1 shadow z-50"
           role="menu"
           aria-labelledby="user-menu-button"
           tabIndex={-1}
         >
+          {email && (
+            <div className="px-2 py-2 text-xs text-muted-foreground border-b mb-1">
+              <div className="font-medium">Logged in as:</div>
+              <div className="truncate">{email}</div>
+            </div>
+          )}
           <form action="/api/auth/logout" method="POST">
             <button
               ref={logoutButtonRef}

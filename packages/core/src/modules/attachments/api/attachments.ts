@@ -5,8 +5,8 @@ import { promises as fs } from 'fs'
 import path from 'path'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin'] },
-  POST: { requireAuth: true, requireRoles: ['admin'] },
+  GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
+  POST: { requireAuth: true, requireFeatures: ['attachments.manage'] },
 }
 
 export async function GET(req: Request) {
@@ -54,7 +54,6 @@ export async function POST(req: Request) {
         entityId,
         key: fieldKey,
         $and: [
-          { $or: [ { organizationId: auth.orgId }, { organizationId: null } ] },
           { $or: [ { tenantId: auth.tenantId }, { tenantId: null } ] },
         ],
         isActive: true,

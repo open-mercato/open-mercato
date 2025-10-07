@@ -113,3 +113,73 @@ export class PasswordReset {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+// RBAC: Role-level ACL
+@Entity({ tableName: 'role_acls' })
+export class RoleAcl {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => Role)
+  role!: Role
+
+  // Tenant scope is mandatory for ACL evaluation
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  // Feature list (string-based). Use JSON array to preserve order and allow wildcards like "example.*".
+  @Property({ name: 'features_json', type: 'json', nullable: true })
+  featuresJson?: string[] | null
+
+  // If true, user with this role can do everything regardless of features
+  @Property({ name: 'is_super_admin', type: 'boolean', default: false })
+  isSuperAdmin: boolean = false
+
+  // Visible organizations within the tenant; null/empty means all organizations
+  @Property({ name: 'organizations_json', type: 'json', nullable: true })
+  organizationsJson?: string[] | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+// RBAC: Per-user ACL override
+@Entity({ tableName: 'user_acls' })
+export class UserAcl {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => User)
+  user!: User
+
+  // Tenant scope is mandatory for ACL evaluation
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  // Feature list (string-based). Use JSON array to preserve order and allow wildcards like "example.*".
+  @Property({ name: 'features_json', type: 'json', nullable: true })
+  featuresJson?: string[] | null
+
+  // If true, this user can do everything regardless of features
+  @Property({ name: 'is_super_admin', type: 'boolean', default: false })
+  isSuperAdmin: boolean = false
+
+  // Visible organizations within the tenant; null/empty means all organizations
+  @Property({ name: 'organizations_json', type: 'json', nullable: true })
+  organizationsJson?: string[] | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

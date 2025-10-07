@@ -29,7 +29,7 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 2) Quick setup (recommended)
 
 - `yarn init` - Automatically installs dependencies, prepares modules, runs migrations, and creates admin user
-- Customize admin user: `yarn init --org="My Company" --email="admin@mycompany.com" --password="mypassword" --roles="owner,admin"`
+- Customize admin user: `yarn init --org="My Company" --email="admin@mycompany.com" --password="mypassword" --roles="superadmin,admin"`
 
 **OR** Manual setup:
 
@@ -50,7 +50,7 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 
 - Seed default roles: `yarn mercato auth seed-roles`
 - Setup tenant/org/admin:
-  - `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles owner,admin`
+  - `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles superadmin,admin`
 
 6) Run the app
 
@@ -67,7 +67,7 @@ Steps:
 - `yarn db:migrate` (runs migrations and seeds global custom fields)
 
 2) Create an organization and admin user
-- `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles owner,admin`
+- `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles superadmin,admin`
 - Note the printed `organizationId` (use it below)
 
 3) Seed example Todos (entity + per‑org custom field definitions + sample data)
@@ -87,7 +87,7 @@ One-command setup that prepares the entire application:
 yarn init
 
 # Custom setup
-yarn init --org="My Company" --email="admin@mycompany.com" --password="mypassword" --roles="owner,admin"
+yarn init --org="My Company" --email="admin@mycompany.com" --password="mypassword" --roles="superadmin,admin"
 ```
 
 **What it does:**
@@ -100,10 +100,10 @@ yarn init --org="My Company" --email="admin@mycompany.com" --password="mypasswor
 - Seeds example todos
 - Displays success message with admin credentials
 
-#### `yarn greenfield` - Clean Slate Setup
+#### `yarn db:greenfield` - Clean Slate Setup
 Removes all migrations, snapshots, and checksum files for a fresh start:
 ```bash
-yarn greenfield
+yarn db:greenfield
 ```
 
 **What it cleans:**
@@ -131,7 +131,7 @@ yarn db:migrate
 #### `yarn mercato auth setup` - Create Organization & Admin
 Creates a tenant, organization, and admin user:
 ```bash
-yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles owner,admin
+yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles superadmin,admin
 ```
 
 #### `yarn mercato auth list-orgs` - List Organizations

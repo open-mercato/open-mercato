@@ -50,11 +50,13 @@ export class HybridQueryEngine implements QueryEngine {
     const qualify = (col: string) => `b.${col}`
     let q = knex({ b: baseTable })
 
-    // Multi-tenant guard on base
+    // Require tenant scope for all queries
+    if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
+    // Optional organizationId filter on base when column exists
     if (opts.organizationId && (await this.columnExists(baseTable, 'organization_id'))) {
       q = q.where(qualify('organization_id'), opts.organizationId)
     }
-    if (opts.tenantId && (await this.columnExists(baseTable, 'tenant_id'))) {
+    if (await this.columnExists(baseTable, 'tenant_id')) {
       q = q.where(qualify('tenant_id'), opts.tenantId)
     }
     if (!opts.withDeleted && (await this.columnExists(baseTable, 'deleted_at'))) {
@@ -120,7 +122,7 @@ export class HybridQueryEngine implements QueryEngine {
     // Count and pagination (count base rows with current filters)
     const page = opts.page?.page ?? 1
     const pageSize = opts.page?.pageSize ?? 20
-    const countQ = q.clone().clearSelect().clearOrder().countDistinct<{ count: string }>(qualify('id') + ' as count').first()
+    const countQ = q.clone().clearSelect().clearOrder().countDistinct(qualify('id') + ' as count').first()
     const countRow = await countQ
     const total = Number((countRow as any)?.count ?? 0)
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)
@@ -196,11 +198,11 @@ export class HybridQueryEngine implements QueryEngine {
     const alias = 'ce'
     let q = knex({ [alias]: 'custom_entities_storage' }).where(`${alias}.entity_type`, entity)
 
-    // Multi-tenant guards
+    // Require tenant scope; custom entities are tenant-scoped only
+    if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
+    q = q.andWhere(`${alias}.tenant_id`, opts.tenantId)
+    // Optional organization scope when provided
     if (opts.organizationId != null) q = q.andWhere(`${alias}.organization_id`, opts.organizationId)
-    else q = q.whereNull(`${alias}.organization_id`)
-    if (opts.tenantId != null) q = q.andWhere((b: any) => b.where(`${alias}.tenant_id`, opts.tenantId).orWhereNull(`${alias}.tenant_id`))
-    else q = q.whereNull(`${alias}.tenant_id`)
     if (!opts.withDeleted) q = q.whereNull(`${alias}.deleted_at`)
 
     const normalizeFilters = this.normalizeFilters(opts.filters)
@@ -259,10 +261,10 @@ export class HybridQueryEngine implements QueryEngine {
           .select('key')
           .where({ entity_id: entity, is_active: true })
           .modify((qb: any) => {
-            if (opts.tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: opts.tenantId }).orWhereNull('tenant_id'))
-            else qb.whereNull('tenant_id')
-            if (opts.organizationId != null) qb.andWhere((b: any) => b.where({ organization_id: opts.organizationId }).orWhereNull('organization_id'))
-            else qb.whereNull('organization_id')
+            qb.andWhere({ tenant_id: opts.tenantId })
+            // NOTE: organization-level scoping intentionally disabled for custom fields
+            // if (opts.organizationId != null) qb.andWhere((b: any) => b.where({ organization_id: opts.organizationId }).orWhereNull('organization_id'))
+            // else qb.whereNull('organization_id')
           })
         for (const r of rows) cfKeys.add(String((r as any).key))
       } catch {}
@@ -325,7 +327,7 @@ export class HybridQueryEngine implements QueryEngine {
     const countClone: any = q.clone()
     if (typeof countClone.clearSelect === 'function') countClone.clearSelect()
     if (typeof countClone.clearOrder === 'function') countClone.clearOrder()
-    const countRow = await countClone.countDistinct<{ count: string }>(`${alias}.entity_id as count`).first()
+    const countRow = await countClone.countDistinct(`${alias}.entity_id as count`).first()
     const total = Number((countRow as any)?.count ?? 0)
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)
     return { items, page, pageSize, total }
@@ -363,7 +365,7 @@ export class HybridQueryEngine implements QueryEngine {
     if (!opts.withDeleted && (await this.columnExists(baseTable, 'deleted_at'))) {
       bq = bq.whereNull('b.deleted_at')
     }
-    const baseRow = await bq.countDistinct<{ count: string }>('b.id as count').first()
+    const baseRow = await bq.countDistinct('b.id as count').first()
     const baseCount = Number((baseRow as any)?.count ?? 0)
 
     // Index count within same scope
@@ -371,7 +373,7 @@ export class HybridQueryEngine implements QueryEngine {
     if (!opts.withDeleted) iq = iq.whereNull('ei.deleted_at')
     if (opts.organizationId) iq = iq.where('ei.organization_id', opts.organizationId)
     if (opts.tenantId) iq = iq.where('ei.tenant_id', opts.tenantId)
-    const idxRow = await iq.countDistinct<{ count: string }>('ei.entity_id as count').first()
+    const idxRow = await iq.countDistinct('ei.entity_id as count').first()
     const indexedCount = Number((idxRow as any)?.count ?? 0)
 
     return { baseCount, indexedCount }

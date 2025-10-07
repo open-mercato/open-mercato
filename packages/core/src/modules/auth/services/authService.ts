@@ -25,9 +25,10 @@ export class AuthService {
     return links.map(l => l.role.name)
   }
 
+
   async createSession(user: User, expiresAt: Date) {
     const token = crypto.randomBytes(32).toString('hex')
-    const sess = this.em.create(Session, { user, token, expiresAt })
+    const sess = this.em.create(Session as any, { user, token, expiresAt, createdAt: new Date() } as any)
     await this.em.persistAndFlush(sess)
     return sess
   }
@@ -40,7 +41,7 @@ export class AuthService {
     const now = new Date()
     const sess = await this.em.findOne(Session, { token })
     if (!sess || sess.expiresAt <= now) return null
-    const user = await this.em.findOne(User, { id: sess.user.id }, { populate: ['organization', 'tenant'] })
+    const user = await this.em.findOne(User, { id: sess.user.id })
     if (!user) return null
     const roles = await this.getUserRoles(user)
     return { user, roles }
@@ -51,7 +52,7 @@ export class AuthService {
     if (!user) return null
     const token = crypto.randomBytes(32).toString('hex')
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
-    const row = this.em.create(PasswordReset, { user, token, expiresAt })
+    const row = this.em.create(PasswordReset as any, { user, token, expiresAt, createdAt: new Date() } as any)
     await this.em.persistAndFlush(row)
     return { user, token }
   }

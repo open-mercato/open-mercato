@@ -10,7 +10,7 @@ const filePlusIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireRoles: ['admin'] as const,
+  requireFeatures: ['entities.definitions.manage'],
   pageTitle: 'Create Entity',
   pageGroup: 'Data designer',
   pageOrder: 11,

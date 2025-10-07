@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import { createRequestContainer } from '@/lib/di/container'
+import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import { getAuthFromCookies, type AuthContext } from '@/lib/auth/server'
 import type { QueryEngine, Where, Sort, Page } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
@@ -20,10 +21,10 @@ export type CrudHooks<TCreate, TUpdate, TList> = {
 }
 
 export type CrudMetadata = {
-  GET?: { requireAuth?: boolean; requireRoles?: string[] }
-  POST?: { requireAuth?: boolean; requireRoles?: string[] }
-  PUT?: { requireAuth?: boolean; requireRoles?: string[] }
-  DELETE?: { requireAuth?: boolean; requireRoles?: string[] }
+  GET?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
+  POST?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
+  PUT?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
+  DELETE?: { requireAuth?: boolean; requireRoles?: string[]; requireFeatures?: string[] }
 }
 
 export type OrmEntityConfig = {
@@ -179,7 +180,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const sortFieldRaw = (queryParams as any).sortField || 'id'
         const sortDirRaw = ((queryParams as any).sortDir || 'asc').toLowerCase() === 'desc' ? SortDir.Desc : SortDir.Asc
         const sortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
-        const sort: Sort<any>[] = [{ field: sortField as any, dir: sortDirRaw }]
+        const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
         const page: Page = {
           page: Number((queryParams as any).page ?? 1) || 1,
           pageSize: Math.min(Math.max(Number((queryParams as any).pageSize ?? 50) || 50, 1), 100),
@@ -214,7 +215,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           })
         }
 
-        const payload = { items, total: res.total, page: page.page, pageSize: page.pageSize, totalPages: Math.ceil(res.total / page.pageSize) }
+        const payload = { items, total: res.total, page: page.page, pageSize: page.pageSize, totalPages: Math.ceil(res.total / (page.pageSize || 1)) }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
         return json(payload)
       }
@@ -222,7 +223,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       // Fallback: plain ORM list
       const em = ctx.container.resolve<any>('em')
       const repo = em.getRepository(ormCfg.entity)
-      const where: any = { [ormCfg.orgField!]: ctx.auth.orgId, [ormCfg.tenantField!]: ctx.auth.tenantId, [ormCfg.softDeleteField!]: null }
+      const where: any = buildScopedWhere({}, { organizationId: ctx.auth.orgId, tenantId: ctx.auth.tenantId, orgField: ormCfg.orgField, tenantField: ormCfg.tenantField, softDeleteField: ormCfg.softDeleteField })
       const list = await repo.find(where)
       await opts.hooks?.afterList?.({ items: list, total: list.length }, { ...ctx, query: validated as any })
       return json({ items: list, total: list.length })
@@ -287,7 +288,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!isUuid(id)) return json({ error: 'Invalid id' }, { status: 400 })
 
       const de = ctx.container.resolve<DataEngine>('dataEngine')
-      const where: any = { [ormCfg.idField!]: id, [ormCfg.orgField!]: ctx.auth.orgId, [ormCfg.tenantField!]: ctx.auth.tenantId }
+      const where: any = buildScopedWhere({ [ormCfg.idField!]: id }, { organizationId: ctx.auth.orgId, tenantId: ctx.auth.tenantId, orgField: ormCfg.orgField, tenantField: ormCfg.tenantField })
       const entity = await de.updateOrmEntity({ entity: ormCfg.entity, where, apply: (e: any) => opts.update!.applyToEntity(e, input as any, ctx) })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })
 
@@ -327,7 +328,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!isUuid(id)) return json({ error: 'ID is required' }, { status: 400 })
 
       const de = ctx.container.resolve<DataEngine>('dataEngine')
-      const where: any = { [ormCfg.idField!]: id, [ormCfg.orgField!]: ctx.auth.orgId, [ormCfg.tenantField!]: ctx.auth.tenantId }
+      const where: any = buildScopedWhere({ [ormCfg.idField!]: id }, { organizationId: ctx.auth.orgId, tenantId: ctx.auth.tenantId, orgField: ormCfg.orgField, tenantField: ormCfg.tenantField })
       await opts.hooks?.beforeDelete?.(id!, ctx)
       const entity = await de.deleteOrmEntity({ entity: ormCfg.entity, where, soft: opts.del?.softDelete !== false, softDeleteField: ormCfg.softDeleteField })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })

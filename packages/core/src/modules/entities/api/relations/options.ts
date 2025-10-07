@@ -7,7 +7,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin'] },
+  GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
 }
 
 export async function GET(req: Request) {

@@ -12,6 +12,49 @@ export async function run(argv = process.argv) {
     console.log('🚀 Initializing Open Mercato app...\n')
     
     try {
+      const reinstall = rest.includes('--reinstall') || rest.includes('-r')
+
+      if (reinstall) {
+        // Load env variables so DATABASE_URL is available
+        try { await import('dotenv/config') } catch {}
+        console.log('♻️  Reinstall mode enabled: dropping all database tables...')
+        const { Client } = await import('pg')
+        const dbUrl = process.env.DATABASE_URL
+        if (!dbUrl) {
+          console.error('DATABASE_URL is not set. Aborting reinstall.')
+          return 1
+        }
+        const client = new Client({ connectionString: dbUrl })
+        try {
+          await client.connect()
+          // Collect all user tables in public schema
+          const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)
+          const tables: string[] = (res.rows || []).map((r: any) => String(r.tablename))
+          if (tables.length === 0) {
+            console.log('   No tables found in public schema.')
+          } else {
+            // Drop all tables with CASCADE to remove constraints in one go
+            await client.query('BEGIN')
+            try {
+              // Temporarily relax constraints to avoid dependency issues
+              await client.query("SET session_replication_role = 'replica'")
+              for (const t of tables) {
+                await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+              }
+              await client.query("SET session_replication_role = 'origin'")
+              await client.query('COMMIT')
+              console.log(`   Dropped ${tables.length} tables.`)
+            } catch (e) {
+              await client.query('ROLLBACK')
+              throw e
+            }
+          }
+        } finally {
+          try { await client.end() } catch {}
+        }
+        console.log('✅ Database cleared. Proceeding with fresh initialization...\n')
+      }
+
       // Step 1: Install dependencies
       console.log('📦 Installing dependencies...')
       execSync('yarn install', { stdio: 'inherit' })
@@ -23,29 +66,29 @@ export async function run(argv = process.argv) {
       console.log('✅ Modules prepared\n')
       
       // Step 3: Generate migrations
-      console.log('🗄️  Generating database migrations...')
-      execSync('yarn db:generate', { stdio: 'inherit' })
-      console.log('✅ Migrations generated\n')
+//      console.log('🗄️  Generating database migrations...')
+//      execSync('yarn db:generate', { stdio: 'inherit' })
+//      console.log('✅ Migrations generated\n')
       
-      // Step 4: Apply migrations
+      // Step 3: Apply migrations
       console.log('📊 Applying database migrations...')
       execSync('yarn db:migrate', { stdio: 'inherit' })
       console.log('✅ Migrations applied\n')
       
-      // Step 5: Seed roles
+      // Step 4: Seed roles
       console.log('👥 Seeding default roles...')
       execSync('yarn mercato auth seed-roles', { stdio: 'inherit' })
       console.log('✅ Roles seeded\n')
       
-      // Step 6: Setup admin user
+      // Step 5: Setup RBAC (tenant/org, users, ACLs)
       const orgName = rest.find(arg => arg.startsWith('--org='))?.split('=')[1] || 'Acme Corp'
-      const email = rest.find(arg => arg.startsWith('--email='))?.split('=')[1] || 'admin@acme.com'
+      const email = rest.find(arg => arg.startsWith('--email='))?.split('=')[1] || 'superadmin@acme.com'
       const password = rest.find(arg => arg.startsWith('--password='))?.split('=')[1] || 'secret'
-      const roles = rest.find(arg => arg.startsWith('--roles='))?.split('=')[1] || 'owner,admin'
+      const roles = rest.find(arg => arg.startsWith('--roles='))?.split('=')[1] || 'superadmin,admin,employee'
       
-      console.log('👤 Setting up admin user...')
+      console.log('🔐 Setting up RBAC and users...')
       const setupOutput = execSync(`yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`, { stdio: 'pipe' }).toString()
-      console.log('✅ Admin user created\n')
+      console.log('✅ RBAC setup complete\n')
       
 
       // Extract organization ID and tenant ID from setup output
@@ -62,7 +105,13 @@ export async function run(argv = process.argv) {
         console.log('⚠️  Could not extract organization ID or tenant ID, skipping todo seeding\n')
       }
       
-      // Success message with admin info
+      // Derive admin/employee only when the provided email is a superadmin email
+      const [local, domain] = String(email).split('@')
+      const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin' && !!domain
+      const adminEmailDerived = isSuperadminLocal ? `admin@${domain}` : null
+      const employeeEmailDerived = isSuperadminLocal ? `employee@${domain}` : null
+
+      // Simplified success message: we know which users were created
       console.log('🎉 App initialization complete!\n')
       console.log('╔══════════════════════════════════════════════════════════════╗')
       console.log('║  🚀 You\'re now ready to start development!                   ║')
@@ -70,11 +119,17 @@ export async function run(argv = process.argv) {
       console.log('║  Start the dev server:                                       ║')
       console.log('║    yarn dev                                                  ║')
       console.log('║                                                              ║')
-      console.log('║  Your admin user:                                            ║')
-      console.log(`║    📧 Email: ${email.padEnd(47)} ║`)
-      console.log(`║    🔑 Password: ${password.padEnd(44)} ║`)
-      console.log(`║    🏢 Organization: ${orgName.padEnd(40)} ║`)
-      console.log(`║    👑 Roles: ${roles.padEnd(47)} ║`)
+      console.log('║  Users created:                                              ║')
+      console.log(`║    👑 Superadmin: ${email.padEnd(41)} ║`)
+      console.log(`║       Password: ${password.padEnd(44)} ║`)
+      if (adminEmailDerived) {
+        console.log(`║    🧰 Admin:      ${adminEmailDerived.padEnd(41)} ║`)
+        console.log(`║       Password: ${password.padEnd(44)} ║`)
+      }
+      if (employeeEmailDerived) {
+        console.log(`║    👷 Employee:   ${employeeEmailDerived.padEnd(41)} ║`)
+        console.log(`║       Password: ${password.padEnd(44)} ║`)
+      }
       console.log('║                                                              ║')
       console.log('║  Happy coding!                                               ║')
       console.log('╚══════════════════════════════════════════════════════════════╝')
@@ -89,11 +144,12 @@ export async function run(argv = process.argv) {
   // Load modules lazily, after init handling
   const { modules } = await import('@/generated/modules.generated')
   
-  // Load optional app-level CLI commands lazily
+  // Load optional app-level CLI commands lazily without static import resolution
   let appCli: any[] = []
   try {
-    const app = await import('@/cli') as any
-    if (Array.isArray(app?.default)) appCli = app.default
+    const dynImport: any = (Function('return import') as any)()
+    const app = await dynImport.then((f: any) => f('@/cli')).catch(() => null)
+    if (app && Array.isArray(app?.default)) appCli = app.default
   } catch {}
   const all = modules.slice()
   

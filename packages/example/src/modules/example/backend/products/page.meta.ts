@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: true,
-  requireRoles: ['admin'] as const,
+  requireFeatures: ['example.todos.view'],
   pageTitle: 'Products',
   pageGroup: 'Example',
   pageOrder: 10,

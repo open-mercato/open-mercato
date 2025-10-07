@@ -14,7 +14,7 @@ export type AdminNavItem = {
 
 export async function buildAdminNav(
   modules: any[],
-  ctx: { auth?: { roles?: string[] }; path?: string },
+  ctx: { auth?: { roles?: string[]; sub?: string; orgId?: string | null; tenantId?: string | null }; path?: string },
   userEntities?: Array<{ entityId: string; label: string; href: string }>
 ): Promise<AdminNavItem[]> {
   function capitalize(s: string) {
@@ -25,6 +25,61 @@ export async function buildAdminNav(
     return seg ? seg.split('-').map(capitalize).join(' ') : 'Home'
   }
   const entries: AdminNavItem[] = []
+
+  // Collect all unique features needed across all routes first
+  const allRequiredFeatures = new Set<string>()
+  for (const m of modules) {
+    for (const r of m.backendRoutes ?? []) {
+      const features = (r as any).requireFeatures as string[] | undefined
+      if (features && features.length) {
+        features.forEach(f => allRequiredFeatures.add(f))
+      }
+    }
+  }
+
+  // Batch check all features in a single API call
+  let userFeatures = new Set<string>()
+  if (allRequiredFeatures.size > 0) {
+    let url = '/api/auth/feature-check'
+    let headersInit: Record<string, string> | undefined
+    if (typeof window === 'undefined') {
+      // On the server, build absolute URL and forward cookies so auth is available
+      try {
+        const { headers: getHeaders } = await import('next/headers')
+        const h = await getHeaders()
+        const host = h.get('x-forwarded-host') || h.get('host') || ''
+        const proto = h.get('x-forwarded-proto') || 'http'
+        const cookie = h.get('cookie') || ''
+        if (host) url = `${proto}://${host}/api/auth/feature-check`
+        headersInit = { cookie }
+      } catch {
+        // ignore; fall back to relative URL without forwarded cookies
+      }
+    }
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        credentials: 'include' as any,
+        headers: { 'content-type': 'application/json', ...(headersInit || {}) },
+        body: JSON.stringify({ features: Array.from(allRequiredFeatures) }),
+      } as any)
+      if (res.ok) {
+        const data = await res.json().catch(() => ({ granted: [] }))
+        // Add all granted features to the cache
+        if (Array.isArray(data?.granted)) {
+          data.granted.forEach((f: string) => userFeatures.add(f))
+        }
+      }
+    } catch {
+      // If batch check fails, assume no features available
+    }
+  }
+
+  // Helper: check if user has all required features (from cache)
+  function hasAllFeatures(required: string[]): boolean {
+    if (!required || required.length === 0) return true
+    return required.every(f => userFeatures.has(f))
+  }
 
   // Icons are defined per-page in metadata; no heuristic derivation here.
   for (const m of modules) {
@@ -43,6 +98,12 @@ export async function buildAdminNav(
       if (required.length) {
         const roles = ctx.auth?.roles || []
         const ok = required.some((role) => roles.includes(role))
+        if (!ok) continue
+      }
+      // If features are required, check from cached batch result
+      const features = (r as any).requireFeatures as string[] | undefined
+      if (features && features.length) {
+        const ok = hasAllFeatures(features)
         if (!ok) continue
       }
       const order = (r as any).order as number | undefined

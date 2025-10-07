@@ -5,7 +5,7 @@ Reusable factory for building consistent, multi-tenant safe CRUD APIs with Zod v
 ## Goals
 
 - DRY: stop re-writing GET/POST/PUT/DELETE handlers.
-- Multi-tenant safety: enforce `organizationId`/`tenantId` filtering and assignment.
+- Multi-tenant safety: enforce required `tenantId` and optional `organizationId` filtering and assignment.
 - Validation with Zod: schemas co-located with entities per module.
 - Extensible: lifecycle hooks before/after each operation.
 - Events: emit coherent CRUD events consumable by subscribers.
@@ -119,7 +119,7 @@ See also: `docs/events-and-subscribers.md` for strategy, persistence, and CLI.
 
 - Automatically injects `organizationId` and `tenantId` on create.
 - Filters update/delete by `id + organizationId + tenantId`.
-- GET list via QueryEngine enforces `organizationId`/`tenantId` through its API; pass `withDeleted` in query to include soft-deleted rows.
+- GET list via QueryEngine requires `tenantId`; `organizationId` is optional. Pass `withDeleted` to include soft-deleted rows.
 
 ## Custom Fields
 

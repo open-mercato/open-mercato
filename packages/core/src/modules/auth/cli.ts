@@ -1,7 +1,7 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import { hash } from 'bcryptjs'
-import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { User, Role, UserRole, RoleAcl, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 const addUser: ModuleCli = {
@@ -42,13 +42,19 @@ const addUser: ModuleCli = {
 const seedRoles: ModuleCli = {
   command: 'seed-roles',
   async run() {
-    const defaults = ['customer', 'employee', 'admin', 'owner']
+    const defaults = ['employee', 'admin', 'superadmin']
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    for (const name of defaults) {
-      const existing = await em.findOne(Role, { name })
-      if (!existing) { await em.persistAndFlush(em.create(Role, { name })); console.log('Inserted role', name) }
-    }
+    await em.transactional(async (tem: any) => {
+      for (const name of defaults) {
+        const existing = await tem.findOne(Role, { name })
+        if (!existing) {
+          tem.persist(tem.create(Role, { name }))
+          console.log('Inserted role', name)
+        }
+      }
+      await tem.flush()
+    })
     console.log('Roles ensured')
   },
 }
@@ -92,13 +98,18 @@ const setupApp: ModuleCli = {
     const orgName = args.orgName || args.name
     const email = args.email
     const password = args.password
-    const rolesCsv = (args.roles ?? 'owner,admin').trim()
+    const rolesCsv = (args.roles ?? 'superadmin,admin,employee').trim()
     if (!orgName || !email || !password) {
-      console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles owner,admin]')
+      console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles superadmin,admin,employee]')
       return
     }
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
+
+    // Helper: simple warning output (emoji only)
+    function warnBox(lines: string[]) {
+      for (const line of lines) console.log(`⚠️  ${line}`)
+    }
 
     // Normalize roles once
     const roleNames = rolesCsv
@@ -106,46 +117,109 @@ const setupApp: ModuleCli = {
       : []
 
     // Ensure roles exist upfront (idempotent)
-    for (const name of roleNames) {
-      let role = await em.findOne(Role, { name })
-      if (!role) { role = em.create(Role, { name }); await em.persistAndFlush(role) }
-    }
+    await em.transactional(async (tem: any) => {
+      for (const name of roleNames) {
+        let role = await tem.findOne(Role, { name })
+        if (!role) { role = tem.create(Role, { name }); tem.persist(role) }
+      }
+      await tem.flush()
+    })
 
     // If user already exists, reuse existing org/tenant and ensure roles
     const existingUser = await em.findOne(User, { email })
     if (existingUser) {
-      // Assign any missing roles
-      if (roleNames.length) {
-        const currentUserRoles = await em.find(UserRole, { user: existingUser.id }, { populate: ['role'] })
-        const currentRoleNames = new Set(currentUserRoles.map((ur) => ur.role?.name).filter(Boolean) as string[])
-        for (const name of roleNames) {
-          if (!currentRoleNames.has(name)) {
-            const role = await em.findOneOrFail(Role, { name })
-            await em.persistAndFlush(em.create(UserRole, { user: existingUser, role }))
+      await em.transactional(async (tem: any) => {
+        if (roleNames.length) {
+          const currentUserRoles = await tem.find(UserRole, { user: existingUser.id }, { populate: ['role'] })
+          const currentRoleNames = new Set(currentUserRoles.map((ur: any) => ur.role?.name).filter(Boolean) as string[])
+          for (const name of roleNames) {
+            if (!currentRoleNames.has(name)) {
+              const role = await tem.findOneOrFail(Role, { name })
+              tem.persist(tem.create(UserRole, { user: existingUser, role }))
+            }
           }
         }
-      }
+        await tem.flush()
+      })
+      warnBox([
+        'Existing initial user detected during setup.',
+        `Email: ${existingUser.email}`,
+        'Updated roles if missing and reused tenant/organization.',
+        'No new user created.',
+      ])
       console.log('Setup complete:', { tenantId: existingUser.tenantId, organizationId: existingUser.organizationId, userId: existingUser.id })
       return
     }
 
-    // 1) Create tenant and organization
-    const tenant = em.create(Tenant, { name: `${orgName} Tenant` })
-    await em.persistAndFlush(tenant)
-    const org = em.create(Organization, { name: orgName, tenant })
-    await em.persistAndFlush(org)
+    let seedTenantId: string | undefined
+    let seedOrgId: string | undefined
+    await em.transactional(async (tem: any) => {
+      // 1) Create tenant and organization
+      const tenant = tem.create(Tenant, { name: `${orgName} Tenant` })
+      tem.persist(tenant)
+      await tem.flush()
+      const org = tem.create(Organization, { name: orgName, tenant })
+      tem.persist(org)
+      await tem.flush()
+      seedTenantId = (tenant as any).id
+      seedOrgId = (org as any).id
 
-    // 2) Create user in organization
-    const user = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organizationId: org.id, tenantId: tenant.id })
-    await em.persistAndFlush(user)
+      // 2) Create or update users (superadmin + optionally admin/employee) idempotently
+      // Derivation rule: if the provided email local part is exactly 'superadmin',
+      // derive admin and employee emails by replacing it. Otherwise, only create the provided superadmin.
+      const [local, domain] = String(email).split('@')
+      const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin'
+      const adminEmailDerived = isSuperadminLocal && domain ? `admin@${domain}` : null
+      const employeeEmailDerived = isSuperadminLocal && domain ? `employee@${domain}` : null
 
-    // 3) Assign roles if any
-    for (const name of roleNames) {
-      const role = await em.findOneOrFail(Role, { name })
-      await em.persistAndFlush(em.create(UserRole, { user, role }))
-    }
+      const users: Array<{ email: string; password: string; roles: string[] }> = [
+        { email, password, roles: ['superadmin'] },
+      ]
+      if (adminEmailDerived) users.push({ email: adminEmailDerived, password, roles: ['admin'] })
+      if (employeeEmailDerived) users.push({ email: employeeEmailDerived, password, roles: ['employee'] })
+      for (const udef of users) {
+        let u = await tem.findOne(User, { email: udef.email })
+        if (u) {
+          u.passwordHash = await hash(udef.password, 10)
+          u.isConfirmed = true
+          u.organizationId = org.id
+          u.tenantId = tenant.id
+          tem.persist(u)
+          console.log('Updated user', udef.email)
+          warnBox([
+            'Existing user updated (idempotent setup).',
+            `Email: ${udef.email}`,
+            'Password reset and organization/tenant synchronized with current setup.',
+          ])
+        } else {
+          u = tem.create(User, { email: udef.email, passwordHash: await hash(udef.password, 10), isConfirmed: true, organizationId: org.id, tenantId: tenant.id })
+          tem.persist(u)
+          console.log('Created user', udef.email, 'password:', password)
+        }
+        await tem.flush()
+        // Ensure role links exist (idempotent)
+        for (const name of udef.roles) {
+          const role = await tem.findOneOrFail(Role, { name })
+          const existingLink = await tem.findOne(UserRole, { user: u as any, role: role as any } as any)
+          if (!existingLink) {
+            tem.persist(tem.create(UserRole, { user: u as any, role: role as any }))
+          }
+        }
+        await tem.flush()
+      }
 
-    console.log('Setup complete:', { tenantId: tenant.id, organizationId: org.id, userId: user.id })
+      // Transaction complete; tenant/org ids captured above
+    })
+
+    // 3) Seed role ACLs outside transaction: superadmin -> isSuperAdmin; admin -> all features; employee -> example module
+    const superadminRole = await em.findOne(Role, { name: 'superadmin' })
+    const adminRole = await em.findOne(Role, { name: 'admin' })
+    const employeeRole = await em.findOne(Role, { name: 'employee' })
+    if (superadminRole) await em.persistAndFlush(em.create(RoleAcl, { role: superadminRole, tenantId: seedTenantId, isSuperAdmin: true }))
+    if (adminRole) await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: seedTenantId, featuresJson: ['*'] }))
+    if (employeeRole) await em.persistAndFlush(em.create(RoleAcl, { role: employeeRole, tenantId: seedTenantId, featuresJson: ['example.*'] }))
+
+    console.log('Setup complete:', { tenantId: seedTenantId, organizationId: seedOrgId })
   },
 }
 
@@ -239,7 +313,7 @@ const listUsers: ModuleCli = {
     for (const user of users) {
       // Get user roles separately
       const userRoles = await em.find(UserRole, { user: user.id }, { populate: ['role'] })
-      const roles = userRoles.map(ur => ur.role?.name).filter(Boolean).join(', ') || 'None'
+      const roles = userRoles.map((ur: any) => ur.role?.name).filter(Boolean).join(', ') || 'None'
       
       // Get organization and tenant names if IDs exist
       let orgName = 'N/A'

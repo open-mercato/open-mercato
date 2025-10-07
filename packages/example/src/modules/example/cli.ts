@@ -66,10 +66,10 @@ const seedTodos: ModuleCli = {
     for (const d of defs) {
       const existing = await em.findOne(CustomFieldDef, { entityId, organizationId: orgId, tenantId: tenantId, key: d.key })
       if (!existing) {
-        await em.persistAndFlush(em.create(CustomFieldDef, {
+        await em.persistAndFlush(em.create(CustomFieldDef, { // set the field per tenantId not by organizationId
           entityId,
-          organizationId: orgId,
           tenantId: tenantId,
+          organizationId: null,
           key: d.key,
           kind: d.kind,
           configJson: d.configJson,

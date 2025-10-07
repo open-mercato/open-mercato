@@ -9,7 +9,7 @@ const userIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireRoles: ['admin'] as const,
+  requireFeatures: ['entities.definitions.view'],
   pageTitle: 'User Entities',
   pageGroup: 'Data designer',
   pageOrder: 12,

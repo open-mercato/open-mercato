@@ -9,6 +9,7 @@ const cogs = React.createElement(
 
 export const metadata = {
   requireAuth: true,
+  requireFeatures: ['example.backend'],
   pageTitle: 'Example Admin',
   pageGroup: 'Example',
   pageOrder: 20000,
