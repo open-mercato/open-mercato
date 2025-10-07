@@ -26,6 +26,23 @@ export async function buildAdminNav(
   }
   const entries: AdminNavItem[] = []
 
+  // Prepare server-side fetch context so feature checks can see auth cookies during SSR
+  let featureCheckUrl = '/api/auth/feature-check'
+  let serverHeaders: Record<string, string> | undefined
+  if (typeof window === 'undefined') {
+    try {
+      const { headers: getHeaders } = await import('next/headers')
+      const h = await getHeaders()
+      const host = h.get('x-forwarded-host') || h.get('host') || ''
+      const proto = h.get('x-forwarded-proto') || 'http'
+      const cookie = h.get('cookie') || ''
+      if (host) featureCheckUrl = `${proto}://${host}/api/auth/feature-check`
+      serverHeaders = { cookie }
+    } catch {
+      // ignore; fall back to relative fetch without cookies
+    }
+  }
+
   // Icons are defined per-page in metadata; no heuristic derivation here.
   for (const m of modules) {
     const groupDefault = capitalize(m.id)
@@ -49,9 +66,17 @@ export async function buildAdminNav(
       const features = (r as any).requireFeatures as string[] | undefined
       if (features && features.length) {
         try {
-          // SSR-friendly: ask server to evaluate features for current user
-          // We avoid importing server-only DI here; the server-side layout can enrich groups post-build if needed
-          const can = await fetch('/api/auth/feature-check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ features }) }).then(res => res.ok ? res.json() : { ok: false }).catch(() => ({ ok: false }))
+          // SSR-friendly: ask server to evaluate features for current user.
+          // On the server, forward cookies so ACL checks can read auth.
+          const can = await fetch(featureCheckUrl, {
+            method: 'POST',
+            // credentials: 'include' helps in the browser; server forwarding is done via explicit headers above
+            credentials: 'include' as any,
+            headers: { 'content-type': 'application/json', ...(serverHeaders || {}) },
+            body: JSON.stringify({ features }),
+          } as any)
+            .then(res => (res.ok ? res.json() : { ok: false }))
+            .catch(() => ({ ok: false }))
           if (!can?.ok) continue
         } catch {}
       }
