@@ -39,12 +39,32 @@ export async function PUT(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
   const rbacService = resolve('rbacService') as any
+  
+  const isSuperAdmin = parsed.data.isSuperAdmin ?? false
+  const features = parsed.data.features ?? []
+  const organizations = parsed.data.organizations ?? null
+  
+  // If there's no custom ACL data (not super admin and no features), delete the UserAcl record
+  const hasCustomAcl = isSuperAdmin || (features.length > 0)
+  
   let acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
-  if (!acl) { acl = em.create(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any }) }
-  if (parsed.data.isSuperAdmin !== undefined) (acl as any).isSuperAdmin = !!parsed.data.isSuperAdmin
-  if (parsed.data.features !== undefined) (acl as any).featuresJson = parsed.data.features
-  if (parsed.data.organizations !== undefined) (acl as any).organizationsJson = parsed.data.organizations
-  await em.persistAndFlush(acl)
+  
+  if (!hasCustomAcl) {
+    // No custom ACL - delete the record if it exists so user relies on role-based ACL
+    if (acl) {
+      await em.removeAndFlush(acl)
+    }
+  } else {
+    // Has custom ACL - create or update the record
+    if (!acl) { 
+      acl = em.create(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any }) 
+    }
+    const aclRecord = acl as any
+    aclRecord.isSuperAdmin = isSuperAdmin
+    aclRecord.featuresJson = features
+    aclRecord.organizationsJson = organizations
+    await em.persistAndFlush(acl)
+  }
   
   // Invalidate cache for this user
   rbacService.invalidateUserCache(parsed.data.userId)
