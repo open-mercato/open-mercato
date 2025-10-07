@@ -5,6 +5,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 
 const querySchema = z.object({
+  id: z.string().uuid().optional(),
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
@@ -25,6 +26,7 @@ export async function GET(req: Request) {
   if (!auth) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const url = new URL(req.url)
   const parsed = querySchema.safeParse({
+    id: url.searchParams.get('id') || undefined,
     page: url.searchParams.get('page') || undefined,
     pageSize: url.searchParams.get('pageSize') || undefined,
     search: url.searchParams.get('search') || undefined,
@@ -32,8 +34,9 @@ export async function GET(req: Request) {
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
-  const { page, pageSize, search } = parsed.data
+  const { id, page, pageSize, search } = parsed.data
   const where: any = {}
+  if (id) where.id = id
   if (search) where.name = { $ilike: `%${search}%` } as any
   const [rows, count] = await em.findAndCount(Role, where, { limit: pageSize, offset: (page - 1) * pageSize })
   // Optional: include user counts

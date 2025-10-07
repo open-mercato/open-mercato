@@ -88,6 +88,27 @@ export function AclEditor({
     return Array.from(map.values()).sort((a, b) => a.moduleTitle.localeCompare(b.moduleTitle))
   }, [features, modules])
 
+  const hasGlobalWildcard = granted.includes('*')
+  
+  const toggleModuleWildcard = (moduleId: string, enable: boolean) => {
+    const wildcard = `${moduleId}.*`
+    if (enable) {
+      setGranted((prev) => Array.from(new Set([...prev, wildcard])))
+    } else {
+      setGranted((prev) => prev.filter((x) => x !== wildcard))
+    }
+  }
+
+  const isModuleWildcardEnabled = (moduleId: string) => {
+    return granted.includes(`${moduleId}.*`)
+  }
+
+  const isFeatureChecked = (featureId: string, moduleId: string) => {
+    if (hasGlobalWildcard) return true
+    if (isModuleWildcardEnabled(moduleId)) return true
+    return granted.includes(featureId)
+  }
+
   if (loading) return <div className="text-sm text-muted-foreground">Loading ACL…</div>
 
   return (
@@ -97,27 +118,74 @@ export function AclEditor({
         <label htmlFor="isSuperAdmin" className="text-sm">Super Admin (all features)</label>
       </div>
       {!isSuperAdmin && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {grouped.map((group) => (
-            <div key={group.moduleId} className="rounded border p-3">
-              <div className="text-sm font-medium mb-2">{group.moduleTitle}</div>
-              <div className="space-y-2">
-                {group.features.map((f) => {
-                  const checked = granted.includes(f.id)
-                  return (
-                    <div key={f.id} className="flex items-center gap-2">
-                      <input id={`f-${f.id}`} type="checkbox" className="h-4 w-4" checked={checked} onChange={(e) => {
-                        const on = !!e.target.checked
-                        setGranted((prev) => on ? Array.from(new Set([...prev, f.id])) : prev.filter((x) => x !== f.id))
-                      }} />
-                      <label htmlFor={`f-${f.id}`} className="text-sm">{f.title} <span className="text-muted-foreground">({f.id})</span></label>
-                    </div>
-                  )
-                })}
-              </div>
+        <>
+          {hasGlobalWildcard && (
+            <div className="rounded border border-blue-200 bg-blue-50 p-3">
+              <div className="text-sm font-medium text-blue-900">Global wildcard (*) enabled</div>
+              <div className="text-xs text-blue-700 mt-1">This grants access to all features in the system.</div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="mt-2"
+                onClick={() => setGranted((prev) => prev.filter((x) => x !== '*'))}
+              >
+                Remove global wildcard
+              </Button>
             </div>
-          ))}
-        </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {grouped.map((group) => {
+              const moduleWildcard = isModuleWildcardEnabled(group.moduleId)
+              return (
+                <div key={group.moduleId} className="rounded border p-3">
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b">
+                    <div className="text-sm font-medium">{group.moduleTitle}</div>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        id={`module-${group.moduleId}`} 
+                        type="checkbox" 
+                        className="h-4 w-4" 
+                        checked={moduleWildcard || hasGlobalWildcard} 
+                        disabled={hasGlobalWildcard}
+                        onChange={(e) => toggleModuleWildcard(group.moduleId, e.target.checked)} 
+                      />
+                      <label htmlFor={`module-${group.moduleId}`} className="text-xs text-muted-foreground">
+                        All {moduleWildcard && !hasGlobalWildcard ? <span className="font-medium text-blue-600">({group.moduleId}.*)</span> : ''}
+                      </label>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {group.features.map((f) => {
+                      const checked = isFeatureChecked(f.id, group.moduleId)
+                      const isWildcardCovered = hasGlobalWildcard || moduleWildcard
+                      return (
+                        <div key={f.id} className="flex items-center gap-2">
+                          <input 
+                            id={`f-${f.id}`} 
+                            type="checkbox" 
+                            className="h-4 w-4" 
+                            checked={checked} 
+                            disabled={isWildcardCovered}
+                            onChange={(e) => {
+                              const on = !!e.target.checked
+                              setGranted((prev) => on ? Array.from(new Set([...prev, f.id])) : prev.filter((x) => x !== f.id))
+                            }} 
+                          />
+                          <label 
+                            htmlFor={`f-${f.id}`} 
+                            className={`text-sm ${isWildcardCovered ? 'text-muted-foreground' : ''}`}
+                          >
+                            {f.title} <span className="text-muted-foreground text-xs">({f.id})</span>
+                          </label>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
       )}
       {canEditOrganizations && (
         <div className="rounded border p-3">
