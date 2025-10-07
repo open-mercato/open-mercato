@@ -42,7 +42,7 @@ const addUser: ModuleCli = {
 const seedRoles: ModuleCli = {
   command: 'seed-roles',
   async run() {
-    const defaults = ['employee', 'admin', 'owner', 'superadmin']
+    const defaults = ['employee', 'admin', 'superadmin']
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     await em.transactional(async (tem: any) => {
@@ -98,9 +98,9 @@ const setupApp: ModuleCli = {
     const orgName = args.orgName || args.name
     const email = args.email
     const password = args.password
-    const rolesCsv = (args.roles ?? 'superadmin,owner,admin,employee').trim()
+    const rolesCsv = (args.roles ?? 'superadmin,admin,employee').trim()
     if (!orgName || !email || !password) {
-      console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles owner,admin]')
+      console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles superadmin,admin,employee]')
       return
     }
     const { resolve } = await createRequestContainer()
@@ -164,12 +164,19 @@ const setupApp: ModuleCli = {
       seedTenantId = (tenant as any).id
       seedOrgId = (org as any).id
 
-      // 2) Create or update users (superadmin, admin, employee) idempotently
+      // 2) Create or update users (superadmin + optionally admin/employee) idempotently
+      // Derivation rule: if the provided email local part is exactly 'superadmin',
+      // derive admin and employee emails by replacing it. Otherwise, only create the provided superadmin.
+      const [local, domain] = String(email).split('@')
+      const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin'
+      const adminEmailDerived = isSuperadminLocal && domain ? `admin@${domain}` : null
+      const employeeEmailDerived = isSuperadminLocal && domain ? `employee@${domain}` : null
+
       const users: Array<{ email: string; password: string; roles: string[] }> = [
         { email, password, roles: ['superadmin'] },
-        { email: 'admin@' + (orgName || 'acme').toLowerCase() + '.com', password, roles: ['admin'] },
-        { email: 'employee@' + (orgName || 'acme').toLowerCase() + '.com', password, roles: ['employee'] },
       ]
+      if (adminEmailDerived) users.push({ email: adminEmailDerived, password, roles: ['admin'] })
+      if (employeeEmailDerived) users.push({ email: employeeEmailDerived, password, roles: ['employee'] })
       for (const udef of users) {
         let u = await tem.findOne(User, { email: udef.email })
         if (u) {
@@ -204,11 +211,11 @@ const setupApp: ModuleCli = {
       // Transaction complete; tenant/org ids captured above
     })
 
-    // 3) Seed role ACLs outside transaction: owner -> superadmin; admin -> all features; employee -> example module
-    const ownerRole = await em.findOne(Role, { name: 'owner' })
+    // 3) Seed role ACLs outside transaction: superadmin -> isSuperAdmin; admin -> all features; employee -> example module
+    const superadminRole = await em.findOne(Role, { name: 'superadmin' })
     const adminRole = await em.findOne(Role, { name: 'admin' })
     const employeeRole = await em.findOne(Role, { name: 'employee' })
-    if (ownerRole) await em.persistAndFlush(em.create(RoleAcl, { role: ownerRole, tenantId: seedTenantId, isSuperAdmin: true }))
+    if (superadminRole) await em.persistAndFlush(em.create(RoleAcl, { role: superadminRole, tenantId: seedTenantId, isSuperAdmin: true }))
     if (adminRole) await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: seedTenantId, featuresJson: ['*'] }))
     if (employeeRole) await em.persistAndFlush(em.create(RoleAcl, { role: employeeRole, tenantId: seedTenantId, featuresJson: ['example.*'] }))
 

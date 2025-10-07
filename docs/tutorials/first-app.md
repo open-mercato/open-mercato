@@ -21,7 +21,7 @@ This tutorial walks you through:
 ## 3) Seed Roles and Create Admin
 - Seed default roles: `yarn mercato auth seed-roles`
 - Create the first tenant/org/admin:
-  - `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles owner,admin`
+  - `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles superadmin,admin`
 
 ## 4) Run the App
 - `yarn dev`

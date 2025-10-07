@@ -82,9 +82,9 @@ export async function run(argv = process.argv) {
       
       // Step 5: Setup RBAC (tenant/org, users, ACLs)
       const orgName = rest.find(arg => arg.startsWith('--org='))?.split('=')[1] || 'Acme Corp'
-      const email = rest.find(arg => arg.startsWith('--email='))?.split('=')[1] || 'admin@acme.com'
+      const email = rest.find(arg => arg.startsWith('--email='))?.split('=')[1] || 'superadmin@acme.com'
       const password = rest.find(arg => arg.startsWith('--password='))?.split('=')[1] || 'secret'
-      const roles = rest.find(arg => arg.startsWith('--roles='))?.split('=')[1] || 'superadmin,owner,admin,employee'
+      const roles = rest.find(arg => arg.startsWith('--roles='))?.split('=')[1] || 'superadmin,admin,employee'
       
       console.log('🔐 Setting up RBAC and users...')
       const setupOutput = execSync(`yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`, { stdio: 'pipe' }).toString()
@@ -105,13 +105,13 @@ export async function run(argv = process.argv) {
         console.log('⚠️  Could not extract organization ID or tenant ID, skipping todo seeding\n')
       }
       
-      // Detect additional users created/updated by setup (admin, employee)
-      const adminEmailDerived = `admin@${(orgName || 'acme').toLowerCase()}.com`
-      const employeeEmailDerived = `employee@${(orgName || 'acme').toLowerCase()}.com`
-      const hasAdminUser = setupOutput.includes(adminEmailDerived)
-      const hasEmployeeUser = setupOutput.includes(employeeEmailDerived)
+      // Derive admin/employee only when the provided email is a superadmin email
+      const [local, domain] = String(email).split('@')
+      const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin' && !!domain
+      const adminEmailDerived = isSuperadminLocal ? `admin@${domain}` : null
+      const employeeEmailDerived = isSuperadminLocal ? `employee@${domain}` : null
 
-      // Success message with admin info and optionally extra users
+      // Simplified success message: we know which users were created
       console.log('🎉 App initialization complete!\n')
       console.log('╔══════════════════════════════════════════════════════════════╗')
       console.log('║  🚀 You\'re now ready to start development!                   ║')
@@ -119,25 +119,16 @@ export async function run(argv = process.argv) {
       console.log('║  Start the dev server:                                       ║')
       console.log('║    yarn dev                                                  ║')
       console.log('║                                                              ║')
-      console.log('║  Your admin user:                                            ║')
-      console.log(`║    📧 Email: ${email.padEnd(47)} ║`)
-      console.log(`║    🔑 Password: ${password.padEnd(44)} ║`)
-      console.log(`║    🏢 Organization: ${orgName.padEnd(40)} ║`)
-      console.log(`║    👑 Roles: ${roles.padEnd(47)} ║`)
-      if (hasAdminUser || hasEmployeeUser) {
-        console.log('║                                                              ║')
-        console.log('║  Additional users:                                           ║')
-        if (hasAdminUser) {
-          console.log(`║    👤 Admin: ${adminEmailDerived.padEnd(47)} ║`)
-          console.log(`║    🔑 Password: ${password.padEnd(44)} ║`)
-          console.log('║    🧰 Roles: admin                                           ║')
-        }
-        if (hasEmployeeUser) {
-          console.log('║                                                              ║')
-          console.log(`║    👤 Employee: ${employeeEmailDerived.padEnd(44)} ║`)
-          console.log(`║    🔑 Password: ${password.padEnd(44)} ║`)
-          console.log('║    🧰 Roles: employee                                        ║')
-        }
+      console.log('║  Users created:                                              ║')
+      console.log(`║    👑 Superadmin: ${email.padEnd(41)} ║`)
+      console.log(`║       Password: ${password.padEnd(44)} ║`)
+      if (adminEmailDerived) {
+        console.log(`║    🧰 Admin:      ${adminEmailDerived.padEnd(41)} ║`)
+        console.log(`║       Password: ${password.padEnd(44)} ║`)
+      }
+      if (employeeEmailDerived) {
+        console.log(`║    👷 Employee:   ${employeeEmailDerived.padEnd(41)} ║`)
+        console.log(`║       Password: ${password.padEnd(44)} ║`)
       }
       console.log('║                                                              ║')
       console.log('║  Happy coding!                                               ║')
