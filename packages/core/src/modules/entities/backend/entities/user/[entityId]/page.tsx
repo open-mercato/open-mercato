@@ -1,6 +1,7 @@
 "use client"
 import React, { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -343,6 +344,7 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
 export default function EditDefinitionsPage({ params }: { params?: { entityId?: string } }) {
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
   const router = useRouter()
+  const queryClient = useQueryClient()
   const entityId = useMemo(() => decodeURIComponent((params?.entityId as any) || ''), [params])
   const [label, setLabel] = useState('')
   const [entitySource, setEntitySource] = useState<'code'|'custom'>('custom')
@@ -723,6 +725,8 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
               const j = await res2.json().catch(() => ({}))
               throw new Error(j?.error || 'Failed to save definitions')
             }
+            // Invalidate all custom field definition caches so DataTables refresh with new labels
+            await queryClient.invalidateQueries({ queryKey: ['cf-defs'] })
             flash('Definitions saved', 'success')
           }}
         onDelete={entitySource === 'custom' ? async () => {

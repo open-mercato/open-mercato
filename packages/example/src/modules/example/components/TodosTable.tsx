@@ -34,18 +34,16 @@ const baseColumns: ColumnDef<TodoRow>[] = [
   { accessorKey: 'organization_name', header: 'Organization', enableSorting: false, meta: { priority: 3 } },
   { accessorKey: 'is_done', header: 'Done', meta: { priority: 2 },
     cell: ({ getValue }) => <BooleanIcon value={!!getValue()} /> },
-  { accessorKey: 'cf_priority', header: 'Priority', meta: { priority: 4 } },
+  { accessorKey: 'cf_priority', meta: { priority: 4 } },
   {
     accessorKey: 'cf_severity',
-    header: 'Severity',
     cell: ({ getValue }) => <EnumBadge value={getValue() as any} map={severityPreset} />,
     meta: { priority: 5 },
   },
-  { accessorKey: 'cf_blocked', header: 'Blocked', meta: { priority: 6 },
+  { accessorKey: 'cf_blocked', meta: { priority: 6 },
     cell: ({ getValue }) => <BooleanIcon value={!!getValue()} /> },
   {
     accessorKey: 'cf_labels',
-    header: 'Labels',
     cell: ({ getValue }) => {
       const vals = (getValue() as string[] | null) || []
       if (!Array.isArray(vals) || vals.length === 0) return <span className="text-xs text-muted-foreground">—</span>

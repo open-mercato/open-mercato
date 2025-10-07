@@ -6,7 +6,7 @@ import { E as AllEntities } from '@/generated/entities.ids.generated'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/data/validators'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
+  GET: { requireAuth: true },
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
 }
@@ -58,7 +58,13 @@ export async function GET(req: Request) {
   for (const g of generated) byId.set(g.entityId, g)
   for (const cu of custom) byId.set(cu.entityId, { ...byId.get(cu.entityId), ...cu })
 
-  const defs = await em.find(CustomFieldDef as any, { isActive: true } as any)
+  // Count field definitions scoped to current tenant/org (same scoping as custom entities)
+  const defsWhere: any = { isActive: true }
+  defsWhere.$and = [
+    //{ $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] }, // the entities and custom fields are defined per tenant
+    { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+  ]
+  const defs = await em.find(CustomFieldDef as any, defsWhere as any)
   const counts: Record<string, number> = {}
   for (const d of defs as any[]) counts[d.entityId] = (counts[d.entityId] || 0) + 1
 
