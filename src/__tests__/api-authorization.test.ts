@@ -7,6 +7,12 @@ jest.mock('@/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn()
 }))
 
+// Mock DI container to provide rbacService
+const mockRbac = { userHasAllFeatures: jest.fn() }
+jest.mock('@/lib/di/container', () => ({
+  createRequestContainer: async () => ({ resolve: (k: string) => (k === 'rbacService' ? mockRbac : null) }),
+}))
+
 // Mock the modules registry
 jest.mock('@/generated/modules.generated', () => ({
   modules: [
@@ -18,11 +24,13 @@ jest.mock('@/generated/modules.generated', () => ({
           metadata: {
             GET: {
               requireAuth: true,
-              requireRoles: ['admin']
+              requireRoles: ['admin'],
+              requireFeatures: ['example.todos.view']
             },
             POST: {
               requireAuth: true,
-              requireRoles: ['admin', 'superuser']
+              requireRoles: ['admin', 'superuser'],
+              requireFeatures: ['example.todos.manage']
             },
             PUT: {
               requireAuth: false
@@ -68,6 +76,7 @@ const mockGetAuthFromRequest = getAuthFromRequest as jest.MockedFunction<typeof 
 describe('API Route Authorization', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
   })
 
   describe('GET /example/test', () => {
@@ -105,6 +114,23 @@ describe('API Route Authorization', () => {
         email: 'user@test.com',
         roles: ['user']
       })
+
+      const request = new NextRequest('http://localhost:3001/api/example/test')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(403)
+      await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
+    })
+
+    it('should deny access when required features are missing (rbac returns false)', async () => {
+      mockGetAuthFromRequest.mockReturnValue({
+        sub: 'user1',
+        tenantId: 'tenant1',
+        orgId: 'org1',
+        email: 'admin@test.com',
+        roles: ['admin']
+      })
+      mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
 
       const request = new NextRequest('http://localhost:3001/api/example/test')
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -159,6 +185,23 @@ describe('API Route Authorization', () => {
         email: 'user@test.com',
         roles: ['user']
       })
+
+      const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'POST' })
+      const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(403)
+      await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
+    })
+
+    it('should deny access when required features are missing on POST', async () => {
+      mockGetAuthFromRequest.mockReturnValue({
+        sub: 'user1',
+        tenantId: 'tenant1',
+        orgId: 'org1',
+        email: 'admin@test.com',
+        roles: ['admin']
+      })
+      mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
 
       const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'POST' })
       const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
