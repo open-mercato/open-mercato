@@ -38,6 +38,7 @@ export async function PUT(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const rbacService = resolve('rbacService') as any
   const role = await em.findOne(Role, { id: parsed.data.roleId })
   if (!role) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   let acl = await em.findOne(RoleAcl, { role: role as any, tenantId: auth.tenantId as any })
@@ -46,6 +47,12 @@ export async function PUT(req: Request) {
   if (parsed.data.features !== undefined) (acl as any).featuresJson = parsed.data.features
   if (parsed.data.organizations !== undefined) (acl as any).organizationsJson = parsed.data.organizations
   await em.persistAndFlush(acl)
+  
+  // Invalidate cache for all users in this tenant since role ACL changed
+  if (auth.tenantId) {
+    rbacService.invalidateTenantCache(auth.tenantId)
+  }
+  
   return NextResponse.json({ ok: true })
 }
 

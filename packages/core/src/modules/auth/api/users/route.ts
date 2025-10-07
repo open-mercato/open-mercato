@@ -55,10 +55,9 @@ export async function GET(req: Request) {
   if (id) where.id = id
   if (organizationId) where.organizationId = organizationId
   if (search) where.email = { $ilike: `%${search}%` } as any
-  let baseIds: string[] | null = null
   if (roleId) {
     const linksForRole = await em.find(UserRole, { role: roleId as any })
-    baseIds = linksForRole.map((l: any) => String(l.user?.id || l.user)).filter(Boolean)
+    const baseIds = linksForRole.map((l: any) => String(l.user?.id || l.user)).filter(Boolean)
     if (baseIds.length === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
     where.id = { $in: baseIds as any }
   }
@@ -111,10 +110,17 @@ export async function PUT(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const rbacService = resolve('rbacService') as any
   const user = await em.findOne(User, { id: parsed.data.id })
   if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  
+  let shouldInvalidateCache = false
+  
   if (parsed.data.email !== undefined) (user as any).email = parsed.data.email
-  if (parsed.data.organizationId !== undefined) (user as any).organizationId = parsed.data.organizationId
+  if (parsed.data.organizationId !== undefined) {
+    (user as any).organizationId = parsed.data.organizationId
+    shouldInvalidateCache = true // Organization changed affects ACL
+  }
   if (parsed.data.password) {
     const { hash } = await import('bcryptjs')
     ;(user as any).passwordHash = await hash(parsed.data.password, 10)
@@ -137,7 +143,14 @@ export async function PUT(req: Request) {
       }
     }
     await em.flush()
+    shouldInvalidateCache = true // Roles changed affects ACL
   }
+  
+  // Invalidate cache if roles or organization changed
+  if (shouldInvalidateCache) {
+    rbacService.invalidateUserCache(parsed.data.id)
+  }
+  
   return NextResponse.json({ ok: true })
 }
 
@@ -149,9 +162,14 @@ export async function DELETE(req: Request) {
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const rbacService = resolve('rbacService') as any
   const user = await em.findOne(User, { id })
   if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   await em.removeAndFlush(user)
+  
+  // Invalidate cache for deleted user
+  rbacService.invalidateUserCache(id)
+  
   return NextResponse.json({ ok: true })
 }
 

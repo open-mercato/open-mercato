@@ -38,12 +38,17 @@ export async function PUT(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const rbacService = resolve('rbacService') as any
   let acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
   if (!acl) { acl = em.create(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any }) }
   if (parsed.data.isSuperAdmin !== undefined) (acl as any).isSuperAdmin = !!parsed.data.isSuperAdmin
   if (parsed.data.features !== undefined) (acl as any).featuresJson = parsed.data.features
   if (parsed.data.organizations !== undefined) (acl as any).organizationsJson = parsed.data.organizations
   await em.persistAndFlush(acl)
+  
+  // Invalidate cache for this user
+  rbacService.invalidateUserCache(parsed.data.userId)
+  
   return NextResponse.json({ ok: true })
 }
 

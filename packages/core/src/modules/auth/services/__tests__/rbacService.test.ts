@@ -237,6 +237,111 @@ describe('RbacService', () => {
       expect(ok).toBe(true)
     })
   })
+
+  describe('Cache behavior', () => {
+    it('should cache ACL results and not query database on second call', async () => {
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id && where?.tenantId === baseUser.tenantId) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      const acl1 = await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
+      const acl2 = await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
+
+      expect(acl1).toEqual(acl2)
+      expect(em.findOne).toHaveBeenCalledTimes(2) // Only called for first request (User and UserAcl)
+    })
+
+    it('should invalidate cache for specific user', async () => {
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
+      service.invalidateUserCache(baseUser.id!)
+      await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
+
+      expect(em.findOne).toHaveBeenCalledTimes(4) // Called twice (2 queries per load)
+    })
+
+    it('should invalidate cache for all users in a tenant', async () => {
+      const user1 = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+      const user2 = { id: 'user-2', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user1.id) return user1
+        if (entity === User && where?.id === user2.id) return user2
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: null })
+      await service.loadAcl(user2.id, { tenantId: 'tenant-1', organizationId: null })
+      
+      const initialCalls = em.findOne.mock.calls.length
+      
+      service.invalidateTenantCache('tenant-1')
+      
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: null })
+      await service.loadAcl(user2.id, { tenantId: 'tenant-1', organizationId: null })
+
+      expect(em.findOne).toHaveBeenCalledTimes(initialCalls + 4) // Both users queried again
+    })
+
+    it('should invalidate cache for all users in an organization', async () => {
+      const user1 = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user1.id) return user1
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      
+      const initialCalls = em.findOne.mock.calls.length
+      
+      service.invalidateOrganizationCache('org-1')
+      
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+
+      expect(em.findOne).toHaveBeenCalledTimes(initialCalls + 2) // User queried again
+    })
+
+    it('should respect cache TTL and refetch after expiration', async () => {
+      const shortTtlService = new RbacService(em as any, 100) // 100ms TTL
+      
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      await shortTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
+      const callsAfterFirst = em.findOne.mock.calls.length
+
+      await shortTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst) // Still cached
+
+      await new Promise(resolve => setTimeout(resolve, 150)) // Wait for cache to expire
+
+      await shortTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst + 2) // Refetched
+    })
+  })
 })
 
 
