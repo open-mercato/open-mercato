@@ -5,13 +5,18 @@ import { User, UserRole, RoleAcl, UserAcl, Role } from '@open-mercato/core/modul
 type MockEm = {
   findOne: jest.Mock<any, any>
   find: jest.Mock<any, any>
+  fork: jest.Mock<any, any>
 }
 
 function createMockEm(): MockEm {
-  return {
+  const mockEm: MockEm = {
     findOne: jest.fn(),
     find: jest.fn(),
+    fork: jest.fn(),
   }
+  // fork() should return the same mock instance for testing purposes
+  mockEm.fork.mockReturnValue(mockEm)
+  return mockEm
 }
 
 describe('RbacService', () => {
