@@ -255,6 +255,71 @@ describe('RbacService', () => {
       expect(em.findOne).toHaveBeenCalledTimes(2) // Only called for first request (User and UserAcl)
     })
 
+    it('should cache separately for different scopes (different tenants)', async () => {
+      const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+      
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user.id) return user
+        if (entity === UserAcl && where?.tenantId === 'tenant-1') {
+          return { isSuperAdmin: false, featuresJson: ['tenant1.feature'], organizationsJson: null }
+        }
+        if (entity === UserAcl && where?.tenantId === 'tenant-2') {
+          return { isSuperAdmin: false, featuresJson: ['tenant2.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      const acl1 = await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
+      const acl2 = await service.loadAcl(user.id, { tenantId: 'tenant-2', organizationId: null })
+      
+      expect(acl1.features).toEqual(['tenant1.feature'])
+      expect(acl2.features).toEqual(['tenant2.feature'])
+      expect(em.findOne).toHaveBeenCalledTimes(4) // 2 calls per scope (User + UserAcl)
+    })
+
+    it('should cache separately for different scopes (different organizations)', async () => {
+      const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+      
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user.id) return user
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      const acl1 = await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      const acl2 = await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-2' })
+      
+      expect(acl1).toEqual(acl2) // Same data
+      expect(em.findOne).toHaveBeenCalledTimes(4) // But cached separately (2 calls per scope)
+    })
+
+    it('should maintain cache isolation between different users', async () => {
+      const user1 = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+      const user2 = { id: 'user-2', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user1.id) return user1
+        if (entity === User && where?.id === user2.id) return user2
+        if (entity === UserAcl && where?.user === user1.id) {
+          return { isSuperAdmin: false, featuresJson: ['user1.feature'], organizationsJson: null }
+        }
+        if (entity === UserAcl && where?.user === user2.id) {
+          return { isSuperAdmin: true, featuresJson: ['user2.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      const acl1 = await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: null })
+      const acl2 = await service.loadAcl(user2.id, { tenantId: 'tenant-1', organizationId: null })
+      
+      expect(acl1.isSuperAdmin).toBe(false)
+      expect(acl1.features).toEqual(['user1.feature'])
+      expect(acl2.isSuperAdmin).toBe(true)
+      expect(acl2.features).toEqual(['user2.feature'])
+    })
+
     it('should invalidate cache for specific user', async () => {
       em.findOne.mockImplementation(async (entity: any, where: any) => {
         if (entity === User && where?.id === baseUser.id) return baseUser
@@ -269,6 +334,70 @@ describe('RbacService', () => {
       await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
 
       expect(em.findOne).toHaveBeenCalledTimes(4) // Called twice (2 queries per load)
+    })
+
+    it('should invalidate all scopes for a user when invalidating user cache', async () => {
+      const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+      
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user.id) return user
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      // Load multiple scopes for same user
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-2' })
+      await service.loadAcl(user.id, { tenantId: 'tenant-2', organizationId: 'org-1' })
+      
+      const callsAfterLoad = em.findOne.mock.calls.length
+      
+      // Verify cache is working
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterLoad) // No new calls
+      
+      // Invalidate user cache
+      service.invalidateUserCache(user.id)
+      
+      // All scopes should require fresh queries
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-2' })
+      await service.loadAcl(user.id, { tenantId: 'tenant-2', organizationId: 'org-1' })
+      
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterLoad + 6) // 2 calls per scope
+    })
+
+    it('should not affect other users when invalidating specific user cache', async () => {
+      const user1 = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+      const user2 = { id: 'user-2', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user1.id) return user1
+        if (entity === User && where?.id === user2.id) return user2
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: null })
+      await service.loadAcl(user2.id, { tenantId: 'tenant-1', organizationId: null })
+      
+      const callsAfterLoad = em.findOne.mock.calls.length
+      
+      service.invalidateUserCache(user1.id)
+      
+      // User1 should query again
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: null })
+      expect(em.findOne.mock.calls.length).toBeGreaterThan(callsAfterLoad)
+      
+      const callsAfterUser1 = em.findOne.mock.calls.length
+      
+      // User2 should still be cached
+      await service.loadAcl(user2.id, { tenantId: 'tenant-1', organizationId: null })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterUser1) // No new calls
     })
 
     it('should invalidate cache for all users in a tenant', async () => {
@@ -297,6 +426,67 @@ describe('RbacService', () => {
       expect(em.findOne).toHaveBeenCalledTimes(initialCalls + 4) // Both users queried again
     })
 
+    it('should not affect other tenants when invalidating specific tenant cache', async () => {
+      const user1 = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+      const user2 = { id: 'user-2', tenantId: 'tenant-2', organizationId: 'org-1' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user1.id) return user1
+        if (entity === User && where?.id === user2.id) return user2
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: null })
+      await service.loadAcl(user2.id, { tenantId: 'tenant-2', organizationId: null })
+      
+      const callsAfterLoad = em.findOne.mock.calls.length
+      
+      service.invalidateTenantCache('tenant-1')
+      
+      // Tenant-1 user should query again
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: null })
+      expect(em.findOne.mock.calls.length).toBeGreaterThan(callsAfterLoad)
+      
+      const callsAfterTenant1 = em.findOne.mock.calls.length
+      
+      // Tenant-2 user should still be cached
+      await service.loadAcl(user2.id, { tenantId: 'tenant-2', organizationId: null })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterTenant1) // No new calls
+    })
+
+    it('should handle invalidating tenant cache with null tenant entries', async () => {
+      const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user.id) return user
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      // Load with explicit tenant and with null tenant
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
+      await service.loadAcl(user.id, { tenantId: null, organizationId: null })
+      
+      const callsAfterLoad = em.findOne.mock.calls.length
+      
+      service.invalidateTenantCache('tenant-1')
+      
+      // Tenant-1 entry should be invalidated
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
+      expect(em.findOne.mock.calls.length).toBeGreaterThan(callsAfterLoad)
+      
+      const callsAfterInvalidation = em.findOne.mock.calls.length
+      
+      // Null tenant entry should still be cached
+      await service.loadAcl(user.id, { tenantId: null, organizationId: null })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterInvalidation) // No new calls
+    })
+
     it('should invalidate cache for all users in an organization', async () => {
       const user1 = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
 
@@ -317,6 +507,168 @@ describe('RbacService', () => {
       await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
 
       expect(em.findOne).toHaveBeenCalledTimes(initialCalls + 2) // User queried again
+    })
+
+    it('should not affect other organizations when invalidating specific organization cache', async () => {
+      const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user.id) return user
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-2' })
+      
+      const callsAfterLoad = em.findOne.mock.calls.length
+      
+      service.invalidateOrganizationCache('org-1')
+      
+      // Org-1 entry should query again
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      expect(em.findOne.mock.calls.length).toBeGreaterThan(callsAfterLoad)
+      
+      const callsAfterOrg1 = em.findOne.mock.calls.length
+      
+      // Org-2 entry should still be cached
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-2' })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterOrg1) // No new calls
+    })
+
+    it('should handle invalidating organization cache with null organization entries', async () => {
+      const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user.id) return user
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      // Load with explicit org and with null org
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
+      
+      const callsAfterLoad = em.findOne.mock.calls.length
+      
+      service.invalidateOrganizationCache('org-1')
+      
+      // Org-1 entry should be invalidated
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      expect(em.findOne.mock.calls.length).toBeGreaterThan(callsAfterLoad)
+      
+      const callsAfterInvalidation = em.findOne.mock.calls.length
+      
+      // Null org entry should still be cached
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterInvalidation) // No new calls
+    })
+
+    it('should invalidate all cache entries with invalidateAllCache', async () => {
+      const user1 = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+      const user2 = { id: 'user-2', tenantId: 'tenant-2', organizationId: 'org-2' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user1.id) return user1
+        if (entity === User && where?.id === user2.id) return user2
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      // Load multiple cache entries
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: 'org-2' })
+      await service.loadAcl(user2.id, { tenantId: 'tenant-2', organizationId: 'org-1' })
+      await service.loadAcl(user2.id, { tenantId: 'tenant-2', organizationId: 'org-2' })
+      
+      const callsAfterLoad = em.findOne.mock.calls.length
+      
+      // Verify cache is working
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterLoad) // No new calls
+      
+      // Invalidate all cache
+      service.invalidateAllCache()
+      
+      // All entries should require fresh queries
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: 'org-2' })
+      await service.loadAcl(user2.id, { tenantId: 'tenant-2', organizationId: 'org-1' })
+      await service.loadAcl(user2.id, { tenantId: 'tenant-2', organizationId: 'org-2' })
+      
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterLoad + 8) // 2 calls per scope
+    })
+
+    it('should handle invalidating non-existent user cache gracefully', async () => {
+      const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user.id) return user
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
+      
+      // Should not throw
+      expect(() => service.invalidateUserCache('non-existent-user')).not.toThrow()
+      
+      // Original cache should still work
+      const callsBeforeReload = em.findOne.mock.calls.length
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
+      expect(em.findOne).toHaveBeenCalledTimes(callsBeforeReload) // No new calls
+    })
+
+    it('should handle invalidating non-existent tenant cache gracefully', async () => {
+      const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user.id) return user
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
+      
+      // Should not throw
+      expect(() => service.invalidateTenantCache('non-existent-tenant')).not.toThrow()
+      
+      // Original cache should still work
+      const callsBeforeReload = em.findOne.mock.calls.length
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
+      expect(em.findOne).toHaveBeenCalledTimes(callsBeforeReload) // No new calls
+    })
+
+    it('should handle invalidating non-existent organization cache gracefully', async () => {
+      const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user.id) return user
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      
+      // Should not throw
+      expect(() => service.invalidateOrganizationCache('non-existent-org')).not.toThrow()
+      
+      // Original cache should still work
+      const callsBeforeReload = em.findOne.mock.calls.length
+      await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      expect(em.findOne).toHaveBeenCalledTimes(callsBeforeReload) // No new calls
     })
 
     it('should respect cache TTL and refetch after expiration', async () => {
@@ -340,6 +692,105 @@ describe('RbacService', () => {
 
       await shortTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
       expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst + 2) // Refetched
+    })
+
+    it('should use custom TTL when provided to constructor', async () => {
+      const customTtlService = new RbacService(em as any, 50) // 50ms TTL
+      
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      await customTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
+      const callsAfterFirst = em.findOne.mock.calls.length
+
+      // Should still be cached at 40ms
+      await new Promise(resolve => setTimeout(resolve, 40))
+      await customTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst)
+
+      // Should expire after 60ms total
+      await new Promise(resolve => setTimeout(resolve, 25))
+      await customTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst + 2)
+    })
+
+    it('should cache empty ACL results for unknown users', async () => {
+      em.findOne.mockImplementation(async (entity: any) => {
+        if (entity === User) return null
+        return null
+      })
+
+      await service.loadAcl('unknown-user', { tenantId: null, organizationId: null })
+      const callsAfterFirst = em.findOne.mock.calls.length
+
+      // Second call should be cached
+      await service.loadAcl('unknown-user', { tenantId: null, organizationId: null })
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst) // No new calls
+    })
+
+    it('should properly cache complex role aggregations', async () => {
+      const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+      const roleA: Partial<Role> = { id: 'role-a' }
+      const roleB: Partial<Role> = { id: 'role-b' }
+      const links: Array<Partial<UserRole>> = [
+        { role: roleA as any },
+        { role: roleB as any },
+      ]
+      const racls: Array<Partial<RoleAcl>> = [
+        { role: roleA as any, tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['feature1', 'feature2'], organizationsJson: ['org-1'] },
+        { role: roleB as any, tenantId: 'tenant-1', isSuperAdmin: false, featuresJson: ['feature3'], organizationsJson: ['org-2'] },
+      ]
+
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === user.id) return user
+        if (entity === UserAcl) return null
+        return null
+      })
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === UserRole && where?.user === user.id) return links
+        if (entity === RoleAcl && where?.tenantId === 'tenant-1') return racls
+        return []
+      })
+
+      const acl1 = await service.loadAcl(user.id, { tenantId: null, organizationId: null })
+      const callsAfterFirst = em.findOne.mock.calls.length + em.find.mock.calls.length
+
+      // Verify aggregation is correct
+      expect(acl1.features.sort()).toEqual(['feature1', 'feature2', 'feature3'])
+      expect(new Set(acl1.organizations || [])).toEqual(new Set(['org-1', 'org-2']))
+
+      // Second call should be fully cached
+      const acl2 = await service.loadAcl(user.id, { tenantId: null, organizationId: null })
+      const callsAfterSecond = em.findOne.mock.calls.length + em.find.mock.calls.length
+      
+      expect(callsAfterSecond).toBe(callsAfterFirst) // No additional queries
+      expect(acl2).toEqual(acl1)
+    })
+
+    it('should handle userHasAllFeatures with cached results', async () => {
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where?.user === baseUser.id) {
+          return { isSuperAdmin: false, featuresJson: ['test.feature', 'another.feature'], organizationsJson: null }
+        }
+        return null
+      })
+
+      // First call loads and caches
+      const hasFeatures1 = await service.userHasAllFeatures(baseUser.id!, ['test.feature'], { tenantId: null, organizationId: null })
+      const callsAfterFirst = em.findOne.mock.calls.length
+
+      // Second call uses cache
+      const hasFeatures2 = await service.userHasAllFeatures(baseUser.id!, ['another.feature'], { tenantId: null, organizationId: null })
+      
+      expect(hasFeatures1).toBe(true)
+      expect(hasFeatures2).toBe(true)
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst) // No new queries
     })
   })
 })
