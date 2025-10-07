@@ -4,21 +4,33 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 
 type Feature = { id: string; title: string; module: string }
+type ModuleInfo = { id: string; title: string }
+
+export type AclData = {
+  isSuperAdmin: boolean
+  features: string[]
+  organizations: string[] | null
+}
 
 export function AclEditor({
   kind,
   targetId,
   canEditOrganizations,
+  value,
+  onChange,
 }: {
   kind: 'user' | 'role'
   targetId: string
   canEditOrganizations: boolean
+  value?: AclData
+  onChange?: (data: AclData) => void
 }) {
   const [loading, setLoading] = React.useState(true)
   const [features, setFeatures] = React.useState<Feature[]>([])
-  const [granted, setGranted] = React.useState<string[]>([])
-  const [isSuperAdmin, setIsSuperAdmin] = React.useState(false)
-  const [organizations, setOrganizations] = React.useState<string[] | null>(null)
+  const [modules, setModules] = React.useState<ModuleInfo[]>([])
+  const [granted, setGranted] = React.useState<string[]>(value?.features || [])
+  const [isSuperAdmin, setIsSuperAdmin] = React.useState(value?.isSuperAdmin || false)
+  const [organizations, setOrganizations] = React.useState<string[] | null>(value?.organizations ?? null)
   const [orgOptions, setOrgOptions] = React.useState<{ id: string; name: string }[]>([])
 
   React.useEffect(() => {
@@ -27,7 +39,10 @@ export function AclEditor({
       try {
         const fRes = await apiFetch('/api/auth/features')
         const fJson = await fRes.json()
-        if (!cancelled) setFeatures(fJson.items || [])
+        if (!cancelled) {
+          setFeatures(fJson.items || [])
+          setModules(fJson.modules || [])
+        }
       } catch {}
       try {
         const aclRes = await apiFetch(`/api/${kind === 'user' ? 'users' : 'roles'}/acl?${kind === 'user' ? 'userId' : 'roleId'}=${encodeURIComponent(targetId)}`)
@@ -51,15 +66,27 @@ export function AclEditor({
     return () => { cancelled = true }
   }, [kind, targetId, canEditOrganizations])
 
+  // Notify parent of changes
+  React.useEffect(() => {
+    onChange?.({ isSuperAdmin, features: granted, organizations })
+  }, [isSuperAdmin, granted, organizations, onChange])
+
   const grouped = React.useMemo(() => {
-    const map = new Map<string, Feature[]>()
-    for (const f of features) {
-      const list = map.get(f.module) || []
-      list.push(f)
-      map.set(f.module, list)
+    const moduleMap = new Map<string, string>()
+    for (const m of modules) {
+      moduleMap.set(m.id, m.title)
     }
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [features])
+    const map = new Map<string, { moduleId: string; moduleTitle: string; features: Feature[] }>()
+    for (const f of features) {
+      const moduleId = f.module
+      const moduleTitle = moduleMap.get(moduleId) || moduleId
+      if (!map.has(moduleId)) {
+        map.set(moduleId, { moduleId, moduleTitle, features: [] })
+      }
+      map.get(moduleId)!.features.push(f)
+    }
+    return Array.from(map.values()).sort((a, b) => a.moduleTitle.localeCompare(b.moduleTitle))
+  }, [features, modules])
 
   if (loading) return <div className="text-sm text-muted-foreground">Loading ACL…</div>
 
@@ -71,11 +98,11 @@ export function AclEditor({
       </div>
       {!isSuperAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {grouped.map(([mod, list]) => (
-            <div key={mod} className="rounded border p-3">
-              <div className="text-sm font-medium mb-2">{mod}</div>
+          {grouped.map((group) => (
+            <div key={group.moduleId} className="rounded border p-3">
+              <div className="text-sm font-medium mb-2">{group.moduleTitle}</div>
               <div className="space-y-2">
-                {list.map((f) => {
+                {group.features.map((f) => {
                   const checked = granted.includes(f.id)
                   return (
                     <div key={f.id} className="flex items-center gap-2">
@@ -118,12 +145,6 @@ export function AclEditor({
           </div>
         </div>
       )}
-      <div className="flex justify-end">
-        <Button onClick={async () => {
-          const payload = { isSuperAdmin, features: granted, organizations }
-          await apiFetch(`/api/${kind === 'user' ? 'users' : 'roles'}/acl`, { method: 'PUT', body: JSON.stringify({ ...(kind === 'user' ? { userId: targetId } : { roleId: targetId }), ...payload }) })
-        }}>Save ACL</Button>
-      </div>
     </div>
   )
 }

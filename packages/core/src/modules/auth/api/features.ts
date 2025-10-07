@@ -16,7 +16,16 @@ export async function GET(req: Request) {
   const byId = new Map<string, { id: string; title: string; module: string }>()
   for (const it of items) if (!byId.has(it.id)) byId.set(it.id, it)
   const list = Array.from(byId.values()).sort((a, b) => a.module.localeCompare(b.module) || a.id.localeCompare(b.id))
-  return NextResponse.json({ items: list })
+  
+  // Build module info map
+  const moduleInfo = new Map<string, { id: string; title: string }>()
+  for (const m of modules) {
+    if (m.id) {
+      moduleInfo.set(m.id, { id: m.id, title: (m.info as any)?.title || m.id })
+    }
+  }
+  
+  return NextResponse.json({ items: list, modules: Array.from(moduleInfo.values()) })
 }
 
 

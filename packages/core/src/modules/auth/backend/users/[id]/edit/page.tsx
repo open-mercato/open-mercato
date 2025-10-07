@@ -3,7 +3,7 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { AclEditor } from '@open-mercato/core/modules/auth/components/AclEditor'
+import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 
 export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -12,6 +12,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [error, setError] = React.useState<string | null>(null)
   const [orgOptions, setOrgOptions] = React.useState<{ value: string; label: string }[]>([])
   const [canEditOrgs, setCanEditOrgs] = React.useState(false)
+  const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
 
   React.useEffect(() => {
     if (!id) {
@@ -72,7 +73,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
 
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['email', 'password', 'organizationId', 'roles'] },
-    { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="user" targetId={String(id)} canEditOrganizations={canEditOrgs} /> : null) },
+    { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="user" targetId={String(id)} canEditOrganizations={canEditOrgs} value={aclData} onChange={setAclData} /> : null) },
   ]
 
   return (
@@ -99,7 +100,13 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               method: 'PUT', 
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ ...vals, id }) 
-            }) 
+            })
+            // Save ACL data
+            await apiFetch('/api/auth/users/acl', { 
+              method: 'PUT', 
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ userId: id, ...aclData }) 
+            })
           }}
           onDelete={async () => { await apiFetch(`/api/auth/users?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' }) }}
           deleteRedirect="/backend/users?flash=User%20deleted&type=success"
