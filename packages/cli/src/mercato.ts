@@ -105,7 +105,13 @@ export async function run(argv = process.argv) {
         console.log('⚠️  Could not extract organization ID or tenant ID, skipping todo seeding\n')
       }
       
-      // Success message with admin info
+      // Detect additional users created/updated by setup (admin, employee)
+      const adminEmailDerived = `admin@${(orgName || 'acme').toLowerCase()}.com`
+      const employeeEmailDerived = `employee@${(orgName || 'acme').toLowerCase()}.com`
+      const hasAdminUser = setupOutput.includes(adminEmailDerived)
+      const hasEmployeeUser = setupOutput.includes(employeeEmailDerived)
+
+      // Success message with admin info and optionally extra users
       console.log('🎉 App initialization complete!\n')
       console.log('╔══════════════════════════════════════════════════════════════╗')
       console.log('║  🚀 You\'re now ready to start development!                   ║')
@@ -118,6 +124,21 @@ export async function run(argv = process.argv) {
       console.log(`║    🔑 Password: ${password.padEnd(44)} ║`)
       console.log(`║    🏢 Organization: ${orgName.padEnd(40)} ║`)
       console.log(`║    👑 Roles: ${roles.padEnd(47)} ║`)
+      if (hasAdminUser || hasEmployeeUser) {
+        console.log('║                                                              ║')
+        console.log('║  Additional users:                                           ║')
+        if (hasAdminUser) {
+          console.log(`║    👤 Admin: ${adminEmailDerived.padEnd(47)} ║`)
+          console.log(`║    🔑 Password: ${password.padEnd(44)} ║`)
+          console.log('║    🧰 Roles: admin                                           ║')
+        }
+        if (hasEmployeeUser) {
+          console.log('║                                                              ║')
+          console.log(`║    👤 Employee: ${employeeEmailDerived.padEnd(44)} ║`)
+          console.log(`║    🔑 Password: ${password.padEnd(44)} ║`)
+          console.log('║    🧰 Roles: employee                                        ║')
+        }
+      }
       console.log('║                                                              ║')
       console.log('║  Happy coding!                                               ║')
       console.log('╚══════════════════════════════════════════════════════════════╝')

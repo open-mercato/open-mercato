@@ -1,6 +1,6 @@
 import { Migration } from '@mikro-orm/migrations';
 
-export class Migration20251006110108 extends Migration {
+export class Migration20251007095530 extends Migration {
 
   override async up(): Promise<void> {
     this.addSql(`create table "roles" ("id" uuid not null default gen_random_uuid(), "name" text not null, "created_at" timestamptz not null, "deleted_at" timestamptz null, constraint "roles_pkey" primary key ("id"));`);

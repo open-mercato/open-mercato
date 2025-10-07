@@ -7,15 +7,21 @@ const findOne = jest.fn()
 const findOneOrFail = jest.fn()
 const create = jest.fn((entity: any, data: any) => ({ ...data }))
 const find = jest.fn()
+const persist = jest.fn()
+const flush = jest.fn()
 
 jest.mock('@/lib/di/container', () => ({
-  createRequestContainer: async () => ({ resolve: (_: string) => ({
-    persistAndFlush,
-    findOne,
-    findOneOrFail,
-    create,
-    find,
-  }) }),
+  createRequestContainer: async () => ({ resolve: (_: string) => {
+    const baseEm = { persistAndFlush, findOne, findOneOrFail, create, find, persist, flush }
+    return {
+      ...baseEm,
+      transactional: async (cb: (tem: any) => any) => {
+        // Provide a transactional EM with persist/flush methods
+        const tem = { ...baseEm }
+        return await cb(tem)
+      },
+    }
+  } }),
 }))
 
 describe('auth CLI setup seeds ACLs', () => {

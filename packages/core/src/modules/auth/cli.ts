@@ -45,10 +45,16 @@ const seedRoles: ModuleCli = {
     const defaults = ['employee', 'admin', 'owner', 'superadmin']
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    for (const name of defaults) {
-      const existing = await em.findOne(Role, { name })
-      if (!existing) { await em.persistAndFlush(em.create(Role, { name })); console.log('Inserted role', name) }
-    }
+    await em.transactional(async (tem: any) => {
+      for (const name of defaults) {
+        const existing = await tem.findOne(Role, { name })
+        if (!existing) {
+          tem.persist(tem.create(Role, { name }))
+          console.log('Inserted role', name)
+        }
+      }
+      await tem.flush()
+    })
     console.log('Roles ensured')
   },
 }
@@ -100,66 +106,113 @@ const setupApp: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
 
+    // Helper: simple warning output (emoji only)
+    function warnBox(lines: string[]) {
+      for (const line of lines) console.log(`⚠️  ${line}`)
+    }
+
     // Normalize roles once
     const roleNames = rolesCsv
       ? rolesCsv.split(',').map((s) => s.trim()).filter(Boolean)
       : []
 
     // Ensure roles exist upfront (idempotent)
-    for (const name of roleNames) {
-      let role = await em.findOne(Role, { name })
-      if (!role) { role = em.create(Role, { name }); await em.persistAndFlush(role) }
-    }
+    await em.transactional(async (tem: any) => {
+      for (const name of roleNames) {
+        let role = await tem.findOne(Role, { name })
+        if (!role) { role = tem.create(Role, { name }); tem.persist(role) }
+      }
+      await tem.flush()
+    })
 
     // If user already exists, reuse existing org/tenant and ensure roles
     const existingUser = await em.findOne(User, { email })
     if (existingUser) {
-      // Assign any missing roles
-      if (roleNames.length) {
-        const currentUserRoles = await em.find(UserRole, { user: existingUser.id }, { populate: ['role'] })
-        const currentRoleNames = new Set(currentUserRoles.map((ur: any) => ur.role?.name).filter(Boolean) as string[])
-        for (const name of roleNames) {
-          if (!currentRoleNames.has(name)) {
-            const role = await em.findOneOrFail(Role, { name })
-            await em.persistAndFlush(em.create(UserRole, { user: existingUser, role }))
+      await em.transactional(async (tem: any) => {
+        if (roleNames.length) {
+          const currentUserRoles = await tem.find(UserRole, { user: existingUser.id }, { populate: ['role'] })
+          const currentRoleNames = new Set(currentUserRoles.map((ur: any) => ur.role?.name).filter(Boolean) as string[])
+          for (const name of roleNames) {
+            if (!currentRoleNames.has(name)) {
+              const role = await tem.findOneOrFail(Role, { name })
+              tem.persist(tem.create(UserRole, { user: existingUser, role }))
+            }
           }
         }
-      }
+        await tem.flush()
+      })
+      warnBox([
+        'Existing initial user detected during setup.',
+        `Email: ${existingUser.email}`,
+        'Updated roles if missing and reused tenant/organization.',
+        'No new user created.',
+      ])
       console.log('Setup complete:', { tenantId: existingUser.tenantId, organizationId: existingUser.organizationId, userId: existingUser.id })
       return
     }
 
-    // 1) Create tenant and organization
-    const tenant = em.create(Tenant, { name: `${orgName} Tenant` })
-    await em.persistAndFlush(tenant)
-    const org = em.create(Organization, { name: orgName, tenant })
-    await em.persistAndFlush(org)
+    let seedTenantId: string | undefined
+    let seedOrgId: string | undefined
+    await em.transactional(async (tem: any) => {
+      // 1) Create tenant and organization
+      const tenant = tem.create(Tenant, { name: `${orgName} Tenant` })
+      tem.persist(tenant)
+      await tem.flush()
+      const org = tem.create(Organization, { name: orgName, tenant })
+      tem.persist(org)
+      await tem.flush()
+      seedTenantId = (tenant as any).id
+      seedOrgId = (org as any).id
 
-    // 2) Create users (superadmin, admin, employee)
-    const users: Array<{ email: string; password: string; roles: string[] }> = [
-      { email, password, roles: ['superadmin'] },
-      { email: 'admin@' + (orgName || 'acme').toLowerCase() + '.com', password, roles: ['admin'] },
-      { email: 'employee@' + (orgName || 'acme').toLowerCase() + '.com', password, roles: ['employee'] },
-    ]
-    for (const udef of users) {
-      const u = em.create(User, { email: udef.email, passwordHash: await hash(udef.password, 10), isConfirmed: true, organizationId: org.id, tenantId: tenant.id })
-      await em.persistAndFlush(u)
-      for (const name of udef.roles) {
-        const role = await em.findOneOrFail(Role, { name })
-        await em.persistAndFlush(em.create(UserRole, { user: u, role }))
+      // 2) Create or update users (superadmin, admin, employee) idempotently
+      const users: Array<{ email: string; password: string; roles: string[] }> = [
+        { email, password, roles: ['superadmin'] },
+        { email: 'admin@' + (orgName || 'acme').toLowerCase() + '.com', password, roles: ['admin'] },
+        { email: 'employee@' + (orgName || 'acme').toLowerCase() + '.com', password, roles: ['employee'] },
+      ]
+      for (const udef of users) {
+        let u = await tem.findOne(User, { email: udef.email })
+        if (u) {
+          u.passwordHash = await hash(udef.password, 10)
+          u.isConfirmed = true
+          u.organizationId = org.id
+          u.tenantId = tenant.id
+          tem.persist(u)
+          console.log('Updated user', udef.email)
+          warnBox([
+            'Existing user updated (idempotent setup).',
+            `Email: ${udef.email}`,
+            'Password reset and organization/tenant synchronized with current setup.',
+          ])
+        } else {
+          u = tem.create(User, { email: udef.email, passwordHash: await hash(udef.password, 10), isConfirmed: true, organizationId: org.id, tenantId: tenant.id })
+          tem.persist(u)
+          console.log('Created user', udef.email, 'password:', password)
+        }
+        await tem.flush()
+        // Ensure role links exist (idempotent)
+        for (const name of udef.roles) {
+          const role = await tem.findOneOrFail(Role, { name })
+          const existingLink = await tem.findOne(UserRole, { user: u as any, role: role as any } as any)
+          if (!existingLink) {
+            tem.persist(tem.create(UserRole, { user: u as any, role: role as any }))
+          }
+        }
+        await tem.flush()
       }
-      console.log('Created user', udef.email, 'password:', password)
-    }
 
-    // 3) Seed role ACLs: owner -> superadmin; admin -> all features; employee -> example module
+      // Transaction complete; tenant/org ids captured above
+    })
+
+    // 3) Seed role ACLs outside transaction: owner -> superadmin; admin -> all features; employee -> example module
     const ownerRole = await em.findOne(Role, { name: 'owner' })
     const adminRole = await em.findOne(Role, { name: 'admin' })
     const employeeRole = await em.findOne(Role, { name: 'employee' })
-    if (ownerRole) await em.persistAndFlush(em.create(RoleAcl, { role: ownerRole, tenantId: tenant.id, isSuperAdmin: true }))
-    if (adminRole) await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: tenant.id, featuresJson: ['*'] }))
-    if (employeeRole) await em.persistAndFlush(em.create(RoleAcl, { role: employeeRole, tenantId: tenant.id, featuresJson: ['example.*'] }))
+    if (ownerRole) await em.persistAndFlush(em.create(RoleAcl, { role: ownerRole, tenantId: seedTenantId, isSuperAdmin: true }))
+    if (adminRole) await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: seedTenantId, featuresJson: ['*'] }))
+    if (employeeRole) await em.persistAndFlush(em.create(RoleAcl, { role: employeeRole, tenantId: seedTenantId, featuresJson: ['example.*'] }))
 
-    console.log('Setup complete:', { tenantId: tenant.id, organizationId: org.id })
+    console.log('Setup complete:', { tenantId: seedTenantId, organizationId: seedOrgId })
   },
 }
 

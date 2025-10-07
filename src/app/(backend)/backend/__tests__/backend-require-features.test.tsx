@@ -2,7 +2,20 @@
  * Tests the backend catch-all route guarding for requireFeatures.
  */
 import React from 'react'
+// Avoid loading the full generated modules (which pull example modules and DSL)
+jest.mock('@/generated/modules.generated', () => ({ modules: [] }))
+
 import BackendCatchAll from '@/app/(backend)/backend/[...slug]/page'
+
+// Mock UI breadcrumb component to avoid UI package dependency
+jest.mock('@open-mercato/ui/backend/AppShell', () => ({
+  ApplyBreadcrumb: () => React.createElement('div', null, 'Breadcrumb'),
+}))
+
+// Mock UI CrudForm to avoid importing ESM-only deps like remark-gfm in Jest
+jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
+  CrudForm: (props: any) => React.createElement('form', null, React.createElement('div', null, 'CrudFormMock')),
+}))
 
 // Mock registry to return a match with requireFeatures
 jest.mock('@open-mercato/shared/modules/registry', () => ({

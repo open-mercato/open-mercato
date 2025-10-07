@@ -73,7 +73,7 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
     const engine = new HybridQueryEngine(em, fallback as any)
 
-    await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1' })
+    await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
     expect(fallback.query).toHaveBeenCalled()
   })
 
@@ -84,7 +84,7 @@ describe('HybridQueryEngine', () => {
     const engine = new HybridQueryEngine(em, fallback as any)
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1' })
+    await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
     expect(fallback.query).toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalled()
     const msg = (warnSpy.mock.calls[0] || [])[0] as string
@@ -98,7 +98,7 @@ describe('HybridQueryEngine', () => {
     const fallback = { query: jest.fn() }
     const engine = new HybridQueryEngine(em, fallback as any)
 
-    await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', page: { page: 1, pageSize: 5 } })
+    await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1', page: { page: 1, pageSize: 5 } })
     expect(fallback.query).not.toHaveBeenCalled()
   })
 })
