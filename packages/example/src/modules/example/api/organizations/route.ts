@@ -7,19 +7,19 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 export const metadata = {
   GET: {
     requireAuth: true,
-    requireRoles: ['admin']
+    requireFeatures: ['example.todos.view']
   },
   POST: {
     requireAuth: true,
-    requireRoles: ['admin', 'superuser']
+    requireFeatures: ['example.todos.manage']
   },
   PUT: {
     requireAuth: true,
-    requireRoles: ['admin']
+    requireFeatures: ['example.todos.manage']
   },
   DELETE: {
     requireAuth: true,
-    requireRoles: ['admin', 'superuser']
+    requireFeatures: ['example.todos.manage']
   }
 }
 

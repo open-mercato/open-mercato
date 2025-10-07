@@ -1,7 +1,6 @@
 "use client"
 import * as React from 'react'
-import { Button } from '@open-mercato/ui/backend/primitives/button'
-import { Checkbox } from '@open-mercato/ui/backend/primitives/checkbox'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 
 type Feature = { id: string; title: string; module: string }
@@ -67,7 +66,7 @@ export function AclEditor({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <Checkbox id="isSuperAdmin" checked={isSuperAdmin} onCheckedChange={(v) => setIsSuperAdmin(!!v)} />
+        <input id="isSuperAdmin" type="checkbox" className="h-4 w-4" checked={isSuperAdmin} onChange={(e) => setIsSuperAdmin(!!e.target.checked)} />
         <label htmlFor="isSuperAdmin" className="text-sm">Super Admin (all features)</label>
       </div>
       {!isSuperAdmin && (
@@ -80,8 +79,8 @@ export function AclEditor({
                   const checked = granted.includes(f.id)
                   return (
                     <div key={f.id} className="flex items-center gap-2">
-                      <Checkbox id={`f-${f.id}`} checked={checked} onCheckedChange={(v) => {
-                        const on = !!v
+                      <input id={`f-${f.id}`} type="checkbox" className="h-4 w-4" checked={checked} onChange={(e) => {
+                        const on = !!e.target.checked
                         setGranted((prev) => on ? Array.from(new Set([...prev, f.id])) : prev.filter((x) => x !== f.id))
                       }} />
                       <label htmlFor={`f-${f.id}`} className="text-sm">{f.title} <span className="text-muted-foreground">({f.id})</span></label>
@@ -102,8 +101,8 @@ export function AclEditor({
               const checked = organizations == null ? false : (organizations || []).includes(o.id)
               return (
                 <div key={o.id} className="flex items-center gap-2">
-                  <Checkbox id={`org-${o.id}`} checked={checked} onCheckedChange={(v) => {
-                    const on = !!v
+                  <input id={`org-${o.id}`} type="checkbox" className="h-4 w-4" checked={checked} onChange={(e) => {
+                    const on = !!e.target.checked
                     setOrganizations((prev) => {
                       if (prev == null) return on ? [o.id] : []
                       return on ? Array.from(new Set([...(prev || []), o.id])) : (prev || []).filter((x) => x !== o.id)

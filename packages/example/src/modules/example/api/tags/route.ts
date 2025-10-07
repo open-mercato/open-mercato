@@ -3,7 +3,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { CustomFieldDef, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin', 'superuser'] },
+  GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
 }
 
 export async function GET(request: Request) {

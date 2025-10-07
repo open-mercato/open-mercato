@@ -50,12 +50,9 @@ type UpdateInput = z.infer<typeof updateSchema>
 // Start from code-declared field sets; will be extended per-request from DB definitions
 const cfSel = buildCustomFieldSelectorsForEntity(E.example.todo, fieldSets)
 let dynamicCfKeys: string[] = [...cfSel.keys]
-
-let sortFieldMap: Record<string, unknown> = (() => {
-  const map: Record<string, unknown> = { id, title, tenant_id, organization_id, is_done }
-  for (const k of dynamicCfKeys) map[`cf_${k}`] = `cf:${k}`
-  return map
-})()
+let listFields: any[] = [id, title, tenant_id, organization_id, is_done, ...cfSel.selectors]
+const sortFieldMapRef: Record<string, unknown> = { id, title, tenant_id, organization_id, is_done }
+for (const k of dynamicCfKeys) sortFieldMapRef[`cf_${k}`] = `cf:${k}`
 
 type BaseFields = {
   id: string
@@ -82,10 +79,10 @@ function toArray(val: unknown): string[] {
 
 export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   metadata: {
-    GET: { requireAuth: true, requireRoles: ['admin'] },
-    POST: { requireAuth: true, requireRoles: ['admin', 'superuser'] },
-    PUT: { requireAuth: true, requireRoles: ['admin'] },
-    DELETE: { requireAuth: true, requireRoles: ['admin', 'superuser'] },
+    GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
+    POST: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
+    PUT: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
+    DELETE: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
   },
   orm: {
     entity: Todo,
@@ -98,8 +95,8 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   list: {
     schema: querySchema,
     entityId: E.example.todo,
-    fields: [id, title, tenant_id, organization_id, is_done, ...cfSel.selectors],
-    sortFieldMap,
+    fields: listFields,
+    sortFieldMap: sortFieldMapRef,
     buildFilters: async (q: Query, ctx): Promise<Where<BaseFields>> => {
       const filters: Where<BaseFields> = {}
       const F = filters as Record<string, WhereValue>
@@ -119,8 +116,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
         entityId: E.example.todo,
         query: q as any,
         em: ctx.container.resolve('em'),
-        orgId: ctx.auth.orgId,
-        tenantId: ctx.auth.tenantId,
+        tenantId: ctx.auth!.tenantId,
       })
       Object.assign(F, cfFilterMap)
 
@@ -167,8 +163,8 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
         const defs = await em.find(CustomFieldDef, {
           entityId: E.example.todo as any,
           $and: [
-            { $or: [ { organizationId: ctx.auth.orgId as any }, { organizationId: null } ] },
-            { $or: [ { tenantId: ctx.auth.tenantId as any }, { tenantId: null } ] },
+            { $or: [ { organizationId: ctx.auth!.orgId as any }, { organizationId: null } ] },
+            { $or: [ { tenantId: ctx.auth!.tenantId as any }, { tenantId: null } ] },
           ],
         })
         const byKey = new Map<string, any>()
@@ -193,9 +189,9 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
             .distinct('field_key')
             .where({ entity_id: E.example.todo as any })
             .modify((qb: any) => {
-              if (ctx.auth.orgId != null) qb.andWhere((b: any) => b.where({ organization_id: ctx.auth.orgId }).orWhereNull('organization_id'))
+              if (ctx.auth!.orgId != null) qb.andWhere((b: any) => b.where({ organization_id: ctx.auth!.orgId }).orWhereNull('organization_id'))
               else qb.whereNull('organization_id')
-              if (ctx.auth.tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: ctx.auth.tenantId }).orWhereNull('tenant_id'))
+              if (ctx.auth!.tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: ctx.auth!.tenantId }).orWhereNull('tenant_id'))
               else qb.whereNull('tenant_id')
             })
             .whereNull('deleted_at')
@@ -207,10 +203,15 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
           dynamicCfKeys = Array.from(new Set([ ...cfSel.keys, ...keysFromDefs ]))
         }
         const selectors = dynamicCfKeys.map((k) => `cf:${k}`)
-        ;(opts.list as any).fields = [id, title, tenant_id, organization_id, is_done, ...selectors]
-        const map: Record<string, unknown> = { id, title, tenant_id, organization_id, is_done }
-        for (const k of dynamicCfKeys) map[`cf_${k}`] = `cf:${k}`
-        ;(opts.list as any).sortFieldMap = map
+        listFields = [id, title, tenant_id, organization_id, is_done, ...selectors]
+        // Reset the shared sort field map object in place to propagate changes
+        for (const key of Object.keys(sortFieldMapRef)) delete sortFieldMapRef[key]
+        sortFieldMapRef.id = id
+        sortFieldMapRef.title = title
+        ;(sortFieldMapRef as any).tenant_id = tenant_id
+        ;(sortFieldMapRef as any).organization_id = organization_id
+        ;(sortFieldMapRef as any).is_done = is_done
+        for (const k of dynamicCfKeys) sortFieldMapRef[`cf_${k}`] = `cf:${k}`
       } catch {
         // ignore; fall back to code-declared selectors
       }

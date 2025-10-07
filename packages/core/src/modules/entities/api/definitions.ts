@@ -8,8 +8,8 @@ export const metadata = {
   // Reading definitions is needed by record forms; keep it auth-protected but not admin-only
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
   // Mutations remain admin-only
-  POST: { requireAuth: true, requireRoles: ['admin'], requireFeatures: ['entities.definitions.manage'] },
-  DELETE: { requireAuth: true, requireRoles: ['admin'], requireFeatures: ['entities.definitions.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
 }
 
 export async function GET(req: Request) {

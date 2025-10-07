@@ -3,7 +3,7 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { AclEditor } from '@open-mercato/core/modules/auth/backend/components/AclEditor'
+import { AclEditor } from '@open-mercato/core/modules/auth/components/AclEditor'
 
 export default function CreateUserPage() {
   const [orgOptions, setOrgOptions] = React.useState<{ value: string; label: string }[]>([])

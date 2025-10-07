@@ -5,7 +5,7 @@ import { EntityManager } from '@mikro-orm/core'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin'] },
+  GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
 }
 
 export async function GET(req: Request) {

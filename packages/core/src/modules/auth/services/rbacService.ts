@@ -24,13 +24,15 @@ export class RbacService {
     features: string[]
     organizations: string[] | null
   }> {
-    const user = await this.em.findOne(User, { id: userId })
+    // Use a forked EntityManager to avoid inheriting an aborted transaction from callers
+    const em = this.em.fork()
+    const user = await em.findOne(User, { id: userId })
     if (!user) return { isSuperAdmin: false, features: [], organizations: null }
     const tenantId = scope.tenantId || user.tenantId || null
     const orgId = scope.organizationId || user.organizationId || null
 
     // Per-user ACL first
-    const uacl = tenantId ? await this.em.findOne(UserAcl, { user: userId as any, tenantId }) : null
+    const uacl = tenantId ? await em.findOne(UserAcl, { user: userId as any, tenantId }) : null
     if (uacl) {
       return {
         isSuperAdmin: !!uacl.isSuperAdmin,
@@ -40,13 +42,13 @@ export class RbacService {
     }
 
     // Aggregate role ACLs
-    const links = await this.em.find(UserRole, { user: userId as any }, { populate: ['role'] })
+    const links = await em.find(UserRole, { user: userId as any }, { populate: ['role'] })
     const roleIds = links.map((l) => (l.role as any)?.id).filter(Boolean)
     let isSuper = false
     const features: string[] = []
     let organizations: string[] | null = []
     if (tenantId && roleIds.length) {
-      const racls = await this.em.find(RoleAcl, { tenantId, role: { $in: roleIds as any } } as any, {})
+      const racls = await em.find(RoleAcl, { tenantId, role: { $in: roleIds as any } } as any, {})
       for (const r of racls) {
         isSuper = isSuper || !!r.isSuperAdmin
         if (Array.isArray(r.featuresJson)) for (const f of r.featuresJson) if (!features.includes(f)) features.push(f)

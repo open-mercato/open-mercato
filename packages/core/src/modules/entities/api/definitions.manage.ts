@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin'] },
+  GET: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
 }
 
 export async function GET(req: Request) {

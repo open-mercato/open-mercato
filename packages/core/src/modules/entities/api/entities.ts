@@ -6,9 +6,9 @@ import { E as AllEntities } from '@/generated/entities.ids.generated'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/data/validators'
 
 export const metadata = {
-  GET: { requireAuth: true, requireRoles: ['admin'] },
-  POST: { requireAuth: true, requireRoles: ['admin'] },
-  DELETE: { requireAuth: true, requireRoles: ['admin'] },
+  GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
+  POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
 }
 
 export async function GET(req: Request) {
