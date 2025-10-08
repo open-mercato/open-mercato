@@ -67,3 +67,4 @@ packages/*/src/**/*.jsx
 .test-cache.json
 ./data
 ./.data
+data/*
