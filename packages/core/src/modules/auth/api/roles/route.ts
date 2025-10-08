@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -96,7 +96,7 @@ export async function DELETE(req: Request) {
   if (activeAssignments > 0) {
     return NextResponse.json({ error: 'Role has assigned users' }, { status: 400 })
   }
+  await em.nativeDelete(RoleAcl, { role: id })
   await em.removeAndFlush(role)
   return NextResponse.json({ ok: true })
 }
-

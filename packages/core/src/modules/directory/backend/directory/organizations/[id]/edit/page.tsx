@@ -19,6 +19,7 @@ type OrganizationResponse = {
   items: Array<{
     id: string
     name: string
+    tenantId: string
     parentId: string | null
     childIds: string[]
     ancestorIds: string[]
@@ -59,6 +60,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
   const [fields, setFields] = React.useState(baseFields)
   const [initialValues, setInitialValues] = React.useState<any | null>(null)
   const [pathLabel, setPathLabel] = React.useState<string>('')
+  const [tenantId, setTenantId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -69,16 +71,18 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
       setLoading(true)
       setError(null)
       try {
-        const [treeRes, orgRes] = await Promise.all([
-          apiFetch('/api/directory/organizations?view=tree&includeInactive=true'),
-          apiFetch(`/api/directory/organizations?view=manage&ids=${orgId}&status=all&includeInactive=true&page=1&pageSize=1`),
-        ])
-        if (!treeRes.ok) throw new Error('Failed to load hierarchy')
+        const orgRes = await apiFetch(`/api/directory/organizations?view=manage&ids=${orgId}&status=all&includeInactive=true&page=1&pageSize=1`)
         if (!orgRes.ok) throw new Error('Failed to load organization')
-        const tree: TreeResponse = await treeRes.json()
         const orgData: OrganizationResponse = await orgRes.json()
         const record = orgData.items?.[0]
         if (!record) throw new Error('Organization not found')
+        setTenantId(record.tenantId || null)
+        const treeParams = new URLSearchParams({ view: 'tree', includeInactive: 'true' })
+        if (record.tenantId) treeParams.set('tenantId', record.tenantId)
+        treeParams.set('ids', orgId)
+        const treeRes = await apiFetch(`/api/directory/organizations?${treeParams.toString()}`)
+        if (!treeRes.ok) throw new Error('Failed to load hierarchy')
+        const tree: TreeResponse = await treeRes.json()
         if (cancelled) return
         const excludedForParent = new Set<string>([orgId, ...record.descendantIds])
         const excludedForChildren = new Set<string>([orgId, ...record.ancestorIds])
@@ -135,13 +139,21 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           successRedirect="/backend/directory/organizations?flash=Organization%20updated&type=success"
           extraActions={pathLabel ? <span className="text-xs text-muted-foreground">Path: {pathLabel}</span> : null}
           onSubmit={async (values) => {
-            const payload = {
+            const payload: {
+              id: string
+              name: string
+              isActive: boolean
+              parentId: string | null
+              childIds: string[]
+              tenantId?: string
+            } = {
               id: values.id || orgId,
               name: values.name,
               isActive: values.isActive !== false,
               parentId: values.parentId ? values.parentId : null,
               childIds: Array.isArray(values.childIds) ? values.childIds : [],
             }
+            if (tenantId) payload.tenantId = tenantId
             await apiFetch('/api/directory/organizations', {
               method: 'PUT',
               headers: { 'content-type': 'application/json' },
@@ -157,4 +169,3 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
     </Page>
   )
 }
-

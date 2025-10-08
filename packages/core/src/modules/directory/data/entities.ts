@@ -5,29 +5,8 @@ export class Tenant {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-@Property({ type: 'text' })
+  @Property({ type: 'text' })
   name!: string
-
-  @Property({ name: 'parent_id', type: 'uuid', nullable: true })
-  parentId?: string | null
-
-  @Property({ name: 'root_id', type: 'uuid', nullable: true })
-  rootId?: string | null
-
-  @Property({ name: 'tree_path', type: 'text', nullable: true })
-  treePath?: string | null
-
-  @Property({ type: 'int', default: 0 })
-  depth: number = 0
-
-  @Property({ name: 'ancestor_ids', type: 'json', nullable: false, default: [] })
-  ancestorIds: string[] = []
-
-  @Property({ name: 'child_ids', type: 'json', nullable: false, default: [] })
-  childIds: string[] = []
-
-  @Property({ name: 'descendant_ids', type: 'json', nullable: false, default: [] })
-  descendantIds: string[] = []
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
@@ -58,6 +37,27 @@ export class Organization {
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
+
+  @Property({ name: 'parent_id', type: 'uuid', nullable: true })
+  parentId: string | null = null
+
+  @Property({ name: 'root_id', type: 'uuid', nullable: true })
+  rootId: string | null = null
+
+  @Property({ name: 'tree_path', type: 'text', nullable: true })
+  treePath: string | null = null
+
+  @Property({ type: 'int', default: 0 })
+  depth: number = 0
+
+  @Property({ name: 'ancestor_ids', type: 'jsonb', default: [], nullable: false })
+  ancestorIds: string[] = []
+
+  @Property({ name: 'child_ids', type: 'jsonb', default: [], nullable: false })
+  childIds: string[] = []
+
+  @Property({ name: 'descendant_ids', type: 'jsonb', default: [], nullable: false })
+  descendantIds: string[] = []
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

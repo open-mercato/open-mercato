@@ -12,6 +12,25 @@ const groups: CrudFormGroup[] = [
   { id: 'details', title: 'Details', column: 1, fields: ['name', 'isActive'] },
 ]
 
+async function ensureResponseOk(res: Response, fallback: string): Promise<void> {
+  if (res.ok) return
+  let message = fallback
+  const contentType = res.headers.get('content-type') || ''
+  try {
+    if (contentType.includes('application/json')) {
+      const data = await res.json()
+      const extracted = data?.error || data?.message
+      if (extracted && typeof extracted === 'string') message = extracted
+    } else {
+      const text = (await res.text()).trim()
+      if (text) message = text
+    }
+  } catch {
+    // ignore parsing failures, fall back to generic message
+  }
+  throw new Error(message)
+}
+
 export default function CreateTenantPage() {
   return (
     <Page>
@@ -26,11 +45,12 @@ export default function CreateTenantPage() {
           cancelHref="/backend/directory/tenants"
           successRedirect="/backend/directory/tenants?flash=Tenant%20created&type=success"
           onSubmit={async (values) => {
-            await apiFetch('/api/directory/tenants', {
+            const res = await apiFetch('/api/directory/tenants', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(values),
             })
+            await ensureResponseOk(res, 'Failed to create tenant')
           }}
         />
       </PageBody>

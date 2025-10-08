@@ -75,16 +75,37 @@ export async function GET(req: Request) {
   if (!parsed.success) return NextResponse.json({ items: [] }, { status: 400 })
 
   const query = parsed.data
-  const tenantId = enforceTenantScope(auth.tenantId ?? null, query.tenantId ?? null)
-  if (!tenantId) {
-    return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
-  }
   const ids = parseIds(query.ids ?? null)
+  const requestedTenantId = query.tenantId ?? null
+  const authTenantId = auth.tenantId ?? null
+  let tenantId = enforceTenantScope(authTenantId, requestedTenantId)
   const status = query.status ?? 'all'
   const includeInactive = query.includeInactive === 'true' || status !== 'active'
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+
+  if (!tenantId && !authTenantId && ids?.length) {
+    const scopedOrgs: Organization[] = await em.find(
+      Organization,
+      { id: { $in: ids }, deletedAt: null },
+      { populate: ['tenant'] },
+    )
+    const tenantCandidates = new Set<string>()
+    for (const org of scopedOrgs) {
+      const orgTenantId = org.tenant?.id ? stringId(org.tenant.id) : ''
+      if (orgTenantId) tenantCandidates.add(orgTenantId)
+    }
+    if (tenantCandidates.size === 1) {
+      tenantId = Array.from(tenantCandidates)[0] ?? null
+    } else if (tenantCandidates.size > 1) {
+      return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
+    }
+  }
+
+  if (!tenantId) {
+    return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
+  }
 
   if (query.view === 'options') {
     const where: any = { tenant: tenantId as any, deletedAt: null }

@@ -25,73 +25,6 @@
           "nullable": false,
           "mappedType": "text"
         },
-        "parent_id": {
-          "name": "parent_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "root_id": {
-          "name": "root_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "tree_path": {
-          "name": "tree_path",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "depth": {
-          "name": "depth",
-          "type": "int4",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "0",
-          "mappedType": "number"
-        },
-        "ancestor_ids": {
-          "name": "ancestor_ids",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "[]",
-          "mappedType": "json"
-        },
-        "child_ids": {
-          "name": "child_ids",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "[]",
-          "mappedType": "json"
-        },
-        "descendant_ids": {
-          "name": "descendant_ids",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "[]",
-          "mappedType": "json"
-        },
         "is_active": {
           "name": "is_active",
           "type": "boolean",
@@ -191,6 +124,73 @@
           "default": "true",
           "mappedType": "boolean"
         },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "root_id": {
+          "name": "root_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "tree_path": {
+          "name": "tree_path",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "depth": {
+          "name": "depth",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "0",
+          "mappedType": "integer"
+        },
+        "ancestor_ids": {
+          "name": "ancestor_ids",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'[]'",
+          "mappedType": "json"
+        },
+        "child_ids": {
+          "name": "child_ids",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'[]'",
+          "mappedType": "json"
+        },
+        "descendant_ids": {
+          "name": "descendant_ids",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'[]'",
+          "mappedType": "json"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -234,37 +234,6 @@
           "constraint": true,
           "primary": true,
           "unique": true
-        },
-        {
-          "keyName": "organizations_tenant_depth_idx",
-          "columnNames": [
-            "tenant_id",
-            "depth"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "organizations_parent_idx",
-          "columnNames": [
-            "parent_id"
-          ],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "organizations_root_idx",
-          "columnNames": [
-            "root_id"
-          ],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false
         }
       ],
       "checks": [],
@@ -281,20 +250,6 @@
           "referencedTableName": "public.tenants",
           "createForeignKeyConstraint": true,
           "updateRule": "cascade"
-        },
-        "organizations_parent_id_foreign": {
-          "constraintName": "organizations_parent_id_foreign",
-          "columnNames": [
-            "parent_id"
-          ],
-          "localTableName": "public.organizations",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.organizations",
-          "createForeignKeyConstraint": true,
-          "updateRule": "cascade",
-          "deleteRule": "set null"
         }
       },
       "nativeEnums": {}

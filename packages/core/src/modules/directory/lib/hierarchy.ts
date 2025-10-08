@@ -62,7 +62,8 @@ export function computeHierarchyForOrganizations(organizations: Organization[], 
   }
 
   const computed = new Map<string, ComputedOrganizationNode>()
-  const ordered: ComputedOrganizationNode[] = []
+  const orderedIds: string[] = []
+  const orderedSet = new Set<string>()
   const visited = new Set<string>()
 
   function walk(nodeId: string, ancestors: string[]): string[] {
@@ -81,8 +82,11 @@ export function computeHierarchyForOrganizations(organizations: Organization[], 
         descendantIds: [],
         isActive: nodes.get(nodeId)?.org.isActive ?? true,
       })
+      if (!orderedSet.has(nodeId)) {
+        orderedIds.push(nodeId)
+        orderedSet.add(nodeId)
+      }
       visited.add(nodeId)
-      ordered.push(computed.get(nodeId)!)
       return []
     }
 
@@ -93,6 +97,10 @@ export function computeHierarchyForOrganizations(organizations: Organization[], 
     const org = node.org
     const id = String(org.id)
     const nextAncestors = [...ancestors, id]
+    if (!orderedSet.has(id)) {
+      orderedIds.push(id)
+      orderedSet.add(id)
+    }
     const childIds = Array.from(node.children)
       .filter((childId) => nodes.has(childId))
       .sort((a, b) => {
@@ -127,7 +135,6 @@ export function computeHierarchyForOrganizations(organizations: Organization[], 
       isActive: !!org.isActive,
     }
     computed.set(id, computedNode)
-    ordered.push(computedNode)
     return descendantIds
   }
 
@@ -143,6 +150,10 @@ export function computeHierarchyForOrganizations(organizations: Organization[], 
       walk(id, [])
     }
   }
+
+  const ordered = orderedIds
+    .map((id) => computed.get(id))
+    .filter((node): node is ComputedOrganizationNode => !!node)
 
   return { map: computed, ordered }
 }
@@ -178,4 +189,3 @@ export async function rebuildHierarchyForTenant(em: EntityManager, tenantId: str
   await em.flush()
   return hierarchy
 }
-

@@ -100,8 +100,13 @@ export async function POST(req: Request) {
     name: parsed.data.name,
     isActive: parsed.data.isActive ?? true,
   })
-  await em.persistAndFlush(tenant)
-  return NextResponse.json({ id: String(tenant.id) })
+  try {
+    await em.persistAndFlush(tenant)
+  } catch (err) {
+    console.error('Failed to create tenant', err)
+    return NextResponse.json({ error: 'Failed to create tenant' }, { status: 500 })
+  }
+  return NextResponse.json({ id: String(tenant.id) }, { status: 201 })
 }
 
 export async function PUT(req: Request) {
@@ -121,7 +126,12 @@ export async function PUT(req: Request) {
   if (parsed.data.isActive !== undefined) tenant.isActive = parsed.data.isActive
   tenant.updatedAt = new Date()
 
-  await em.persistAndFlush(tenant)
+  try {
+    await em.persistAndFlush(tenant)
+  } catch (err) {
+    console.error('Failed to update tenant', err)
+    return NextResponse.json({ error: 'Failed to update tenant' }, { status: 500 })
+  }
   return NextResponse.json({ ok: true })
 }
 
@@ -140,6 +150,11 @@ export async function DELETE(req: Request) {
 
   tenant.deletedAt = new Date()
   tenant.isActive = false
-  await em.persistAndFlush(tenant)
+  try {
+    await em.persistAndFlush(tenant)
+  } catch (err) {
+    console.error('Failed to delete tenant', err)
+    return NextResponse.json({ error: 'Failed to delete tenant' }, { status: 500 })
+  }
   return NextResponse.json({ ok: true })
 }

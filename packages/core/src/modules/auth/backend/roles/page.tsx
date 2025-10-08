@@ -7,6 +7,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 type Row = { id: string; name: string; usersCount: number }
 
@@ -23,6 +24,7 @@ export default function RolesListPage() {
   const [search, setSearch] = React.useState('')
   const [rows, setRows] = React.useState<Row[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
+  const [reloadToken, setReloadToken] = React.useState(0)
 
   React.useEffect(() => {
     let cancelled = false
@@ -46,7 +48,28 @@ export default function RolesListPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, search])
+  }, [page, search, reloadToken])
+
+  const handleDelete = React.useCallback(async (row: Row) => {
+    if (!window.confirm(`Delete role "${row.name}"?`)) return
+    try {
+      const res = await apiFetch(`/api/auth/roles?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+      if (!res.ok) {
+        let message = 'Failed to delete role'
+        try {
+          const data = await res.json()
+          if (data?.error && typeof data.error === 'string') message = data.error
+        } catch {}
+        flash(message, 'error')
+        return
+      }
+      flash('Role deleted', 'success')
+      setReloadToken((token) => token + 1)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete role'
+      flash(message, 'error')
+    }
+  }, [])
 
   return (
     <Page>
@@ -66,6 +89,7 @@ export default function RolesListPage() {
             <RowActions items={[
               { label: 'Edit', href: `/backend/roles/${row.id}/edit` },
               { label: 'Show users', href: `/backend/users?roleId=${encodeURIComponent(row.id)}` },
+              { label: 'Delete', destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
           sortable
@@ -78,5 +102,4 @@ export default function RolesListPage() {
     </Page>
   )
 }
-
 
