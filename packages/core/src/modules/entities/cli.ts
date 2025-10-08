@@ -3,8 +3,19 @@ import { modules } from '@/generated/modules.generated'
 import { createRequestContainer } from '@/lib/di/container'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { upsertCustomEntity } from '@open-mercato/core/modules/entities/lib/register'
+import { E as GeneratedEntities } from '@/generated/entities.ids.generated'
 import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
+
+const SYSTEM_ENTITY_IDS: Set<string> = (() => {
+  const ids = new Set<string>()
+  for (const moduleEntities of Object.values(GeneratedEntities)) {
+    for (const id of Object.values(moduleEntities as Record<string, string>)) {
+      ids.add(id)
+    }
+  }
+  return ids
+})()
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}
@@ -43,9 +54,11 @@ const seedDefs: ModuleCli = {
       const { modules } = await import('@/generated/modules.generated')
       let created = 0
       for (const m of modules) {
-        const entities = (m as any).customEntities as Array<{ id: string; label?: string; description?: string; showInSidebar?: boolean }> | undefined
+        const entities = (m as any).customEntities as Array<{ id: string; label?: string; description?: string; showInSidebar?: boolean; registerEntity?: boolean }> | undefined
         if (!entities?.length) continue
         for (const ce of entities) {
+          if (SYSTEM_ENTITY_IDS.has(ce.id)) continue
+          if (ce.registerEntity === false) continue
           await upsertCustomEntity(em as any, ce.id, { label: ce.label || ce.id, description: ce.description || null, organizationId: null, tenantId: null, showInSidebar: !!ce.showInSidebar })
           created++
         }
