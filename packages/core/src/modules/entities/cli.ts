@@ -43,10 +43,10 @@ const seedDefs: ModuleCli = {
       const { modules } = await import('@/generated/modules.generated')
       let created = 0
       for (const m of modules) {
-        const entities = (m as any).customEntities as Array<{ id: string; label?: string; description?: string }> | undefined
+        const entities = (m as any).customEntities as Array<{ id: string; label?: string; description?: string; showInSidebar?: boolean }> | undefined
         if (!entities?.length) continue
         for (const ce of entities) {
-          await upsertCustomEntity(em as any, ce.id, { label: ce.label || ce.id, description: ce.description || null, organizationId: null, tenantId: null })
+          await upsertCustomEntity(em as any, ce.id, { label: ce.label || ce.id, description: ce.description || null, organizationId: null, tenantId: null, showInSidebar: !!ce.showInSidebar })
           created++
         }
       }

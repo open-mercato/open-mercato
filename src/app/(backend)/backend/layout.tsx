@@ -30,21 +30,31 @@ export default async function BackendLayout({ children, params }: { children: Re
   } : undefined
   const ctx = { auth: ctxAuth, path }
   
-  // Prefer server-provided nav via API to centralize fetching and caching
-  let groups: { name: string; items: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode; children?: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode }[] }[] }[] = []
-  try {
-    const { headers: getHeaders } = await import('next/headers')
-    const h = await getHeaders()
-    const host = h.get('x-forwarded-host') || h.get('host') || ''
-    const proto = h.get('x-forwarded-proto') || 'http'
-    const cookie = h.get('cookie') || ''
-    const url = host ? `${proto}://${host}/api/auth/admin/nav` : '/api/auth/admin/nav'
-    const res = await fetch(url, { headers: { cookie } as any, cache: 'no-store' as any } as any)
-    if (res.ok) {
-      const data = await res.json()
-      groups = Array.isArray(data?.groups) ? data.groups : []
+  // Build initial nav (SSR) using module metadata to preserve icons
+  const entries = await buildAdminNav(modules as any[], ctx)
+  const groupMap = new Map<string, {
+    name: string,
+    items: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode; children?: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode }[] }[],
+    weight: number,
+  }>()
+  for (const e of entries) {
+    const w = (e.priority ?? e.order ?? 10_000)
+    if (!groupMap.has(e.group)) {
+      groupMap.set(e.group, { name: e.group, items: [], weight: w })
+    } else {
+      const g = groupMap.get(e.group)!
+      if (w < g.weight) g.weight = w
     }
-  } catch {}
+    const g = groupMap.get(e.group)!
+    g.items.push({
+      href: e.href,
+      title: e.title,
+      enabled: e.enabled,
+      icon: e.icon,
+      children: (e.children || []).map((c) => ({ href: c.href, title: c.title, enabled: c.enabled, icon: c.icon })),
+    })
+  }
+  const groups = Array.from(groupMap.values()).sort((a, b) => a.weight - b.weight)
 
   // Derive current title from path and fetched groups
   const allEntries: Array<{ href: string; title: string; group: string; children?: any[] }> = groups.flatMap((g) => g.items.map((i: any) => ({ ...i, group: g.name })))

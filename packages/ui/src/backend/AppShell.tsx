@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { usePathname } from 'next/navigation'
+import { apiFetch } from './utils/api'
 
 export type AppShellProps = {
   productName?: string
@@ -117,15 +118,44 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
   // Optional: full refresh from adminNavApi, used to reflect RBAC/org/entity changes without page reload
   React.useEffect(() => {
     let cancelled = false
+    function indexIcons(groupsToIndex: AppShellProps['groups']): Map<string, React.ReactNode | undefined> {
+      const map = new Map<string, React.ReactNode | undefined>()
+      for (const g of groupsToIndex) {
+        for (const i of g.items) {
+          map.set(i.href, i.icon)
+          if (i.children) for (const c of i.children) map.set(c.href, c.icon)
+        }
+      }
+      return map
+    }
+    function mergePreservingIcons(oldG: AppShellProps['groups'], newG: AppShellProps['groups']): AppShellProps['groups'] {
+      const iconMap = indexIcons(oldG)
+      const merged = newG.map((g) => ({
+        name: g.name,
+        items: g.items.map((i) => ({
+          href: i.href,
+          title: i.title,
+          enabled: i.enabled,
+          icon: i.icon ?? iconMap.get(i.href),
+          children: i.children?.map((c) => ({
+            href: c.href,
+            title: c.title,
+            enabled: c.enabled,
+            icon: c.icon ?? iconMap.get(c.href),
+          })),
+        })),
+      }))
+      return merged
+    }
     async function refreshFullNav() {
       if (!adminNavApi) return
       try {
-        const res = await fetch(adminNavApi, { credentials: 'include' })
+        const res = await apiFetch(adminNavApi, { credentials: 'include' as any })
         if (!res.ok) return
         const data = await res.json()
         if (cancelled) return
         const nextGroups = Array.isArray(data?.groups) ? data.groups : []
-        if (nextGroups.length) setNavGroups(AppShell.cloneGroups(nextGroups))
+        if (nextGroups.length) setNavGroups((prev) => AppShell.cloneGroups(mergePreservingIcons(prev, nextGroups as any)))
       } catch {}
     }
     // Refresh on window focus
@@ -141,7 +171,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
     async function fetchAndMerge() {
       if (!userEntitiesApi) return
       try {
-        const res = await fetch(userEntitiesApi, { credentials: 'include' })
+        const res = await apiFetch(userEntitiesApi, { credentials: 'include' as any })
         if (!res.ok) return
         const data = await res.json() as { items?: { href: string; label: string }[] }
         const items = data.items || []
