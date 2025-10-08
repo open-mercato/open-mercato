@@ -673,6 +673,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           initialValues={entityInitial as any}
           isLoading={entityFormLoading || loading}
           submitLabel="Save"
+          deleteVisible={entitySource === 'custom'}
           extraActions={entitySource === 'custom' ? (
             <Button variant="outline" asChild>
               <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}>
@@ -732,7 +733,6 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             flash('Definitions saved', 'success')
           }}
         onDelete={entitySource === 'custom' ? async () => {
-          if (!window.confirm('Delete this custom entity and its definitions?')) return
           const res = await apiFetch('/api/entities/entities', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId }) })
           if (!res.ok) {
             const j = await res.json().catch(() => ({}))

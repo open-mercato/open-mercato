@@ -73,6 +73,8 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   deleteRedirect?: string
   onSubmit?: (values: TValues) => Promise<void> | void
   onDelete?: () => Promise<void> | void
+  // When true, shows Delete button whenever onDelete is provided, even without an id
+  deleteVisible?: boolean
   // Legacy field-only grid toggle. Use `groups` for advanced layout.
   twoColumn?: boolean
   title?: string
@@ -123,6 +125,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   deleteRedirect,
   onSubmit,
   onDelete,
+  deleteVisible,
   twoColumn = false,
   title,
   backHref,
@@ -164,7 +167,7 @@ export function CrudForm<TValues extends Record<string, any>>({
     const id = (values as any)?.id
     return id === undefined || id === null || id === ''
   }, [values])
-  const showDelete = !!onDelete && !isNewRecord
+  const showDelete = !!onDelete && (typeof (deleteVisible as any) === 'boolean' ? !!deleteVisible : !isNewRecord)
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
