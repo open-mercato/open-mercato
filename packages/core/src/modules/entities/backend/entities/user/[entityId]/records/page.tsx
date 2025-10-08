@@ -48,7 +48,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<Record<string, any>>({})
   const [columns, setColumns] = React.useState<ColumnDef<any>[]>([])
-  const [data, setData] = React.useState<any[]>([])
+  const [rawData, setRawData] = React.useState<any[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [loading, setLoading] = React.useState(false)
@@ -69,7 +69,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     return () => { cancelled = true }
   }, [entityId])
 
-  // Fetch records whenever paging/sorting/filters change
+  // Fetch records whenever paging/sorting/filters change (do NOT refetch on cfDefs/search changes)
   React.useEffect(() => {
     let cancelled = false
     const run = async () => {
@@ -98,101 +98,14 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
         const res = await apiFetch(`/api/entities/records?${params.toString()}`)
         if (!res.ok) throw new Error('Failed to load records')
         const j: RecordsResponse = await res.json()
-
-        // Client-side quick search across visible scalar values
-        let items = j.items || []
-        if (search.trim()) {
-          const q = search.trim().toLowerCase()
-          items = items.filter((row: any) => {
-            const values = Object.values(row || {})
-            return values.some((v) => normalizeCell(v).toLowerCase().includes(q))
-          })
-        }
-
-        // Build columns dynamically with heuristics to hide GUID/hash-like columns
-        const keys = Array.from(new Set(items.flatMap((it: any) => Object.keys(it || {}))))
-        // In user-defined entities, everything except technical fields is a custom field
-        const isCustomEntity = true
-        let base: string[] = []
-        let cfs: string[] = []
-        if (isCustomEntity) {
-          const allowed = new Set(filterCustomFieldDefs(cfDefs as any, 'list').map((d: any) => d.key))
-          const technical = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'organization_id', 'tenant_id'])
-          // Exclude 'id' from columns; keep other non-technical keys visible (optionally filtered by defs)
-          const visible = keys.filter((k) => !technical.has(k) && (allowed.size === 0 || allowed.has(k)))
-          base = visible
-          cfs = [] // do not use cf_ channel here
-        } else {
-          base = keys.filter((k) => !k.startsWith('cf_'))
-          const allowedCf = new Set(filterCustomFieldDefs(cfDefs as any, 'list').map((d: any) => `cf_${d.key}`))
-          cfs = keys.filter((k) => k.startsWith('cf_') && allowedCf.has(k))
-        }
-
-        const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-        const hexLongRe = /^[0-9a-f]{24,}$/i
-        const looksSensitive = (k: string) => /(password|token|secret|hash|salt|signature|key)$/i.test(k)
-        const looksTechnicalId = (k: string) => /(^id$|_id$|^uuid$)/i.test(k)
-        const sampleVal = (k: string) => {
-          for (const row of items) {
-            const v = (row as any)[k]
-            if (v != null && v !== '') return Array.isArray(v) ? v[0] : v
-          }
-          return undefined
-        }
-        const isGuidLike = (k: string) => {
-          const v = sampleVal(k)
-          if (typeof v !== 'string') return false
-          return uuidRe.test(v) || hexLongRe.test(v)
-        }
-
-        const rank = (k: string) => {
-          // Lower number = higher priority
-          if (['name','title','label'].includes(k)) return 0
-          if (k === 'id') return 5 // de-prioritize id but not last
-          if (k.endsWith('_at')) return 6
-          if (k.startsWith('cf_')) return 7
-          return 3
-        }
-        // Do not hide 'id' column completely; keep it available for sorting/state
-        const hideByHeuristic = (k: string) => !showAllColumns && (looksSensitive(k) || (k !== 'id' && (looksTechnicalId(k) || isGuidLike(k))))
-
-        const ordered = [
-          ...['id','name','title','label','created_at','updated_at'].filter((k) => base.includes(k)),
-          ...base.filter((k) => !['id','name','title','label','created_at','updated_at'].includes(k)).sort((a,b) => rank(a) - rank(b) || a.localeCompare(b)),
-          ...cfs,
-        ].filter((k) => !hideByHeuristic(k))
-
-        // Limit to a reasonable number to fit width; remaining get higher responsive priority (hidden on smaller screens)
-        const maxVisible = 10
-        const cfLabel = (k: string) => {
-          if (isCustomEntity) return cfDefs.find((d) => d.key === k)?.label || k
-          return cfDefs.find((d) => `cf_${d.key}` === k)?.label || k
-        }
-        const cols: ColumnDef<any>[] = ordered.map((k, idx) => ({
-          accessorKey: k,
-          header: (isCustomEntity ? cfLabel(k) : (k.startsWith('cf_') ? cfLabel(k) : k)),
-          // Priority: first 4 always, next hidden <sm, then <md, etc.
-          meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
-          cell: ({ getValue }) => {
-            const v = getValue() as any
-            return <span className="truncate max-w-[24ch] inline-block align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
-          },
-        }))
-        // Ensure an 'id' column exists for sorting/state, but keep it hidden
-        const hasIdCol = cols.some((c) => (c as any).accessorKey === 'id' || (c as any).id === 'id')
-        if (!hasIdCol) {
-          cols.unshift({ accessorKey: 'id', header: 'ID', meta: { hidden: true, priority: 6 } } as any)
-        }
         if (!cancelled) {
-          setColumns(cols)
-          setData(items)
+          setRawData(j.items || [])
           setTotal(j.total)
           setTotalPages(j.totalPages)
         }
       } catch (e) {
         if (!cancelled) {
-          setColumns([])
-          setData([])
+          setRawData([])
           setTotal(0)
           setTotalPages(1)
         }
@@ -202,7 +115,36 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     }
     if (entityId) run()
     return () => { cancelled = true }
-  }, [entityId, page, pageSize, sorting, filterValues, search, cfDefs, showAllColumns])
+  }, [entityId, page, pageSize, sorting, filterValues])
+
+  // Build columns from custom field definitions only (no data round-trip)
+  React.useEffect(() => {
+    const visibleDefs = filterCustomFieldDefs(cfDefs as any, 'list') as any
+    const maxVisible = 10
+    const cols: ColumnDef<any>[] = visibleDefs.map((d: any, idx: number) => ({
+      accessorKey: d.key,
+      header: d.label || d.key,
+      meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
+      cell: ({ getValue }) => {
+        const v = getValue() as any
+        return <span className="truncate max-w-[24ch] inline-block align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
+      },
+    }))
+    // Ensure hidden 'id' column exists for sorting/state
+    const hasIdCol = cols.some((c) => (c as any).accessorKey === 'id' || (c as any).id === 'id')
+    if (!hasIdCol) cols.unshift({ accessorKey: 'id', header: 'ID', meta: { hidden: true, priority: 6 } } as any)
+    setColumns(cols)
+  }, [cfDefs])
+
+  // Client-side quick search filtering without triggering server refetch
+  const data = React.useMemo(() => {
+    if (!search.trim()) return rawData
+    const q = search.trim().toLowerCase()
+    return (rawData || []).filter((row: any) => {
+      const values = Object.values(row || {})
+      return values.some((v) => normalizeCell(v).toLowerCase().includes(q))
+    })
+  }, [rawData, search])
 
   function ExportDropdown() {
     const buildExportUrl = (format: 'csv' | 'json' | 'xml') => {
@@ -431,7 +373,7 @@ curl -s -X DELETE \
                     // Refresh
                     const res = await apiFetch(`/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=${pageSize}`)
                     const j: RecordsResponse = await res.json()
-                    setData(j.items || [])
+                    setRawData(j.items || [])
                     setTotal(j.total || 0)
                     setTotalPages(j.totalPages || 1)
                     flash('Record has been removed', 'success')

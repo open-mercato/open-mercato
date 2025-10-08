@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import Link from 'next/link'
 
 type Feature = { id: string; title: string; module: string }
 type ModuleInfo = { id: string; title: string }
@@ -18,12 +19,14 @@ export function AclEditor({
   canEditOrganizations,
   value,
   onChange,
+  userRoles,
 }: {
   kind: 'user' | 'role'
   targetId: string
   canEditOrganizations: boolean
   value?: AclData
   onChange?: (data: AclData) => void
+  userRoles?: string[]
 }) {
   const [loading, setLoading] = React.useState(true)
   const [features, setFeatures] = React.useState<Feature[]>([])
@@ -32,6 +35,9 @@ export function AclEditor({
   const [isSuperAdmin, setIsSuperAdmin] = React.useState(value?.isSuperAdmin || false)
   const [organizations, setOrganizations] = React.useState<string[] | null>(value?.organizations ?? null)
   const [orgOptions, setOrgOptions] = React.useState<{ id: string; name: string }[]>([])
+  const [hasCustomAcl, setHasCustomAcl] = React.useState(true)
+  const [overrideEnabled, setOverrideEnabled] = React.useState(false)
+  const [roleDetails, setRoleDetails] = React.useState<Array<{ id: string; name: string }>>([])
 
   React.useEffect(() => {
     let cancelled = false
@@ -48,6 +54,9 @@ export function AclEditor({
         const aclRes = await apiFetch(`/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl?${kind === 'user' ? 'userId' : 'roleId'}=${encodeURIComponent(targetId)}`)
         const aclJson = await aclRes.json()
         if (!cancelled) {
+          const customAclExists = aclJson.hasCustomAcl !== false
+          setHasCustomAcl(customAclExists)
+          setOverrideEnabled(customAclExists)
           setIsSuperAdmin(!!aclJson.isSuperAdmin)
           setGranted(Array.isArray(aclJson.features) ? aclJson.features : [])
           setOrganizations(aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? aclJson.organizations : [])
@@ -60,11 +69,22 @@ export function AclEditor({
           if (!cancelled) setOrgOptions(oJson.items || [])
         } catch {}
       }
+      if (kind === 'user' && userRoles && userRoles.length > 0) {
+        try {
+          const rolesRes = await apiFetch('/api/auth/roles?pageSize=1000')
+          const rolesJson = await rolesRes.json()
+          if (!cancelled) {
+            const allRoles = rolesJson.items || []
+            const userRoleDetails = allRoles.filter((r: any) => userRoles.includes(r.name))
+            setRoleDetails(userRoleDetails)
+          }
+        } catch {}
+      }
       if (!cancelled) setLoading(false)
     }
     load()
     return () => { cancelled = true }
-  }, [kind, targetId, canEditOrganizations])
+  }, [kind, targetId, canEditOrganizations, userRoles])
 
   // Notify parent of changes
   React.useEffect(() => {
@@ -111,12 +131,54 @@ export function AclEditor({
 
   if (loading) return <div className="text-sm text-muted-foreground">Loading ACL…</div>
 
+  const showRoleBanner = kind === 'user' && !hasCustomAcl && !overrideEnabled
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <input id="isSuperAdmin" type="checkbox" className="h-4 w-4" checked={isSuperAdmin} onChange={(e) => setIsSuperAdmin(!!e.target.checked)} />
-        <label htmlFor="isSuperAdmin" className="text-sm">Super Admin (all features)</label>
-      </div>
+      {showRoleBanner && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+          <div className="text-sm font-medium text-blue-900 mb-2">
+            Permissions inherited from roles
+          </div>
+          <div className="text-sm text-blue-700 mb-3">
+            This user currently inherits permissions from their assigned roles.
+            {roleDetails.length > 0 && (
+              <span>
+                {' '}Assigned roles:{' '}
+                {roleDetails.map((role, idx) => (
+                  <React.Fragment key={role.id}>
+                    {idx > 0 && ', '}
+                    <Link 
+                      href={`/backend/roles/${role.id}/edit`}
+                      className="font-semibold text-blue-900 underline hover:text-blue-950 transition-colors"
+                    >
+                      {role.name}
+                    </Link>
+                  </React.Fragment>
+                ))}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <input 
+              id="overrideAcl" 
+              type="checkbox" 
+              className="h-4 w-4" 
+              checked={overrideEnabled} 
+              onChange={(e) => setOverrideEnabled(e.target.checked)} 
+            />
+            <label htmlFor="overrideAcl" className="text-sm text-blue-900 font-medium">
+              Override permissions for this user only
+            </label>
+          </div>
+        </div>
+      )}
+      {(kind === 'role' || overrideEnabled) && (
+        <>
+          <div className="flex items-center gap-2">
+            <input id="isSuperAdmin" type="checkbox" className="h-4 w-4" checked={isSuperAdmin} onChange={(e) => setIsSuperAdmin(!!e.target.checked)} />
+            <label htmlFor="isSuperAdmin" className="text-sm">Super Admin (all features)</label>
+          </div>
       {!isSuperAdmin && (
         <>
           {hasGlobalWildcard && (
@@ -187,31 +249,33 @@ export function AclEditor({
           </div>
         </>
       )}
-      {canEditOrganizations && (
-        <div className="rounded border p-3">
-          <div className="text-sm font-medium mb-2">Organizations scope</div>
-          <div className="text-xs text-muted-foreground mb-2">Empty = all organizations. Select one or more to restrict.</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {orgOptions.map((o) => {
-              const checked = organizations == null ? false : (organizations || []).includes(o.id)
-              return (
-                <div key={o.id} className="flex items-center gap-2">
-                  <input id={`org-${o.id}`} type="checkbox" className="h-4 w-4" checked={checked} onChange={(e) => {
-                    const on = !!e.target.checked
-                    setOrganizations((prev) => {
-                      if (prev == null) return on ? [o.id] : []
-                      return on ? Array.from(new Set([...(prev || []), o.id])) : (prev || []).filter((x) => x !== o.id)
-                    })
-                  }} />
-                  <label htmlFor={`org-${o.id}`} className="text-sm">{o.name}</label>
-                </div>
-              )
-            })}
-          </div>
-          <div className="mt-2">
-            <Button variant="outline" onClick={() => setOrganizations(null)}>Allow all organizations</Button>
-          </div>
-        </div>
+          {canEditOrganizations && (
+            <div className="rounded border p-3">
+              <div className="text-sm font-medium mb-2">Organizations scope</div>
+              <div className="text-xs text-muted-foreground mb-2">Empty = all organizations. Select one or more to restrict.</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {orgOptions.map((o) => {
+                  const checked = organizations == null ? false : (organizations || []).includes(o.id)
+                  return (
+                    <div key={o.id} className="flex items-center gap-2">
+                      <input id={`org-${o.id}`} type="checkbox" className="h-4 w-4" checked={checked} onChange={(e) => {
+                        const on = !!e.target.checked
+                        setOrganizations((prev) => {
+                          if (prev == null) return on ? [o.id] : []
+                          return on ? Array.from(new Set([...(prev || []), o.id])) : (prev || []).filter((x) => x !== o.id)
+                        })
+                      }} />
+                      <label htmlFor={`org-${o.id}`} className="text-sm">{o.name}</label>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="mt-2">
+                <Button variant="outline" onClick={() => setOrganizations(null)}>Allow all organizations</Button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

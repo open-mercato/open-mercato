@@ -99,6 +99,13 @@ export async function POST(req: Request) {
   ent.updatedAt = new Date()
   em.persist(ent)
   await em.flush()
+  // Invalidate sidebar/nav cache for tenant scope
+  try {
+    const cache = (await createRequestContainer()).resolve('cache') as any
+    if (cache && auth.tenantId) {
+      await cache.deleteByTags([`nav:entities:${auth.tenantId}`])
+    }
+  } catch {}
   return NextResponse.json({ ok: true, item: { id: ent.id, entityId: ent.entityId, label: ent.label, description: ent.description ?? undefined } })
 }
 
@@ -121,6 +128,13 @@ export async function DELETE(req: Request) {
   ent.deletedAt = ent.deletedAt ?? new Date()
   em.persist(ent)
   await em.flush()
+  // Invalidate sidebar/nav cache for tenant scope
+  try {
+    const cache = (await createRequestContainer()).resolve('cache') as any
+    if (cache && auth.tenantId) {
+      await cache.deleteByTags([`nav:entities:${auth.tenantId}`])
+    }
+  } catch {}
   return NextResponse.json({ ok: true })
 }
 

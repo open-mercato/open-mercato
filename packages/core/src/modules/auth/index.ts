@@ -8,3 +8,6 @@ export const metadata: ModuleInfo = {
   author: 'Open Mercato Team',
   license: 'Proprietary',
 }
+
+// Re-export features from module root acl.ts so generator can pick them up regardless of consumer imports
+export { features } from './acl'

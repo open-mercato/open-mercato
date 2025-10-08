@@ -37,6 +37,7 @@ function scan() {
     let extensionsImportName: string | null = null
     let fieldsImportName: string | null = null
     let featuresImportName: string | null = null
+    let customEntitiesImportName: string | null = null
 
     // Module metadata: index.ts (overrideable)
     const appIndex = path.join(roots.appBase, 'index.ts')
@@ -162,17 +163,31 @@ function scan() {
       }
     }
 
-    // RBAC feature declarations: src/modules/<module>/data/acl.ts
+    // RBAC feature declarations: module root acl.ts
     {
-      const appFile = path.join(roots.appBase, 'data', 'acl.ts')
-      const pkgFile = path.join(roots.pkgBase, 'data', 'acl.ts')
+      const rootApp = path.join(roots.appBase, 'acl.ts')
+      const rootPkg = path.join(roots.pkgBase, 'acl.ts')
+      const hasRoot = fs.existsSync(rootApp) || fs.existsSync(rootPkg)
+      if (hasRoot) {
+        const importName = `ACL_${toVar(modId)}_${importId++}`
+        const useApp = fs.existsSync(rootApp) ? rootApp : rootPkg
+        const importPath = useApp.startsWith(roots.appBase) ? `${imps.appBase}/acl` : `${imps.pkgBase}/acl`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        featuresImportName = importName
+      }
+    }
+
+    // Custom entities declarations: module root ce.ts
+    {
+      const appFile = path.join(roots.appBase, 'ce.ts')
+      const pkgFile = path.join(roots.pkgBase, 'ce.ts')
       const hasApp = fs.existsSync(appFile)
       const hasPkg = fs.existsSync(pkgFile)
       if (hasApp || hasPkg) {
-        const importName = `ACL_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${imps.appBase}/data/acl` : `${imps.pkgBase}/data/acl`
+        const importName = `CE_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${imps.appBase}/ce` : `${imps.pkgBase}/ce`
         imports.push(`import * as ${importName} from '${importPath}'`)
-        featuresImportName = importName
+        customEntitiesImportName = importName
       }
     }
 
@@ -464,6 +479,7 @@ function scan() {
       ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as any) || [],` : ''}
       ${fieldsImportName ? `customFieldSets: ((${fieldsImportName}.default ?? ${fieldsImportName}.fieldSets) as any) || [],` : ''}
       ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
+      ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
     }`)
   }
 

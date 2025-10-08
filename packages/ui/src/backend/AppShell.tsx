@@ -17,6 +17,8 @@ export type AppShellProps = {
   breadcrumb?: Array<{ label: string; href?: string }>
   // Optional: dynamically augment "User Entities" via API on the client
   userEntitiesApi?: string
+  // Optional: full admin nav API to refresh sidebar client-side
+  adminNavApi?: string
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -55,7 +57,7 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, userEntitiesApi }: AppShellProps) {
+export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, userEntitiesApi, adminNavApi }: AppShellProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
@@ -111,6 +113,27 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
   React.useEffect(() => {
     setNavGroups(AppShell.cloneGroups(groups))
   }, [groups])
+
+  // Optional: full refresh from adminNavApi, used to reflect RBAC/org/entity changes without page reload
+  React.useEffect(() => {
+    let cancelled = false
+    async function refreshFullNav() {
+      if (!adminNavApi) return
+      try {
+        const res = await fetch(adminNavApi, { credentials: 'include' })
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        const nextGroups = Array.isArray(data?.groups) ? data.groups : []
+        if (nextGroups.length) setNavGroups(AppShell.cloneGroups(nextGroups))
+      } catch {}
+    }
+    // Refresh on window focus
+    refreshFullNav()
+    const onFocus = () => refreshFullNav()
+    window.addEventListener('focus', onFocus)
+    return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
+  }, [adminNavApi])
 
   // Optional client-side augmentation: fetch dynamic user entities and merge
   React.useEffect(() => {
@@ -338,15 +361,15 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
 }
 
 // Helper: deep-clone minimal shape we mutate (children arrays)
-AppShell.cloneGroups = function cloneGroups<T extends AppShellProps['groups'] | any>(groups: T): T {
-  return groups.map((g: any) => ({
+AppShell.cloneGroups = function cloneGroups(groups: AppShellProps['groups']): AppShellProps['groups'] {
+  return groups.map((g) => ({
     name: g.name,
-    items: g.items.map((i: any) => ({
+    items: g.items.map((i) => ({
       href: i.href,
       title: i.title,
       icon: i.icon,
       enabled: i.enabled,
-      children: i.children ? i.children.map((c: any) => ({ href: c.href, title: c.title, icon: c.icon, enabled: c.enabled })) : undefined,
+      children: i.children ? i.children.map((c) => ({ href: c.href, title: c.title, icon: c.icon, enabled: c.enabled })) : undefined,
     })),
-  })) as any
+  }))
 }

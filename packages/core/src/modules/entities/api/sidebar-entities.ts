@@ -14,6 +14,7 @@ export async function GET(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
+  const cache = resolve('cache') as any
 
   const where: any = { 
     isActive: true,
@@ -24,6 +25,15 @@ export async function GET(req: Request) {
     { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
   ]
   
+  // Try cache first to avoid repeated queries on focus refreshes
+  const cacheKey = `entities:sidebar:${auth.tenantId || 'null'}`
+  try {
+    if (cache) {
+      const cached = await cache.get(cacheKey)
+      if (cached && Array.isArray(cached.items)) return NextResponse.json(cached)
+    }
+  } catch {}
+
   const entities = await em.find(CustomEntity as any, where as any, { orderBy: { label: 'asc' } as any })
   
   const items = (entities as any[]).map((e) => ({
@@ -32,5 +42,9 @@ export async function GET(req: Request) {
     href: `/backend/entities/user/${encodeURIComponent(e.entityId)}/records`
   }))
 
-  return NextResponse.json({ items })
+  const payload = { items }
+  try {
+    if (cache) await cache.set(cacheKey, payload, { tags: [`nav:entities:${auth.tenantId || 'null'}`] })
+  } catch {}
+  return NextResponse.json(payload)
 }

@@ -73,7 +73,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
 
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['email', 'password', 'organizationId', 'roles'] },
-    { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="user" targetId={String(id)} canEditOrganizations={canEditOrgs} value={aclData} onChange={setAclData} /> : null) },
+    { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="user" targetId={String(id)} canEditOrganizations={canEditOrgs} value={aclData} onChange={setAclData} userRoles={initial?.roles || []} /> : null) },
   ]
 
   return (

@@ -21,6 +21,8 @@ This repository is designed for extensibility. Agents should leverage the module
   - Subscribers under `src/modules/<module>/subscribers/*.ts` exporting default handler and `metadata` with `{ event: string, persistent?: boolean, id?: string }`
   - Optional CLI at `src/modules/<module>/cli.ts` default export
   - Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
+  - Optional features at `src/modules/<module>/acl.ts` exporting `features`
+  - Optional custom entities at `src/modules/<module>/ce.ts` exporting `entities`
   - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
 - Extensions and fields:
   - Per-module entity extensions: declare in `src/modules/<module>/data/extensions.ts` as `export const extensions: EntityExtension[]`.
@@ -69,13 +71,13 @@ This repository is designed for extensibility. Agents should leverage the module
 
 ## Access control
 - Prefer declarative guards in metadata: `requireAuth`, `requireRoles`, and `requireFeatures`.
-- RBAC is two-layered: Role ACLs and User ACLs per tenant. Features are string-based and declared per module in `src/modules/<module>/data/acl.ts`.
+- RBAC is two-layered: Role ACLs and User ACLs per tenant. Features are string-based and declared per module in `src/modules/<module>/acl.ts`.
 - Use the DI `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })` for server-side checks.
 - Special flags: `isSuperAdmin` (all features), and optional organization visibility list to restrict org scope.
 
 ### Features
 - Features are string-based permissions that control access to module functionality (e.g., `users.view`, `users.create`, `users.edit`, `users.delete`).
-- **Every module MUST expose all its features in `src/modules/<module>/data/acl.ts`** by exporting a `features` array of strings.
+- **Every module MUST expose all its features in `src/modules/<module>/acl.ts`** by exporting a `features` array of strings.
 - Feature naming convention: `<module>.<action>` (e.g., `example.view`, `example.create`, `example.edit`, `example.delete`).
 - Features are assigned to roles and users through Role ACLs and User ACLs.
 - Pages, APIs, and other protected resources use `requireFeatures` in their metadata to declare which features are required for access.

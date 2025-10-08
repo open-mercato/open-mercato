@@ -25,6 +25,7 @@ const hello: ModuleCli = {
   async run() { console.log('Hello from example module!') },
 }
 
+
 const seedTodos: ModuleCli = {
   command: 'seed-todos',
   async run(rest) {
@@ -64,11 +65,12 @@ const seedTodos: ModuleCli = {
       { key: 'attachments', kind: 'attachment', configJson: { label: 'Attachments', maxAttachmentSizeMb: 10, acceptExtensions: ['pdf', 'jpg', 'png'] } },
     ]
     for (const d of defs) {
-      const existing = await em.findOne(CustomFieldDef, { entityId, organizationId: orgId, tenantId: tenantId, key: d.key })
+      // Ensure custom field definitions are tenant-scoped (organizationId null)
+      const existing = await em.findOne(CustomFieldDef, { entityId, tenantId, organizationId: null, key: d.key })
       if (!existing) {
-        await em.persistAndFlush(em.create(CustomFieldDef, { // set the field per tenantId not by organizationId
+        await em.persistAndFlush(em.create(CustomFieldDef, {
           entityId,
-          tenantId: tenantId,
+          tenantId,
           organizationId: null,
           key: d.key,
           kind: d.kind,

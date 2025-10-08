@@ -92,7 +92,7 @@ export type Module = {
   apis?: ModuleApi[]
   cli?: ModuleCli[]
   translations?: Record<string, Record<string, string>>
-  // Optional: per-module feature declarations discovered from data/acl.ts
+  // Optional: per-module feature declarations discovered from acl.ts (module root)
   features?: Array<{ id: string; title: string; module: string }>
   // Auto-discovered event subscribers
   subscribers?: Array<{
@@ -106,6 +106,9 @@ export type Module = {
   // These are discovered from data/extensions.ts and data/fields.ts
   entityExtensions?: import('./entities').EntityExtension[]
   customFieldSets?: import('./entities').CustomFieldSet[]
+  // Optional: per-module declared custom entities (virtual/logical entities)
+  // Discovered from ce.ts (module root). Each entry represents an entityId with optional label/description.
+  customEntities?: Array<{ id: string; label?: string; description?: string }>
 }
 
 function normPath(s: string) {

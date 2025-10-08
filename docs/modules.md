@@ -13,7 +13,7 @@ This app supports modular features delivered as either:
 
 ## Module Interface
 - Enable modules in `src/modules.ts`.
-- Generators auto-discover pages/APIs/DI/i18n for enabled modules using overlay resolution (app overrides > core).
+- Generators auto-discover pages/APIs/DI/i18n/features/custom-entities for enabled modules using overlay resolution (app overrides > core).
 - Provide optional metadata and DI registrar to integrate with the container and module listing.
 
 ### Metadata (index.ts)
@@ -109,6 +109,8 @@ Precedence: if a `*.meta.ts` file is present it is used; otherwise, the generato
 See also:
 - Data extensibility (extensions + custom fields): `docs/data-extensibility.md`
 - Unified query layer (filters, paging, fields): `docs/query-layer.md`
+ - Access control features: export from `src/modules/<module>/acl.ts`
+ - Custom entities (virtual): export from `src/modules/<module>/ce.ts` and install via `yarn mercato entities install`
 
 ### Validation (zod)
 - Put validators alongside entities in `src/modules/<module>/data/validators.ts`.

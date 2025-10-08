@@ -14,7 +14,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 export default function CreateEntityPage() {
   const router = useRouter()
   const fields: CrudField[] = [
-    { id: 'entityId', label: 'Entity ID', type: 'text', required: true, placeholder: 'module:entity' },
+    { id: 'entityId', label: 'Entity ID', type: 'text', required: true, placeholder: 'module_name:entity_id' },
     { id: 'label', label: 'Label', type: 'text', required: true },
     { id: 'description', label: 'Description', type: 'textarea' },
     {
@@ -39,7 +39,7 @@ export default function CreateEntityPage() {
           backHref="/backend/entities/user"
           schema={schema}
           fields={fields}
-          initialValues={{ entityId: 'example:calendar_entity', label: 'Calendar Entity', showInSidebar: false }}
+          initialValues={{ entityId: 'user:your_entity', label: '', showInSidebar: false }}
           submitLabel="Create"
           cancelHref="/backend/entities/user"
           onSubmit={async (vals) => {
