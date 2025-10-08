@@ -4,10 +4,12 @@ import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 async function checkAuthorization(
   methodMetadata: any,
-  auth: any
+  auth: any,
+  req: NextRequest
 ): Promise<NextResponse | null> {
   if (methodMetadata?.requireAuth && !auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -24,10 +26,16 @@ async function checkAuthorization(
     }
     const container = await createRequestContainer()
     const rbac = container.resolve<RbacService>('rbacService')
+    const em = container.resolve('em') as any
+    let organizationScopeId = auth.orgId ?? null
+    if (auth.tenantId) {
+      const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
+      organizationScopeId = scope.selectedId ?? auth.orgId ?? null
+    }
     const ok = await rbac.userHasAllFeatures(
-      auth.sub, 
-      methodMetadata.requireFeatures, 
-      { tenantId: auth.tenantId, organizationId: auth.orgId }
+      auth.sub,
+      methodMetadata.requireFeatures,
+      { tenantId: auth.tenantId, organizationId: organizationScopeId }
     )
     if (!ok) {
       return NextResponse.json({ error: 'Forbidden', requiredFeatures: methodMetadata.requireFeatures }, { status: 403 })
@@ -44,7 +52,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   
-  const authError = await checkAuthorization(api.metadata?.GET, auth)
+  const authError = await checkAuthorization(api.metadata?.GET, auth, req)
   if (authError) return authError
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -57,7 +65,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   
-  const authError = await checkAuthorization(api.metadata?.POST, auth)
+  const authError = await checkAuthorization(api.metadata?.POST, auth, req)
   if (authError) return authError
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -70,7 +78,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   
-  const authError = await checkAuthorization(api.metadata?.PUT, auth)
+  const authError = await checkAuthorization(api.metadata?.PUT, auth, req)
   if (authError) return authError
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -83,7 +91,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ sl
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   
-  const authError = await checkAuthorization(api.metadata?.PATCH, auth)
+  const authError = await checkAuthorization(api.metadata?.PATCH, auth, req)
   if (authError) return authError
   
   return (api.handler as any)(req, { params: api.params, auth })
@@ -96,7 +104,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ s
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   const auth = getAuthFromRequest(req as any as Request)
   
-  const authError = await checkAuthorization(api.metadata?.DELETE, auth)
+  const authError = await checkAuthorization(api.metadata?.DELETE, auth, req)
   if (authError) return authError
   
   return (api.handler as any)(req, { params: api.params, auth })

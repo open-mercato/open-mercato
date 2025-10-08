@@ -201,8 +201,7 @@ export class HybridQueryEngine implements QueryEngine {
     // Require tenant scope; custom entities are tenant-scoped only
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
     q = q.andWhere(`${alias}.tenant_id`, opts.tenantId)
-    // Optional organization scope when provided
-    if (opts.organizationId != null) q = q.andWhere(`${alias}.organization_id`, opts.organizationId)
+    // Organization scope intentionally ignored for custom entities (tenant-scoped only)
     if (!opts.withDeleted) q = q.whereNull(`${alias}.deleted_at`)
 
     const normalizeFilters = this.normalizeFilters(opts.filters)
