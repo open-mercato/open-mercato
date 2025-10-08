@@ -707,6 +707,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
                 const j = await res1.json().catch(() => ({}))
                 throw new Error(j?.error || 'Failed to save entity')
               }
+            try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
             }
             // Save definitions in a single batch (transactional)
             const defsPayload = {
@@ -725,6 +726,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
               const j = await res2.json().catch(() => ({}))
               throw new Error(j?.error || 'Failed to save definitions')
             }
+            try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
             // Invalidate all custom field definition caches so DataTables refresh with new labels
             await queryClient.invalidateQueries({ queryKey: ['cf-defs'] })
             flash('Definitions saved', 'success')
@@ -737,6 +739,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             throw new Error(j?.error || 'Failed to delete entity')
           }
           flash('Entity deleted', 'success')
+          try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
         } : undefined}
       />
       </PageBody>

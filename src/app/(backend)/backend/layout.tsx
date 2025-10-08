@@ -72,7 +72,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   } catch {}
 
   return (
-    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={<UserMenu email={auth?.email} />} userEntitiesApi="/api/entities/sidebar-entities" adminNavApi="/api/auth/admin/nav"> 
+    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={<UserMenu email={auth?.email} />} adminNavApi="/api/auth/admin/nav"> 
       {children}
     </AppShell>
   )

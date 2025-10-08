@@ -62,6 +62,8 @@ export default function CreateEntityPage() {
               const j = await res.json().catch(() => ({}))
               throw new Error(j?.error || 'Failed to create')
             }
+            // Trigger sidebar refresh
+            try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
             const entityId = (vals as any).entityId as string
             pushWithFlash(router, `/backend/entities/user/${encodeURIComponent(entityId)}`, 'Entity created', 'success')
           }}

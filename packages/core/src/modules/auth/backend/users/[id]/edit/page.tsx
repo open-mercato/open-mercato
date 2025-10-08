@@ -107,6 +107,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ userId: id, ...aclData }) 
             })
+            try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
           onDelete={async () => { await apiFetch(`/api/auth/users?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' }) }}
           deleteRedirect="/backend/users?flash=User%20deleted&type=success"

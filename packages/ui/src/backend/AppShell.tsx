@@ -16,8 +16,6 @@ export type AppShellProps = {
   sidebarCollapsedDefault?: boolean
   currentTitle?: string
   breadcrumb?: Array<{ label: string; href?: string }>
-  // Optional: dynamically augment "User Entities" via API on the client
-  userEntitiesApi?: string
   // Optional: full admin nav API to refresh sidebar client-side
   adminNavApi?: string
 }
@@ -45,12 +43,7 @@ const DefaultIcon = (
   </svg>
 )
 
-const TableIcon = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <rect x="3" y="4" width="18" height="16" rx="2" />
-    <path d="M3 10h18M9 4v16M15 4v16" />
-  </svg>
-)
+// TableIcon no longer needed; user entities come from adminNavApi
 
 function Chevron({ open }: { open: boolean }) {
   return (
@@ -58,7 +51,7 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, userEntitiesApi, adminNavApi }: AppShellProps) {
+export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi }: AppShellProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
@@ -165,39 +158,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
     return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
   }, [adminNavApi])
 
-  // Optional client-side augmentation: fetch dynamic user entities and merge
-  React.useEffect(() => {
-    let cancelled = false
-    async function fetchAndMerge() {
-      if (!userEntitiesApi) return
-      try {
-        const res = await apiFetch(userEntitiesApi, { credentials: 'include' as any })
-        if (!res.ok) return
-        const data = await res.json() as { items?: { href: string; label: string }[] }
-        const items = data.items || []
-        if (cancelled || items.length === 0) return
-        setNavGroups((prev) => {
-          const groupsCopy = AppShell.cloneGroups(prev)
-          const dd = groupsCopy.find((g) => g.name === 'Data designer')
-          if (!dd) return prev
-          const userItem = dd.items.find((i) => i.title === 'User Entities')
-          if (!userItem) return prev
-          const existing = userItem.children || []
-          const dynamic = items.map((it) => ({ href: it.href, title: it.label, icon: TableIcon }))
-          const mergedMap = new Map<string, { href: string; title: string; icon?: React.ReactNode }>()
-          for (const e of existing) mergedMap.set(e.href, { href: e.href, title: e.title, icon: e.icon })
-          for (const d of dynamic) if (!mergedMap.has(d.href)) mergedMap.set(d.href, d)
-          userItem.children = Array.from(mergedMap.values())
-          return groupsCopy
-        })
-      } catch {}
-    }
-    fetchAndMerge()
-    // Refresh when window regains focus to reflect recent changes
-    const onFocus = () => { fetchAndMerge() }
-    window.addEventListener('focus', onFocus)
-    return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
-  }, [userEntitiesApi])
+  // adminNavApi already includes user entities; no extra fetch
 
   function renderSidebar(compact: boolean, showCollapseToggle: boolean, hideHeader?: boolean) {
     return (

@@ -26,7 +26,7 @@ This repository is designed for extensibility. Agents should leverage the module
   - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
 - Extensions and fields:
   - Per-module entity extensions: declare in `src/modules/<module>/data/extensions.ts` as `export const extensions: EntityExtension[]`.
-  - Per-module static custom fields: declare in `src/modules/<module>/data/fields.ts` as `export const fieldSets: CustomFieldSet[]`.
+  - Custom fields: declare in `src/modules/<module>/ce.ts` under `entities[].fields`. `data/fields.ts` is no longer supported.
   - Generators add these to `modules.generated.ts` so they’re available at runtime.
   - Prefer using the DSL helpers from `@/modules/dsl`:
     - `defineLink()` with `entityId()` or `linkable()` for module-to-module extensions.

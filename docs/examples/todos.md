@@ -4,7 +4,7 @@ This example extends the `example` module with a new `Todo` entity, declares cus
 
 ## What’s included
 - New entity `Todo` in `src/modules/example/data/entities.ts` (table: `todos`).
-- Custom fields for `example:todo` defined in `src/modules/example/data/fields.ts`:
+– Custom fields for `example:todo` are defined in `src/modules/example/ce.ts` under `entities[].fields`:
   - `priority` (integer, 1–5)
   - `severity` (select: low/medium/high)
   - `blocked` (boolean)

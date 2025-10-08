@@ -103,7 +103,7 @@ export type Module = {
     handler: (payload: any, ctx: any) => Promise<void> | void
   }>
   // Optional: per-module declared entity extensions and custom fields (static)
-  // These are discovered from data/extensions.ts and data/fields.ts
+  // Extensions discovered from data/extensions.ts; Custom fields discovered from ce.ts (entities[].fields)
   entityExtensions?: import('./entities').EntityExtension[]
   customFieldSets?: import('./entities').CustomFieldSet[]
   // Optional: per-module declared custom entities (virtual/logical entities)

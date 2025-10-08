@@ -38,6 +38,7 @@ function scan() {
     let fieldsImportName: string | null = null
     let featuresImportName: string | null = null
     let customEntitiesImportName: string | null = null
+    let customFieldSetsExpr: string = '[]'
 
     // Module metadata: index.ts (overrideable)
     const appIndex = path.join(roots.appBase, 'index.ts')
@@ -467,6 +468,14 @@ function scan() {
       }
     }
 
+    // Build combined customFieldSets expression from data/fields.ts and ce.ts (entities[].fields)
+    {
+      const parts: string[] = []
+      if (fieldsImportName) parts.push(`(( ${fieldsImportName}.default ?? ${fieldsImportName}.fieldSets) as any) || []`)
+      if (customEntitiesImportName) parts.push(`((( ${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || []).filter((e: any) => Array.isArray(e.fields) && e.fields.length).map((e: any) => ({ entity: e.id, fields: e.fields, source: '${modId}' }))`)
+      customFieldSetsExpr = parts.length ? `[...${parts.join(', ...')}]` : '[]'
+    }
+
     moduleDecls.push(`{
       id: '${modId}',
       ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
@@ -477,7 +486,7 @@ function scan() {
       ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
       ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
       ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as any) || [],` : ''}
-      ${fieldsImportName ? `customFieldSets: ((${fieldsImportName}.default ?? ${fieldsImportName}.fieldSets) as any) || [],` : ''}
+      customFieldSets: ${customFieldSetsExpr},
       ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
     }`)
