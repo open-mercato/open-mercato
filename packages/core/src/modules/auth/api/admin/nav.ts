@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
+import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -18,12 +19,12 @@ export async function GET(req: Request) {
 
   // Cache key is user + tenant + organization scoped
   const cacheKey = `nav:sidebar:${auth.sub}:${auth.tenantId || 'null'}:${auth.orgId || 'null'}`
-  try {
-    if (cache) {
-      const cached = await cache.get(cacheKey)
-      if (cached) return NextResponse.json(cached)
-    }
-  } catch {}
+  // try {
+  //   if (cache) {
+  //     const cached = await cache.get(cacheKey)
+  //     if (cached) return NextResponse.json(cached)
+  //   }
+  // } catch {}
 
   // Load ACL once; we'll evaluate features locally without multiple calls
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
@@ -98,9 +99,13 @@ export async function GET(req: Request) {
 
   // Add dynamic user entities into Data designer > User Entities
   const where: any = { isActive: true, showInSidebar: true }
-  where.$and = [ { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] } ]
+  where.$and = [
+    { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+    { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+  ]
   try {
-    const entities = await em.find(require('@open-mercato/core/modules/entities/data/entities').CustomEntity as any, where as any, { orderBy: { label: 'asc' } as any })
+    const entities = await em.find(CustomEntity as any, where as any, { orderBy: { label: 'asc' } as any })
+    console.log('entities', entities, 'where', where)
     const items = (entities as any[]).map((e) => ({
       entityId: e.entityId,
       label: e.label,
@@ -117,7 +122,9 @@ export async function GET(req: Request) {
         dd.children = Array.from(byHref.values())
       }
     }
-  } catch {}
+  } catch (e) {
+    console.error('Error loading user entities', e)
+  }
 
   // Sort roots and children
   const sortItems = (arr: any[]) => {
