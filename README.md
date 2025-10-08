@@ -22,9 +22,13 @@ Open Mercato is a new‑era, AI‑supportive ERP foundation framework for servic
 1) Prerequisites
 - Node.js 20+
 - PostgreSQL database
-- Environment variables in `.env` (copy from `.env.example`):
+- Environment variables in `.env`:
   - `DATABASE_URL=postgres://user:password@localhost:5432/mercato`
   - `JWT_SECRET=some-strong-secret`
+  - `DB_POOL_MIN=2` (minimum connections in pool)
+  - `DB_POOL_MAX=10` (maximum connections in pool)
+  - `DB_POOL_IDLE_TIMEOUT=30000` (idle timeout in milliseconds)
+  - `DB_POOL_ACQUIRE_TIMEOUT=60000` (acquire timeout in milliseconds)
 
 2) Quick setup (recommended)
 
@@ -165,6 +169,16 @@ Adds a new user to an organization:
 yarn mercato auth add-user --email user@example.com --password secret --organizationId <orgId> --roles customer,employee
 ```
 
+#### `yarn mercato auth set-password` - Set User Password
+Changes the password for an existing user:
+```bash
+yarn mercato auth set-password --email user@example.com --password newPassword
+```
+
+**Required parameters:**
+- `--email <email>` - user email address
+- `--password <password>` - new password
+
 #### `yarn mercato auth seed-roles` - Seed Default Roles
 Creates default roles (customer, employee, admin, owner):
 ```bash
@@ -193,6 +207,35 @@ yarn modules:prepare
 
 Notes:
 - The Todos page uses `queryEngine` to select and sort `cf:*` fields. Custom field definitions must exist for the current organization; the seeding command ensures they do.
+
+## Database Connection Pooling
+
+Open Mercato uses connection pooling to prevent PostgreSQL "too many clients" errors. The pool settings can be configured via environment variables:
+
+### Pool Configuration
+- **DB_POOL_MIN**: Minimum connections in pool (default: 2)
+- **DB_POOL_MAX**: Maximum connections in pool (default: 10)
+- **DB_POOL_IDLE_TIMEOUT**: Idle timeout in milliseconds (default: 30000)
+- **DB_POOL_ACQUIRE_TIMEOUT**: Acquire timeout in milliseconds (default: 60000)
+
+### Recommended Settings
+For production environments:
+```bash
+# Adjust based on your PostgreSQL max_connections setting
+DB_POOL_MAX=20
+DB_POOL_MIN=5
+DB_POOL_IDLE_TIMEOUT=30000
+DB_POOL_ACQUIRE_TIMEOUT=60000
+```
+
+For development:
+```bash
+# Smaller pool for development
+DB_POOL_MAX=5
+DB_POOL_MIN=1
+DB_POOL_IDLE_TIMEOUT=10000
+DB_POOL_ACQUIRE_TIMEOUT=30000
+```
 
 ## Documentation
 

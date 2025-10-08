@@ -40,6 +40,8 @@
       "@open-mercato/cli/generated/*": ["./packages/cli/generated/*"],
       "@open-mercato/events/*": ["./packages/events/src/*"],
       "@open-mercato/events/generated/*": ["./packages/events/generated/*"],
+      "@open-mercato/cache": ["./packages/cache/src/index.ts"],
+      "@open-mercato/cache/*": ["./packages/cache/src/*"],
       "@open-mercato/shared/*": ["./packages/shared/src/*"],
       "@open-mercato/shared/generated/*": ["./packages/shared/generated/*"],
       "@open-mercato/ui": ["./packages/ui/src/index.ts"],

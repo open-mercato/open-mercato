@@ -1,20 +1,19 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CacheStrategy } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 
-interface AclCacheEntry {
-  data: {
-    isSuperAdmin: boolean
-    features: string[]
-    organizations: string[] | null
-  }
-  expiresAt: number
+interface AclData {
+  isSuperAdmin: boolean
+  features: string[]
+  organizations: string[] | null
 }
 
 export class RbacService {
-  private aclCache: Map<string, AclCacheEntry> = new Map()
   private cacheTtlMs: number = 5 * 60 * 1000 // 5 minutes default
+  private cache: CacheStrategy | null = null
 
-  constructor(private em: EntityManager) {
+  constructor(private em: EntityManager, cache?: CacheStrategy) {
+    this.cache = cache || null
   }
 
   /**
@@ -61,23 +60,45 @@ export class RbacService {
   }
 
   private getCacheKey(userId: string, scope: { tenantId: string | null; organizationId: string | null }): string {
-    return `${userId}:${scope.tenantId || 'null'}:${scope.organizationId || 'null'}`
+    return `rbac:${userId}:${scope.tenantId || 'null'}:${scope.organizationId || 'null'}`
   }
 
-  private getFromCache(cacheKey: string): AclCacheEntry['data'] | null {
-    const entry = this.aclCache.get(cacheKey)
-    if (!entry) return null
-    if (Date.now() > entry.expiresAt) {
-      this.aclCache.delete(cacheKey)
-      return null
+  private getUserTag(userId: string): string {
+    return `rbac:user:${userId}`
+  }
+
+  private getTenantTag(tenantId: string): string {
+    return `rbac:tenant:${tenantId}`
+  }
+
+  private getOrganizationTag(organizationId: string): string {
+    return `rbac:org:${organizationId}`
+  }
+
+  private async getFromCache(cacheKey: string): Promise<AclData | null> {
+    if (!this.cache) return null
+    return await this.cache.get(cacheKey)
+  }
+
+  private async setCache(cacheKey: string, data: AclData, userId: string, scope: { tenantId: string | null; organizationId: string | null }): Promise<void> {
+    if (!this.cache) return
+
+    const tags = [
+      this.getUserTag(userId),
+      'rbac:all'
+    ]
+
+    if (scope.tenantId) {
+      tags.push(this.getTenantTag(scope.tenantId))
     }
-    return entry.data
-  }
 
-  private setCache(cacheKey: string, data: AclCacheEntry['data']): void {
-    this.aclCache.set(cacheKey, {
-      data,
-      expiresAt: Date.now() + this.cacheTtlMs
+    if (scope.organizationId) {
+      tags.push(this.getOrganizationTag(scope.organizationId))
+    }
+
+    await this.cache.set(cacheKey, data, {
+      ttl: this.cacheTtlMs,
+      tags
     })
   }
 
@@ -87,12 +108,9 @@ export class RbacService {
    * 
    * @param userId - The ID of the user whose cache should be invalidated
    */
-  invalidateUserCache(userId: string): void {
-    for (const key of this.aclCache.keys()) {
-      if (key.startsWith(`${userId}:`)) {
-        this.aclCache.delete(key)
-      }
-    }
+  async invalidateUserCache(userId: string): Promise<void> {
+    if (!this.cache) return
+    await this.cache.deleteByTags([this.getUserTag(userId)])
   }
 
   /**
@@ -102,13 +120,9 @@ export class RbacService {
    * 
    * @param tenantId - The ID of the tenant whose cache should be invalidated
    */
-  invalidateTenantCache(tenantId: string): void {
-    for (const key of this.aclCache.keys()) {
-      const parts = key.split(':')
-      if (parts[1] === tenantId) {
-        this.aclCache.delete(key)
-      }
-    }
+  async invalidateTenantCache(tenantId: string): Promise<void> {
+    if (!this.cache) return
+    await this.cache.deleteByTags([this.getTenantTag(tenantId)])
   }
 
   /**
@@ -117,21 +131,18 @@ export class RbacService {
    * 
    * @param organizationId - The ID of the organization whose cache should be invalidated
    */
-  invalidateOrganizationCache(organizationId: string): void {
-    for (const key of this.aclCache.keys()) {
-      const parts = key.split(':')
-      if (parts[2] === organizationId) {
-        this.aclCache.delete(key)
-      }
-    }
+  async invalidateOrganizationCache(organizationId: string): Promise<void> {
+    if (!this.cache) return
+    await this.cache.deleteByTags([this.getOrganizationTag(organizationId)])
   }
 
   /**
    * Clears all cached ACL data.
    * Use this for bulk operations or system-wide ACL changes.
    */
-  invalidateAllCache(): void {
-    this.aclCache.clear()
+  async invalidateAllCache(): Promise<void> {
+    if (!this.cache) return
+    await this.cache.deleteByTags(['rbac:all'])
   }
 
   /**
@@ -161,7 +172,7 @@ export class RbacService {
     organizations: string[] | null
   }> {
     const cacheKey = this.getCacheKey(userId, scope)
-    const cached = this.getFromCache(cacheKey)
+    const cached = await this.getFromCache(cacheKey)
     if (cached) return cached
 
     // Use a forked EntityManager to avoid inheriting an aborted transaction from callers
@@ -169,7 +180,7 @@ export class RbacService {
     const user = await em.findOne(User, { id: userId })
     if (!user) {
       const result = { isSuperAdmin: false, features: [], organizations: null }
-      this.setCache(cacheKey, result)
+      await this.setCache(cacheKey, result, userId, scope)
       return result
     }
     const tenantId = scope.tenantId || user.tenantId || null
@@ -183,7 +194,7 @@ export class RbacService {
         features: Array.isArray(uacl.featuresJson) ? (uacl.featuresJson as string[]) : [],
         organizations: Array.isArray(uacl.organizationsJson) ? (uacl.organizationsJson as string[]) : null,
       }
-      this.setCache(cacheKey, result)
+      await this.setCache(cacheKey, result, userId, scope)
       return result
     }
 
@@ -208,7 +219,7 @@ export class RbacService {
       // Out-of-scope org; caller will enforce
     }
     const result = { isSuperAdmin: isSuper, features, organizations }
-    this.setCache(cacheKey, result)
+    await this.setCache(cacheKey, result, userId, scope)
     return result
   }
 

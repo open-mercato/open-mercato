@@ -338,5 +338,40 @@ const listUsers: ModuleCli = {
   },
 }
 
+const setPassword: ModuleCli = {
+  command: 'set-password',
+  async run(rest) {
+    const args: Record<string, string> = {}
+    for (let i = 0; i < rest.length; i += 2) {
+      const k = rest[i]?.replace(/^--/, '')
+      const v = rest[i + 1]
+      if (k) args[k] = v
+    }
+    
+    const email = args.email
+    const password = args.password
+    
+    if (!email || !password) {
+      console.error('Usage: mercato auth set-password --email <email> --password <newPassword>')
+      return
+    }
+    
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
+    
+    const user = await em.findOne(User, { email })
+    
+    if (!user) {
+      console.error(`User with email "${email}" not found`)
+      return
+    }
+    
+    user.passwordHash = await hash(password, 10)
+    await em.persistAndFlush(user)
+    
+    console.log(`✅ Password updated successfully for user: ${email}`)
+  },
+}
+
 // Export the full CLI list
-export default [addUser, seedRoles, addOrganization, setupApp, listOrganizations, listTenants, listUsers]
+export default [addUser, seedRoles, addOrganization, setupApp, listOrganizations, listTenants, listUsers, setPassword]

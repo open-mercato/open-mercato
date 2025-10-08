@@ -50,7 +50,7 @@ export async function PUT(req: Request) {
   
   // Invalidate cache for all users in this tenant since role ACL changed
   if (auth.tenantId) {
-    rbacService.invalidateTenantCache(auth.tenantId)
+    await rbacService.invalidateTenantCache(auth.tenantId)
   }
   
   return NextResponse.json({ ok: true })

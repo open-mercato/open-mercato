@@ -1,8 +1,8 @@
 "use client"
 import { usePathname } from 'next/navigation'
-import LanguageSwitcher from '@/components/LanguageSwitcher'
+import { LanguageSwitcher } from './LanguageSwitcher'
 
-export default function AuthFooter() {
+export function AuthFooter() {
   const pathname = usePathname()
   if (pathname !== '/login') return null
   return (
@@ -13,3 +13,4 @@ export default function AuthFooter() {
     </footer>
   )
 }
+

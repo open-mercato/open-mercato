@@ -148,7 +148,7 @@ export async function PUT(req: Request) {
   
   // Invalidate cache if roles or organization changed
   if (shouldInvalidateCache) {
-    rbacService.invalidateUserCache(parsed.data.id)
+    await rbacService.invalidateUserCache(parsed.data.id)
   }
   
   return NextResponse.json({ ok: true })
@@ -168,7 +168,7 @@ export async function DELETE(req: Request) {
   await em.removeAndFlush(user)
   
   // Invalidate cache for deleted user
-  rbacService.invalidateUserCache(id)
+  await rbacService.invalidateUserCache(id)
   
   return NextResponse.json({ ok: true })
 }

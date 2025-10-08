@@ -67,7 +67,7 @@ export async function PUT(req: Request) {
   }
   
   // Invalidate cache for this user
-  rbacService.invalidateUserCache(parsed.data.userId)
+  await rbacService.invalidateUserCache(parsed.data.userId)
   
   return NextResponse.json({ ok: true })
 }
