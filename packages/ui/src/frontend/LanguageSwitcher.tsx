@@ -3,7 +3,7 @@ import { useTransition } from 'react'
 import { useLocale } from '@/lib/i18n/context'
 import { useRouter } from 'next/navigation'
 
-export default function LanguageSwitcher() {
+export function LanguageSwitcher() {
   const current = useLocale()
   const router = useRouter()
   const [pending, startTransition] = useTransition()

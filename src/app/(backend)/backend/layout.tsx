@@ -30,9 +30,8 @@ export default async function BackendLayout({ children, params }: { children: Re
   } : undefined
   const ctx = { auth: ctxAuth, path }
   
-  // Build initial nav (SSR) without dynamic user entities; they will be fetched client-side
+  // Build initial nav (SSR) using module metadata to preserve icons
   const entries = await buildAdminNav(modules as any[], ctx)
-  // Group entries and sort groups by the smallest priority/order among their roots
   const groupMap = new Map<string, {
     name: string,
     items: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode; children?: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode }[] }[],
@@ -57,7 +56,9 @@ export default async function BackendLayout({ children, params }: { children: Re
   }
   const groups = Array.from(groupMap.values()).sort((a, b) => a.weight - b.weight)
 
-  const current = entries.find((i) => path.startsWith(i.href))
+  // Derive current title from path and fetched groups
+  const allEntries: Array<{ href: string; title: string; group: string; children?: any[] }> = groups.flatMap((g) => g.items.map((i: any) => ({ ...i, group: g.name })))
+  const current = allEntries.find((i) => path.startsWith(i.href))
   const currentTitle = current?.title || ''
   const match = findBackendMatch(modules as any[], path)
   const breadcrumb = (match?.route as any)?.breadcrumb as Array<{ label: string; href?: string }> | undefined
@@ -71,7 +72,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   } catch {}
 
   return (
-    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={<UserMenu email={auth?.email} />} userEntitiesApi="/api/entities/sidebar-entities"> 
+    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={<UserMenu email={auth?.email} />} adminNavApi="/api/auth/admin/nav"> 
       {children}
     </AppShell>
   )

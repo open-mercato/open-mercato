@@ -63,6 +63,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ roleId: id, ...aclData }) 
             })
+            try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
           onDelete={async () => { await apiFetch(`/api/auth/roles?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' }) }}
           deleteRedirect="/backend/roles?flash=Role%20deleted&type=success"

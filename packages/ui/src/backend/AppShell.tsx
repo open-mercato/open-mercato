@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { usePathname } from 'next/navigation'
+import { apiFetch } from './utils/api'
 
 export type AppShellProps = {
   productName?: string
@@ -15,8 +16,8 @@ export type AppShellProps = {
   sidebarCollapsedDefault?: boolean
   currentTitle?: string
   breadcrumb?: Array<{ label: string; href?: string }>
-  // Optional: dynamically augment "User Entities" via API on the client
-  userEntitiesApi?: string
+  // Optional: full admin nav API to refresh sidebar client-side
+  adminNavApi?: string
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -42,10 +43,13 @@ const DefaultIcon = (
   </svg>
 )
 
-const TableIcon = (
+// DataTable icon used for dynamic custom entity records links
+const DataTableIcon = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <rect x="3" y="4" width="18" height="16" rx="2" />
-    <path d="M3 10h18M9 4v16M15 4v16" />
+    <rect x="3" y="4" width="18" height="16" rx="2" ry="2"/>
+    <line x1="3" y1="8" x2="21" y2="8"/>
+    <line x1="9" y1="8" x2="9" y2="20"/>
+    <line x1="15" y1="8" x2="15" y2="20"/>
   </svg>
 )
 
@@ -55,7 +59,7 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, userEntitiesApi }: AppShellProps) {
+export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi }: AppShellProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
@@ -112,39 +116,106 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
     setNavGroups(AppShell.cloneGroups(groups))
   }, [groups])
 
-  // Optional client-side augmentation: fetch dynamic user entities and merge
+  // Optional: full refresh from adminNavApi, used to reflect RBAC/org/entity changes without page reload
   React.useEffect(() => {
     let cancelled = false
-    async function fetchAndMerge() {
-      if (!userEntitiesApi) return
+    function indexIcons(groupsToIndex: AppShellProps['groups']): Map<string, React.ReactNode | undefined> {
+      const map = new Map<string, React.ReactNode | undefined>()
+      for (const g of groupsToIndex) {
+        for (const i of g.items) {
+          map.set(i.href, i.icon)
+          if (i.children) for (const c of i.children) map.set(c.href, c.icon)
+        }
+      }
+      return map
+    }
+    function mergePreservingIcons(oldG: AppShellProps['groups'], newG: AppShellProps['groups']): AppShellProps['groups'] {
+      const iconMap = indexIcons(oldG)
+      const merged = newG.map((g) => ({
+        name: g.name,
+        items: g.items.map((i) => ({
+          href: i.href,
+          title: i.title,
+          enabled: i.enabled,
+          icon: i.icon ?? iconMap.get(i.href),
+          children: i.children?.map((c) => ({
+            href: c.href,
+            title: c.title,
+            enabled: c.enabled,
+            icon: c.icon ?? iconMap.get(c.href),
+          })),
+        })),
+      }))
+      return merged
+    }
+    async function refreshFullNav() {
+      if (!adminNavApi) return
       try {
-        const res = await fetch(userEntitiesApi, { credentials: 'include' })
+        const res = await apiFetch(adminNavApi, { credentials: 'include' as any })
         if (!res.ok) return
-        const data = await res.json() as { items?: { href: string; label: string }[] }
-        const items = data.items || []
-        if (cancelled || items.length === 0) return
-        setNavGroups((prev) => {
-          const groupsCopy = AppShell.cloneGroups(prev)
-          const dd = groupsCopy.find((g) => g.name === 'Data designer')
-          if (!dd) return prev
-          const userItem = dd.items.find((i) => i.title === 'User Entities')
-          if (!userItem) return prev
-          const existing = userItem.children || []
-          const dynamic = items.map((it) => ({ href: it.href, title: it.label, icon: TableIcon }))
-          const mergedMap = new Map<string, { href: string; title: string; icon?: React.ReactNode }>()
-          for (const e of existing) mergedMap.set(e.href, { href: e.href, title: e.title, icon: e.icon })
-          for (const d of dynamic) if (!mergedMap.has(d.href)) mergedMap.set(d.href, d)
-          userItem.children = Array.from(mergedMap.values())
-          return groupsCopy
-        })
+        const data = await res.json()
+        if (cancelled) return
+        const nextGroups = Array.isArray(data?.groups) ? data.groups : []
+        if (nextGroups.length) setNavGroups((prev) => AppShell.cloneGroups(mergePreservingIcons(prev, nextGroups as any)))
       } catch {}
     }
-    fetchAndMerge()
-    // Refresh when window regains focus to reflect recent changes
-    const onFocus = () => { fetchAndMerge() }
+    // Refresh on window focus
+    refreshFullNav()
+    const onFocus = () => refreshFullNav()
     window.addEventListener('focus', onFocus)
     return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
-  }, [userEntitiesApi])
+  }, [adminNavApi])
+
+  // Refresh sidebar when other parts of the app dispatch an explicit event
+  React.useEffect(() => {
+    if (!adminNavApi) return
+    const api = adminNavApi as string
+    let cancelled = false
+    function indexIcons(groupsToIndex: AppShellProps['groups']): Map<string, React.ReactNode | undefined> {
+      const map = new Map<string, React.ReactNode | undefined>()
+      for (const g of groupsToIndex) {
+        for (const i of g.items) {
+          map.set(i.href, i.icon)
+          if (i.children) for (const c of i.children) map.set(c.href, c.icon)
+        }
+      }
+      return map
+    }
+    function mergePreservingIcons(oldG: AppShellProps['groups'], newG: AppShellProps['groups']): AppShellProps['groups'] {
+      const iconMap = indexIcons(oldG)
+      const merged = newG.map((g) => ({
+        name: g.name,
+        items: g.items.map((i) => ({
+          href: i.href,
+          title: i.title,
+          enabled: i.enabled,
+          icon: i.icon ?? iconMap.get(i.href),
+          children: i.children?.map((c) => ({
+            href: c.href,
+            title: c.title,
+            enabled: c.enabled,
+            icon: c.icon ?? iconMap.get(c.href),
+          })),
+        })),
+      }))
+      return merged
+    }
+    async function refreshFullNav() {
+      try {
+        const res = await apiFetch(api, { credentials: 'include' as any })
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        const nextGroups = Array.isArray(data?.groups) ? data.groups : []
+        if (nextGroups.length) setNavGroups((prev) => AppShell.cloneGroups(mergePreservingIcons(prev, nextGroups as any)))
+      } catch {}
+    }
+    const onRefresh = () => { refreshFullNav() }
+    window.addEventListener('om:refresh-sidebar', onRefresh as any)
+    return () => { cancelled = true; window.removeEventListener('om:refresh-sidebar', onRefresh as any) }
+  }, [adminNavApi])
+
+  // adminNavApi already includes user entities; no extra fetch
 
   function renderSidebar(compact: boolean, showCollapseToggle: boolean, hideHeader?: boolean) {
     return (
@@ -219,7 +290,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
                                       <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
                                     ) : null}
                                     <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                                      {c.icon ?? DefaultIcon}
+                                      {c.icon ?? (c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
                                     </span>
                                     {!compact && <span>{c.title}</span>}
                                   </Link>
@@ -338,15 +409,15 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
 }
 
 // Helper: deep-clone minimal shape we mutate (children arrays)
-AppShell.cloneGroups = function cloneGroups<T extends AppShellProps['groups'] | any>(groups: T): T {
-  return groups.map((g: any) => ({
+AppShell.cloneGroups = function cloneGroups(groups: AppShellProps['groups']): AppShellProps['groups'] {
+  return groups.map((g) => ({
     name: g.name,
-    items: g.items.map((i: any) => ({
+    items: g.items.map((i) => ({
       href: i.href,
       title: i.title,
       icon: i.icon,
       enabled: i.enabled,
-      children: i.children ? i.children.map((c: any) => ({ href: c.href, title: c.title, icon: c.icon, enabled: c.enabled })) : undefined,
+      children: i.children ? i.children.map((c) => ({ href: c.href, title: c.title, icon: c.icon, enabled: c.enabled })) : undefined,
     })),
-  })) as any
+  }))
 }

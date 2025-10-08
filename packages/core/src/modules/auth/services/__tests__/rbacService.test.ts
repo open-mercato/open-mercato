@@ -1,5 +1,7 @@
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { User, UserRole, RoleAcl, UserAcl, Role } from '@open-mercato/core/modules/auth/data/entities'
+import { createMemoryStrategy } from '@open-mercato/cache'
+import type { CacheStrategy } from '@open-mercato/cache'
 
 // Minimal mock of MikroORM EntityManager surface used by RbacService
 type MockEm = {
@@ -22,6 +24,7 @@ function createMockEm(): MockEm {
 describe('RbacService', () => {
   let em: MockEm
   let service: RbacService
+  let cache: CacheStrategy
 
   const baseUser: Partial<User> = {
     id: 'user-1',
@@ -31,7 +34,8 @@ describe('RbacService', () => {
 
   beforeEach(() => {
     em = createMockEm()
-    service = new RbacService(em as any)
+    cache = createMemoryStrategy()
+    service = new RbacService(em as any, cache)
     jest.clearAllMocks()
   })
 
@@ -330,7 +334,7 @@ describe('RbacService', () => {
       })
 
       await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
-      service.invalidateUserCache(baseUser.id!)
+      await service.invalidateUserCache(baseUser.id!)
       await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
 
       expect(em.findOne).toHaveBeenCalledTimes(4) // Called twice (2 queries per load)
@@ -359,7 +363,7 @@ describe('RbacService', () => {
       expect(em.findOne).toHaveBeenCalledTimes(callsAfterLoad) // No new calls
       
       // Invalidate user cache
-      service.invalidateUserCache(user.id)
+      await service.invalidateUserCache(user.id)
       
       // All scopes should require fresh queries
       await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
@@ -387,7 +391,7 @@ describe('RbacService', () => {
       
       const callsAfterLoad = em.findOne.mock.calls.length
       
-      service.invalidateUserCache(user1.id)
+      await service.invalidateUserCache(user1.id)
       
       // User1 should query again
       await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: null })
@@ -418,7 +422,7 @@ describe('RbacService', () => {
       
       const initialCalls = em.findOne.mock.calls.length
       
-      service.invalidateTenantCache('tenant-1')
+      await service.invalidateTenantCache('tenant-1')
       
       await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: null })
       await service.loadAcl(user2.id, { tenantId: 'tenant-1', organizationId: null })
@@ -444,7 +448,7 @@ describe('RbacService', () => {
       
       const callsAfterLoad = em.findOne.mock.calls.length
       
-      service.invalidateTenantCache('tenant-1')
+      await service.invalidateTenantCache('tenant-1')
       
       // Tenant-1 user should query again
       await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: null })
@@ -474,7 +478,7 @@ describe('RbacService', () => {
       
       const callsAfterLoad = em.findOne.mock.calls.length
       
-      service.invalidateTenantCache('tenant-1')
+      await service.invalidateTenantCache('tenant-1')
       
       // Tenant-1 entry should be invalidated
       await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
@@ -502,7 +506,7 @@ describe('RbacService', () => {
       
       const initialCalls = em.findOne.mock.calls.length
       
-      service.invalidateOrganizationCache('org-1')
+      await service.invalidateOrganizationCache('org-1')
       
       await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
 
@@ -525,7 +529,7 @@ describe('RbacService', () => {
       
       const callsAfterLoad = em.findOne.mock.calls.length
       
-      service.invalidateOrganizationCache('org-1')
+      await service.invalidateOrganizationCache('org-1')
       
       // Org-1 entry should query again
       await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
@@ -555,7 +559,7 @@ describe('RbacService', () => {
       
       const callsAfterLoad = em.findOne.mock.calls.length
       
-      service.invalidateOrganizationCache('org-1')
+      await service.invalidateOrganizationCache('org-1')
       
       // Org-1 entry should be invalidated
       await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
@@ -594,7 +598,7 @@ describe('RbacService', () => {
       expect(em.findOne).toHaveBeenCalledTimes(callsAfterLoad) // No new calls
       
       // Invalidate all cache
-      service.invalidateAllCache()
+      await service.invalidateAllCache()
       
       // All entries should require fresh queries
       await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
@@ -619,7 +623,7 @@ describe('RbacService', () => {
       await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
       
       // Should not throw
-      expect(() => service.invalidateUserCache('non-existent-user')).not.toThrow()
+      await expect(service.invalidateUserCache('non-existent-user')).resolves.not.toThrow()
       
       // Original cache should still work
       const callsBeforeReload = em.findOne.mock.calls.length
@@ -641,7 +645,7 @@ describe('RbacService', () => {
       await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: null })
       
       // Should not throw
-      expect(() => service.invalidateTenantCache('non-existent-tenant')).not.toThrow()
+      await expect(service.invalidateTenantCache('non-existent-tenant')).resolves.not.toThrow()
       
       // Original cache should still work
       const callsBeforeReload = em.findOne.mock.calls.length
@@ -663,7 +667,7 @@ describe('RbacService', () => {
       await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-1' })
       
       // Should not throw
-      expect(() => service.invalidateOrganizationCache('non-existent-org')).not.toThrow()
+      await expect(service.invalidateOrganizationCache('non-existent-org')).resolves.not.toThrow()
       
       // Original cache should still work
       const callsBeforeReload = em.findOne.mock.calls.length
@@ -672,7 +676,8 @@ describe('RbacService', () => {
     })
 
     it('should respect cache TTL and refetch after expiration', async () => {
-      const shortTtlService = new RbacService(em as any)
+      const shortTtlCache = createMemoryStrategy()
+      const shortTtlService = new RbacService(em as any, shortTtlCache)
       shortTtlService.setCacheTtl(100) // 100ms TTL
       
       em.findOne.mockImplementation(async (entity: any, where: any) => {
@@ -696,7 +701,8 @@ describe('RbacService', () => {
     })
 
     it('should use custom TTL when configured via setCacheTtl', async () => {
-      const customTtlService = new RbacService(em as any)
+      const customTtlCache = createMemoryStrategy()
+      const customTtlService = new RbacService(em as any, customTtlCache)
       customTtlService.setCacheTtl(50) // 50ms TTL
       
       em.findOne.mockImplementation(async (entity: any, where: any) => {

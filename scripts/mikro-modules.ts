@@ -97,6 +97,14 @@ async function run(cmd: Cmd) {
       schemaGenerator: {
         disableForeignKeys: true,
       },
+      // Connection pooling for migrations
+      pool: {
+        min: 1,
+        max: 3,
+        idleTimeoutMillis: 30000,
+        acquireTimeoutMillis: 60000,
+        destroyTimeoutMillis: 30000,
+      },
     })
     
     const migrator = orm.getMigrator() as Migrator

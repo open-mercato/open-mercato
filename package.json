@@ -32,6 +32,7 @@
     "@mikro-orm/core": "^6.3.7",
     "@mikro-orm/migrations": "^6.3.7",
     "@mikro-orm/postgresql": "^6.3.7",
+    "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-slot": "^1.2.3",
     "@react-email/components": "^0.5.3",
@@ -58,7 +59,8 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
-    "@types/jest": "^29.7.0",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/jest": "^29.5.14",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -70,5 +72,9 @@
     "tsx": "^4.20.5",
     "tw-animate-css": "^1.3.8",
     "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.0.0",
+    "ioredis": "^5.4.1"
   }
 }

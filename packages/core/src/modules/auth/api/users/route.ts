@@ -148,7 +148,13 @@ export async function PUT(req: Request) {
   
   // Invalidate cache if roles or organization changed
   if (shouldInvalidateCache) {
-    rbacService.invalidateUserCache(parsed.data.id)
+    await rbacService.invalidateUserCache(parsed.data.id)
+    // Sidebar nav is cached per user; invalidate by rbac user tag
+    try {
+      const { resolve } = await createRequestContainer()
+      const cache = resolve('cache') as any
+      if (cache) await cache.deleteByTags([`rbac:user:${parsed.data.id}`])
+    } catch {}
   }
   
   return NextResponse.json({ ok: true })
@@ -168,7 +174,7 @@ export async function DELETE(req: Request) {
   await em.removeAndFlush(user)
   
   // Invalidate cache for deleted user
-  rbacService.invalidateUserCache(id)
+  await rbacService.invalidateUserCache(id)
   
   return NextResponse.json({ ok: true })
 }

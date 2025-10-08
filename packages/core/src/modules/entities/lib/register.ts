@@ -6,6 +6,7 @@ export type UpsertEntityOptions = {
   description?: string | null
   organizationId?: string | null
   tenantId?: string | null
+  showInSidebar?: boolean
 }
 
 /**
@@ -27,6 +28,9 @@ export async function upsertCustomEntity(em: EntityManager, entityId: string, op
       ;(ent as any).label = opts.label
       ;(ent as any).description = opts.description ?? null
       ;(ent as any).isActive = true
+      if (typeof opts.showInSidebar === 'boolean') {
+        ;(ent as any).showInSidebar = !!opts.showInSidebar
+      }
       ;(ent as any).updatedAt = new Date()
       tem.persist(ent)
       await tem.flush()
@@ -39,6 +43,9 @@ export async function upsertCustomEntity(em: EntityManager, entityId: string, op
           ;(ent as any).label = opts.label
           ;(ent as any).description = opts.description ?? null
           ;(ent as any).isActive = true
+          if (typeof opts.showInSidebar === 'boolean') {
+            ;(ent as any).showInSidebar = !!opts.showInSidebar
+          }
           ;(ent as any).updatedAt = new Date()
           await tem.flush()
         }

@@ -26,8 +26,8 @@ export async function GET(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
   const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
-  if (!acl) return NextResponse.json({ isSuperAdmin: false, features: [], organizations: null })
-  return NextResponse.json({ isSuperAdmin: !!acl.isSuperAdmin, features: Array.isArray(acl.featuresJson) ? acl.featuresJson : [], organizations: Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null })
+  if (!acl) return NextResponse.json({ hasCustomAcl: false, isSuperAdmin: false, features: [], organizations: null })
+  return NextResponse.json({ hasCustomAcl: true, isSuperAdmin: !!acl.isSuperAdmin, features: Array.isArray(acl.featuresJson) ? acl.featuresJson : [], organizations: Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null })
 }
 
 export async function PUT(req: Request) {
@@ -67,7 +67,13 @@ export async function PUT(req: Request) {
   }
   
   // Invalidate cache for this user
-  rbacService.invalidateUserCache(parsed.data.userId)
+  await rbacService.invalidateUserCache(parsed.data.userId)
+  // Sidebar nav is cached per user; invalidate by rbac user tag
+  try {
+    const { resolve } = await createRequestContainer()
+    const cache = resolve('cache') as any
+    if (cache) await cache.deleteByTags([`rbac:user:${parsed.data.userId}`])
+  } catch {}
   
   return NextResponse.json({ ok: true })
 }

@@ -140,7 +140,7 @@ import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 ## 5) Tips
 
 - Keep module code under `src/modules/<module>`.
-- Define CFs in `data/fields.ts`; use the CLI to scaffold.
+- Define CFs in `ce.ts` (entities[].fields); use `yarn mercato entities install` to seed.
 - Use the helpers from `@open-mercato/shared/lib/crud/custom-fields` to stay DRY.
 - Emit and process events via the built-in Event Bus; see Events tutorial.
 

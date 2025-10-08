@@ -50,7 +50,13 @@ export async function PUT(req: Request) {
   
   // Invalidate cache for all users in this tenant since role ACL changed
   if (auth.tenantId) {
-    rbacService.invalidateTenantCache(auth.tenantId)
+    await rbacService.invalidateTenantCache(auth.tenantId)
+    // Sidebar nav caches depend on RBAC; invalidate tenant scope nav caches
+    try {
+      const { resolve } = await createRequestContainer()
+      const cache = resolve('cache') as any
+      if (cache) await cache.deleteByTags([`rbac:tenant:${auth.tenantId}`])
+    } catch {}
   }
   
   return NextResponse.json({ ok: true })

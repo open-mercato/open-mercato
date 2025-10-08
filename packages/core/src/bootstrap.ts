@@ -1,8 +1,19 @@
 import type { AwilixContainer } from 'awilix'
 import { asValue } from 'awilix'
 import { createEventBus } from '@open-mercato/events/index'
+import { createCacheService } from '@open-mercato/cache'
 
 export async function bootstrap(container: AwilixContainer) {
+  // Create and register the cache service
+  let cache: any
+  try {
+    cache = createCacheService()
+  } catch (err: any) {
+    console.warn('Cache service initialization failed; falling back to memory strategy:', err?.message || err)
+    cache = createCacheService({ strategy: 'memory' })
+  }
+  container.register({ cache: asValue(cache) })
+
   // Create and register the DI-aware event bus
   let eventBus: any
   try {

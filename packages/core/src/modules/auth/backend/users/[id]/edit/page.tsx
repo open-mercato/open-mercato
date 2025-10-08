@@ -73,7 +73,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
 
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['email', 'password', 'organizationId', 'roles'] },
-    { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="user" targetId={String(id)} canEditOrganizations={canEditOrgs} value={aclData} onChange={setAclData} /> : null) },
+    { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="user" targetId={String(id)} canEditOrganizations={canEditOrgs} value={aclData} onChange={setAclData} userRoles={initial?.roles || []} /> : null) },
   ]
 
   return (
@@ -107,6 +107,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ userId: id, ...aclData }) 
             })
+            try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
           onDelete={async () => { await apiFetch(`/api/auth/users?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' }) }}
           deleteRedirect="/backend/users?flash=User%20deleted&type=success"

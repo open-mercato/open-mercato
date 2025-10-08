@@ -673,6 +673,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           initialValues={entityInitial as any}
           isLoading={entityFormLoading || loading}
           submitLabel="Save"
+          deleteVisible={entitySource === 'custom'}
           extraActions={entitySource === 'custom' ? (
             <Button variant="outline" asChild>
               <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}>
@@ -707,6 +708,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
                 const j = await res1.json().catch(() => ({}))
                 throw new Error(j?.error || 'Failed to save entity')
               }
+            try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
             }
             // Save definitions in a single batch (transactional)
             const defsPayload = {
@@ -725,18 +727,19 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
               const j = await res2.json().catch(() => ({}))
               throw new Error(j?.error || 'Failed to save definitions')
             }
+            try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
             // Invalidate all custom field definition caches so DataTables refresh with new labels
             await queryClient.invalidateQueries({ queryKey: ['cf-defs'] })
             flash('Definitions saved', 'success')
           }}
         onDelete={entitySource === 'custom' ? async () => {
-          if (!window.confirm('Delete this custom entity and its definitions?')) return
           const res = await apiFetch('/api/entities/entities', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId }) })
           if (!res.ok) {
             const j = await res.json().catch(() => ({}))
             throw new Error(j?.error || 'Failed to delete entity')
           }
           flash('Entity deleted', 'success')
+          try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
         } : undefined}
       />
       </PageBody>

@@ -2,6 +2,7 @@ import type { ModuleCli } from '@/modules/registry'
 import { modules } from '@/generated/modules.generated'
 import { createRequestContainer } from '@/lib/di/container'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { upsertCustomEntity } from '@open-mercato/core/modules/entities/lib/register'
 import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 
@@ -37,7 +38,22 @@ const seedDefs: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
 
-    // Collect all declared fieldSets from enabled modules
+    // 1) Ensure declared custom entities exist (global scope only for now)
+    {
+      const { modules } = await import('@/generated/modules.generated')
+      let created = 0
+      for (const m of modules) {
+        const entities = (m as any).customEntities as Array<{ id: string; label?: string; description?: string; showInSidebar?: boolean }> | undefined
+        if (!entities?.length) continue
+        for (const ce of entities) {
+          await upsertCustomEntity(em as any, ce.id, { label: ce.label || ce.id, description: ce.description || null, organizationId: null, tenantId: null, showInSidebar: !!ce.showInSidebar })
+          created++
+        }
+      }
+      if (created > 0) console.log(`Custom entities ensured: ${created}`)
+    }
+
+    // 2) Collect all declared fieldSets from enabled modules
     const sets: Array<{ moduleId: string; entity: string; fields: any[]; source?: string }> = []
     for (const m of modules) {
       const fieldSets = (m as any).customFieldSets as any[] | undefined

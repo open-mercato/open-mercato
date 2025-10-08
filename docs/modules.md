@@ -13,7 +13,7 @@ This app supports modular features delivered as either:
 
 ## Module Interface
 - Enable modules in `src/modules.ts`.
-- Generators auto-discover pages/APIs/DI/i18n for enabled modules using overlay resolution (app overrides > core).
+– Generators auto-discover pages/APIs/DI/i18n/features/custom-entities for enabled modules using overlay resolution (app overrides > core).
 - Provide optional metadata and DI registrar to integrate with the container and module listing.
 
 ### Metadata (index.ts)
@@ -109,6 +109,33 @@ Precedence: if a `*.meta.ts` file is present it is used; otherwise, the generato
 See also:
 - Data extensibility (extensions + custom fields): `docs/data-extensibility.md`
 - Unified query layer (filters, paging, fields): `docs/query-layer.md`
+- Access control features: export from `src/modules/<module>/acl.ts`
+- Custom entities (virtual): export from `src/modules/<module>/ce.ts` and install via `yarn mercato entities install`
+
+### Declaring Custom Entities and Fields in ce.ts (data/fields.ts deprecated)
+- Place a module-level `ce.ts` exporting `entities`. Each item can include optional `fields`.
+- The generator will merge `entities[].fields` into `customFieldSets` so `yarn mercato entities install` seeds them.
+- Example (`src/modules/example/ce.ts`):
+
+```ts
+export const entities = [
+  {
+    id: 'example:calendar_entity',
+    label: 'Calendar Entity',
+    showInSidebar: true,
+    fields: [
+      { key: 'title', kind: 'text', label: 'Title', required: true, indexed: true, filterable: true, formEditable: true },
+      { key: 'when', kind: 'text', label: 'When', filterable: true, formEditable: true },
+      { key: 'location', kind: 'text', label: 'Location', filterable: true, formEditable: true },
+      { key: 'notes', kind: 'multiline', label: 'Notes', editor: 'markdown', formEditable: true },
+    ],
+  },
+]
+```
+
+Notes:
+- `data/fields.ts` is no longer supported. Always declare fields under `ce.ts` as shown above.
+- Sidebar visibility is controlled via the entity row (`showInSidebar`), which is set during `entities install`.
 
 ### Validation (zod)
 - Put validators alongside entities in `src/modules/<module>/data/validators.ts`.

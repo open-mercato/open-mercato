@@ -122,6 +122,7 @@ export async function POST(req: Request) {
   def.updatedAt = new Date()
   em.persist(def)
   await em.flush()
+  // Changing field definitions may impact forms but not sidebar items; no nav cache touch
   return NextResponse.json({ ok: true, item: { id: def.id, key: def.key, kind: def.kind, configJson: def.configJson, isActive: def.isActive } })
 }
 
@@ -143,5 +144,6 @@ export async function DELETE(req: Request) {
   def.deletedAt = def.deletedAt ?? new Date()
   em.persist(def)
   await em.flush()
+  // Changing field definitions may impact forms but not sidebar items; no nav cache touch
   return NextResponse.json({ ok: true })
 }

@@ -39,8 +39,36 @@ export const extensions = [
   - `custom_field_defs` — definitions (per entity id, organization, and tenant)
   - `custom_field_values` — values (per entity record, organization, and tenant)
 
-- Modules can ship initial field sets in `data/fields.ts` using the DSL:
+– Declare initial field sets in module-level `ce.ts` by attaching a `fields` array to an entity entry. `data/fields.ts` is no longer supported.
 
+### Declaring fields from ce.ts (recommended)
+
+```ts
+// src/modules/<module>/ce.ts
+export const entities = [
+  {
+    id: '<module>:<entity>',
+    label: 'My Entity',
+    showInSidebar: true, // optional: default sidebar visibility
+    fields: [
+      { key: 'priority', kind: 'integer', label: 'Priority', defaultValue: 3, filterable: true, formEditable: true },
+      { key: 'severity', kind: 'select', label: 'Severity', options: ['low','medium','high'], defaultValue: 'medium', filterable: true, formEditable: true },
+    ],
+  },
+]
+```
+
+Notes:
+- The generator merges `entities[].fields` into `Module.customFieldSets` automatically, so `yarn mercato entities install` will seed them.
+- You can target ANY entity id (including system/core entities) to extend them with additional fields. For example:
+
+```ts
+export const entities = [
+  { id: 'auth:user', fields: [ { key: 'nickname', kind: 'text', label: 'Nickname', formEditable: true } ] },
+]
+```
+
+### Declaring fields via DSL (legacy) — deprecated
 ```ts
 import { defineFields, entityId, cf } from '@/modules/dsl'
 
