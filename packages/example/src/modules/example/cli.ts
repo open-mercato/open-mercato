@@ -1,7 +1,7 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
-import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { ensureCustomFieldDefinitions, type FieldSetInput } from '@open-mercato/core/modules/entities/lib/field-definitions'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/example/datamodel/entities'
 
@@ -45,43 +45,21 @@ const seedTodos: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
 
-    // Ensure custom field definitions exist for example:todo
+    // Ensure custom field definitions declared in ce.ts are installed for the tenant scope
     const entityId = E.example.todo
-    const defs = [
-      { key: 'priority', kind: 'integer', configJson: { label: 'Priority', description: '1 (low) to 5 (high)', defaultValue: 3, filterable: true, validation: [
-        { rule: 'required', message: 'Priority is required' },
-        { rule: 'integer', message: 'Priority must be an integer' },
-        { rule: 'gte', param: 1, message: 'Priority must be >= 1' },
-        { rule: 'lte', param: 5, message: 'Priority must be <= 5' },
-      ] } },
-      { key: 'severity', kind: 'select', configJson: { label: 'Severity', options: ['low', 'medium', 'high'], defaultValue: 'medium', filterable: true, validation: [
-        { rule: 'required', message: 'Severity is required' },
-      ] } },
-      { key: 'blocked', kind: 'boolean', configJson: { label: 'Blocked', defaultValue: false, filterable: true } },
-      // Use text + multi so UI renders TagsInput in forms and tags filter in filters
-      { key: 'labels', kind: 'text', configJson: { label: 'Labels', options: ['frontend', 'backend', 'ops', 'bug', 'feature'], multi: true, filterable: true, optionsUrl: '/api/example/tags', validation: [
-        { rule: 'regex', param: '^[a-z0-9_-]+$', message: 'Labels must be slug-like' }
-      ] } },
-      { key: 'attachments', kind: 'attachment', configJson: { label: 'Attachments', maxAttachmentSizeMb: 10, acceptExtensions: ['pdf', 'jpg', 'png'] } },
-    ]
-    for (const d of defs) {
-      // Ensure custom field definitions are tenant-scoped (organizationId null)
-      const existing = await em.findOne(CustomFieldDef, { entityId, tenantId, organizationId: null, key: d.key })
-      if (!existing) {
-        await em.persistAndFlush(em.create(CustomFieldDef, {
-          entityId,
-          tenantId,
-          organizationId: null,
-          key: d.key,
-          kind: d.kind,
-          configJson: d.configJson,
-          isActive: true,
-        }))
-      } else {
-        existing.kind = d.kind as any
-        existing.configJson = d.configJson
-        existing.isActive = true
-        await em.flush()
+    const { modules } = await import('@/generated/modules.generated')
+    const exampleModule = modules.find((m) => m.id === 'example')
+    const fieldSets = ((exampleModule?.customFieldSets as FieldSetInput[] | undefined) || []).filter((set) => set.entity === entityId)
+    if (fieldSets.length === 0) {
+      console.warn('No custom field definitions discovered for example:todo; skipping field setup.')
+    } else {
+      const { created, updated } = await ensureCustomFieldDefinitions(
+        em as any,
+        fieldSets,
+        { organizationId: null, tenantId: null, dryRun: false },
+      )
+      if (created || updated) {
+        console.log(`Ensured custom field definitions for ${entityId}: created=${created}, updated=${updated} (global scope)`)
       }
     }
 

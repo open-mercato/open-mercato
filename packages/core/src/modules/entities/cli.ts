@@ -1,9 +1,10 @@
 import type { ModuleCli } from '@/modules/registry'
 import { modules } from '@/generated/modules.generated'
 import { createRequestContainer } from '@/lib/di/container'
-import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { upsertCustomEntity } from '@open-mercato/core/modules/entities/lib/register'
 import { E as GeneratedEntities } from '@/generated/entities.ids.generated'
+import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { ensureCustomFieldDefinitions, type FieldSetInput } from './lib/field-definitions'
 import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 
@@ -67,55 +68,15 @@ const seedDefs: ModuleCli = {
     }
 
     // 2) Collect all declared fieldSets from enabled modules
-    const sets: Array<{ moduleId: string; entity: string; fields: any[]; source?: string }> = []
+    const sets: FieldSetInput[] = []
     for (const m of modules) {
       const fieldSets = (m as any).customFieldSets as any[] | undefined
       if (!fieldSets?.length) continue
-      for (const s of fieldSets) sets.push({ moduleId: m.id, entity: s.entity, fields: s.fields, source: s.source ?? m.id })
+      for (const s of fieldSets) sets.push({ entity: s.entity, fields: s.fields, source: s.source ?? m.id })
     }
     if (!sets.length) { console.log('No fieldSets declared by modules. Nothing to seed.'); return }
 
-    let created = 0, updated = 0
-    for (const s of sets) {
-      for (const f of s.fields) {
-        const where = { entityId: s.entity, organizationId: targetOrgId, tenantId: targetTenantId, key: f.key }
-        const existing = await em.findOne(CustomFieldDef, where)
-        const configJson: any = {}
-        if (f.options) configJson.options = f.options
-        if (f.defaultValue !== undefined) configJson.defaultValue = f.defaultValue
-        if (f.required !== undefined) configJson.required = f.required
-        if (f.multi !== undefined) configJson.multi = f.multi
-        if (f.filterable !== undefined) configJson.filterable = f.filterable
-        if ((f as any).formEditable !== undefined) configJson.formEditable = (f as any).formEditable
-        if ((f as any).listVisible !== undefined) configJson.listVisible = (f as any).listVisible
-        if (f.indexed !== undefined) configJson.indexed = f.indexed
-        if (f.label !== undefined) configJson.label = f.label
-        if (f.description !== undefined) configJson.description = f.description
-        // UI hints passthrough
-        if ((f as any).editor !== undefined) configJson.editor = (f as any).editor
-        if ((f as any).input !== undefined) configJson.input = (f as any).input
-        if ((f as any).optionsUrl !== undefined) configJson.optionsUrl = (f as any).optionsUrl
-        if (!existing) {
-          if (!dry) await em.persistAndFlush(em.create(CustomFieldDef, {
-            entityId: s.entity,
-            organizationId: targetOrgId,
-            tenantId: targetTenantId,
-            key: f.key,
-            kind: f.kind,
-            configJson,
-            isActive: true,
-          }))
-          created++
-        } else {
-          const patch: any = {}
-          if (existing.kind !== f.kind) patch.kind = f.kind
-          patch.configJson = configJson
-          patch.isActive = true
-          if (!dry) { em.assign(existing, patch); await em.flush() }
-          updated++
-        }
-      }
-    }
+    const { created, updated } = await ensureCustomFieldDefinitions(em as any, sets, { organizationId: targetOrgId, tenantId: targetTenantId, dryRun: dry })
     console.log(`Field definitions ensured: created=${created}, updated=${updated}${dry ? ' (dry-run)' : ''}`)
   },
 }
@@ -167,45 +128,7 @@ const reinstallDefs: ModuleCli = {
     }
 
     // Re-seed like install
-    let created = 0, updated = 0
-    for (const s of sets) {
-      for (const f of s.fields) {
-        const where = { entityId: s.entity, organizationId: targetOrgId, tenantId: targetTenantId, key: f.key }
-        const existing = await em.findOne(CustomFieldDef, where)
-        const configJson: any = {}
-        if (f.options) configJson.options = f.options
-        if (f.defaultValue !== undefined) configJson.defaultValue = f.defaultValue
-        if (f.required !== undefined) configJson.required = f.required
-        if (f.multi !== undefined) configJson.multi = f.multi
-        if (f.filterable !== undefined) configJson.filterable = f.filterable
-        if ((f as any).formEditable !== undefined) configJson.formEditable = (f as any).formEditable
-        if (f.indexed !== undefined) configJson.indexed = f.indexed
-        if (f.label !== undefined) configJson.label = f.label
-        if (f.description !== undefined) configJson.description = f.description
-        if ((f as any).editor !== undefined) configJson.editor = (f as any).editor
-        if ((f as any).input !== undefined) configJson.input = (f as any).input
-
-        if (!existing) {
-          if (!dry) await em.persistAndFlush(em.create(CustomFieldDef, {
-            entityId: s.entity,
-            organizationId: targetOrgId,
-            tenantId: targetTenantId,
-            key: f.key,
-            kind: f.kind,
-            configJson,
-            isActive: true,
-          }))
-          created++
-        } else {
-          const patch: any = {}
-          if (existing.kind !== f.kind) patch.kind = f.kind
-          patch.configJson = configJson
-          patch.isActive = true
-          if (!dry) { em.assign(existing, patch); await em.flush() }
-          updated++
-        }
-      }
-    }
+    const { created, updated } = await ensureCustomFieldDefinitions(em as any, sets, { organizationId: targetOrgId, tenantId: targetTenantId, dryRun: dry })
     console.log(`Field definitions reinstalled: created=${created}, updated=${updated}${dry ? ' (dry-run)' : ''}`)
   },
 }
@@ -234,9 +157,9 @@ const addField: ModuleCli = {
       const orgId = isGlobal ? null : ((args.org as string) || (args.organizationId as string) || await ask('Organization ID'))
       const tenantId = isGlobal ? null : ((args.tenant as string) || (args.tenantId as string) || await ask('Tenant ID'))
       const key = (args.key as string) || await ask('Field key (snake_case)')
-      let kind = (args.kind as string) || await ask("Kind (text|multiline|integer|float|boolean|select)", 'text')
+      let kind = (args.kind as string) || await ask("Kind (text|multiline|integer|float|boolean|select|relation|attachment)", 'text')
       kind = kind.toLowerCase()
-      if (!['text','multiline','integer','float','boolean','select'].includes(kind)) throw new Error('Invalid kind')
+      if (!['text','multiline','integer','float','boolean','select','relation','attachment'].includes(kind)) throw new Error('Invalid kind')
       const label = (args.label as string) || (await ask('Label', key))
       const description = (args.description as string) || ''
       const required = args.required !== undefined ? Boolean(args.required) : await askBool('Required?', false)
