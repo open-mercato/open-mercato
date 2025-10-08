@@ -64,3 +64,6 @@ src/**/*.js
 src/**/*.jsx
 packages/*/src/**/*.js
 packages/*/src/**/*.jsx
+.test-cache.json
+./data
+./.data

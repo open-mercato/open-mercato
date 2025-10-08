@@ -1,5 +1,7 @@
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { User, UserRole, RoleAcl, UserAcl, Role } from '@open-mercato/core/modules/auth/data/entities'
+import { createMemoryStrategy } from '@open-mercato/cache'
+import type { CacheStrategy } from '@open-mercato/cache'
 
 // Minimal mock of MikroORM EntityManager surface used by RbacService
 type MockEm = {
@@ -22,6 +24,7 @@ function createMockEm(): MockEm {
 describe('RbacService', () => {
   let em: MockEm
   let service: RbacService
+  let cache: CacheStrategy
 
   const baseUser: Partial<User> = {
     id: 'user-1',
@@ -31,7 +34,8 @@ describe('RbacService', () => {
 
   beforeEach(() => {
     em = createMockEm()
-    service = new RbacService(em as any)
+    cache = createMemoryStrategy()
+    service = new RbacService(em as any, cache)
     jest.clearAllMocks()
   })
 
@@ -672,7 +676,8 @@ describe('RbacService', () => {
     })
 
     it('should respect cache TTL and refetch after expiration', async () => {
-      const shortTtlService = new RbacService(em as any)
+      const shortTtlCache = createMemoryStrategy()
+      const shortTtlService = new RbacService(em as any, shortTtlCache)
       shortTtlService.setCacheTtl(100) // 100ms TTL
       
       em.findOne.mockImplementation(async (entity: any, where: any) => {
@@ -696,7 +701,8 @@ describe('RbacService', () => {
     })
 
     it('should use custom TTL when configured via setCacheTtl', async () => {
-      const customTtlService = new RbacService(em as any)
+      const customTtlCache = createMemoryStrategy()
+      const customTtlService = new RbacService(em as any, customTtlCache)
       customTtlService.setCacheTtl(50) // 50ms TTL
       
       em.findOne.mockImplementation(async (entity: any, where: any) => {
