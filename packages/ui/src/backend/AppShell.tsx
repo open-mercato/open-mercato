@@ -158,6 +158,55 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
     return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
   }, [adminNavApi])
 
+  // Refresh sidebar when other parts of the app dispatch an explicit event
+  React.useEffect(() => {
+    if (!adminNavApi) return
+    const api = adminNavApi as string
+    let cancelled = false
+    function indexIcons(groupsToIndex: AppShellProps['groups']): Map<string, React.ReactNode | undefined> {
+      const map = new Map<string, React.ReactNode | undefined>()
+      for (const g of groupsToIndex) {
+        for (const i of g.items) {
+          map.set(i.href, i.icon)
+          if (i.children) for (const c of i.children) map.set(c.href, c.icon)
+        }
+      }
+      return map
+    }
+    function mergePreservingIcons(oldG: AppShellProps['groups'], newG: AppShellProps['groups']): AppShellProps['groups'] {
+      const iconMap = indexIcons(oldG)
+      const merged = newG.map((g) => ({
+        name: g.name,
+        items: g.items.map((i) => ({
+          href: i.href,
+          title: i.title,
+          enabled: i.enabled,
+          icon: i.icon ?? iconMap.get(i.href),
+          children: i.children?.map((c) => ({
+            href: c.href,
+            title: c.title,
+            enabled: c.enabled,
+            icon: c.icon ?? iconMap.get(c.href),
+          })),
+        })),
+      }))
+      return merged
+    }
+    async function refreshFullNav() {
+      try {
+        const res = await apiFetch(api, { credentials: 'include' as any })
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        const nextGroups = Array.isArray(data?.groups) ? data.groups : []
+        if (nextGroups.length) setNavGroups((prev) => AppShell.cloneGroups(mergePreservingIcons(prev, nextGroups as any)))
+      } catch {}
+    }
+    const onRefresh = () => { refreshFullNav() }
+    window.addEventListener('om:refresh-sidebar', onRefresh as any)
+    return () => { cancelled = true; window.removeEventListener('om:refresh-sidebar', onRefresh as any) }
+  }, [adminNavApi])
+
   // adminNavApi already includes user entities; no extra fetch
 
   function renderSidebar(compact: boolean, showCollapseToggle: boolean, hideHeader?: boolean) {
