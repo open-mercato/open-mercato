@@ -43,7 +43,15 @@ const DefaultIcon = (
   </svg>
 )
 
-// TableIcon no longer needed; user entities come from adminNavApi
+// DataTable icon used for dynamic custom entity records links
+const DataTableIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <rect x="3" y="4" width="18" height="16" rx="2" ry="2"/>
+    <line x1="3" y1="8" x2="21" y2="8"/>
+    <line x1="9" y1="8" x2="9" y2="20"/>
+    <line x1="15" y1="8" x2="15" y2="20"/>
+  </svg>
+)
 
 function Chevron({ open }: { open: boolean }) {
   return (
@@ -282,7 +290,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
                                       <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
                                     ) : null}
                                     <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                                      {c.icon ?? DefaultIcon}
+                                      {c.icon ?? (c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
                                     </span>
                                     {!compact && <span>{c.title}</span>}
                                   </Link>
