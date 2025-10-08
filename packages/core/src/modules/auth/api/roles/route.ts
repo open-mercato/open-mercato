@@ -92,8 +92,11 @@ export async function DELETE(req: Request) {
   const em = resolve('em') as any
   const role = await em.findOne(Role, { id })
   if (!role) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
+  if (activeAssignments > 0) {
+    return NextResponse.json({ error: 'Role has assigned users' }, { status: 400 })
+  }
   await em.removeAndFlush(role)
   return NextResponse.json({ ok: true })
 }
-
 

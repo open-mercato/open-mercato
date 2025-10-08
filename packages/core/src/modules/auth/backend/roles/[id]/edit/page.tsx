@@ -65,12 +65,26 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             })
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
-          onDelete={async () => { await apiFetch(`/api/auth/roles?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' }) }}
+          onDelete={async () => { 
+            const res = await apiFetch(`/api/auth/roles?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' })
+            if (!res.ok) {
+              let message = 'Failed to delete role'
+              try {
+                const data = await res.clone().json()
+                if (data && typeof data.error === 'string' && data.error.trim()) message = data.error
+              } catch {
+                try {
+                  const text = await res.text()
+                  if (text.trim()) message = text
+                } catch {}
+              }
+              throw new Error(message)
+            }
+          }}
           deleteRedirect="/backend/roles?flash=Role%20deleted&type=success"
         />
       </PageBody>
     </Page>
   )
 }
-
 

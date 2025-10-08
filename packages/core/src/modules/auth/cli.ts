@@ -215,8 +215,25 @@ const setupApp: ModuleCli = {
     const superadminRole = await em.findOne(Role, { name: 'superadmin' })
     const adminRole = await em.findOne(Role, { name: 'admin' })
     const employeeRole = await em.findOne(Role, { name: 'employee' })
-    if (superadminRole) await em.persistAndFlush(em.create(RoleAcl, { role: superadminRole, tenantId: seedTenantId, isSuperAdmin: true }))
-    if (adminRole) await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: seedTenantId, featuresJson: ['*'] }))
+    if (superadminRole) {
+      await em.persistAndFlush(em.create(RoleAcl, {
+        role: superadminRole,
+        tenantId: seedTenantId,
+        isSuperAdmin: true,
+        featuresJson: ['directory.tenants.*'],
+      }))
+    }
+    if (adminRole) {
+      const adminFeatures = [
+        'auth.*',
+        'entities.*',
+        'attachments.*',
+        'query_index.*',
+        'directory.organizations.*',
+        'example.*',
+      ]
+      await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: seedTenantId, featuresJson: adminFeatures }))
+    }
     if (employeeRole) await em.persistAndFlush(em.create(RoleAcl, { role: employeeRole, tenantId: seedTenantId, featuresJson: ['example.*'] }))
 
     console.log('Setup complete:', { tenantId: seedTenantId, organizationId: seedOrgId })

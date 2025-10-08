@@ -159,7 +159,10 @@ export function CrudForm<TValues extends Record<string, any>>({
       if (typeof deleteRedirect === 'string' && deleteRedirect) {
         router.push(deleteRedirect)
       }
-    } catch {}
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : 'Failed to delete record'
+      try { flash(message, 'error') } catch {}
+    }
   }, [onDelete, deleteRedirect, router])
   
   // Determine whether this form is creating a new record (no `id` yet)

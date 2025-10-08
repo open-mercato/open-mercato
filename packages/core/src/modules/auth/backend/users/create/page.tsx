@@ -13,7 +13,7 @@ export default function CreateUserPage() {
     let cancelled = false
     async function load() {
       try {
-        const f = await apiFetch('/api/auth/feature-check', { method: 'POST', body: JSON.stringify({ features: ['directory.organizations.list'] }) })
+        const f = await apiFetch('/api/auth/feature-check', { method: 'POST', body: JSON.stringify({ features: ['directory.organizations.view'] }) })
         const j = await f.json()
         if (!cancelled) setCanEditOrgs(!!j.ok)
       } catch {}
@@ -56,5 +56,4 @@ export default function CreateUserPage() {
     </Page>
   )
 }
-
 

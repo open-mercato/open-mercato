@@ -44,7 +44,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         const f = await apiFetch('/api/auth/feature-check', { 
           method: 'POST', 
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ features: ['directory.organizations.list'] }) 
+          body: JSON.stringify({ features: ['directory.organizations.view'] }) 
         })
         const j = await f.json()
         if (!cancelled) setCanEditOrgs(!!j.ok)
@@ -116,5 +116,4 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     </Page>
   )
 }
-
 

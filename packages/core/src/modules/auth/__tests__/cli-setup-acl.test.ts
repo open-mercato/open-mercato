@@ -47,13 +47,24 @@ describe('auth CLI setup seeds ACLs', () => {
     // Assert: persistAndFlush was called to create three RoleAcl rows with expected flags/features
     const calls = persistAndFlush.mock.calls.map((c) => c[0])
     const roleAclCreates = calls.filter((row) => 'tenantId' in row && ('isSuperAdmin' in row || Array.isArray(row.featuresJson)))
-    // superadmin -> isSuperAdmin
-    expect(roleAclCreates.some((row) => row.isSuperAdmin === true)).toBe(true)
-    // admin -> featuresJson ['*']
-    expect(roleAclCreates.some((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('*'))).toBe(true)
-    // employee -> featuresJson ['example.*']
-    expect(roleAclCreates.some((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('example.*'))).toBe(true)
+    const superadminAcl = roleAclCreates.find((row) => row.isSuperAdmin === true)
+    expect(superadminAcl).toBeDefined()
+    expect(Array.isArray(superadminAcl?.featuresJson)).toBe(true)
+    expect(superadminAcl?.featuresJson).toEqual(expect.arrayContaining(['directory.tenants.*']))
+
+    const adminAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('directory.organizations.*'))
+    expect(adminAcl).toBeDefined()
+    expect(adminAcl?.featuresJson).toEqual(expect.arrayContaining([
+      'auth.*',
+      'entities.*',
+      'attachments.*',
+      'query_index.*',
+      'directory.organizations.*',
+      'example.*',
+    ]))
+
+    const employeeAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('example.*'))
+    expect(employeeAcl).toBeDefined()
   })
 })
-
 
