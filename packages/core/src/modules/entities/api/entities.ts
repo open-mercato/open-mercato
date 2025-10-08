@@ -62,11 +62,20 @@ export async function GET(req: Request) {
   const defsWhere: any = { isActive: true }
   defsWhere.$and = [
     //{ $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] }, // the entities and custom fields are defined per tenant
-    { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+    { tenantId: auth.tenantId ?? undefined as any },
   ]
   const defs = await em.find(CustomFieldDef as any, defsWhere as any)
+  // Count distinct field names (keys) per entityId
+  const keySets = new Map<string, Set<string>>()
+  for (const d of defs as any[]) {
+    const eid = String(d.entityId)
+    const k = String(d.key)
+    const set = keySets.get(eid) || new Set<string>()
+    set.add(k)
+    keySets.set(eid, set)
+  }
   const counts: Record<string, number> = {}
-  for (const d of defs as any[]) counts[d.entityId] = (counts[d.entityId] || 0) + 1
+  for (const [eid, set] of keySets.entries()) counts[eid] = set.size
 
   const items = Array.from(byId.values()).map((it: any) => ({ ...it, count: counts[it.entityId] || 0 }))
   return NextResponse.json({ items })

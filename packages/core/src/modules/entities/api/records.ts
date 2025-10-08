@@ -95,7 +95,6 @@ export async function GET(req: Request) {
       withDeleted,
     } as const
     for (const [k, v] of qpEntries) buildFilter(k, v, isCustomEntity)
-    try { console.log('[entities.records.GET] query', { entityId, sortField, sortDir, page, pageSize, withDeleted, filters: filtersObj, isCustomEntity }) } catch {}
     const res = await qe.query(entityId as any, qopts as any)
 
     const payload = {
@@ -201,16 +200,6 @@ export async function POST(req: Request) {
     const em = resolve('em') as any
     const norm = normalizeValues(values)
 
-    // Debug logging to trace id normalization
-    try {
-      console.log('[entities.records.POST] incoming', {
-        entityId,
-        recordId,
-        valuesId: (values as any)?.id,
-        valueKeys: Object.keys(values || {}),
-      })
-    } catch {}
-
     // Validate against custom field definitions
     try {
       const { validateCustomFieldValuesServer } = await import('../lib/validation')
@@ -227,8 +216,6 @@ export async function POST(req: Request) {
       const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
       return uuid.test(raw) ? raw : undefined
     })()
-    try { console.log('[entities.records.POST] normalizedRecordId', normalizedRecordId) } catch {}
-
     const { id } = await de.createCustomEntityRecord({
       entityId,
       recordId: normalizedRecordId,
@@ -237,7 +224,6 @@ export async function POST(req: Request) {
       values: norm,
     })
 
-    try { console.log('[entities.records.POST] created id', id) } catch {}
     return NextResponse.json({ ok: true, item: { entityId, recordId: id } })
   } catch (e) {
     try { console.error('[entities.records.POST] Error', e) } catch {}
@@ -271,15 +257,6 @@ export async function PUT(req: Request) {
     const em = resolve('em') as any
     const norm = normalizeValues(values)
 
-    // Debug logging to trace recordId handling
-    try {
-      console.log('[entities.records.PUT] incoming', {
-        entityId,
-        recordId,
-        valuesId: (values as any)?.id,
-        valueKeys: Object.keys(values || {}),
-      })
-    } catch {}
 
     // Validate against custom field definitions
     try {
@@ -295,7 +272,6 @@ export async function PUT(req: Request) {
     const isSentinel = !rid || low === 'create' || low === 'new' || low === 'null' || low === 'undefined'
     const isUuid = uuidRe.test(rid)
     if (isSentinel || !isUuid) {
-      try { console.log('[entities.records.PUT] treating as create: generating new id') } catch {}
       const created = await de.createCustomEntityRecord({
         entityId,
         recordId: undefined,
@@ -303,7 +279,6 @@ export async function PUT(req: Request) {
         tenantId: auth.tenantId!,
         values: norm,
       })
-      try { console.log('[entities.records.PUT] created id', created.id) } catch {}
       return NextResponse.json({ ok: true, item: { entityId, recordId: created.id } })
     }
 
@@ -314,10 +289,8 @@ export async function PUT(req: Request) {
       tenantId: auth.tenantId!,
       values: norm,
     })
-    try { console.log('[entities.records.PUT] updated id', rid) } catch {}
     return NextResponse.json({ ok: true, item: { entityId, recordId: rid } })
   } catch (e) {
-    try { console.error('[entities.records.PUT] Error', e) } catch {}
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
