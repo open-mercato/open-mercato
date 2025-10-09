@@ -72,7 +72,7 @@ export default function OrganizationSwitcher({ items, selectedId, canManage }: O
     { value: '', label: 'All organizations', selectable: true, depth: 0 },
     ...options.map((opt) => ({
       value: opt.value,
-      label: opt.path.join(' / ') || opt.name,
+      label: opt.name,
       selectable: opt.selectable,
       depth: opt.depth,
     })),

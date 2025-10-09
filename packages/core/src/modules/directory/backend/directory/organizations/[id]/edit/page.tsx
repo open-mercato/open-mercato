@@ -69,7 +69,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
   const [error, setError] = React.useState<string | null>(null)
   const [parentOptions, setParentOptions] = React.useState<CrudFieldOption[]>([{ value: '', label: '— Root level —' }])
   const [childSummary, setChildSummary] = React.useState<TreeOption[]>([])
-  const [childIds, setChildIds] = React.useState<string[]>([])
+  const [originalChildIds, setOriginalChildIds] = React.useState<string[]>([])
 
   React.useEffect(() => {
     if (!orgId) return
@@ -101,7 +101,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           .map((id) => nodeMap.get(id))
           .filter((node): node is TreeOption => !!node)
         setChildSummary(childrenDetails)
-        setChildIds(Array.isArray(record.childIds) ? record.childIds : [])
+        setOriginalChildIds(Array.isArray(record.childIds) ? record.childIds : [])
 
         let customValues: Record<string, any> = {}
         try {
@@ -134,7 +134,6 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           name: record.name,
           parentId: record.parentId || '',
           isActive: record.isActive,
-          childIds: Array.isArray(record.childIds) ? record.childIds : [],
           ...customValues,
         })
         setPathLabel(record.pathLabel)
@@ -218,7 +217,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
               name: values.name,
               isActive: values.isActive !== false,
               parentId: values.parentId ? values.parentId : null,
-              childIds: Array.isArray(values.childIds) ? values.childIds : childIds,
+              childIds: originalChildIds,
             }
             const customFields: Record<string, any> = {}
             for (const [key, value] of Object.entries(values)) {
