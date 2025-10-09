@@ -16,7 +16,6 @@ export async function POST(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const bus = resolve('eventBus') as any
-  await bus.emitEvent('query_index.reindex', { entityType, organizationId: auth.orgId, tenantId: auth.tenantId, force }, { persistent: true })
+  await bus.emitEvent('query_index.reindex', { entityType, tenantId: auth.tenantId, force }, { persistent: true })
   return NextResponse.json({ ok: true })
 }
-

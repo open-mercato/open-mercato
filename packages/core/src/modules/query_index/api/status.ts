@@ -65,14 +65,13 @@ export async function GET(req: Request) {
     }
   }
 
-  async function countBase(entityType: string, orgIdParam: string, tenantIdParam: string | null): Promise<number> {
+  async function countBase(entityType: string, tenantIdParam: string | null): Promise<number> {
+    // Counts intentionally ignore organization scope. Aggregate across orgs but respect tenant filtering where available.
     const table = toBaseTableFromEntityType(entityType)
-    const hasOrg = await columnExists(table, 'organization_id')
     const hasTenant = await columnExists(table, 'tenant_id')
     const hasDeleted = await columnExists(table, 'deleted_at')
 
     let q = knex(table)
-    if (hasOrg) q = q.where((b: any) => b.where({ organization_id: orgIdParam }).orWhereNull('organization_id'))
     if (hasTenant && tenantIdParam != null) q = q.andWhere((b: any) => b.where({ tenant_id: tenantIdParam }).orWhereNull('tenant_id'))
     if (hasDeleted) q = q.andWhere({ deleted_at: null })
 
@@ -92,12 +91,11 @@ export async function GET(req: Request) {
     }
   }
 
-  async function countIndex(entityType: string, orgIdParam: string, tenantIdParam: string | null): Promise<number> {
+  async function countIndex(entityType: string, tenantIdParam: string | null): Promise<number> {
     try {
       const r = await knex('entity_indexes')
         .where({ entity_type: entityType })
         .modify((qb: any) => {
-          qb.andWhere((b: any) => b.where({ organization_id: orgIdParam }).orWhereNull('organization_id'))
           if (tenantIdParam != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantIdParam }).orWhereNull('tenant_id'))
           qb.andWhere({ deleted_at: null })
         })
@@ -110,12 +108,11 @@ export async function GET(req: Request) {
     }
   }
 
-  async function fetchJob(entityType: string, orgIdParam: string, tenantIdParam: string | null): Promise<{ status: 'idle' | 'reindexing' | 'purging'; startedAt?: string | null; finishedAt?: string | null }> {
+  async function fetchJob(entityType: string, tenantIdParam: string | null): Promise<{ status: 'idle' | 'reindexing' | 'purging'; startedAt?: string | null; finishedAt?: string | null }> {
     try {
       const row = await knex('entity_index_jobs')
         .where({ entity_type: entityType })
         .modify((qb: any) => {
-          qb.andWhere((b: any) => b.where({ organization_id: orgIdParam }).orWhereNull('organization_id'))
           if (tenantIdParam != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantIdParam }).orWhereNull('tenant_id'))
         })
         .orderBy('started_at', 'desc')
@@ -130,7 +127,7 @@ export async function GET(req: Request) {
 
   const items: any[] = []
   for (const eid of entityIds) {
-    const [baseCount, indexCount, job] = await Promise.all([countBase(eid, orgId, tenantId), countIndex(eid, orgId, tenantId), fetchJob(eid, orgId, tenantId)])
+    const [baseCount, indexCount, job] = await Promise.all([countBase(eid, tenantId), countIndex(eid, tenantId), fetchJob(eid, tenantId)])
     const label = (byId.get(eid)?.label) || eid
     items.push({ entityId: eid, label, baseCount, indexCount, ok: baseCount === indexCount, job })
   }

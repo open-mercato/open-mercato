@@ -79,7 +79,7 @@ const reindex: ModuleCli = {
     const entity = (args.entity as string) || (args.e as string)
     const force = Boolean(args.force) || Boolean(args.full)
     if (entity) {
-      await bus.emitEvent('query_index.reindex', { entityType: entity, organizationId: args.org || args.organizationId, tenantId: args.tenant || args.tenantId, force }, { persistent: true })
+      await bus.emitEvent('query_index.reindex', { entityType: entity, tenantId: args.tenant || args.tenantId, force }, { persistent: true })
       console.log(`Scheduled${force ? ' forced full' : ''} reindex for ${entity}`)
       return
     }
@@ -87,7 +87,7 @@ const reindex: ModuleCli = {
     const { E: All } = await import('@/generated/entities.ids.generated') as any
     const ids: string[] = Object.values(All).flatMap((o: any) => Object.values(o || {}))
     for (const id of ids) {
-      await bus.emitEvent('query_index.reindex', { entityType: id, organizationId: args.org || args.organizationId, tenantId: args.tenant || args.tenantId, force }, { persistent: true })
+      await bus.emitEvent('query_index.reindex', { entityType: id, tenantId: args.tenant || args.tenantId, force }, { persistent: true })
     }
     console.log(`Scheduled${force ? ' forced full' : ''} reindex for ${ids.length} entities`)
   },

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { User, Role, UserRole, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -360,6 +360,7 @@ export async function DELETE(req: Request) {
   if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const deletedOrgId = user.organizationId ? String(user.organizationId) : null
   const deletedTenantId = user.tenantId ? String(user.tenantId) : null
+  await em.nativeDelete(UserAcl, { user: user as any })
   await em.nativeDelete(UserRole, { user: user as any })
   await em.removeAndFlush(user)
   if (bus) {
