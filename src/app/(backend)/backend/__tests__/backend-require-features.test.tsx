@@ -17,6 +17,12 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: (props: any) => React.createElement('form', null, React.createElement('div', null, 'CrudFormMock')),
 }))
 
+const cookieStore = { get: jest.fn() }
+const cookiesMock = jest.fn(() => cookieStore)
+jest.mock('next/headers', () => ({
+  cookies: () => cookiesMock(),
+}))
+
 // Mock registry to return a match with requireFeatures
 jest.mock('@open-mercato/shared/modules/registry', () => ({
   findBackendMatch: jest.fn(() => ({
@@ -54,6 +60,9 @@ describe('Backend requireFeatures guard', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    cookieStore.get.mockReset()
+    cookieStore.get.mockReturnValue(undefined)
+    cookiesMock.mockClear()
   })
 
   it('renders component when features are satisfied', async () => {
@@ -84,5 +93,3 @@ describe('Backend requireFeatures guard', () => {
     ).rejects.toThrow(/REDIRECT \/login\?requireFeature=/)
   })
 })
-
-
