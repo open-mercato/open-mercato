@@ -8,6 +8,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 // Extensions and custom fields will be added iteratively.
 
 export class BasicQueryEngine implements QueryEngine {
+  private columnCache = new Map<string, boolean>()
+
   constructor(private em: EntityManager, private getKnexFn?: () => any) {}
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
@@ -45,20 +47,22 @@ export class BasicQueryEngine implements QueryEngine {
 
     // Filters (base fields handled here; cf:* handled later)
     for (const f of arrayFilters) {
-      const col = f.field.startsWith('cf:') ? null : f.field
-      if (!col) continue
+      if (f.field.startsWith('cf:')) continue
+      const column = await this.resolveBaseColumn(table, f.field)
+      if (!column) continue
+      const qualified = qualify(column)
       switch (f.op) {
-        case 'eq': q = q.where(qualify(col), f.value); break
-        case 'ne': q = q.whereNot(qualify(col), f.value); break
-        case 'gt': q = q.where(qualify(col), '>', f.value); break
-        case 'gte': q = q.where(qualify(col), '>=', f.value); break
-        case 'lt': q = q.where(qualify(col), '<', f.value); break
-        case 'lte': q = q.where(qualify(col), '<=', f.value); break
-        case 'in': q = q.whereIn(qualify(col), f.value ?? []); break
-        case 'nin': q = q.whereNotIn(qualify(col), f.value ?? []); break
-        case 'like': q = q.where(qualify(col), 'like', f.value); break
-        case 'ilike': q = q.where(qualify(col), 'ilike', f.value); break
-        case 'exists': f.value ? q = q.whereNotNull(qualify(col)) : q = q.whereNull(qualify(col)); break
+        case 'eq': q = q.where(qualified, f.value); break
+        case 'ne': q = q.whereNot(qualified, f.value); break
+        case 'gt': q = q.where(qualified, '>', f.value); break
+        case 'gte': q = q.where(qualified, '>=', f.value); break
+        case 'lt': q = q.where(qualified, '<', f.value); break
+        case 'lte': q = q.where(qualified, '<=', f.value); break
+        case 'in': q = q.whereIn(qualified, f.value ?? []); break
+        case 'nin': q = q.whereNotIn(qualified, f.value ?? []); break
+        case 'like': q = q.where(qualified, 'like', f.value); break
+        case 'ilike': q = q.where(qualified, 'ilike', f.value); break
+        case 'exists': f.value ? q = q.whereNotNull(qualified) : q = q.whereNull(qualified); break
       }
     }
     // Selection (base columns only here; cf:* handled later)
@@ -209,7 +213,9 @@ export class BasicQueryEngine implements QueryEngine {
         }
         q = q.orderBy(alias, s.dir ?? 'asc')
       } else {
-        q = q.orderBy(qualify(s.field), s.dir ?? 'asc')
+        const column = await this.resolveBaseColumn(table, s.field)
+        if (!column) continue
+        q = q.orderBy(qualify(column), s.dir ?? 'asc')
       }
     }
 
@@ -232,12 +238,22 @@ export class BasicQueryEngine implements QueryEngine {
     return { items, page, pageSize, total }
   }
 
+  private async resolveBaseColumn(table: string, field: string): Promise<string | null> {
+    if (await this.columnExists(table, field)) return field
+    if (field === 'organization_id' && await this.columnExists(table, 'id')) return 'id'
+    return null
+  }
+
   private async columnExists(table: string, column: string): Promise<boolean> {
+    const key = `${table}.${column}`
+    if (this.columnCache.has(key)) return this.columnCache.get(key)!
     const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
     const exists = await knex('information_schema.columns')
       .where({ table_name: table, column_name: column })
       .first()
-    return !!exists
+    const present = !!exists
+    this.columnCache.set(key, present)
+    return present
   }
 
   private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {

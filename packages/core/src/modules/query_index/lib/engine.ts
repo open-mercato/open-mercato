@@ -5,6 +5,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 
 export class HybridQueryEngine implements QueryEngine {
+  private columnCache = new Map<string, boolean>()
+
   constructor(private em: EntityManager, private fallback: BasicQueryEngine) {}
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
@@ -75,13 +77,21 @@ export class HybridQueryEngine implements QueryEngine {
 
     const columns = await this.getBaseColumnsForEntity(entity)
 
+    const resolveBaseColumn = (field: string): string | null => {
+      if (columns.has(field)) return field
+      if (field === 'organization_id' && columns.has('id')) return 'id'
+      return null
+    }
+
     // Base-field filters use real columns; cf:* use JSONB in index
     for (const f of arrayFilters) {
       if (f.field.startsWith('cf:')) {
         const key = f.field
         q = this.applyCfFilter(knex, q, key, f.op, f.value)
       } else {
-        const col = qualify(f.field)
+        const baseField = resolveBaseColumn(String(f.field))
+        if (!baseField) continue
+        const col = qualify(baseField)
         switch (f.op) {
           case 'eq': q = q.where(col, f.value); break
           case 'ne': q = q.whereNot(col, f.value); break
@@ -116,7 +126,9 @@ export class HybridQueryEngine implements QueryEngine {
         const expr = this.cfTextExpr(knex, String(s.field))
         q = q.orderBy(expr, s.dir ?? SortDir.Asc)
       } else {
-        q = q.orderBy(qualify(String(s.field)), s.dir ?? SortDir.Asc)
+        const baseField = resolveBaseColumn(String(s.field))
+        if (!baseField) continue
+        q = q.orderBy(qualify(baseField), s.dir ?? SortDir.Asc)
       }
     }
 
@@ -388,11 +400,15 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private async columnExists(table: string, column: string): Promise<boolean> {
+    const key = `${table}.${column}`
+    if (this.columnCache.has(key)) return this.columnCache.get(key)!
     const knex = (this.em as any).getConnection().getKnex()
     const exists = await knex('information_schema.columns')
       .where({ table_name: table, column_name: column })
       .first()
-    return !!exists
+    const present = !!exists
+    this.columnCache.set(key, present)
+    return present
   }
 
   private async getBaseColumnsForEntity(entity: string): Promise<Map<string, string>> {
