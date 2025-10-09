@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { AwilixContainer } from 'awilix'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -102,4 +103,36 @@ export async function resolveOrganizationScope({
     filterIds: filterSet ? Array.from(filterSet) : null,
     allowedIds: allowedSet ? Array.from(allowedSet) : null,
   }
+}
+
+export async function resolveOrganizationScopeForRequest({
+  container,
+  auth,
+  request,
+  selectedId,
+}: {
+  container: AwilixContainer
+  auth: AuthContext | null | undefined
+  request?: Request | { cookies?: { get: (name: string) => { value: string } | undefined } }
+  selectedId?: string | null
+}): Promise<OrganizationScope> {
+  if (!auth || !auth.tenantId || !auth.sub) {
+    return { selectedId: null, filterIds: null, allowedIds: null }
+  }
+
+  let em: EntityManager | null = null
+  let rbac: RbacService | null = null
+  try { em = container.resolve<EntityManager>('em') } catch { em = null }
+  try { rbac = container.resolve<RbacService>('rbacService') } catch { rbac = null }
+  if (!em || !rbac) {
+    const fallbackSelected = selectedId ?? auth.orgId ?? null
+    return {
+      selectedId: fallbackSelected,
+      filterIds: fallbackSelected ? [fallbackSelected] : null,
+      allowedIds: fallbackSelected ? [fallbackSelected] : null,
+    }
+  }
+
+  const reqSelected = selectedId ?? (request ? getSelectedOrganizationFromRequest(request as any) : null)
+  return resolveOrganizationScope({ em, rbac, auth, selectedId: reqSelected })
 }

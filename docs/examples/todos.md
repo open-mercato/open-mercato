@@ -124,3 +124,19 @@ Usage:
 This appends controls for all custom fields marked `filterable` in their definitions (boolean → checkbox, select → dropdown; multi-select uses a checkbox list, text-like kinds → text input). Selected values should be mapped to query params as `cf_<key>` or `cf_<key>In` for multi.
 
 Note: `customFieldFiltersEntityId` has been renamed to `entityId`.
+
+### Organization scope refresh
+
+When a user changes the active organization from the global switcher, the app now emits a browser event so client components can immediately refetch their data without waiting for a full page reload. The helpers live in `@/lib/frontend/organizationEvents`:
+
+```ts
+import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
+
+React.useEffect(() => {
+  return subscribeOrganizationScopeChanged(() => {
+    refetchTodos()
+  })
+}, [refetchTodos])
+```
+
+The event detail includes the selected organization id (or `null` for “All organizations”). `DataTable` already subscribes internally and calls `router.refresh()`, so any list rendered with it will refresh as soon as the user picks another organization.

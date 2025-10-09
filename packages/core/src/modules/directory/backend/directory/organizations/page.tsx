@@ -2,7 +2,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -38,6 +38,19 @@ type OrganizationsResponse = {
   totalPages: number
 }
 
+const TREE_BASE_INDENT = 18
+const TREE_STEP_INDENT = 14
+
+function formatTreeLabel(name: string, depth: number): string {
+  if (depth <= 0) return name
+  return `${'\u00A0'.repeat(Math.max(0, (depth - 1) * 2))}↳ ${name}`
+}
+
+function computeIndent(depth: number): number {
+  if (depth <= 0) return 0
+  return TREE_BASE_INDENT + (depth - 1) * TREE_STEP_INDENT
+}
+
 const columns: ColumnDef<OrganizationRow>[] = [
   {
     accessorKey: 'name',
@@ -45,9 +58,11 @@ const columns: ColumnDef<OrganizationRow>[] = [
     cell: ({ row }) => {
       const depth = row.original.depth ?? 0
       return (
-        <div className="flex items-center">
-          <span style={{ marginLeft: depth * 16 }} className="font-medium text-sm leading-none">
-            {row.original.name}
+        <div className="flex items-center text-sm font-medium leading-none text-foreground">
+          <span
+            style={{ marginLeft: computeIndent(depth), whiteSpace: 'pre' }}
+          >
+            {formatTreeLabel(row.original.name, depth)}
           </span>
         </div>
       )
@@ -85,7 +100,6 @@ const columns: ColumnDef<OrganizationRow>[] = [
 
 export default function DirectoryOrganizationsPage() {
   const queryClient = useQueryClient()
-  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
   const [page, setPage] = React.useState(1)
   const [status, setStatus] = React.useState<string>('all')
   const [search, setSearch] = React.useState('')
@@ -118,13 +132,11 @@ export default function DirectoryOrganizationsPage() {
     params.set('view', 'manage')
     params.set('page', String(page))
     params.set('pageSize', '50')
-    params.set('sortField', sorting[0]?.id || 'name')
-    params.set('sortDir', sorting[0]?.desc ? 'desc' : 'asc')
     params.set('status', status)
     if (status !== 'active') params.set('includeInactive', 'true')
     if (search) params.set('search', search)
     return params.toString()
-  }, [page, sorting, status, search])
+  }, [page, status, search])
 
   const { data, isLoading } = useQuery<OrganizationsResponse>({
     queryKey: ['directory-organizations', queryParams],
@@ -187,9 +199,7 @@ export default function DirectoryOrganizationsPage() {
             setStatus('all')
             setPage(1)
           }}
-          sortable
-          sorting={sorting}
-          onSortingChange={(next) => { setSorting(next); setPage(1) }}
+          sortable={false}
           rowActions={(row) => (
             canManage ? (
               <RowActions
@@ -207,4 +217,3 @@ export default function DirectoryOrganizationsPage() {
     </Page>
   )
 }
-

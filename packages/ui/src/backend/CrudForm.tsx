@@ -39,7 +39,7 @@ export type CrudBuiltinField = CrudFieldBase & {
   options?: CrudFieldOption[]
   multiple?: boolean
   // for relation/select style fields; if provided, options are loaded on mount
-  loadOptions?: () => Promise<CrudFieldOption[]>
+  loadOptions?: (query?: string) => Promise<CrudFieldOption[]>
   // when type === 'richtext', choose editor implementation
   editor?: 'simple' | 'uiw' | 'html'
 }
@@ -549,7 +549,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     let cancelled = false
     const loadAll = async () => {
       const loaders = allFields
-        .filter((f): f is CrudBuiltinField & { loadOptions: () => Promise<CrudFieldOption[]> } =>
+        .filter((f): f is CrudBuiltinField & { loadOptions: (query?: string) => Promise<CrudFieldOption[]> } =>
           (f as any).loadOptions != null
         )
         .map(async (f) => {
@@ -568,6 +568,58 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     }
   }, [allFields])
 
+  const loadFieldOptions = React.useCallback(async (field: CrudField, query?: string): Promise<CrudFieldOption[]> => {
+    if (!('type' in field) || field.type === 'custom') return EMPTY_OPTIONS
+    const builtin = field as CrudBuiltinField
+    const loader = (builtin as any).loadOptions
+    if (typeof loader === 'function') {
+      if (query === undefined && Array.isArray(dynamicOptions[field.id])) return dynamicOptions[field.id]
+      try {
+        const fetched = await loader(query)
+        if (query === undefined) {
+          setDynamicOptions((prev) => ({
+            ...prev,
+            [field.id]: fetched,
+          }))
+        }
+        return fetched
+      } catch {
+        return builtin.options ?? EMPTY_OPTIONS
+      }
+    }
+    return dynamicOptions[field.id] || builtin.options || EMPTY_OPTIONS
+  }, [dynamicOptions])
+
+  const fieldOptionsById = React.useMemo(() => {
+    const map = new Map<string, CrudFieldOption[]>()
+    for (const f of allFields) {
+      if (!('type' in f) || f.type === 'custom') continue
+      const builtin = f as CrudBuiltinField
+      const staticOptions = builtin.options ?? EMPTY_OPTIONS
+      const dynamic = dynamicOptions[f.id]
+      if (dynamic && dynamic.length) {
+        const merged: CrudFieldOption[] = []
+        const seen = new Set<string>()
+        for (const opt of staticOptions) {
+          if (seen.has(opt.value)) continue
+          seen.add(opt.value)
+          merged.push(opt)
+        }
+        for (const opt of dynamic) {
+          if (seen.has(opt.value)) continue
+          seen.add(opt.value)
+          merged.push(opt)
+        }
+        map.set(f.id, merged)
+      } else if (staticOptions.length) {
+        map.set(f.id, staticOptions)
+      } else if (dynamic) {
+        map.set(f.id, dynamic)
+      }
+    }
+    return map
+  }, [allFields, dynamicOptions])
+
   // no auto-focus; let the browser/user manage focus
 
   const grid = twoColumn ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4' : 'grid grid-cols-1 gap-4'
@@ -579,12 +631,19 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     options: CrudFieldOption[]
     idx: number
     setValue: (id: string, v: any) => void
+    loadFieldOptions: (field: CrudField, query?: string) => Promise<CrudFieldOption[]>
   }
 
-  const FieldControl = React.useMemo(() => React.memo(function FieldControlImpl({ f, value, error, options, idx, setValue }: FieldControlProps) {
+  const FieldControl = React.useMemo(() => React.memo(function FieldControlImpl({ f, value, error, options, idx, setValue, loadFieldOptions }: FieldControlProps) {
     // Memoize the setValue callback for this specific field to prevent unnecessary re-renders
     const fieldSetValue = React.useCallback((v: any) => setValue(f.id, v), [setValue, f.id])
-    
+    const hasLoader = typeof (f as any).loadOptions === 'function'
+
+    React.useEffect(() => {
+      if (!hasLoader) return
+      loadFieldOptions(f).catch(() => {})
+    }, [hasLoader, f, loadFieldOptions])
+
     return (
       <div className="space-y-1">
         {f.type !== 'checkbox' ? (
@@ -615,7 +674,18 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
         )}
         {f.type === 'tags' && (
-          <TagsInput value={Array.isArray(value) ? (value as string[]) : []} onChange={fieldSetValue} placeholder={(f as any).placeholder} suggestions={options.map((o) => o.label)} />
+          <TagsInput
+            value={Array.isArray(value) ? (value as string[]) : []}
+            onChange={fieldSetValue}
+            placeholder={(f as any).placeholder}
+            suggestions={options.map((o) => o.label)}
+            loadSuggestions={typeof (f as any).loadOptions === 'function'
+              ? async (query?: string) => {
+                  const opts = await loadFieldOptions(f, query)
+                  return opts.map((opt) => opt.label)
+                }
+              : undefined}
+          />
         )}
         {f.type === 'checkbox' && (
           <label className="inline-flex items-center gap-2">
@@ -688,7 +758,8 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       prev.f.required === next.f.required &&
       prev.value === next.value && 
       prev.error === next.error && 
-      prev.options === next.options
+      prev.options === next.options &&
+      prev.loadFieldOptions === next.loadFieldOptions
     )
   }), [])
 
@@ -701,11 +772,12 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           f={f}
           value={values[f.id]}
           error={errors[f.id]}
-              options={(f as CrudBuiltinField).options || dynamicOptions[f.id] || EMPTY_OPTIONS}
-              idx={idx}
-              setValue={setValue}
-            />
-          ))}
+          options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
+          idx={idx}
+          setValue={setValue}
+          loadFieldOptions={loadFieldOptions}
+        />
+      ))}
     </div>
   )
 
@@ -950,9 +1022,10 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                   f={f}
                   value={values[f.id]}
                   error={errors[f.id]}
-                  options={(f as CrudBuiltinField).options || dynamicOptions[f.id] || EMPTY_OPTIONS}
+                  options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
                   idx={idx}
                   setValue={setValue}
+                  loadFieldOptions={loadFieldOptions}
                 />
               ))}
             </div>
@@ -987,13 +1060,18 @@ function TagsInput({
   onChange,
   placeholder,
   suggestions,
+  loadSuggestions,
 }: {
   value: string[]
   onChange: (v: string[]) => void
   placeholder?: string
   suggestions?: string[]
+  loadSuggestions?: (q?: string) => Promise<string[]>
 }) {
   const [input, setInput] = React.useState('')
+  const [asyncSugg, setAsyncSugg] = React.useState<string[] | null>(null)
+  const [loading, setLoading] = React.useState(false)
+  const [touched, setTouched] = React.useState(false)
 
   const add = (v: string) => {
     const t = v.trim()
@@ -1002,11 +1080,32 @@ function TagsInput({
   }
   const remove = (t: string) => onChange(value.filter((x) => x !== t))
 
-  const sugg = React.useMemo(() => {
-    const s = (suggestions || []).filter((t) => !value.includes(t))
+  React.useEffect(() => {
+    if (!loadSuggestions || !touched) return
+    const q = input.trim()
+    let cancelled = false
+    const handle = window.setTimeout(async () => {
+      setLoading(true)
+      try {
+        const items = await loadSuggestions(q)
+        if (!cancelled) setAsyncSugg(items)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }, 200)
+    return () => {
+      cancelled = true
+      window.clearTimeout(handle)
+    }
+  }, [input, loadSuggestions, touched])
+
+  const merged = React.useMemo(() => {
+    const base = asyncSugg ?? suggestions ?? []
+    const unique = Array.from(new Set(base))
+    const withoutSelected = unique.filter((t) => !value.includes(t))
     const q = input.toLowerCase().trim()
-    return q ? s.filter((t) => t.toLowerCase().includes(q)) : s.slice(0, 8)
-  }, [suggestions, value, input])
+    return q ? withoutSelected.filter((t) => t.toLowerCase().includes(q)) : withoutSelected.slice(0, 8)
+  }, [asyncSugg, suggestions, value, input])
 
   return (
     <div className="w-full rounded border px-2 py-1">
@@ -1026,7 +1125,8 @@ function TagsInput({
           className="flex-1 min-w-[120px] border-0 outline-none py-1 text-sm"
           value={input}
           placeholder={placeholder || 'Add tag and press Enter'}
-          onChange={(e) => setInput(e.target.value)}
+          onFocus={() => setTouched(true)}
+          onChange={(e) => { setTouched(true); setInput(e.target.value) }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ',') {
               e.preventDefault()
@@ -1041,9 +1141,12 @@ function TagsInput({
             setInput('')
           }}
         />
-        {sugg.length ? (
+        {(loading && touched) ? (
+          <div className="basis-full mt-1 text-xs text-muted-foreground">Loading suggestions…</div>
+        ) : null}
+        {!loading && merged.length ? (
           <div className="basis-full mt-1 flex flex-wrap gap-1">
-            {sugg.map((t) => (
+            {merged.map((t) => (
               <button key={t} type="button" className="text-xs rounded border px-1.5 py-0.5 hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => add(t)}>
                 {t}
               </button>

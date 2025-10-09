@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   organizationCreateSchema,
   organizationUpdateSchema,
@@ -50,6 +52,32 @@ function buildPathLabel(node: ComputedOrganizationNode, hierarchy: Map<string, C
   return labels.join(' / ')
 }
 
+type SplitBodyResult = { base: Record<string, any>; custom: Record<string, any> }
+
+function splitCustomFieldPayload(raw: any): SplitBodyResult {
+  const base: Record<string, any> = {}
+  const custom: Record<string, any> = {}
+  if (!raw || typeof raw !== 'object') return { base, custom }
+  for (const [key, value] of Object.entries(raw)) {
+    if (key === 'customFields' && value && typeof value === 'object') {
+      for (const [ck, cv] of Object.entries(value as Record<string, any>)) {
+        custom[String(ck)] = cv
+      }
+      continue
+    }
+    if (key.startsWith('cf_')) {
+      custom[key.slice(3)] = value
+      continue
+    }
+    if (key.startsWith('cf:')) {
+      custom[key.slice(3)] = value
+      continue
+    }
+    base[key] = value
+  }
+  return { base, custom }
+}
+
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['directory.organizations.view'] },
   POST: { requireAuth: true, requireFeatures: ['directory.organizations.manage'] },
@@ -63,8 +91,8 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   const parsed = viewSchema.safeParse({
-    page: url.searchParams.get('page'),
-    pageSize: url.searchParams.get('pageSize'),
+    page: url.searchParams.get('page') ?? undefined,
+    pageSize: url.searchParams.get('pageSize') ?? undefined,
     search: url.searchParams.get('search') ?? undefined,
     view: url.searchParams.get('view') ?? undefined,
     ids: url.searchParams.get('ids') ?? undefined,
@@ -215,8 +243,9 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const auth = getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const body = await req.json().catch(() => ({}))
-  const parsed = organizationCreateSchema.safeParse(body)
+  const rawBody = await req.json().catch(() => ({}))
+  const { base, custom } = splitCustomFieldPayload(rawBody)
+  const parsed = organizationCreateSchema.safeParse(base)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
 
   const tenantId = auth.tenantId ?? parsed.data.tenantId ?? null
@@ -273,6 +302,15 @@ export async function POST(req: Request) {
   }
 
   await em.flush()
+  if (Object.keys(custom).length) {
+    await setRecordCustomFields(em, {
+      entityId: E.directory.organization,
+      recordId: id,
+      tenantId,
+      organizationId: id,
+      values: custom,
+    })
+  }
   await rebuildHierarchyForTenant(em, tenantId)
   return NextResponse.json({ id })
 }
@@ -280,8 +318,9 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   const auth = getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const body = await req.json().catch(() => ({}))
-  const parsed = organizationUpdateSchema.safeParse(body)
+  const rawBody = await req.json().catch(() => ({}))
+  const { base, custom } = splitCustomFieldPayload(rawBody)
+  const parsed = organizationUpdateSchema.safeParse(base)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
 
   const { resolve } = await createRequestContainer()
@@ -355,6 +394,15 @@ export async function PUT(req: Request) {
   }
 
   await em.flush()
+  if (Object.keys(custom).length) {
+    await setRecordCustomFields(em, {
+      entityId: E.directory.organization,
+      recordId: String(org.id),
+      tenantId,
+      organizationId: String(org.id),
+      values: custom,
+    })
+  }
   await rebuildHierarchyForTenant(em, tenantId)
   return NextResponse.json({ ok: true })
 }

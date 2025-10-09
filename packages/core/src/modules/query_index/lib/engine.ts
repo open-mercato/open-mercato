@@ -23,6 +23,7 @@ export class HybridQueryEngine implements QueryEngine {
 
     // Heuristic: if query needs cf:* but index is not fully populated for this scope, fall back
     const arrayFilters = this.normalizeFilters(opts.filters)
+    const orgScope = this.resolveOrganizationScope(opts)
     const wantsCf = (
       (opts.fields || []).some((f) => typeof f === 'string' && f.startsWith('cf:')) ||
       arrayFilters.some((f) => f.field.startsWith('cf:')) ||
@@ -53,8 +54,8 @@ export class HybridQueryEngine implements QueryEngine {
     // Require tenant scope for all queries
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
     // Optional organizationId filter on base when column exists
-    if (opts.organizationId && (await this.columnExists(baseTable, 'organization_id'))) {
-      q = q.where(qualify('organization_id'), opts.organizationId)
+    if (orgScope && (await this.columnExists(baseTable, 'organization_id'))) {
+      q = this.applyOrganizationScope(q, qualify('organization_id'), orgScope)
     }
     if (await this.columnExists(baseTable, 'tenant_id')) {
       q = q.where(qualify('tenant_id'), opts.tenantId)
@@ -198,10 +199,14 @@ export class HybridQueryEngine implements QueryEngine {
     const alias = 'ce'
     let q = knex({ [alias]: 'custom_entities_storage' }).where(`${alias}.entity_type`, entity)
 
+    const orgScope = this.resolveOrganizationScope(opts)
+
     // Require tenant scope; custom entities are tenant-scoped only
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
     q = q.andWhere(`${alias}.tenant_id`, opts.tenantId)
-    // Organization scope intentionally ignored for custom entities (tenant-scoped only)
+    if (orgScope) {
+      q = this.applyOrganizationScope(q, `${alias}.organization_id`, orgScope)
+    }
     if (!opts.withDeleted) q = q.whereNull(`${alias}.deleted_at`)
 
     const normalizeFilters = this.normalizeFilters(opts.filters)
@@ -230,6 +235,8 @@ export class HybridQueryEngine implements QueryEngine {
       }
       if (col === 'id') applyCol(`${alias}.entity_id`)
       else if (col === 'created_at' || col === 'updated_at' || col === 'deleted_at') applyCol(`${alias}.${col}`)
+      else if (col === 'organization_id' || col === 'organizationId') applyCol(`${alias}.organization_id`)
+      else if (col === 'tenant_id' || col === 'tenantId') applyCol(`${alias}.tenant_id`)
       else {
         // From doc
         const textExpr = knex.raw(`(${alias}.doc ->> ?)`, [col])
@@ -354,9 +361,11 @@ export class HybridQueryEngine implements QueryEngine {
     const knex = (this.em as any).getConnection().getKnex()
 
     // Base count within scope (org/tenant/soft-delete)
+    const orgScope = this.resolveOrganizationScope(opts)
+
     let bq = knex({ b: baseTable }).clearSelect().clearOrder()
-    if (opts.organizationId && (await this.columnExists(baseTable, 'organization_id'))) {
-      bq = bq.where('b.organization_id', opts.organizationId)
+    if (orgScope && (await this.columnExists(baseTable, 'organization_id'))) {
+      bq = this.applyOrganizationScope(bq, 'b.organization_id', orgScope)
     }
     if (opts.tenantId && (await this.columnExists(baseTable, 'tenant_id'))) {
       bq = bq.where('b.tenant_id', opts.tenantId)
@@ -370,7 +379,7 @@ export class HybridQueryEngine implements QueryEngine {
     // Index count within same scope
     let iq = knex({ ei: 'entity_indexes' }).clearSelect().clearOrder().where('ei.entity_type', entity)
     if (!opts.withDeleted) iq = iq.whereNull('ei.deleted_at')
-    if (opts.organizationId) iq = iq.where('ei.organization_id', opts.organizationId)
+    if (orgScope) iq = this.applyOrganizationScope(iq, 'ei.organization_id', orgScope)
     if (opts.tenantId) iq = iq.where('ei.tenant_id', opts.tenantId)
     const idxRow = await iq.countDistinct('ei.entity_id as count').first()
     const indexedCount = Number((idxRow as any)?.count ?? 0)
@@ -419,6 +428,40 @@ export class HybridQueryEngine implements QueryEngine {
         // For custom fields or unknown, use plain text comparison (works for LIKE/ILIKE/eq)
         return knex.raw(textExpr)
     }
+  }
+
+  private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {
+    if (opts.organizationIds !== undefined) {
+      const raw = (opts.organizationIds ?? []).map((id) => (typeof id === 'string' ? id.trim() : id))
+      const includeNull = raw.some((id) => id == null || id === '')
+      const ids = raw.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      const unique = Array.from(new Set(ids))
+      return { ids: unique, includeNull }
+    }
+    if (typeof opts.organizationId === 'string' && opts.organizationId.trim().length > 0) {
+      return { ids: [opts.organizationId], includeNull: false }
+    }
+    return null
+  }
+
+  private applyOrganizationScope(q: any, column: string, scope: { ids: string[]; includeNull: boolean }): any {
+    if (!scope) return q
+    if (scope.ids.length === 0 && !scope.includeNull) {
+      return q.whereRaw('1 = 0')
+    }
+    return q.where((builder: any) => {
+      let applied = false
+      if (scope.ids.length > 0) {
+        builder.whereIn(column as any, scope.ids)
+        applied = true
+      }
+      if (scope.includeNull) {
+        if (applied) builder.orWhereNull(column)
+        else builder.whereNull(column)
+        applied = true
+      }
+      if (!applied) builder.whereRaw('1 = 0')
+    })
   }
 
   private normalizeFilters(filters?: QueryOptions['filters']): { field: string; op: any; value?: any }[] {

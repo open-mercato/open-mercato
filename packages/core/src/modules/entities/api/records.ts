@@ -56,9 +56,7 @@ export async function GET(req: Request) {
       const found = await em.findOne(CustomEntity as any, { entityId, isActive: true })
       isCustomEntity = !!found
     } catch {}
-    if (isCustomEntity) {
-      organizationIds = null
-    } else if (organizationIds && organizationIds.length === 0) {
+    if (organizationIds && organizationIds.length === 0) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 0 })
     }
     // Build filters with awareness of custom-entity mode

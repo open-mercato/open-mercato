@@ -18,6 +18,7 @@ export class BasicQueryEngine implements QueryEngine {
 
     let q = knex(table)
     const qualify = (col: string) => `${table}.${col}`
+    const orgScope = this.resolveOrganizationScope(opts)
     // Require tenant scope for all queries
     if (!opts.tenantId) {
       throw new Error(
@@ -27,10 +28,8 @@ export class BasicQueryEngine implements QueryEngine {
       )
     }
     // Optional organization filter (when present in schema)
-    if (opts.organizationId) {
-      if (await this.columnExists(table, 'organization_id')) {
-        q = q.where(qualify('organization_id'), opts.organizationId)
-      }
+    if (orgScope && await this.columnExists(table, 'organization_id')) {
+      q = this.applyOrganizationScope(q, qualify('organization_id'), orgScope)
     }
     // Tenant guard (required) when present in schema
     if (await this.columnExists(table, 'tenant_id')) {
@@ -238,6 +237,39 @@ export class BasicQueryEngine implements QueryEngine {
       .where({ table_name: table, column_name: column })
       .first()
     return !!exists
+  }
+
+  private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {
+    if (opts.organizationIds !== undefined) {
+      const raw = (opts.organizationIds ?? []).map((id) => (typeof id === 'string' ? id.trim() : id))
+      const includeNull = raw.some((id) => id == null || id === '')
+      const ids = raw.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      return { ids: Array.from(new Set(ids)), includeNull }
+    }
+    if (typeof opts.organizationId === 'string' && opts.organizationId.trim().length > 0) {
+      return { ids: [opts.organizationId], includeNull: false }
+    }
+    return null
+  }
+
+  private applyOrganizationScope(q: any, column: string, scope: { ids: string[]; includeNull: boolean }): any {
+    if (!scope) return q
+    if (scope.ids.length === 0 && !scope.includeNull) {
+      return q.whereRaw('1 = 0')
+    }
+    return q.where((builder: any) => {
+      let applied = false
+      if (scope.ids.length > 0) {
+        builder.whereIn(column as any, scope.ids)
+        applied = true
+      }
+      if (scope.includeNull) {
+        if (applied) builder.orWhereNull(column)
+        else builder.whereNull(column)
+        applied = true
+      }
+      if (!applied) builder.whereRaw('1 = 0')
+    })
   }
 
   private normalizeFilters(filters?: QueryOptions['filters']): { field: string; op: any; value?: any }[] {

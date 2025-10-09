@@ -14,68 +14,80 @@ type OrganizationMenuNode = {
   name: string
   depth: number
   selectable: boolean
+  path: string[]
   children: OrganizationMenuNode[]
 }
 
-function buildOrganizationMenu(hierarchy: ComputedHierarchy, accessible: string[] | null): { nodes: OrganizationMenuNode[]; selectableIds: Set<string> } {
-  const nodes: OrganizationMenuNode[] = []
+function buildOrganizationMenu(
+  hierarchy: ComputedHierarchy,
+  accessible: string[] | null
+): { nodes: OrganizationMenuNode[]; selectableIds: Set<string> } {
+  const roots: OrganizationMenuNode[] = []
   const selectableIds = new Set<string>()
-  if (!hierarchy.ordered.length) return { nodes, selectableIds }
+  if (!hierarchy.ordered.length) return { nodes: roots, selectableIds }
 
-  if (accessible === null) {
-    const nodeMap = new Map<string, OrganizationMenuNode>()
-    for (const node of hierarchy.ordered) {
-      selectableIds.add(node.id)
-      const menuNode: OrganizationMenuNode = {
-        id: node.id,
-        name: node.name,
-        depth: node.depth,
-        selectable: true,
-        children: [],
-      }
-      nodeMap.set(node.id, menuNode)
-      if (node.parentId && nodeMap.has(node.parentId)) {
-        nodeMap.get(node.parentId)!.children.push(menuNode)
-      } else {
-        nodes.push(menuNode)
-      }
-    }
-    return { nodes, selectableIds }
-  }
-
-  const accessibleSet = new Set(accessible)
+  // Determine which nodes to include and which are selectable
   const includeSet = new Set<string>()
-  for (const id of accessibleSet) {
-    const node = hierarchy.map.get(id)
-    if (!node) continue
-    includeSet.add(id)
-    selectableIds.add(id)
-    for (const desc of node.descendantIds) {
-      includeSet.add(desc)
-      selectableIds.add(desc)
+  if (accessible === null) {
+    for (const node of hierarchy.ordered) {
+      includeSet.add(node.id)
+      selectableIds.add(node.id)
     }
-    for (const anc of node.ancestorIds) includeSet.add(anc)
+  } else {
+    const accessibleSet = new Set(accessible)
+    for (const id of accessibleSet) {
+      const node = hierarchy.map.get(id)
+      if (!node) continue
+      includeSet.add(id)
+      selectableIds.add(id)
+      for (const desc of node.descendantIds) {
+        includeSet.add(desc)
+        selectableIds.add(desc)
+      }
+      for (const anc of node.ancestorIds) includeSet.add(anc)
+    }
   }
 
-  const nodeMap = new Map<string, OrganizationMenuNode>()
+  const menuNodes = new Map<string, OrganizationMenuNode>()
+  const buildPath = (nodeId: string): string[] => {
+    const computed = hierarchy.map.get(nodeId)
+    if (!computed) return []
+    const pathParts = computed.ancestorIds
+      .map((id) => hierarchy.map.get(id)?.name)
+      .filter((name): name is string => !!name)
+    pathParts.push(computed.name)
+    return pathParts
+  }
+
   for (const node of hierarchy.ordered) {
     if (!includeSet.has(node.id)) continue
     const menuNode: OrganizationMenuNode = {
       id: node.id,
       name: node.name,
       depth: node.depth,
-      selectable: selectableIds.has(node.id),
+      selectable: accessible === null ? true : selectableIds.has(node.id),
+      path: buildPath(node.id),
       children: [],
     }
-    nodeMap.set(node.id, menuNode)
-    if (node.parentId && nodeMap.has(node.parentId)) {
-      nodeMap.get(node.parentId)!.children.push(menuNode)
-    } else {
-      nodes.push(menuNode)
+    menuNodes.set(node.id, menuNode)
+  }
+
+  const ensureChild = (parent: OrganizationMenuNode, child: OrganizationMenuNode) => {
+    if (!parent.children.some((existing) => existing.id === child.id)) parent.children.push(child)
+  }
+
+  for (const node of hierarchy.ordered) {
+    if (!includeSet.has(node.id)) continue
+    const menuNode = menuNodes.get(node.id)!
+    const parentId = node.parentId
+    if (parentId && menuNodes.has(parentId)) {
+      ensureChild(menuNodes.get(parentId)!, menuNode)
+    } else if (!roots.some((existing) => existing.id === menuNode.id)) {
+      roots.push(menuNode)
     }
   }
 
-  return { nodes, selectableIds }
+  return { nodes: roots, selectableIds }
 }
 
 export default async function BackendLayout({ children, params }: { children: React.ReactNode; params?: { slug?: string[] } }) {

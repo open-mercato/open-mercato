@@ -12,12 +12,27 @@ const em = {
   create: (_cls: any, data: any) => ({ ...data, id: `id-${idSeq++}` }),
   persistAndFlush: async (entity: Rec) => { db[entity.id] = { ...(db[entity.id] || {} as any), ...entity } },
   getRepository: (_cls: any) => ({
-    find: async (where: any) => Object.values(db).filter((r) =>
-      (!where.organizationId || r.organizationId === where.organizationId) &&
-      (!where.tenantId || r.tenantId === where.tenantId) &&
-      (where.deletedAt === null ? !r.deletedAt : true)
-    ),
-    findOne: async (where: any) => Object.values(db).find((r) => r.id === where.id && r.organizationId === where.organizationId && r.tenantId === where.tenantId) || null,
+    find: async (where: any) => Object.values(db).filter((r) => {
+      const orgClause = where.organizationId
+      const matchesOrg = !orgClause
+        ? true
+        : (typeof orgClause === 'object' && Array.isArray(orgClause.$in))
+          ? orgClause.$in.includes(r.organizationId)
+          : r.organizationId === orgClause
+      const matchesTenant = !where.tenantId || r.tenantId === where.tenantId
+      const matchesDeleted = where.deletedAt === null ? !r.deletedAt : true
+      return matchesOrg && matchesTenant && matchesDeleted
+    }),
+    findOne: async (where: any) => Object.values(db).find((r) => {
+      if (r.id !== where.id) return false
+      const orgClause = where.organizationId
+      const matchesOrg = !orgClause
+        ? true
+        : (typeof orgClause === 'object' && Array.isArray(orgClause.$in))
+          ? orgClause.$in.includes(r.organizationId)
+          : r.organizationId === orgClause
+      return matchesOrg && r.tenantId === where.tenantId
+    }) || null,
     removeAndFlush: async (entity: Rec) => { delete db[entity.id] },
   }),
 }

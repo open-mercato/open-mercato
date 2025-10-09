@@ -8,6 +8,21 @@ import { Spinner } from '../primitives/spinner'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { fetchCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { type RowActionItem } from './RowActions'
+import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
+
+let refreshScheduled = false
+function scheduleRouterRefresh(router: ReturnType<typeof useRouter>) {
+  if (refreshScheduled) return
+  refreshScheduled = true
+  if (typeof window === 'undefined') {
+    refreshScheduled = false
+    return
+  }
+  window.requestAnimationFrame(() => {
+    refreshScheduled = false
+    try { router.refresh() } catch {}
+  })
+}
 
 export type PaginationProps = {
   page: number
@@ -57,6 +72,9 @@ export type DataTableProps<T> = {
 
 export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId }: DataTableProps<T>) {
   const router = useRouter()
+  React.useEffect(() => {
+    return subscribeOrganizationScopeChanged(() => scheduleRouterRefresh(router))
+  }, [router])
   // Date formatting setup
   const DATE_FORMAT = (process.env.NEXT_PUBLIC_DATE_FORMAT || 'YYYY-MM-DD HH:mm') as string
 

@@ -2,18 +2,21 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { emitOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
 
 type OrganizationMenuNode = {
   id: string
   name: string
   depth: number
   selectable: boolean
+  path: string[]
   children: OrganizationMenuNode[]
 }
 
 type FlatOption = {
   value: string
-  label: string
+  name: string
+  path: string[]
   selectable: boolean
   depth: number
 }
@@ -24,10 +27,20 @@ type OrganizationSwitcherProps = {
   canManage: boolean
 }
 
-function flatten(nodes: OrganizationMenuNode[], acc: FlatOption[] = []): FlatOption[] {
+function flatten(
+  nodes: OrganizationMenuNode[],
+  acc: FlatOption[] = [],
+  seen: Set<string> = new Set()
+): FlatOption[] {
   for (const node of nodes) {
-    acc.push({ value: node.id, label: node.name, selectable: node.selectable, depth: node.depth })
-    if (node.children.length) flatten(node.children, acc)
+    if (!seen.has(node.id)) {
+      seen.add(node.id)
+      const path = Array.isArray(node.path) && node.path.length ? node.path : [node.name]
+      acc.push({ value: node.id, name: node.name, path, selectable: node.selectable, depth: node.depth })
+    }
+    if (node.children.length) {
+      flatten(node.children, acc, seen)
+    }
   }
   return acc
 }
@@ -47,6 +60,7 @@ export default function OrganizationSwitcher({ items, selectedId, canManage }: O
     } else {
       document.cookie = `om_selected_org=${encodeURIComponent(next)}; path=/; max-age=${maxAge}; samesite=lax`
     }
+    emitOrganizationScopeChanged({ organizationId: next || null })
     try { router.refresh() } catch {}
   }
 
@@ -54,7 +68,15 @@ export default function OrganizationSwitcher({ items, selectedId, canManage }: O
     return null
   }
 
-  const renderedOptions = [{ value: '', label: 'All organizations', selectable: true, depth: 0 }, ...options]
+  const renderedOptions = [
+    { value: '', label: 'All organizations', selectable: true, depth: 0 },
+    ...options.map((opt) => ({
+      value: opt.value,
+      label: opt.path.join(' / ') || opt.name,
+      selectable: opt.selectable,
+      depth: opt.depth,
+    })),
+  ]
 
   return (
     <div className="flex items-center gap-2 text-sm">

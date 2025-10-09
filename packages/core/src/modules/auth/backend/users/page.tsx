@@ -11,10 +11,6 @@ import { useQuery } from '@tanstack/react-query'
 
 type Row = { id: string; email: string; organizationId: string | null; organizationName?: string; roles: string[] }
 
-type OrganizationsResponse = {
-  items: Array<{ id: string; name: string }>
-}
-
 const columns: ColumnDef<Row>[] = [
   { accessorKey: 'email', header: 'Email' },
   { accessorKey: 'organizationName', header: 'Organization' },
@@ -48,26 +44,10 @@ export default function UsersListPage() {
   const rows = usersData?.items || []
   const total = usersData?.total || 0
   const totalPages = usersData?.totalPages || 1
-
-  // Fetch all organizations (filtered by tenant on server)
-  const { data: orgsData } = useQuery<OrganizationsResponse>({
-    queryKey: ['organizations'],
-    queryFn: async () => {
-      const res = await apiFetch('/api/directory/organizations')
-      return res.json()
-    },
-  })
-
-  // Merge organization names into user rows
-  const rowsWithOrgNames: Row[] = React.useMemo(() => {
-    const orgMap = orgsData?.items ? new Map(orgsData.items.map(o => [o.id, o.name])) : new Map()
-    return rows.map(row => ({
-      ...row,
-      organizationName: row.organizationId && orgMap.has(row.organizationId) 
-        ? orgMap.get(row.organizationId) 
-        : row.organizationId || undefined,
-    }))
-  }, [rows, orgsData])
+  const rowsWithOrgNames: Row[] = React.useMemo(() => rows.map(row => ({
+    ...row,
+    organizationName: row.organizationName ?? (row.organizationId ?? undefined),
+  })), [rows])
 
   return (
     <Page>
@@ -103,5 +83,4 @@ export default function UsersListPage() {
     </Page>
   )
 }
-
 

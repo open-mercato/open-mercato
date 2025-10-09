@@ -63,7 +63,7 @@ Common field properties:
 
 Select/relation properties:
 - `options: { value: string; label: string }[]`
-- `loadOptions?: () => Promise<{ value: string; label: string }[]>` (merged with `options` when loaded)
+- `loadOptions?: (query?: string) => Promise<{ value: string; label: string }[]>` (merged with `options` when loaded)
 
 ## Custom field renderer
 Use `type: 'custom'` to embed your own React component:

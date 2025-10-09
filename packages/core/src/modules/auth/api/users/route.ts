@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -71,7 +72,37 @@ export async function GET(req: Request) {
     if (!roleMap[uid]) roleMap[uid] = []
     if (rname) roleMap[uid].push(rname)
   }
-  const items = rows.map((u: any) => ({ id: String(u.id), email: String(u.email), organizationId: u.organizationId ? String(u.organizationId) : null, tenantId: u.tenantId ? String(u.tenantId) : null, roles: roleMap[String(u.id)] || [] }))
+  const orgIds = rows
+    .map((u: any) => (u.organizationId ? String(u.organizationId) : null))
+    .filter((id): id is string => !!id)
+  const uniqueOrgIds = Array.from(new Set(orgIds))
+  let orgMap: Record<string, string> = {}
+  if (uniqueOrgIds.length) {
+    const organizations = await em.find(
+      Organization,
+      { id: { $in: uniqueOrgIds as any }, deletedAt: null },
+    )
+    orgMap = organizations.reduce<Record<string, string>>((acc, org) => {
+      const orgId = org?.id ? String(org.id) : null
+      if (!orgId) return acc
+      const rawName = (org as any)?.name
+      const orgName = typeof rawName === 'string' && rawName.length > 0 ? rawName : orgId
+      acc[orgId] = orgName
+      return acc
+    }, {})
+  }
+  const items = rows.map((u: any) => {
+    const uid = String(u.id)
+    const orgId = u.organizationId ? String(u.organizationId) : null
+    return {
+      id: uid,
+      email: String(u.email),
+      organizationId: orgId,
+      organizationName: orgId ? orgMap[orgId] ?? orgId : null,
+      tenantId: u.tenantId ? String(u.tenantId) : null,
+      roles: roleMap[uid] || [],
+    }
+  })
   const totalPages = Math.max(1, Math.ceil(count / pageSize))
   return NextResponse.json({ items, total: count, totalPages })
 }
@@ -86,7 +117,7 @@ export async function POST(req: Request) {
   const em = resolve('em') as any
   const { email, password, organizationId, roles } = parsed.data
   // Resolve tenant from organization
-  const org = await em.findOneOrFail(require('@open-mercato/core/modules/directory/data/entities').Organization, { id: organizationId }, { populate: ['tenant'] })
+  const org = await em.findOneOrFail(Organization, { id: organizationId }, { populate: ['tenant'] })
   const { hash } = await import('bcryptjs')
   const passwordHash = await hash(password, 10)
   const user = em.create(User, { email, passwordHash, isConfirmed: true, organizationId: org.id, tenantId: org.tenant.id })
@@ -178,5 +209,3 @@ export async function DELETE(req: Request) {
   
   return NextResponse.json({ ok: true })
 }
-
-
