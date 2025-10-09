@@ -26,10 +26,8 @@ type OrganizationResponse = {
     descendantIds: string[]
     isActive: boolean
     pathLabel: string
-  }>
+  } & Record<string, unknown>>
 }
-
-type EntityRecordResponse = { items?: Record<string, any>[] }
 
 const TREE_STEP = 16
 const TREE_PADDING = 12
@@ -41,7 +39,7 @@ const groups: CrudFormGroup[] = [
 
 export default function EditOrganizationPage({ params }: { params?: { id?: string } }) {
   const orgId = params?.id
-  const [initialValues, setInitialValues] = React.useState<any | null>(null)
+  const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [pathLabel, setPathLabel] = React.useState<string>('')
   const [tenantId, setTenantId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -87,31 +85,10 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
         setChildSummary(childrenDetails)
         setOriginalChildIds(Array.isArray(record.childIds) ? record.childIds : [])
 
-        let customValues: Record<string, any> = {}
-        try {
-          const qs = new URLSearchParams({
-            entityId: E.directory.organization,
-            page: '1',
-            pageSize: '1',
-            sortField: 'id',
-            sortDir: 'asc',
-            id: orgId,
-          })
-          const cfRes = await apiFetch(`/api/entities/records?${qs.toString()}`)
-          if (cfRes.ok) {
-            const cfJson: EntityRecordResponse = await cfRes.json().catch(() => ({}))
-            const cfItem = (cfJson.items || []).find((it) => it && String((it as any).id) === String(record.id)) || null
-            if (cfItem && typeof cfItem === 'object') {
-              const collected: Record<string, any> = {}
-              for (const [key, value] of Object.entries(cfItem)) {
-                if (key.startsWith('cf_')) collected[key] = value
-                else if (key.startsWith('cf:')) collected[`cf_${key.slice(3)}`] = value
-              }
-              customValues = collected
-            }
-          }
-        } catch {
-          customValues = {}
+        const customValues: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(record as Record<string, unknown>)) {
+          if (key.startsWith('cf_')) customValues[key] = value
+          else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
         }
         setInitialValues({
           id: record.id,

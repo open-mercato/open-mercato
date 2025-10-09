@@ -15,7 +15,7 @@ import {
   rebuildHierarchyForTenant,
   type ComputedOrganizationNode,
 } from '@open-mercato/core/modules/directory/lib/hierarchy'
-import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
+import { loadCustomFieldValues, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const viewSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -182,9 +182,29 @@ export async function GET(req: Request) {
   const page = query.page
   const start = (page - 1) * pageSize
   const paged = rows.slice(start, start + pageSize)
+  const recordIds: string[] = []
+  const tenantIdByRecord: Record<string, string | null> = {}
+  const organizationIdByRecord: Record<string, string | null> = {}
+  for (const node of paged) {
+    const recordId = String(node.id)
+    recordIds.push(recordId)
+    tenantIdByRecord[recordId] = node.tenantId ? String(node.tenantId) : null
+    organizationIdByRecord[recordId] = recordId
+  }
+  const cfByOrg = recordIds.length
+    ? await loadCustomFieldValues({
+        em,
+        entityId: E.directory.organization,
+        recordIds,
+        tenantIdByRecord,
+        organizationIdByRecord,
+        tenantFallbacks: tenantId ? [tenantId] : [],
+      })
+    : {}
   const items = paged.map((node) => {
     const parentName = node.parentId ? hierarchy.map.get(node.parentId)?.name ?? null : null
     const pathLabel = node.pathLabel || node.name
+    const recordId = String(node.id)
     return {
       id: node.id,
       name: node.name,
@@ -201,6 +221,7 @@ export async function GET(req: Request) {
       childrenCount: node.childIds.length,
       descendantsCount: node.descendantIds.length,
       isActive: node.isActive,
+      ...(cfByOrg[recordId] ?? {}),
     }
   })
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
