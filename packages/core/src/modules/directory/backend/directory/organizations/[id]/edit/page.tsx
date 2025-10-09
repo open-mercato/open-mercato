@@ -36,7 +36,7 @@ const TREE_PADDING = 12
 
 const groups: CrudFormGroup[] = [
   { id: 'details', title: 'Details', column: 1, fields: ['name', 'parentId', 'childrenInfo', 'isActive'] },
-  { id: 'custom', title: 'Custom Fields', column: 1, kind: 'customFields' },
+  { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
 ]
 
 export default function EditOrganizationPage({ params }: { params?: { id?: string } }) {
@@ -145,6 +145,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           nodes={parentTree}
           includeEmptyOption
           emptyOptionLabel="— Root level —"
+          className="w-full h-9 rounded border px-2 text-sm"
         />
       ),
     },

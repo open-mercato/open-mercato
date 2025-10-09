@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -12,7 +13,7 @@ type EditUserFormValues = {
   password: string
   organizationId: string | null
   roles: string[]
-}
+} & Record<string, unknown>
 
 type LoadedUser = {
   id: string
@@ -43,6 +44,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [error, setError] = React.useState<string | null>(null)
   const [canEditOrgs, setCanEditOrgs] = React.useState(false)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
+  const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
 
   React.useEffect(() => {
     if (!id) {
@@ -54,6 +56,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     async function load() {
       setLoading(true)
       setError(null)
+      setCustomFieldValues({})
       try {
         const res = await apiFetch(`/api/auth/users?id=${encodeURIComponent(String(id))}&page=1&pageSize=1`)
         const payload: UserListResponse = await res.json().catch(() => ({}))
@@ -61,6 +64,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         if (!cancelled) {
           if (!item) {
             setError('User not found')
+            setCustomFieldValues({})
             setInitialUser(null)
           } else {
             setInitialUser({
@@ -75,11 +79,18 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
                     .filter((role) => role.trim().length > 0)
                 : [],
             })
+            const custom: Record<string, unknown> = {}
+            for (const [key, value] of Object.entries(item)) {
+              if (key.startsWith('cf_')) custom[key] = value as unknown
+              else if (key.startsWith('cf:')) custom[`cf_${key.slice(3)}`] = value as unknown
+            }
+            setCustomFieldValues(custom)
           }
         }
       } catch (err) {
         console.error('Failed to load user:', err)
         if (!cancelled) setError('Failed to load user data')
+        if (!cancelled) setCustomFieldValues({})
       }
       try {
         const f = await apiFetch('/api/auth/feature-check', { 
@@ -124,8 +135,28 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
 
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['email', 'password', 'organizationId', 'roles'] },
+    { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
     { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="user" targetId={String(id)} canEditOrganizations={canEditOrgs} value={aclData} onChange={setAclData} userRoles={initialUser?.roles || []} /> : null) },
   ]
+
+  const initialValues = React.useMemo(() => {
+    if (initialUser) {
+      return {
+        email: initialUser.email,
+        password: '',
+        organizationId: initialUser.organizationId,
+        roles: initialUser.roles,
+        ...customFieldValues,
+      }
+    }
+    return {
+      email: '',
+      password: '',
+      organizationId: null,
+      roles: [],
+      ...customFieldValues,
+    }
+  }, [initialUser, customFieldValues])
 
   return (
     <Page>
@@ -140,17 +171,8 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           backHref="/backend/users"
           fields={fields}
           groups={groups}
-          initialValues={initialUser ? {
-            email: initialUser.email,
-            password: '',
-            organizationId: initialUser.organizationId,
-            roles: initialUser.roles,
-          } : {
-            email: '',
-            password: '',
-            organizationId: null,
-            roles: [],
-          }}
+          entityId={E.auth.user}
+          initialValues={initialValues}
           isLoading={loading}
           loadingMessage="Loading user data..."
           submitLabel="Save Changes"
@@ -158,12 +180,18 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           successRedirect="/backend/users?flash=User%20saved&type=success"
           onSubmit={async (values) => {
             if (!id) return
+            const customFields: Record<string, unknown> = {}
+            for (const [key, value] of Object.entries(values)) {
+              if (key.startsWith('cf_')) customFields[key.slice(3)] = value
+              else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
+            }
             const payload = {
               id: id ? String(id) : '',
               email: values.email,
               password: values.password && values.password.trim() ? values.password : undefined,
               organizationId: values.organizationId ? values.organizationId : undefined,
               roles: Array.isArray(values.roles) ? values.roles : [],
+              ...(Object.keys(customFields).length ? { customFields } : {}),
             }
             await apiFetch('/api/auth/users', { 
               method: 'PUT', 

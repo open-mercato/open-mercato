@@ -7,9 +7,8 @@ import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
 import { createRequestContainer } from '@/lib/di/container'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
-export default async function BackendCatchAll({ params }: { params: Promise<{ slug: string[] }> }) {
-  const p = await params
-  const pathname = '/backend/' + (p.slug?.join('/') ?? '')
+export default async function BackendCatchAll({ params }: { params: { slug?: string[] } }) {
+  const pathname = '/backend/' + (params.slug?.join('/') ?? '')
   const match = findBackendMatch(modules, pathname)
   if (!match) return notFound()
   if (match.route.requireAuth) {
@@ -26,9 +25,9 @@ export default async function BackendCatchAll({ params }: { params: Promise<{ sl
       const container = await createRequestContainer()
       const rbac = container.resolve<any>('rbacService')
       let organizationIdForCheck: string | null = auth.orgId ?? null
+      const cookieStore = cookies()
+      const cookieSelected = cookieStore.get('om_selected_org')?.value ?? null
       try {
-        const cookieStore = cookies()
-        const cookieSelected = cookieStore.get('om_selected_org')?.value ?? null
         const { organizationId, allowedOrganizationIds } = await resolveFeatureCheckContext({ container, auth, selectedId: cookieSelected })
         organizationIdForCheck = organizationId
         if (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length === 0) {
@@ -49,3 +48,5 @@ export default async function BackendCatchAll({ params }: { params: Promise<{ sl
     </>
   )
 }
+
+export const dynamic = 'force-dynamic'

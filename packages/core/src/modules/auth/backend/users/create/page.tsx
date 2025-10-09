@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -11,7 +12,7 @@ type CreateUserFormValues = {
   password: string
   organizationId: string | null
   roles: string[]
-}
+} & Record<string, unknown>
 
 export default function CreateUserPage() {
   const fields: CrudField[] = React.useMemo(() => ([
@@ -37,7 +38,8 @@ export default function CreateUserPage() {
 
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['email', 'password', 'organizationId', 'roles'] },
-    { id: 'acl', title: 'Access', column: 2, component: () => (<div className="text-sm text-muted-foreground">ACL can be edited after creating the user.</div>) },
+    { id: 'acl', title: 'Access', column: 1, component: () => (<div className="text-sm text-muted-foreground">ACL can be edited after creating the user.</div>) },
+    { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
   ]
 
   return (
@@ -48,16 +50,23 @@ export default function CreateUserPage() {
           backHref="/backend/users"
           fields={fields}
           groups={groups}
+          entityId={E.auth.user}
           initialValues={{ email: '', password: '', organizationId: null, roles: [] }}
           submitLabel="Create"
           cancelHref="/backend/users"
           successRedirect="/backend/users?flash=User%20created&type=success"
           onSubmit={async (values) => {
+            const customFields: Record<string, unknown> = {}
+            for (const [key, value] of Object.entries(values)) {
+              if (key.startsWith('cf_')) customFields[key.slice(3)] = value
+              else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
+            }
             const payload = {
               email: values.email,
               password: values.password,
               organizationId: values.organizationId ? values.organizationId : null,
               roles: Array.isArray(values.roles) ? values.roles : [],
+              ...(Object.keys(customFields).length ? { customFields } : {}),
             }
             await apiFetch('/api/auth/users', {
               method: 'POST',

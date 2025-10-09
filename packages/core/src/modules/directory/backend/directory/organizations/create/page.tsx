@@ -1,13 +1,11 @@
 "use client"
 import * as React from 'react'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import {
-  buildOrganizationTreeOptions,
-  formatOrganizationTreeLabel,
-  type OrganizationTreeNode,
-} from '@open-mercato/core/modules/directory/lib/tree'
+import { type OrganizationTreeNode } from '@open-mercato/core/modules/directory/lib/tree'
 
 type TreeResponse = {
   items: OrganizationTreeNode[]
@@ -17,14 +15,6 @@ type ChildTreeSelectProps = {
   nodes: OrganizationTreeNode[]
   value: string[]
   onChange: (vals: string[]) => void
-}
-
-function flattenTree(nodes: OrganizationTreeNode[]): { value: string; label: string }[] {
-  const options = buildOrganizationTreeOptions(nodes)
-  return options.map((opt) => ({
-    value: opt.value,
-    label: formatOrganizationTreeLabel(opt.name, opt.depth),
-  }))
 }
 
 function ChildTreeSelect({ nodes, value, onChange }: ChildTreeSelectProps) {
@@ -74,10 +64,10 @@ function TreeCheckboxGroup({ nodes, selected, onToggle, level }: { nodes: Organi
 
 const groups: CrudFormGroup[] = [
   { id: 'details', title: 'Details', column: 1, fields: ['name', 'parentId', 'childIds', 'isActive'] },
+  { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
 ]
 
 export default function CreateOrganizationPage() {
-  const [parentOptions, setParentOptions] = React.useState<{ value: string; label: string }[]>([])
   const [tree, setTree] = React.useState<OrganizationTreeNode[]>([])
 
   React.useEffect(() => {
@@ -90,7 +80,6 @@ export default function CreateOrganizationPage() {
         if (cancelled) return
         const items = Array.isArray(data.items) ? data.items : []
         setTree(items)
-        setParentOptions(flattenTree(items))
       } catch {}
     }
     loadTree()
@@ -99,7 +88,22 @@ export default function CreateOrganizationPage() {
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: 'Name', type: 'text', required: true },
-    { id: 'parentId', label: 'Parent', type: 'select', options: [{ value: '', label: '— Root level —' }, ...parentOptions], placeholder: 'No parent (root)' },
+    {
+      id: 'parentId',
+      label: 'Parent',
+      type: 'custom',
+      component: ({ id, value, setValue }) => (
+        <OrganizationSelect
+          id={id}
+          value={value ? String(value) : null}
+          onChange={(next) => setValue(next ?? '')}
+          nodes={tree}
+          includeEmptyOption
+          emptyOptionLabel="— Root level —"
+          className="w-full h-9 rounded border px-2 text-sm"
+        />
+      ),
+    },
     {
       id: 'childIds',
       label: 'Children',
@@ -113,7 +117,7 @@ export default function CreateOrganizationPage() {
       ),
     },
     { id: 'isActive', label: 'Active', type: 'checkbox' },
-  ], [parentOptions, tree])
+  ], [tree])
 
   return (
     <Page>
@@ -123,16 +127,31 @@ export default function CreateOrganizationPage() {
           backHref="/backend/directory/organizations"
           fields={fields}
           groups={groups}
+          entityId={E.directory.organization}
           initialValues={{ name: '', parentId: '', childIds: [], isActive: true }}
           submitLabel="Create"
           cancelHref="/backend/directory/organizations"
           successRedirect="/backend/directory/organizations?flash=Organization%20created&type=success"
           onSubmit={async (values) => {
-            const payload = {
+            const customFields: Record<string, unknown> = {}
+            for (const [key, value] of Object.entries(values)) {
+              if (key.startsWith('cf_')) customFields[key.slice(3)] = value
+              else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
+            }
+            const payload: {
+              name: string
+              isActive: boolean
+              parentId: string | null
+              childIds: string[]
+              customFields?: Record<string, unknown>
+            } = {
               name: values.name,
               isActive: values.isActive !== false,
               parentId: values.parentId ? values.parentId : null,
               childIds: Array.isArray(values.childIds) ? values.childIds : [],
+            }
+            if (Object.keys(customFields).length) {
+              payload.customFields = customFields
             }
             await apiFetch('/api/directory/organizations', {
               method: 'POST',

@@ -10,12 +10,13 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
-type Row = { id: string; name: string; usersCount: number }
-
-const columns: ColumnDef<Row>[] = [
-  { accessorKey: 'name', header: 'Role' },
-  { accessorKey: 'usersCount', header: 'Users' },
-]
+type Row = {
+  id: string
+  name: string
+  usersCount: number
+  tenantIds?: string[]
+  tenantName?: string | null
+}
 
 export default function RolesListPage() {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
@@ -26,6 +27,7 @@ export default function RolesListPage() {
   const [rows, setRows] = React.useState<Row[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [isSuperAdmin, setIsSuperAdmin] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
 
   React.useEffect(() => {
@@ -43,6 +45,7 @@ export default function RolesListPage() {
           setRows(j.items || [])
           setTotal(j.total || 0)
           setTotalPages(j.totalPages || 1)
+          setIsSuperAdmin(!!j.isSuperAdmin)
         }
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -72,6 +75,21 @@ export default function RolesListPage() {
       flash(message, 'error')
     }
   }, [])
+
+  const showTenantColumn = React.useMemo(
+    () => isSuperAdmin && rows.some((row) => row.tenantName),
+    [isSuperAdmin, rows],
+  )
+  const columns = React.useMemo<ColumnDef<Row>[]>(() => {
+    const base: ColumnDef<Row>[] = [
+      { accessorKey: 'name', header: 'Role' },
+      { accessorKey: 'usersCount', header: 'Users' },
+    ]
+    if (showTenantColumn) {
+      base.splice(1, 0, { accessorKey: 'tenantName', header: 'Tenant' })
+    }
+    return base
+  }, [showTenantColumn])
 
   return (
     <Page>

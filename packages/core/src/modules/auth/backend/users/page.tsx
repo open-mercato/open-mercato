@@ -14,13 +14,15 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { buildOrganizationTreeOptions, formatOrganizationTreeLabel, type OrganizationTreeNode } from '@open-mercato/core/modules/directory/lib/tree'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
-type Row = { id: string; email: string; organizationId: string | null; organizationName?: string; roles: string[] }
-
-const columns: ColumnDef<Row>[] = [
-  { accessorKey: 'email', header: 'Email' },
-  { accessorKey: 'organizationName', header: 'Organization' },
-  { accessorKey: 'roles', header: 'Roles', cell: ({ row }) => (row.original.roles || []).join(', ') },
-]
+type Row = {
+  id: string
+  email: string
+  organizationId: string | null
+  organizationName?: string | null
+  tenantId: string | null
+  tenantName?: string | null
+  roles: string[]
+}
 
 type FilterOption = { value: string; label: string }
 
@@ -298,17 +300,34 @@ export default function UsersListPage() {
     queryKey: ['users', params, scopeVersion],
     queryFn: async () => {
       const res = await apiFetch(`/api/auth/users?${params}`)
-      return res.json() as Promise<{ items: Row[]; total: number; totalPages: number }>
+      return res.json() as Promise<{ items: Row[]; total: number; totalPages: number; isSuperAdmin?: boolean }>
     },
   })
 
   const rows = usersData?.items || []
   const total = usersData?.total || 0
   const totalPages = usersData?.totalPages || 1
+  const isSuperAdmin = !!usersData?.isSuperAdmin
   const rowsWithOrgNames: Row[] = React.useMemo(() => rows.map(row => ({
     ...row,
     organizationName: row.organizationName ?? (row.organizationId ?? undefined),
+    tenantName: row.tenantName ?? (row.tenantId ?? undefined),
   })), [rows])
+  const showTenantColumn = React.useMemo(
+    () => isSuperAdmin && rowsWithOrgNames.some((row) => row.tenantName),
+    [isSuperAdmin, rowsWithOrgNames],
+  )
+  const columns = React.useMemo<ColumnDef<Row>[]>(() => {
+    const base: ColumnDef<Row>[] = [
+      { accessorKey: 'email', header: 'Email' },
+      { accessorKey: 'organizationName', header: 'Organization' },
+      { accessorKey: 'roles', header: 'Roles', cell: ({ row }) => (row.original.roles || []).join(', ') },
+    ]
+    if (showTenantColumn) {
+      base.splice(1, 0, { accessorKey: 'tenantName', header: 'Tenant' })
+    }
+    return base
+  }, [showTenantColumn])
 
   const handleDelete = React.useCallback(async (row: Row) => {
     if (!window.confirm(`Delete user "${row.email}"?`)) return

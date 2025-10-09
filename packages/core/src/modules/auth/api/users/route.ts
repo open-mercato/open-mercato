@@ -3,9 +3,10 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
-import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { CustomFieldDef, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -78,8 +79,24 @@ export async function GET(req: Request) {
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  let isSuperAdmin = false
+  try {
+    if (auth.sub) {
+      const rbacService = resolve('rbacService') as any
+      const acl = await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+      isSuperAdmin = !!acl?.isSuperAdmin
+    }
+  } catch (err) {
+    console.error('users: failed to resolve rbac', err)
+  }
   const { id, page, pageSize, search, organizationId, roleIds } = parsed.data
-  const where: any = {}
+  const where: any = { deletedAt: null }
+  if (!isSuperAdmin) {
+    if (!auth.tenantId) {
+      return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+    }
+    where.tenantId = auth.tenantId
+  }
   if (organizationId) where.organizationId = organizationId
   if (search) where.email = { $ilike: `%${search}%` } as any
   let idFilter: Set<string> | null = id ? new Set([id]) : null
@@ -135,6 +152,114 @@ export async function GET(req: Request) {
       return acc
     }, {})
   }
+  const tenantIds = rows
+    .map((u: any) => (u.tenantId ? String(u.tenantId) : null))
+    .filter((id): id is string => !!id)
+  const uniqueTenantIds = Array.from(new Set(tenantIds))
+  let tenantMap: Record<string, string> = {}
+  if (uniqueTenantIds.length) {
+    const tenants = await em.find(
+      Tenant,
+      { id: { $in: uniqueTenantIds as any }, deletedAt: null },
+    )
+    tenantMap = tenants.reduce<Record<string, string>>((acc, tenant) => {
+      const tenantId = tenant?.id ? String(tenant.id) : null
+      if (!tenantId) return acc
+      const rawName = (tenant as any)?.name
+      const tenantName = typeof rawName === 'string' && rawName.length > 0 ? rawName : tenantId
+      acc[tenantId] = tenantName
+      return acc
+    }, {})
+  }
+  const cfByUser: Record<string, Record<string, unknown>> = {}
+  if (userIds.length) {
+    const tenantFilterIds = uniqueTenantIds.length ? [...uniqueTenantIds, null] : [null]
+    const cfRows = await em.find(CustomFieldValue, {
+      entityId: E.auth.user,
+      recordId: { $in: userIds as any },
+      tenantId: { $in: tenantFilterIds as any },
+      deletedAt: null,
+    })
+    const keys = Array.from(new Set(cfRows.map((row: any) => String(row.fieldKey))))
+    const defs = keys.length
+      ? await em.find(CustomFieldDef, {
+          entityId: E.auth.user,
+          key: { $in: keys as any },
+          tenantId: { $in: tenantFilterIds as any },
+          isActive: true,
+          deletedAt: null,
+        })
+      : []
+    const defsByKey = new Map<string, CustomFieldDef[]>()
+    for (const def of defs) {
+      const arr = defsByKey.get(def.key) || []
+      arr.push(def)
+      defsByKey.set(def.key, arr)
+    }
+    const pickDef = (fieldKey: string, organizationId: string | null, tenantId: string | null) => {
+      const options = defsByKey.get(fieldKey)
+      if (!options || options.length === 0) return null
+      const active = options.filter((opt) => opt.isActive !== false && !opt.deletedAt)
+      const list = active.length ? active : options
+      if (organizationId && tenantId) {
+        const exactBoth = list.find((opt) => opt.organizationId === organizationId && opt.tenantId === tenantId)
+        if (exactBoth) return exactBoth
+      }
+      if (organizationId) {
+        const orgMatch = list.find((opt) => opt.organizationId === organizationId && (tenantId ? opt.tenantId == null || opt.tenantId === tenantId : true))
+        if (orgMatch) return orgMatch
+      }
+      if (tenantId) {
+        const tenantMatch = list.find((opt) => opt.organizationId == null && opt.tenantId === tenantId)
+        if (tenantMatch) return tenantMatch
+      }
+      const global = list.find((opt) => opt.organizationId == null && opt.tenantId == null)
+      if (global) return global
+      return list[0]
+    }
+    type Bucket = { orgId: string | null; tenantId: string | null; values: unknown[] }
+    const buckets = new Map<string, Bucket>()
+    const valueFromRow = (row: CustomFieldValue): unknown => {
+      if (row.valueMultiline !== null && row.valueMultiline !== undefined) return row.valueMultiline
+      if (row.valueText !== null && row.valueText !== undefined) return row.valueText
+      if (row.valueInt !== null && row.valueInt !== undefined) return row.valueInt
+      if (row.valueFloat !== null && row.valueFloat !== undefined) return row.valueFloat
+      if (row.valueBool !== null && row.valueBool !== undefined) return row.valueBool
+      return null
+    }
+    for (const row of cfRows) {
+      const rid = String(row.recordId)
+      const key = String(row.fieldKey)
+      const bucketKey = `${rid}::${key}`
+      const existing = buckets.get(bucketKey)
+      const orgId = row.organizationId ? String(row.organizationId) : null
+      const tenantId = row.tenantId ? String(row.tenantId) : null
+      const value = valueFromRow(row)
+      if (existing) {
+        if (existing.orgId == null && orgId) existing.orgId = orgId
+        if (existing.tenantId == null && tenantId) existing.tenantId = tenantId
+        existing.values.push(value)
+      } else {
+        buckets.set(bucketKey, { orgId, tenantId, values: [value] })
+      }
+    }
+    for (const [compoundKey, bucket] of buckets.entries()) {
+      const [rid, fieldKey] = compoundKey.split('::')
+      if (!cfByUser[rid]) cfByUser[rid] = {}
+      const def = pickDef(fieldKey, bucket.orgId, bucket.tenantId ?? null)
+      const prefixed = `cf_${fieldKey}`
+      if (def && def.configJson && typeof def.configJson === 'object' && (def.configJson as any).multi) {
+        const cleaned = bucket.values.filter((v) => v !== undefined && v !== null)
+        cfByUser[rid][prefixed] = cleaned
+      } else if (bucket.values.length > 1) {
+        const cleaned = bucket.values.filter((v) => v !== undefined)
+        cfByUser[rid][prefixed] = cleaned
+      } else {
+        cfByUser[rid][prefixed] = bucket.values[0] ?? null
+      }
+    }
+  }
+
   const items = rows.map((u: any) => {
     const uid = String(u.id)
     const orgId = u.organizationId ? String(u.organizationId) : null
@@ -144,11 +269,13 @@ export async function GET(req: Request) {
       organizationId: orgId,
       organizationName: orgId ? orgMap[orgId] ?? orgId : null,
       tenantId: u.tenantId ? String(u.tenantId) : null,
+      tenantName: u.tenantId ? tenantMap[String(u.tenantId)] ?? String(u.tenantId) : null,
       roles: roleMap[uid] || [],
+      ...(cfByUser[uid] || {}),
     }
   })
   const totalPages = Math.max(1, Math.ceil(count / pageSize))
-  return NextResponse.json({ items, total: count, totalPages })
+  return NextResponse.json({ items, total: count, totalPages, isSuperAdmin })
 }
 
 export async function POST(req: Request) {

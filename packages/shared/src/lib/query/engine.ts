@@ -91,10 +91,11 @@ export class BasicQueryEngine implements QueryEngine {
         .select('key')
         .where({ entity_id: entityId, is_active: true })
         .modify((qb: any) => {
-          qb.andWhere({ tenant_id: tenantId })
+          qb.andWhere((inner: any) => {
+            inner.where({ tenant_id: tenantId }).orWhereNull('tenant_id')
+          })
           // NOTE: organization-level scoping intentionally disabled for custom fields
-          // if (orgId != null) qb.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
-          // else qb.whereNull('organization_id')
+          // if (orgId != null) inner.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
         })
       for (const r of rows) cfKeys.add(r.key)
     } else if (Array.isArray(opts.includeCustomFields)) {
@@ -108,11 +109,11 @@ export class BasicQueryEngine implements QueryEngine {
       const defAlias = `cfd_${sanitize(key)}`
       const valAlias = `cfv_${sanitize(key)}`
       // Join definitions for kind resolution
-    q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function (this: any) {
+      q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function (this: any) {
         this.on(`${defAlias}.entity_id`, '=', knex.raw('?', [entityId]))
           .andOn(`${defAlias}.key`, '=', knex.raw('?', [key]))
           .andOn(`${defAlias}.is_active`, '=', knex.raw('true'))
-        this.andOn(`${defAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
+          .andOn(knex.raw(`(${defAlias}.tenant_id = ? OR ${defAlias}.tenant_id IS NULL)`, [tenantId]))
         // NOTE: organization-level scoping intentionally disabled for custom fields
         // this.andOn(function (this: any) {
         //   this.on(`${defAlias}.organization_id`, '=', knex.raw('?', [orgId]))
@@ -120,11 +121,11 @@ export class BasicQueryEngine implements QueryEngine {
         // })
       })
       // Join values with record match
-    q = q.leftJoin({ [valAlias]: 'custom_field_values' }, function (this: any) {
+      q = q.leftJoin({ [valAlias]: 'custom_field_values' }, function (this: any) {
         this.on(`${valAlias}.entity_id`, '=', knex.raw('?', [entityId]))
           .andOn(`${valAlias}.field_key`, '=', knex.raw('?', [key]))
           .andOn(`${valAlias}.record_id`, '=', baseIdExpr)
-        this.andOn(`${valAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
+          .andOn(knex.raw(`(${valAlias}.tenant_id = ? OR ${valAlias}.tenant_id IS NULL)`, [tenantId]))
         // NOTE: organization-level scoping intentionally disabled for custom fields
         // if (orgId != null) this.andOn(`${valAlias}.organization_id`, '=', knex.raw('?', [orgId]))
       })
@@ -146,9 +147,9 @@ export class BasicQueryEngine implements QueryEngine {
         const isMulti = knex.raw(`bool_or(coalesce((${defAlias}.config_json->>'multi')::boolean, false))`)
         const expr = `CASE WHEN ${isMulti.toString()}
                 THEN array_remove(array_agg(DISTINCT ${caseExpr.toString()}), NULL)
-                ELSE array[max(${caseExpr.toString()})]
+                ELSE max(${caseExpr.toString()})
            END`
-        // Expose as text[]; callers may treat singletons as scalars
+        // Multi-value fields stay as arrays; single-value fields collapse to their scalar
         q = q.select(knex.raw(`${expr} as ??`, [alias]))
         cfSelectedAliases.push(alias)
       }
