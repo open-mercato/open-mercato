@@ -64,11 +64,15 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     ? ((window as any).__omOriginalFetch as FetchType)
     : fetch;
   const res = await baseFetch(input, init);
+  const onLoginPage = typeof window !== 'undefined' && window.location.pathname.startsWith('/login')
   if (res.status === 401) {
     // Trigger same redirect flow as protected pages
-    redirectToSessionRefresh()
-    // Throw a typed error for callers that might still handle it
-    throw new UnauthorizedError(await res.text().catch(() => 'Unauthorized'))
+    if (!onLoginPage) {
+      redirectToSessionRefresh()
+      // Throw a typed error for callers that might still handle it
+      throw new UnauthorizedError(await res.text().catch(() => 'Unauthorized'))
+    }
+    return res
   }
   if (res.status === 403) {
     // Try to read requiredRoles from JSON body; ignore if not JSON
@@ -79,7 +83,6 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       if (Array.isArray(data?.requiredRoles)) roles = data.requiredRoles.map((r: any) => String(r))
     } catch {}
     // Only redirect if not already on login page
-    const onLoginPage = typeof window !== 'undefined' && window.location.pathname.startsWith('/login')
     if (!onLoginPage) {
       redirectToForbiddenLogin(roles)
       const msg = await res.text().catch(() => 'Forbidden')

@@ -114,8 +114,8 @@ export default function OrganizationSwitcher() {
   }
 
   return (
-    <div className="flex items-center gap-2 text-sm">
-      <label className="text-xs text-muted-foreground" htmlFor="org-switcher">Organization</label>
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <label className="hidden text-xs text-muted-foreground sm:inline" htmlFor="org-switcher">Organization</label>
       {state.status === 'loading' ? (
         <span className="text-xs text-muted-foreground">Loading…</span>
       ) : state.status === 'error' ? (
@@ -128,6 +128,7 @@ export default function OrganizationSwitcher() {
           nodes={nodes}
           fetchOnMount={false}
           includeAllOption
+          aria-label="Organization"
           className="h-9 rounded border px-2 text-sm"
         />
       ) : (

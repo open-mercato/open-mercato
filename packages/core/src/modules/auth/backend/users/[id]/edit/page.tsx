@@ -5,10 +5,40 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
+import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
+
+type EditUserFormValues = {
+  email: string
+  password: string
+  organizationId: string | null
+  roles: string[]
+}
+
+type LoadedUser = {
+  id: string
+  email: string
+  organizationId: string | null
+  tenantId: string | null
+  organizationName: string | null
+  roles: string[]
+}
+
+type UserApiItem = {
+  id?: string | null
+  email?: string | null
+  organizationId?: string | null
+  tenantId?: string | null
+  organizationName?: string | null
+  roles?: unknown
+}
+
+type UserListResponse = {
+  items?: UserApiItem[]
+}
 
 export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
-  const [initial, setInitial] = React.useState<any>(null)
+  const [initialUser, setInitialUser] = React.useState<LoadedUser | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [canEditOrgs, setCanEditOrgs] = React.useState(false)
@@ -26,14 +56,25 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       setError(null)
       try {
         const res = await apiFetch(`/api/auth/users?id=${encodeURIComponent(String(id))}&page=1&pageSize=1`)
-        const j = await res.json()
-        const item = (j.items || [])[0]
+        const payload: UserListResponse = await res.json().catch(() => ({}))
+        const item = Array.isArray(payload.items) ? payload.items[0] : undefined
         if (!cancelled) {
           if (!item) {
             setError('User not found')
-            setInitial({})
+            setInitialUser(null)
           } else {
-            setInitial({ ...item, roles: item.roles || [] })
+            setInitialUser({
+              id: item.id ? String(item.id) : String(id),
+              email: item.email ? String(item.email) : '',
+              organizationId: item.organizationId ? String(item.organizationId) : null,
+              tenantId: item.tenantId ? String(item.tenantId) : null,
+              organizationName: item.organizationName ? String(item.organizationName) : null,
+              roles: Array.isArray(item.roles)
+                ? item.roles
+                    .map((role) => (typeof role === 'string' ? role : role == null ? '' : String(role)))
+                    .filter((role) => role.trim().length > 0)
+                : [],
+            })
           }
         }
       } catch (err) {
@@ -57,7 +98,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     return () => { cancelled = true }
   }, [id])
 
-  const selectedOrgId = initial?.organizationId ? String(initial.organizationId) : null
+  const selectedOrgId = initialUser?.organizationId ? String(initialUser.organizationId) : null
 
   const fields: CrudField[] = React.useMemo(() => ([
     { id: 'email', label: 'Email', type: 'text', required: true },
@@ -69,20 +110,20 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       component: ({ id, value, setValue }) => (
         <OrganizationSelect
           id={id}
-          value={typeof value === 'string' ? value : value ?? null}
-          onChange={(next) => setValue(next ?? undefined)}
+          value={typeof value === 'string' ? (value.length > 0 ? value : null) : (value ?? null)}
+          onChange={(next) => setValue(next ?? null)}
           required
           includeEmptyOption
           includeInactiveIds={selectedOrgId ? [selectedOrgId] : undefined}
         />
       ),
     },
-    { id: 'roles', label: 'Roles', type: 'tags' },
+    { id: 'roles', label: 'Roles', type: 'tags', loadOptions: fetchRoleOptions },
   ]), [selectedOrgId])
 
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['email', 'password', 'organizationId', 'roles'] },
-    { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="user" targetId={String(id)} canEditOrganizations={canEditOrgs} value={aclData} onChange={setAclData} userRoles={initial?.roles || []} /> : null) },
+    { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="user" targetId={String(id)} canEditOrganizations={canEditOrgs} value={aclData} onChange={setAclData} userRoles={initialUser?.roles || []} /> : null) },
   ]
 
   return (
@@ -93,22 +134,40 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             {error}
           </div>
         )}
-        <CrudForm
+        <CrudForm<EditUserFormValues>
           title="Edit User"
           backHref="/backend/users"
           fields={fields}
           groups={groups}
-          initialValues={initial || {}}
+          initialValues={initialUser ? {
+            email: initialUser.email,
+            password: '',
+            organizationId: initialUser.organizationId,
+            roles: initialUser.roles,
+          } : {
+            email: '',
+            password: '',
+            organizationId: null,
+            roles: [],
+          }}
           isLoading={loading}
           loadingMessage="Loading user data..."
           submitLabel="Save Changes"
           cancelHref="/backend/users"
           successRedirect="/backend/users?flash=User%20saved&type=success"
-          onSubmit={async (vals: any) => { 
+          onSubmit={async (values) => {
+            if (!id) return
+            const payload = {
+              id: id ? String(id) : '',
+              email: values.email,
+              password: values.password && values.password.trim() ? values.password : undefined,
+              organizationId: values.organizationId ? values.organizationId : undefined,
+              roles: Array.isArray(values.roles) ? values.roles : [],
+            }
             await apiFetch('/api/auth/users', { 
               method: 'PUT', 
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ ...vals, id }) 
+              body: JSON.stringify(payload), 
             })
             // Save ACL data
             await apiFetch('/api/auth/users/acl', { 

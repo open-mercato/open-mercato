@@ -13,6 +13,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { fetchCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import Link from 'next/link'
 
 type TodoRow = TodoListItem & { organization_name?: string }
@@ -67,6 +68,7 @@ export default function TodosTable() {
   const [values, setValues] = React.useState<FilterValues>({})
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
   const [page, setPage] = React.useState(1)
+  const scopeVersion = useOrganizationScopeVersion()
 
   // Custom field filters handled by DataTable (via customFieldFiltersEntityId)
 
@@ -104,7 +106,7 @@ export default function TodosTable() {
 
   // Fetch todos
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
-    queryKey: ['todos', queryParams],
+    queryKey: ['todos', queryParams, scopeVersion],
     queryFn: async () => fetchCrudList<TodoListItem>('example/todos', Object.fromEntries(new URLSearchParams(queryParams))),
   })
 

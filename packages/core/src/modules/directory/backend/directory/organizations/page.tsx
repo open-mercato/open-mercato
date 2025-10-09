@@ -11,6 +11,7 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
 type OrganizationRow = {
   id: string
@@ -104,6 +105,7 @@ export default function DirectoryOrganizationsPage() {
   const [status, setStatus] = React.useState<string>('all')
   const [search, setSearch] = React.useState('')
   const [canManage, setCanManage] = React.useState(false)
+  const scopeVersion = useOrganizationScopeVersion()
 
   React.useEffect(() => {
     let cancelled = false
@@ -139,7 +141,7 @@ export default function DirectoryOrganizationsPage() {
   }, [page, status, search])
 
   const { data, isLoading } = useQuery<OrganizationsResponse>({
-    queryKey: ['directory-organizations', queryParams],
+    queryKey: ['directory-organizations', queryParams, scopeVersion],
     queryFn: async () => {
       const res = await apiFetch(`/api/directory/organizations?${queryParams}`)
       if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to load organizations'))
@@ -189,7 +191,7 @@ export default function DirectoryOrganizationsPage() {
               ],
             },
           ]}
-          filterValues={{ status }}
+          filterValues={status === 'all' ? {} : { status }}
           onFiltersApply={(vals: FilterValues) => {
             const nextStatus = (vals.status as string) || 'all'
             setStatus(nextStatus)

@@ -8,6 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
 type Row = { id: string; name: string; usersCount: number }
 
@@ -25,6 +26,7 @@ export default function RolesListPage() {
   const [rows, setRows] = React.useState<Row[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const scopeVersion = useOrganizationScopeVersion()
 
   React.useEffect(() => {
     let cancelled = false
@@ -48,7 +50,7 @@ export default function RolesListPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, search, reloadToken])
+  }, [page, search, reloadToken, scopeVersion])
 
   const handleDelete = React.useCallback(async (row: Row) => {
     if (!window.confirm(`Delete role "${row.name}"?`)) return
@@ -102,4 +104,3 @@ export default function RolesListPage() {
     </Page>
   )
 }
-

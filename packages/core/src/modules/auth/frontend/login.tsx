@@ -33,6 +33,11 @@ function extractErrorMessage(payload: unknown): string | null {
   return null
 }
 
+function looksLikeJsonString(value: string): boolean {
+  const trimmed = value.trim()
+  return trimmed.startsWith('{') || trimmed.startsWith('[')
+}
+
 export default function LoginPage() {
   const t = useT()
   const router = useRouter()
@@ -56,26 +61,43 @@ export default function LoginPage() {
         return
       }
       if (!res.ok) {
-        const fallback = res.status === 403
-          ? 'You do not have permission to access this area. Please contact your administrator.'
-          : 'Invalid email or password'
+        const fallback = (() => {
+          if (res.status === 403) {
+            return 'You do not have permission to access this area. Please contact your administrator.'
+          }
+          if (res.status === 401 || res.status === 400) {
+            return 'Invalid email or password'
+          }
+          return 'An error occurred. Please try again.'
+        })()
+        const cloned = res.clone()
         let errorMessage = ''
-        try {
-          const text = await res.text()
-          if (text) {
+        const contentType = res.headers.get('content-type') || ''
+        if (contentType.includes('application/json')) {
+          try {
+            const data = await res.json()
+            errorMessage = extractErrorMessage(data) || ''
+          } catch {
             try {
-              const data = JSON.parse(text)
-              errorMessage = extractErrorMessage(data) || ''
-            } catch {
+              const text = await cloned.text()
               const trimmed = text.trim()
-              const looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[')
-              if (!looksLikeJson) {
+              if (trimmed && !looksLikeJsonString(trimmed)) {
                 errorMessage = trimmed
               }
+            } catch {
+              errorMessage = ''
             }
           }
-        } catch {
-          errorMessage = ''
+        } else {
+          try {
+            const text = await res.text()
+            const trimmed = text.trim()
+            if (trimmed && !looksLikeJsonString(trimmed)) {
+              errorMessage = trimmed
+            }
+          } catch {
+            errorMessage = ''
+          }
         }
         setError(errorMessage || fallback)
         return

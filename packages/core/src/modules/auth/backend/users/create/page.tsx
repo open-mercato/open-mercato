@@ -4,6 +4,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
+import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
 
 type CreateUserFormValues = {
   email: string
@@ -31,7 +32,7 @@ export default function CreateUserPage() {
         />
       ),
     },
-    { id: 'roles', label: 'Roles', type: 'tags' },
+    { id: 'roles', label: 'Roles', type: 'tags', loadOptions: fetchRoleOptions },
   ]), [])
 
   const groups: CrudFormGroup[] = [

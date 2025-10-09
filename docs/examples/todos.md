@@ -127,16 +127,22 @@ Note: `customFieldFiltersEntityId` has been renamed to `entityId`.
 
 ### Organization scope refresh
 
-When a user changes the active organization from the global switcher, the app now emits a browser event so client components can immediately refetch their data without waiting for a full page reload. The helpers live in `@/lib/frontend/organizationEvents`:
+When a user changes the active organization from the global switcher, the app emits a browser event so client components can immediately refetch their data without waiting for a full page reload. Instead of wiring the event manually, reach for the hooks in `@/lib/frontend/useOrganizationScope`:
 
 ```ts
-import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useQuery } from '@tanstack/react-query'
 
-React.useEffect(() => {
-  return subscribeOrganizationScopeChanged(() => {
-    refetchTodos()
+export function TodosTable() {
+  const scopeVersion = useOrganizationScopeVersion()
+  const { data } = useQuery({
+    queryKey: ['todos', params, scopeVersion],
+    queryFn: fetchTodos,
   })
-}, [refetchTodos])
+  // ...
+}
 ```
 
-The event detail includes the selected organization id (or `null` for “All organizations”). `DataTable` already subscribes internally and calls `router.refresh()`, so any list rendered with it will refresh as soon as the user picks another organization.
+`useOrganizationScopeVersion()` increments whenever the organization changes, making it easy to append to query keys, effect dependency arrays, or SWR keys. If you need the selected organization id directly, call `useOrganizationScopeDetail()` which returns `{ organizationId }`.
+
+`DataTable` already subscribes internally and calls `router.refresh()`, so any list rendered with it will refresh as soon as the user picks another organization. Use the hooks when you have custom fetch logic (e.g. React Query, SWR, or manual effects) that should re-run on organization changes.

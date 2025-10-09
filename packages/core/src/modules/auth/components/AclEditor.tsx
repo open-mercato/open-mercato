@@ -6,6 +6,8 @@ import Link from 'next/link'
 
 type Feature = { id: string; title: string; module: string }
 type ModuleInfo = { id: string; title: string }
+type RoleListItem = { id?: string | null; name?: string | null }
+type RoleListResponse = { items?: RoleListItem[] }
 
 export type AclData = {
   isSuperAdmin: boolean
@@ -72,10 +74,17 @@ export function AclEditor({
       if (kind === 'user' && userRoles && userRoles.length > 0) {
         try {
           const rolesRes = await apiFetch('/api/auth/roles?pageSize=1000')
-          const rolesJson = await rolesRes.json()
+          const rolesJson: RoleListResponse = await rolesRes.json().catch(() => ({}))
           if (!cancelled) {
-            const allRoles = rolesJson.items || []
-            const userRoleDetails = allRoles.filter((r: any) => userRoles.includes(r.name))
+            const allRoles = Array.isArray(rolesJson.items) ? rolesJson.items : []
+            const userRoleDetails = allRoles
+              .map((role) => {
+                const name = typeof role?.name === 'string' ? role.name : ''
+                if (!name || !userRoles.includes(name)) return null
+                const id = role?.id ? String(role.id) : name
+                return { id, name }
+              })
+              .filter((role): role is { id: string; name: string } => !!role)
             setRoleDetails(userRoleDetails)
           }
         } catch {}
@@ -109,6 +118,14 @@ export function AclEditor({
   }, [features, modules])
 
   const hasGlobalWildcard = granted.includes('*')
+  const hasOrganizationRestriction = Array.isArray(organizations) && organizations.length > 0
+  const showOrganizationWarning =
+    (kind === 'role' || overrideEnabled) &&
+    canEditOrganizations &&
+    !isSuperAdmin &&
+    hasOrganizationRestriction &&
+    granted.length === 0
+
   
   const toggleModuleWildcard = (moduleId: string, enable: boolean) => {
     const wildcard = `${moduleId}.*`
@@ -248,7 +265,7 @@ export function AclEditor({
             })}
           </div>
         </>
-      )}
+          )}
           {canEditOrganizations && (
             <div className="rounded border p-3">
               <div className="text-sm font-medium mb-2">Organizations scope</div>
@@ -273,6 +290,11 @@ export function AclEditor({
               <div className="mt-2">
                 <Button variant="outline" onClick={() => setOrganizations(null)}>Allow all organizations</Button>
               </div>
+              {showOrganizationWarning && (
+                <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.
+                </div>
+              )}
             </div>
           )}
         </>
@@ -280,5 +302,3 @@ export function AclEditor({
     </div>
   )
 }
-
-

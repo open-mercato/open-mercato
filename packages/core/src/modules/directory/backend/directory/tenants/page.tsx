@@ -11,6 +11,7 @@ import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
 type TenantRow = {
   id: string
@@ -58,6 +59,7 @@ export default function DirectoryTenantsPage() {
   const [search, setSearch] = React.useState('')
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [canManage, setCanManage] = React.useState(false)
+  const scopeVersion = useOrganizationScopeVersion()
 
   React.useEffect(() => {
     let cancelled = false
@@ -95,7 +97,7 @@ export default function DirectoryTenantsPage() {
   }, [page, sorting, search, filters])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['directory-tenants', queryParams],
+    queryKey: ['directory-tenants', queryParams, scopeVersion],
     queryFn: async (): Promise<TenantsResponse> => {
       const res = await apiFetch(`/api/directory/tenants?${queryParams}`)
       if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to load tenants'))

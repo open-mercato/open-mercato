@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable, RowActions, Button } from '@open-mercato/ui'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
 type EntityRow = {
   entityId: string
@@ -52,9 +53,10 @@ export default function UserEntitiesTable() {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'entityId', desc: false }])
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const scopeVersion = useOrganizationScopeVersion()
 
   const { data, isLoading } = useQuery<EntitiesResponse>({
-    queryKey: ['custom-entities'],
+    queryKey: ['custom-entities', scopeVersion],
     queryFn: async () => {
       const res = await apiFetch('/api/entities/entities')
       if (!res.ok) throw new Error('Failed to load entities')

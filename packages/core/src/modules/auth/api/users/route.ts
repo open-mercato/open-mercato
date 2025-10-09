@@ -11,7 +11,7 @@ const querySchema = z.object({
   pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
   organizationId: z.string().uuid().optional(),
-  roleId: z.string().uuid().optional(),
+  roleIds: z.array(z.string().uuid()).optional(),
 }).passthrough()
 
 const createSchema = z.object({
@@ -40,27 +40,45 @@ export async function GET(req: Request) {
   const auth = getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const url = new URL(req.url)
+  const rawRoleIds = url.searchParams.getAll('roleId').filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
   const parsed = querySchema.safeParse({
     id: url.searchParams.get('id') || undefined,
     page: url.searchParams.get('page') || undefined,
     pageSize: url.searchParams.get('pageSize') || undefined,
     search: url.searchParams.get('search') || undefined,
     organizationId: url.searchParams.get('organizationId') || undefined,
-    roleId: url.searchParams.get('roleId') || undefined,
+    roleIds: rawRoleIds.length ? rawRoleIds : undefined,
   })
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
-  const { id, page, pageSize, search, organizationId, roleId } = parsed.data
+  const { id, page, pageSize, search, organizationId, roleIds } = parsed.data
   const where: any = {}
-  if (id) where.id = id
   if (organizationId) where.organizationId = organizationId
   if (search) where.email = { $ilike: `%${search}%` } as any
-  if (roleId) {
-    const linksForRole = await em.find(UserRole, { role: roleId as any })
-    const baseIds = linksForRole.map((l: any) => String(l.user?.id || l.user)).filter(Boolean)
-    if (baseIds.length === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
-    where.id = { $in: baseIds as any }
+  let idFilter: Set<string> | null = id ? new Set([id]) : null
+  if (Array.isArray(roleIds) && roleIds.length > 0) {
+    const uniqueRoleIds = Array.from(new Set(roleIds))
+    const linksForRoles = await em.find(UserRole, { role: { $in: uniqueRoleIds as any } } as any)
+    const roleUserIds = new Set<string>()
+    for (const link of linksForRoles) {
+      const uid = String((link as any).user?.id || (link as any).user || '')
+      if (uid) roleUserIds.add(uid)
+    }
+    if (roleUserIds.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
+    if (idFilter) {
+      for (const uid of Array.from(idFilter)) {
+        if (!roleUserIds.has(uid)) idFilter.delete(uid)
+      }
+    } else {
+      idFilter = roleUserIds
+    }
+    if (!idFilter || idFilter.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
+  }
+  if (idFilter && idFilter.size) {
+    where.id = { $in: Array.from(idFilter) as any }
+  } else if (id) {
+    where.id = id
   }
   const [rows, count] = await em.findAndCount(User, where, { limit: pageSize, offset: (page - 1) * pageSize })
   const userIds = rows.map((u: any) => u.id)
