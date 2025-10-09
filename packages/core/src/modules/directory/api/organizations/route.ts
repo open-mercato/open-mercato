@@ -79,12 +79,6 @@ export async function GET(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
-  const de = resolve('dataEngine') as DataEngine
-  let bus: any
-  try { bus = resolve('eventBus') } catch { bus = null }
-  const de = resolve('dataEngine') as DataEngine
-  let bus: any
-  try { bus = resolve('eventBus') } catch { bus = null }
 
   if (!tenantId && !authTenantId && ids?.length) {
     const scopedOrgs: Organization[] = await em.find(
@@ -229,6 +223,9 @@ export async function POST(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const de = resolve('dataEngine') as DataEngine
+  let bus: any
+  try { bus = resolve('eventBus') } catch { bus = null }
 
   const parentId = parsed.data.parentId ?? null
   const childIds = Array.from(new Set(parsed.data.childIds ?? [])).filter((id) => id !== parentId)

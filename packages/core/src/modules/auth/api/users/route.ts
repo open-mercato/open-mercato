@@ -205,7 +205,11 @@ export async function POST(req: Request) {
   if (roles && roles.length) {
     for (const name of roles) {
       let role = await em.findOne(Role, { name })
-      if (!role) { role = em.create(Role, { name }); await em.persistAndFlush(role) }
+      if (!role) {
+        const roleTenantId = user.tenantId ? String(user.tenantId) : null
+        role = em.create(Role, { name, tenantId: roleTenantId })
+        await em.persistAndFlush(role)
+      }
       const link = em.create(UserRole, { user, role })
       await em.persistAndFlush(link)
     }
@@ -284,7 +288,11 @@ export async function PUT(req: Request) {
     for (const name of desired) {
       if (!currentNames.has(name)) {
         let role = await em.findOne(Role, { name })
-        if (!role) { role = em.create(Role, { name }); await em.persistAndFlush(role) }
+        if (!role) {
+          const roleTenantId = user.tenantId ? String(user.tenantId) : null
+          role = em.create(Role, { name, tenantId: roleTenantId })
+          await em.persistAndFlush(role)
+        }
         em.persist(em.create(UserRole, { user: user as any, role: role as any }))
       }
     }

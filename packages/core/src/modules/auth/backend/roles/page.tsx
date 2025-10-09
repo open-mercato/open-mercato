@@ -14,6 +14,7 @@ type Row = {
   id: string
   name: string
   usersCount: number
+  tenantId?: string | null
   tenantIds?: string[]
   tenantName?: string | null
 }

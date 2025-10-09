@@ -109,6 +109,8 @@ export class BasicQueryEngine implements QueryEngine {
     // Custom fields: project requested cf:* keys and apply cf filters
     const cfValueExprByKey: Record<string, any> = {}
     const cfSelectedAliases: string[] = []
+    const cfJsonAliases = new Set<string>()
+    const cfMultiAliasByAlias = new Map<string, string>()
     for (const key of cfKeys) {
       const defAlias = `cfd_${sanitize(key)}`
       const valAlias = `cfv_${sanitize(key)}`
@@ -149,13 +151,17 @@ export class BasicQueryEngine implements QueryEngine {
       if ((opts.fields || []).includes(`cf:${key}`) || opts.includeCustomFields === true || (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.includes(key))) {
         // Use bool_or over config_json->>multi so it's valid under GROUP BY
         const isMulti = knex.raw(`bool_or(coalesce((${defAlias}.config_json->>'multi')::boolean, false))`)
+        const aggregatedArray = `array_remove(array_agg(DISTINCT ${caseExpr.toString()}), NULL)`
         const expr = `CASE WHEN ${isMulti.toString()}
-                THEN array_remove(array_agg(DISTINCT ${caseExpr.toString()}), NULL)
-                ELSE max(${caseExpr.toString()})
+                THEN to_jsonb(${aggregatedArray})
+                ELSE to_jsonb(max(${caseExpr.toString()}))
            END`
-        // Multi-value fields stay as arrays; single-value fields collapse to their scalar
+        const multiAlias = `${alias}__is_multi`
         q = q.select(knex.raw(`${expr} as ??`, [alias]))
+        q = q.select(knex.raw(`${isMulti.toString()} as ??`, [multiAlias]))
         cfSelectedAliases.push(alias)
+        cfJsonAliases.add(alias)
+        cfMultiAliasByAlias.set(alias, multiAlias)
       }
     }
 
@@ -235,6 +241,29 @@ export class BasicQueryEngine implements QueryEngine {
       .first()
     const total = Number((countRow as any)?.count ?? 0)
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)
+
+    if (cfJsonAliases.size > 0) {
+      for (const row of items as any[]) {
+        for (const alias of cfJsonAliases) {
+          const multiAlias = cfMultiAliasByAlias.get(alias)
+          const isMulti = multiAlias ? Boolean(row[multiAlias]) : false
+          let raw = row[alias]
+          if (typeof raw === 'string') {
+            try { raw = JSON.parse(raw) } catch { /* ignore malformed json */ }
+          }
+          if (isMulti) {
+            if (raw == null) row[alias] = []
+            else if (Array.isArray(raw)) row[alias] = raw
+            else row[alias] = [raw]
+          } else {
+            if (Array.isArray(raw)) row[alias] = raw.length > 0 ? raw[0] : null
+            else row[alias] = raw
+          }
+          if (multiAlias) delete row[multiAlias]
+        }
+      }
+    }
+
     return { items, page, pageSize, total }
   }
 

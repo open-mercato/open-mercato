@@ -15,8 +15,15 @@ const querySchema = z.object({
   search: z.string().optional(),
 }).passthrough()
 
-const createSchema = z.object({ name: z.string().min(2).max(100) })
-const updateSchema = z.object({ id: z.string().uuid(), name: z.string().min(2).max(100).optional() })
+const createSchema = z.object({
+  name: z.string().min(2).max(100),
+  tenantId: z.string().uuid().nullable().optional(),
+})
+const updateSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(2).max(100).optional(),
+  tenantId: z.string().uuid().nullable().optional(),
+})
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.roles.list'] },
@@ -50,35 +57,11 @@ export async function GET(req: Request) {
   }
   const { id, page, pageSize, search } = parsed.data
   const where: any = { deletedAt: null }
-  let allowedRoleIds: Set<string> | null = null
-  if (!isSuperAdmin) {
-    if (!auth.tenantId) {
-      return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
-    }
-    const tenantRoleAcls = await em.find(RoleAcl, { tenantId: auth.tenantId as any, deletedAt: null })
-    allowedRoleIds = new Set(
-      tenantRoleAcls
-        .map((acl: any) => {
-          const rid = acl?.role?.id ?? acl?.role
-          return typeof rid === 'string' ? rid : null
-        })
-        .filter((rid): rid is string => !!rid),
-    )
-    if (allowedRoleIds.size === 0) {
-      return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
-    }
-  }
   if (id) {
-    if (allowedRoleIds && !allowedRoleIds.has(id)) {
-      return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
-    }
     where.id = id
-  } else if (allowedRoleIds) {
-    where.id = { $in: Array.from(allowedRoleIds) as any }
   }
   if (search) where.name = { $ilike: `%${search}%` } as any
   const [rows, count] = await em.findAndCount(Role, where, { limit: pageSize, offset: (page - 1) * pageSize })
-  // Optional: include user counts
   const roleIds = rows.map((r: any) => r.id)
   const counts: Record<string, number> = {}
   if (roleIds.length) {
@@ -88,25 +71,13 @@ export async function GET(req: Request) {
       counts[rid] = (counts[rid] || 0) + 1
     }
   }
-  const roleTenantMap = new Map<string, Set<string>>()
-  if (roleIds.length) {
-    const aclRows = await em.find(RoleAcl, { role: { $in: roleIds as any }, deletedAt: null })
-    for (const acl of aclRows) {
-      const roleId = String((acl as any).role?.id ?? (acl as any).role)
-      const tenantRaw = (acl as any).tenantId
-      if (!tenantRaw) continue
-      const tenantId = String(tenantRaw)
-      if (!roleTenantMap.has(roleId)) roleTenantMap.set(roleId, new Set())
-      roleTenantMap.get(roleId)!.add(tenantId)
-    }
-  }
-  const allTenantIds = new Set<string>()
-  for (const ids of roleTenantMap.values()) {
-    for (const tid of ids) allTenantIds.add(tid)
-  }
+  const roleTenantIds = rows
+    .map((role: any) => (role.tenantId ? String(role.tenantId) : null))
+    .filter((tenantId): tenantId is string => typeof tenantId === 'string' && tenantId.length > 0)
+  const uniqueTenantIds = Array.from(new Set(roleTenantIds))
   let tenantMap: Record<string, string> = {}
-  if (allTenantIds.size) {
-    const tenants = await em.find(Tenant, { id: { $in: Array.from(allTenantIds) as any }, deletedAt: null })
+  if (uniqueTenantIds.length) {
+    const tenants = await em.find(Tenant, { id: { $in: uniqueTenantIds as any }, deletedAt: null })
     tenantMap = tenants.reduce<Record<string, string>>((acc, tenant) => {
       const tid = tenant?.id ? String(tenant.id) : null
       if (!tid) return acc
@@ -117,15 +88,13 @@ export async function GET(req: Request) {
     }, {})
   }
   const tenantByRole: Record<string, string | null> = {}
-  for (const roleId of roleIds) {
-    const rid = String(roleId)
-    const tenants = roleTenantMap.get(rid)
-    if (tenants && tenants.size === 1) tenantByRole[rid] = Array.from(tenants)[0] ?? null
-    else tenantByRole[rid] = auth.tenantId ?? null
+  for (const role of rows) {
+    const rid = String(role.id)
+    tenantByRole[rid] = role.tenantId ? String(role.tenantId) : null
   }
   const tenantFallbacks = Array.from(new Set<string | null>([
     auth.tenantId ?? null,
-    ...Array.from(allTenantIds),
+    ...Object.values(tenantByRole),
   ]))
   const cfByRole = roleIds.length
     ? await loadCustomFieldValues({
@@ -138,19 +107,16 @@ export async function GET(req: Request) {
     : {}
   const items = rows.map((r: any) => {
     const idStr = String(r.id)
-    const tenantSet = roleTenantMap.get(idStr) ?? new Set<string>()
-    const visibleTenantIds = isSuperAdmin
-      ? Array.from(tenantSet)
-      : auth.tenantId
-        ? Array.from(tenantSet).filter((tid) => tid === auth.tenantId)
-        : []
-    const tenantNames = visibleTenantIds.map((tid) => tenantMap[tid] ?? tid)
+    const tenantId = tenantByRole[idStr]
+    const tenantName = tenantId ? tenantMap[tenantId] ?? tenantId : null
+    const exposeTenant = isSuperAdmin || (tenantId && auth.tenantId && tenantId === auth.tenantId)
     return {
       id: idStr,
       name: String(r.name),
       usersCount: counts[idStr] || 0,
-      tenantIds: visibleTenantIds,
-      tenantName: tenantNames.length ? tenantNames.join(', ') : null,
+      tenantId: tenantId ?? null,
+      tenantIds: exposeTenant && tenantId ? [tenantId] : [],
+      tenantName: exposeTenant ? tenantName : null,
       ...(cfByRole[idStr] || {}),
     }
   })
@@ -170,13 +136,14 @@ export async function POST(req: Request) {
   const de = resolve('dataEngine') as DataEngine
   let bus: any
   try { bus = resolve('eventBus') } catch { bus = null }
-  const role = em.create(Role, { name: parsed.data.name })
+  const resolvedTenantId = parsed.data.tenantId === undefined ? auth.tenantId ?? null : parsed.data.tenantId
+  const role = em.create(Role, { name: parsed.data.name, tenantId: resolvedTenantId })
   await em.persistAndFlush(role)
   if (Object.keys(custom).length) {
     await de.setCustomFields({
       entityId: E.auth.role,
       recordId: String(role.id),
-      tenantId: auth.tenantId ?? null,
+      tenantId: resolvedTenantId ?? null,
       organizationId: null,
       values: custom,
       notify: false,
@@ -184,8 +151,8 @@ export async function POST(req: Request) {
   }
   if (bus) {
     try {
-      await bus.emitEvent('auth.role.created', { id: String(role.id), tenantId: auth.tenantId ?? null, organizationId: null }, { persistent: true })
-      await bus.emitEvent('query_index.upsert_one', { entityType: E.auth.role, recordId: String(role.id), organizationId: null, tenantId: auth.tenantId ?? null })
+      await bus.emitEvent('auth.role.created', { id: String(role.id), tenantId: resolvedTenantId ?? null, organizationId: null }, { persistent: true })
+      await bus.emitEvent('query_index.upsert_one', { entityType: E.auth.role, recordId: String(role.id), organizationId: null, tenantId: resolvedTenantId ?? null })
     } catch {}
   }
   return NextResponse.json({ id: String(role.id) })
@@ -206,12 +173,14 @@ export async function PUT(req: Request) {
   const role = await em.findOne(Role, { id: parsed.data.id })
   if (!role) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (parsed.data.name !== undefined) (role as any).name = parsed.data.name
+  if (parsed.data.tenantId !== undefined) (role as any).tenantId = parsed.data.tenantId ?? null
   await em.persistAndFlush(role)
+  const roleTenantId = role?.tenantId ? String(role.tenantId) : null
   if (Object.keys(custom).length) {
     await de.setCustomFields({
       entityId: E.auth.role,
       recordId: String(role.id),
-      tenantId: auth.tenantId ?? null,
+      tenantId: roleTenantId,
       organizationId: null,
       values: custom,
       notify: false,
@@ -219,8 +188,8 @@ export async function PUT(req: Request) {
   }
   if (bus) {
     try {
-      await bus.emitEvent('auth.role.updated', { id: String(role.id), tenantId: auth.tenantId ?? null, organizationId: null }, { persistent: true })
-      await bus.emitEvent('query_index.upsert_one', { entityType: E.auth.role, recordId: String(role.id), organizationId: null, tenantId: auth.tenantId ?? null })
+      await bus.emitEvent('auth.role.updated', { id: String(role.id), tenantId: roleTenantId, organizationId: null }, { persistent: true })
+      await bus.emitEvent('query_index.upsert_one', { entityType: E.auth.role, recordId: String(role.id), organizationId: null, tenantId: roleTenantId })
     } catch {}
   }
   return NextResponse.json({ ok: true })
@@ -241,10 +210,11 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: 'Role has assigned users' }, { status: 400 })
   }
   await em.nativeDelete(RoleAcl, { role: id })
+  const roleTenantId = role?.tenantId ? String(role.tenantId) : null
   await em.removeAndFlush(role)
   try {
     const bus = resolve('eventBus') as any
-    await bus.emitEvent('auth.role.deleted', { id: String(role.id), tenantId: auth.tenantId ?? null, organizationId: null }, { persistent: true })
+    await bus.emitEvent('auth.role.deleted', { id: String(role.id), tenantId: roleTenantId, organizationId: null }, { persistent: true })
     await bus.emitEvent('query_index.delete_one', { entityType: E.auth.role, recordId: String(role.id), organizationId: null })
   } catch {}
   return NextResponse.json({ ok: true })

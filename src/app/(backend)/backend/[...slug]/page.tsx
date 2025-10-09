@@ -7,7 +7,10 @@ import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
 import { createRequestContainer } from '@/lib/di/container'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
-export default async function BackendCatchAll({ params }: { params: { slug?: string[] } }) {
+type Awaitable<T> = T | Promise<T>
+
+export default async function BackendCatchAll(props: { params: Awaitable<{ slug?: string[] }> }) {
+  const params = await props.params
   const pathname = '/backend/' + (params.slug?.join('/') ?? '')
   const match = findBackendMatch(modules, pathname)
   if (!match) return notFound()
@@ -25,7 +28,7 @@ export default async function BackendCatchAll({ params }: { params: { slug?: str
       const container = await createRequestContainer()
       const rbac = container.resolve<any>('rbacService')
       let organizationIdForCheck: string | null = auth.orgId ?? null
-      const cookieStore = cookies()
+      const cookieStore = await cookies()
       const cookieSelected = cookieStore.get('om_selected_org')?.value ?? null
       try {
         const { organizationId, allowedOrganizationIds } = await resolveFeatureCheckContext({ container, auth, selectedId: cookieSelected })

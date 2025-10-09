@@ -170,11 +170,15 @@ export async function loadCustomFieldValues(opts: {
   }
 
   const tenantList = Array.from(tenantCandidates)
+  const tenantNonNull = tenantList.filter((t): t is string => t !== null)
+  const tenantFilter = tenantNonNull.length
+    ? { tenantId: { $in: [...tenantNonNull, null] as any } }
+    : { tenantId: null }
   const cfRows = await em.find(CustomFieldValue, {
     entityId: entityId as any,
     recordId: { $in: normalizedRecordIds as any },
     deletedAt: null,
-    ...(tenantList.length ? { tenantId: { $in: tenantList as any } } : {}),
+    ...(tenantList.length ? tenantFilter : {}),
   })
 
   if (!cfRows.length) return {}
@@ -198,7 +202,7 @@ export async function loadCustomFieldValues(opts: {
         key: { $in: allKeys as any },
         deletedAt: null,
         isActive: true,
-        tenantId: { $in: tenantList as any },
+        ...(tenantList.length ? { tenantId: tenantFilter.tenantId } : {}),
         organizationId: { $in: orgList as any },
       })
     : []

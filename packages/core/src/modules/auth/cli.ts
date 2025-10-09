@@ -25,13 +25,14 @@ const addUser: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     const org = await em.findOneOrFail(Organization, { id: organizationId }, { populate: ['tenant'] })
+    const orgTenantId = org.tenant?.id ? String(org.tenant.id) : null
     const u = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organizationId: org.id, tenantId: org.tenant.id })
     await em.persistAndFlush(u)
     if (rolesCsv) {
       const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
       for (const name of names) {
         let role = await em.findOne(Role, { name })
-        if (!role) { role = em.create(Role, { name }); await em.persistAndFlush(role) }
+        if (!role) { role = em.create(Role, { name, tenantId: orgTenantId }); await em.persistAndFlush(role) }
         const link = em.create(UserRole, { user: u, role })
         await em.persistAndFlush(link)
       }
@@ -50,7 +51,7 @@ const seedRoles: ModuleCli = {
       for (const name of defaults) {
         const existing = await tem.findOne(Role, { name })
         if (!existing) {
-          tem.persist(tem.create(Role, { name }))
+          tem.persist(tem.create(Role, { name, tenantId: null }))
           console.log('Inserted role', name)
         }
       }
@@ -122,7 +123,7 @@ const setupApp: ModuleCli = {
     await em.transactional(async (tem: any) => {
       for (const name of roleNames) {
         let role = await tem.findOne(Role, { name })
-        if (!role) { role = tem.create(Role, { name }); tem.persist(role) }
+        if (!role) { role = tem.create(Role, { name, tenantId: null }); tem.persist(role) }
       }
       await tem.flush()
     })
