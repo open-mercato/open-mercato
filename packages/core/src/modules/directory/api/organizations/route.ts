@@ -15,6 +15,7 @@ import {
   rebuildHierarchyForTenant,
   type ComputedOrganizationNode,
 } from '@open-mercato/core/modules/directory/lib/hierarchy'
+import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const viewSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -42,32 +43,6 @@ function enforceTenantScope(authTenantId: string | null, requestedTenantId?: str
     return null
   }
   return requestedTenantId || authTenantId
-}
-
-type SplitBodyResult = { base: Record<string, any>; custom: Record<string, any> }
-
-function splitCustomFieldPayload(raw: any): SplitBodyResult {
-  const base: Record<string, any> = {}
-  const custom: Record<string, any> = {}
-  if (!raw || typeof raw !== 'object') return { base, custom }
-  for (const [key, value] of Object.entries(raw)) {
-    if (key === 'customFields' && value && typeof value === 'object') {
-      for (const [ck, cv] of Object.entries(value as Record<string, any>)) {
-        custom[String(ck)] = cv
-      }
-      continue
-    }
-    if (key.startsWith('cf_')) {
-      custom[key.slice(3)] = value
-      continue
-    }
-    if (key.startsWith('cf:')) {
-      custom[key.slice(3)] = value
-      continue
-    }
-    base[key] = value
-  }
-  return { base, custom }
 }
 
 export const metadata = {
@@ -104,6 +79,9 @@ export async function GET(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const de = resolve('dataEngine') as DataEngine
+  let bus: any
+  try { bus = resolve('eventBus') } catch { bus = null }
   const de = resolve('dataEngine') as DataEngine
   let bus: any
   try { bus = resolve('eventBus') } catch { bus = null }

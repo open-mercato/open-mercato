@@ -7,6 +7,7 @@ import type { QueryEngine, Where, Sort, Page } from '@open-mercato/shared/lib/qu
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { extractCustomFieldValuesFromPayload } from './custom-fields'
 
 export type CrudEventAction = 'created' | 'updated' | 'deleted'
 
@@ -122,14 +123,6 @@ function json(data: any, init?: ResponseInit) {
 
 function isUuid(v: any): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
-}
-
-function pickCustomFields(body: Record<string, any>) {
-  const out: Record<string, any> = {}
-  for (const [k, v] of Object.entries(body)) {
-    if (k.startsWith('cf_')) out[k.slice(3)] = v
-  }
-  return out
 }
 
 async function emitCrudEvent(container: AwilixContainer, cfg: CrudEventsConfig | undefined, action: CrudEventAction, payload: any) {
@@ -290,7 +283,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       // Custom fields
       if (opts.create.customFields && (opts.create.customFields as any).enabled) {
         const cfc = opts.create.customFields as Exclude<CustomFieldsConfig, false>
-        const values = cfc.map ? cfc.map(body) : (cfc.pickPrefixed ? pickCustomFields(body) : {})
+        const values = cfc.map
+          ? cfc.map(body)
+          : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
         if (values && Object.keys(values).length > 0) {
           const de = ctx.container.resolve<DataEngine>('dataEngine')
           await de.setCustomFields({
@@ -347,7 +342,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       // Custom fields
       if (opts.update.customFields && (opts.update.customFields as any).enabled) {
         const cfc = opts.update.customFields as Exclude<CustomFieldsConfig, false>
-        const values = cfc.map ? cfc.map(body) : (cfc.pickPrefixed ? pickCustomFields(body) : {})
+        const values = cfc.map
+          ? cfc.map(body)
+          : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
         if (values && Object.keys(values).length > 0) {
           const de = ctx.container.resolve<DataEngine>('dataEngine')
           await de.setCustomFields({

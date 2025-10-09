@@ -5,8 +5,8 @@ import { createRequestContainer } from '@/lib/di/container'
 import { Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
+import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -17,30 +17,6 @@ const querySchema = z.object({
 
 const createSchema = z.object({ name: z.string().min(2).max(100) })
 const updateSchema = z.object({ id: z.string().uuid(), name: z.string().min(2).max(100).optional() })
-
-type SplitBodyResult = { base: Record<string, any>; custom: Record<string, any> }
-
-function splitCustomFieldPayload(raw: any): SplitBodyResult {
-  const base: Record<string, any> = {}
-  const custom: Record<string, any> = {}
-  if (!raw || typeof raw !== 'object') return { base, custom }
-  for (const [key, value] of Object.entries(raw)) {
-    if (key === 'customFields' && value && typeof value === 'object') {
-      for (const [ck, cv] of Object.entries(value as Record<string, any>)) custom[String(ck)] = cv
-      continue
-    }
-    if (key.startsWith('cf_')) {
-      custom[key.slice(3)] = value
-      continue
-    }
-    if (key.startsWith('cf:')) {
-      custom[key.slice(3)] = value
-      continue
-    }
-    base[key] = value
-  }
-  return { base, custom }
-}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.roles.list'] },
@@ -140,46 +116,26 @@ export async function GET(req: Request) {
       return acc
     }, {})
   }
-  const cfByRole: Record<string, Record<string, unknown>> = {}
-  if (roleIds.length) {
-    const cfTenantIds = isSuperAdmin
-      ? Array.from(allTenantIds)
-      : auth.tenantId
-        ? [auth.tenantId]
-        : []
-    const cfWhere: Record<string, any> = {
-      entityId: E.auth.role as any,
-      recordId: { $in: roleIds.map((id: any) => String(id)) as any },
-      organizationId: null,
-      deletedAt: null,
-    }
-    if (cfTenantIds.length) {
-      cfWhere.tenantId = { $in: [...cfTenantIds, null] as any }
-    } else {
-      cfWhere.tenantId = null
-    }
-    const cfRows = await em.find(CustomFieldValue, cfWhere)
-    for (const row of cfRows) {
-      const recordId = String((row as any).recordId)
-      const key = String((row as any).fieldKey)
-      const value =
-        (row as any).valueText ??
-        (row as any).valueMultiline ??
-        ((row as any).valueInt !== null && (row as any).valueInt !== undefined ? (row as any).valueInt : undefined) ??
-        ((row as any).valueFloat !== null && (row as any).valueFloat !== undefined ? (row as any).valueFloat : undefined) ??
-        ((row as any).valueBool !== null && (row as any).valueBool !== undefined ? (row as any).valueBool : undefined)
-      if (value === undefined) continue
-      const bucket = cfByRole[recordId] || (cfByRole[recordId] = {})
-      const existing = bucket[key]
-      if (existing === undefined) {
-        bucket[key] = value
-      } else if (Array.isArray(existing)) {
-        bucket[key] = [...existing, value]
-      } else {
-        bucket[key] = [existing, value]
-      }
-    }
+  const tenantByRole: Record<string, string | null> = {}
+  for (const roleId of roleIds) {
+    const rid = String(roleId)
+    const tenants = roleTenantMap.get(rid)
+    if (tenants && tenants.size === 1) tenantByRole[rid] = Array.from(tenants)[0] ?? null
+    else tenantByRole[rid] = auth.tenantId ?? null
   }
+  const tenantFallbacks = Array.from(new Set<string | null>([
+    auth.tenantId ?? null,
+    ...Array.from(allTenantIds),
+  ]))
+  const cfByRole = roleIds.length
+    ? await loadCustomFieldValues({
+        em,
+        entityId: E.auth.role,
+        recordIds: roleIds.map((id: any) => String(id)),
+        tenantIdByRecord: tenantByRole,
+        tenantFallbacks,
+      })
+    : {}
   const items = rows.map((r: any) => {
     const idStr = String(r.id)
     const tenantSet = roleTenantMap.get(idStr) ?? new Set<string>()
@@ -189,16 +145,13 @@ export async function GET(req: Request) {
         ? Array.from(tenantSet).filter((tid) => tid === auth.tenantId)
         : []
     const tenantNames = visibleTenantIds.map((tid) => tenantMap[tid] ?? tid)
-    const cfEntries = cfByRole[idStr] || {}
-    const customFields: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(cfEntries)) customFields[`cf_${k}`] = v
     return {
       id: idStr,
       name: String(r.name),
       usersCount: counts[idStr] || 0,
       tenantIds: visibleTenantIds,
       tenantName: tenantNames.length ? tenantNames.join(', ') : null,
-      ...customFields,
+      ...(cfByRole[idStr] || {}),
     }
   })
   const totalPages = Math.max(1, Math.ceil(count / pageSize))

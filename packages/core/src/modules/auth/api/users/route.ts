@@ -6,7 +6,7 @@ import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entit
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { CustomFieldDef, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
+import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -31,30 +31,6 @@ const updateSchema = z.object({
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
 })
-
-type SplitBodyResult = { base: Record<string, any>; custom: Record<string, any> }
-
-function splitCustomFieldPayload(raw: any): SplitBodyResult {
-  const base: Record<string, any> = {}
-  const custom: Record<string, any> = {}
-  if (!raw || typeof raw !== 'object') return { base, custom }
-  for (const [key, value] of Object.entries(raw)) {
-    if (key === 'customFields' && value && typeof value === 'object') {
-      for (const [ck, cv] of Object.entries(value as Record<string, any>)) custom[String(ck)] = cv
-      continue
-    }
-    if (key.startsWith('cf_')) {
-      custom[key.slice(3)] = value
-      continue
-    }
-    if (key.startsWith('cf:')) {
-      custom[key.slice(3)] = value
-      continue
-    }
-    base[key] = value
-  }
-  return { base, custom }
-}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.users.list'] },
@@ -171,94 +147,23 @@ export async function GET(req: Request) {
       return acc
     }, {})
   }
-  const cfByUser: Record<string, Record<string, unknown>> = {}
-  if (userIds.length) {
-    const tenantFilterIds = uniqueTenantIds.length ? [...uniqueTenantIds, null] : [null]
-    const cfRows = await em.find(CustomFieldValue, {
-      entityId: E.auth.user,
-      recordId: { $in: userIds as any },
-      tenantId: { $in: tenantFilterIds as any },
-      deletedAt: null,
-    })
-    const keys = Array.from(new Set(cfRows.map((row: any) => String(row.fieldKey))))
-    const defs = keys.length
-      ? await em.find(CustomFieldDef, {
-          entityId: E.auth.user,
-          key: { $in: keys as any },
-          tenantId: { $in: tenantFilterIds as any },
-          isActive: true,
-          deletedAt: null,
-        })
-      : []
-    const defsByKey = new Map<string, CustomFieldDef[]>()
-    for (const def of defs) {
-      const arr = defsByKey.get(def.key) || []
-      arr.push(def)
-      defsByKey.set(def.key, arr)
-    }
-    const pickDef = (fieldKey: string, organizationId: string | null, tenantId: string | null) => {
-      const options = defsByKey.get(fieldKey)
-      if (!options || options.length === 0) return null
-      const active = options.filter((opt) => opt.isActive !== false && !opt.deletedAt)
-      const list = active.length ? active : options
-      if (organizationId && tenantId) {
-        const exactBoth = list.find((opt) => opt.organizationId === organizationId && opt.tenantId === tenantId)
-        if (exactBoth) return exactBoth
-      }
-      if (organizationId) {
-        const orgMatch = list.find((opt) => opt.organizationId === organizationId && (tenantId ? opt.tenantId == null || opt.tenantId === tenantId : true))
-        if (orgMatch) return orgMatch
-      }
-      if (tenantId) {
-        const tenantMatch = list.find((opt) => opt.organizationId == null && opt.tenantId === tenantId)
-        if (tenantMatch) return tenantMatch
-      }
-      const global = list.find((opt) => opt.organizationId == null && opt.tenantId == null)
-      if (global) return global
-      return list[0]
-    }
-    type Bucket = { orgId: string | null; tenantId: string | null; values: unknown[] }
-    const buckets = new Map<string, Bucket>()
-    const valueFromRow = (row: CustomFieldValue): unknown => {
-      if (row.valueMultiline !== null && row.valueMultiline !== undefined) return row.valueMultiline
-      if (row.valueText !== null && row.valueText !== undefined) return row.valueText
-      if (row.valueInt !== null && row.valueInt !== undefined) return row.valueInt
-      if (row.valueFloat !== null && row.valueFloat !== undefined) return row.valueFloat
-      if (row.valueBool !== null && row.valueBool !== undefined) return row.valueBool
-      return null
-    }
-    for (const row of cfRows) {
-      const rid = String(row.recordId)
-      const key = String(row.fieldKey)
-      const bucketKey = `${rid}::${key}`
-      const existing = buckets.get(bucketKey)
-      const orgId = row.organizationId ? String(row.organizationId) : null
-      const tenantId = row.tenantId ? String(row.tenantId) : null
-      const value = valueFromRow(row)
-      if (existing) {
-        if (existing.orgId == null && orgId) existing.orgId = orgId
-        if (existing.tenantId == null && tenantId) existing.tenantId = tenantId
-        existing.values.push(value)
-      } else {
-        buckets.set(bucketKey, { orgId, tenantId, values: [value] })
-      }
-    }
-    for (const [compoundKey, bucket] of buckets.entries()) {
-      const [rid, fieldKey] = compoundKey.split('::')
-      if (!cfByUser[rid]) cfByUser[rid] = {}
-      const def = pickDef(fieldKey, bucket.orgId, bucket.tenantId ?? null)
-      const prefixed = `cf_${fieldKey}`
-      if (def && def.configJson && typeof def.configJson === 'object' && (def.configJson as any).multi) {
-        const cleaned = bucket.values.filter((v) => v !== undefined && v !== null)
-        cfByUser[rid][prefixed] = cleaned
-      } else if (bucket.values.length > 1) {
-        const cleaned = bucket.values.filter((v) => v !== undefined)
-        cfByUser[rid][prefixed] = cleaned
-      } else {
-        cfByUser[rid][prefixed] = bucket.values[0] ?? null
-      }
-    }
+  const tenantByUser: Record<string, string | null> = {}
+  const organizationByUser: Record<string, string | null> = {}
+  for (const u of rows) {
+    const uid = String(u.id)
+    tenantByUser[uid] = u.tenantId ? String(u.tenantId) : null
+    organizationByUser[uid] = u.organizationId ? String(u.organizationId) : null
   }
+  const cfByUser = userIds.length
+    ? await loadCustomFieldValues({
+        em,
+        entityId: E.auth.user,
+        recordIds: userIds.map(String),
+        tenantIdByRecord: tenantByUser,
+        organizationIdByRecord: organizationByUser,
+        tenantFallbacks: auth.tenantId ? [auth.tenantId] : [],
+      })
+    : {}
 
   const items = rows.map((u: any) => {
     const uid = String(u.id)
