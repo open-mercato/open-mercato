@@ -4,6 +4,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 export default function EditRolePage({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -33,6 +34,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
   ]
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['name'] },
+    { id: 'customFields', title: 'Custom Fields', column: 2, kind: 'customFields' },
     { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="role" targetId={String(id)} canEditOrganizations={true} value={aclData} onChange={setAclData} /> : null) },
   ]
 
@@ -43,6 +45,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
         <CrudForm
           title="Edit Role"
           backHref="/backend/roles"
+          entityId={E.auth.role}
           fields={fields}
           groups={groups}
           initialValues={initial || { id }}
@@ -65,12 +68,25 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             })
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
-          onDelete={async () => { await apiFetch(`/api/auth/roles?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' }) }}
+          onDelete={async () => { 
+            const res = await apiFetch(`/api/auth/roles?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' })
+            if (!res.ok) {
+              let message = 'Failed to delete role'
+              try {
+                const data = await res.clone().json()
+                if (data && typeof data.error === 'string' && data.error.trim()) message = data.error
+              } catch {
+                try {
+                  const text = await res.text()
+                  if (text.trim()) message = text
+                } catch {}
+              }
+              throw new Error(message)
+            }
+          }}
           deleteRedirect="/backend/roles?flash=Role%20deleted&type=success"
         />
       </PageBody>
     </Page>
   )
 }
-
-

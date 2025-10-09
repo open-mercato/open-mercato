@@ -6,6 +6,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
 type EntityRow = {
   entityId: string
@@ -39,9 +40,10 @@ export default function SystemEntitiesTable() {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'entityId', desc: false }])
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const scopeVersion = useOrganizationScopeVersion()
 
   const { data, isLoading } = useQuery<EntitiesResponse>({
-    queryKey: ['custom-entities'],
+    queryKey: ['custom-entities', scopeVersion],
     queryFn: async () => {
       const res = await apiFetch('/api/entities/entities')
       if (!res.ok) throw new Error('Failed to load entities')

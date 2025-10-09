@@ -39,7 +39,7 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
     let cancelled = false
     const loadAll = async () => {
       const loaders = filters
-        .filter((f): f is FilterDef & { loadOptions: () => Promise<FilterOption[]> } => (f as any).loadOptions != null)
+        .filter((f): f is FilterDef & { loadOptions: (query?: string) => Promise<FilterOption[]> } => (f as any).loadOptions != null)
         .map(async (f) => {
           try {
             const opts = await (f as any).loadOptions()

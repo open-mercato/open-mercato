@@ -20,8 +20,8 @@ This example extends the `example` module with a new `Todo` entity, declares cus
    - `npm run db:generate`
    - `npm run db:migrate`
 
-3) Seed field definitions for your organization
-   - `npm run mercato -- entities install -- --org <orgId>`
+3) Sync custom entity definitions for your tenant
+   - `npm run mercato -- entities install -- --tenant <tenantId>`
 
 4) Seed todos and their custom field values (scoped to org and tenant)
    - `npm run mercato -- example seed-todos -- --org <orgId> --tenant <tenantId>`
@@ -124,3 +124,25 @@ Usage:
 This appends controls for all custom fields marked `filterable` in their definitions (boolean → checkbox, select → dropdown; multi-select uses a checkbox list, text-like kinds → text input). Selected values should be mapped to query params as `cf_<key>` or `cf_<key>In` for multi.
 
 Note: `customFieldFiltersEntityId` has been renamed to `entityId`.
+
+### Organization scope refresh
+
+When a user changes the active organization from the global switcher, the app emits a browser event so client components can immediately refetch their data without waiting for a full page reload. Instead of wiring the event manually, reach for the hooks in `@/lib/frontend/useOrganizationScope`:
+
+```ts
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useQuery } from '@tanstack/react-query'
+
+export function TodosTable() {
+  const scopeVersion = useOrganizationScopeVersion()
+  const { data } = useQuery({
+    queryKey: ['todos', params, scopeVersion],
+    queryFn: fetchTodos,
+  })
+  // ...
+}
+```
+
+`useOrganizationScopeVersion()` increments whenever the organization changes, making it easy to append to query keys, effect dependency arrays, or SWR keys. If you need the selected organization id directly, call `useOrganizationScopeDetail()` which returns `{ organizationId }`.
+
+`DataTable` already subscribes internally and calls `router.refresh()`, so any list rendered with it will refresh as soon as the user picks another organization. Use the hooks when you have custom fetch logic (e.g. React Query, SWR, or manual effects) that should re-run on organization changes.

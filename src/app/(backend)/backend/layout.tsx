@@ -4,9 +4,15 @@ import { getAuthFromCookies } from '@/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
 import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
+import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 
 export default async function BackendLayout({ children, params }: { children: React.ReactNode; params?: { slug?: string[] } }) {
   const auth = await getAuthFromCookies()
+  let cookieStore: any = null
+  try {
+    const { cookies } = await import('next/headers')
+    cookieStore = await cookies()
+  } catch {}
 
   // Prefer pathname injected by middleware; fallback to params-based path
   let path = ''
@@ -64,15 +70,20 @@ export default async function BackendLayout({ children, params }: { children: Re
   const breadcrumb = (match?.route as any)?.breadcrumb as Array<{ label: string; href?: string }> | undefined
   // Read collapsed state from cookie for SSR-perfect initial render
   let initialCollapsed = false
-  try {
-    const { cookies } = await import('next/headers')
-    const c = await cookies()
-    const v = c.get('om_sidebar_collapsed')?.value
+  if (cookieStore) {
+    const v = cookieStore.get('om_sidebar_collapsed')?.value
     initialCollapsed = v === '1'
-  } catch {}
+  }
+
+  const rightHeaderContent = (
+    <div className="flex items-center gap-3">
+      <OrganizationSwitcher />
+      <UserMenu email={auth?.email} />
+    </div>
+  )
 
   return (
-    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={<UserMenu email={auth?.email} />} adminNavApi="/api/auth/admin/nav"> 
+    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={rightHeaderContent} adminNavApi="/api/auth/admin/nav"> 
       {children}
     </AppShell>
   )

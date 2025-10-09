@@ -39,6 +39,7 @@ export async function buildAdminNav(
 
   // Batch check all features in a single API call
   let userFeatures = new Set<string>()
+  let featureCheckFailed = false
   if (allRequiredFeatures.size > 0) {
     let url = '/api/auth/feature-check'
     let headersInit: Record<string, string> | undefined
@@ -69,10 +70,15 @@ export async function buildAdminNav(
         if (Array.isArray(data?.granted)) {
           data.granted.forEach((f: string) => userFeatures.add(f))
         }
+      } else {
+        featureCheckFailed = true
       }
     } catch {
-      // If batch check fails, assume no features available
+      featureCheckFailed = true
     }
+  }
+  if (featureCheckFailed) {
+    userFeatures = new Set(allRequiredFeatures)
   }
 
   // Helper: check if user has all required features (from cache)

@@ -6,6 +6,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
 type Row = {
   entityId: string
@@ -45,9 +46,10 @@ export default function QueryIndexesTable() {
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const qc = useQueryClient()
+  const scopeVersion = useOrganizationScopeVersion()
 
   const { data, isLoading } = useQuery<Resp>({
-    queryKey: ['query-index-status'],
+    queryKey: ['query-index-status', scopeVersion],
     queryFn: async () => {
       const res = await apiFetch('/api/query_index/status')
       if (!res.ok) throw new Error('Failed to load status')

@@ -3,16 +3,19 @@
 // We'll lazy-load modules and DI only when required by a specific command.
 
 export async function run(argv = process.argv) {
-  const [, , modName, cmdName, ...rest] = argv
+  const [, , ...parts] = argv
+  const [first, second, ...remaining] = parts
   
   // Handle init command directly
-  if (modName === 'init') {
+  if (first === 'init') {
     const { execSync } = await import('child_process')
     
     console.log('🚀 Initializing Open Mercato app...\n')
     
     try {
-      const reinstall = rest.includes('--reinstall') || rest.includes('-r')
+      const initArgs = parts.slice(1).filter(Boolean)
+      const reinstall = initArgs.includes('--reinstall') || initArgs.includes('-r')
+      console.log(`🔄 Reinstall mode: ${reinstall ? 'enabled' : 'disabled'}`)
 
       if (reinstall) {
         // Load env variables so DATABASE_URL is available
@@ -81,10 +84,20 @@ export async function run(argv = process.argv) {
       console.log('✅ Roles seeded\n')
       
       // Step 5: Setup RBAC (tenant/org, users, ACLs)
-      const orgName = rest.find(arg => arg.startsWith('--org='))?.split('=')[1] || 'Acme Corp'
-      const email = rest.find(arg => arg.startsWith('--email='))?.split('=')[1] || 'superadmin@acme.com'
-      const password = rest.find(arg => arg.startsWith('--password='))?.split('=')[1] || 'secret'
-      const roles = rest.find(arg => arg.startsWith('--roles='))?.split('=')[1] || 'superadmin,admin,employee'
+      const findArgValue = (names: string[], fallback: string) => {
+        for (const name of names) {
+          const match = initArgs.find((arg) => arg.startsWith(name))
+          if (match) {
+            const value = match.slice(name.length)
+            if (value) return value
+          }
+        }
+        return fallback
+      }
+      const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
+      const email = findArgValue(['--email='], 'superadmin@acme.com')
+      const password = findArgValue(['--password='], 'secret')
+      const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
       
       console.log('🔐 Setting up RBAC and users...')
       const setupOutput = execSync(`yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`, { stdio: 'pipe' }).toString()
@@ -120,14 +133,14 @@ export async function run(argv = process.argv) {
       console.log('║    yarn dev                                                  ║')
       console.log('║                                                              ║')
       console.log('║  Users created:                                              ║')
-      console.log(`║    👑 Superadmin: ${email.padEnd(41)} ║`)
+      console.log(`║    👑 Superadmin: ${email.padEnd(42)} ║`)
       console.log(`║       Password: ${password.padEnd(44)} ║`)
       if (adminEmailDerived) {
-        console.log(`║    🧰 Admin:      ${adminEmailDerived.padEnd(41)} ║`)
+        console.log(`║    🧰 Admin:      ${adminEmailDerived.padEnd(42)} ║`)
         console.log(`║       Password: ${password.padEnd(44)} ║`)
       }
       if (employeeEmailDerived) {
-        console.log(`║    👷 Employee:   ${employeeEmailDerived.padEnd(41)} ║`)
+        console.log(`║    👷 Employee:   ${employeeEmailDerived.padEnd(42)} ║`)
         console.log(`║       Password: ${password.padEnd(44)} ║`)
       }
       console.log('║                                                              ║')
@@ -135,11 +148,19 @@ export async function run(argv = process.argv) {
       console.log('╚══════════════════════════════════════════════════════════════╝')
       
       return 0
-    } catch (error: any) {
-      console.error('❌ Initialization failed:', error.message)
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('❌ Initialization failed:', error.message)
+      } else {
+        console.error('❌ Initialization failed:', error)
+      }
       return 1
     }
   }
+
+  const modName = first
+  const cmdName = second
+  const rest = remaining
   
   // Load modules lazily, after init handling
   const { modules } = await import('@/generated/modules.generated')
@@ -310,7 +331,7 @@ export async function run(argv = process.argv) {
           const baseDir = path.resolve('src/modules', mod, 'api', routeSeg)
           fs.mkdirSync(baseDir, { recursive: true })
           const entitySnake = entity.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
-          const tmpl = `import { z } from 'zod'\nimport { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'\nimport { ${entity} } from '@/modules/${mod}/data/entities'\nimport { E } from '@/generated/entities.ids.generated'\nimport * as F from '@/generated/entities/${entitySnake}'\nimport fieldSets from '@/modules/${mod}/data/fields'\nimport { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'\n\nconst querySchema = z.object({\n  id: z.string().uuid().optional(),\n  page: z.coerce.number().min(1).default(1),\n  pageSize: z.coerce.number().min(1).max(100).default(50),\n  sortField: z.string().optional().default('id'),\n  sortDir: z.enum(['asc','desc']).optional().default('asc'),\n  withDeleted: z.coerce.boolean().optional().default(false),\n}).passthrough()\n\nconst createSchema = z.object({}).passthrough()\nconst updateSchema = z.object({ id: z.string().uuid() }).passthrough()\n\ntype Query = z.infer<typeof querySchema>\n\nconst cfSel = buildCustomFieldSelectorsForEntity(E.${mod}.${entitySnake}, fieldSets)\nconst sortFieldMap: Record<string, unknown> = { id: F.id, created_at: F.created_at, ...Object.fromEntries(cfSel.keys.map(k => [\`cf_\${k}\`, \`cf:\${k}\`])) }\n\nexport const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({\n  metadata: { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },\n  orm: { entity: ${entity}, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },\n  events: { module: '${mod}', entity: '${entitySnake}', persistent: true },\n  list: {\n    schema: querySchema,\n    entityId: E.${mod}.${entitySnake},\n    fields: [F.id, F.created_at, ...cfSel.selectors],\n    sortFieldMap,\n    buildFilters: async (q: Query, ctx) => ({ ...(await buildCustomFieldFiltersFromQuery({ entityId: E.${mod}.${entitySnake}, query: q as any, em: ctx.container.resolve('em'), orgId: ctx.auth.orgId, tenantId: ctx.auth.tenantId })) }),\n    transformItem: (item: any) => ({ id: item.id, created_at: item.created_at, ...extractCustomFieldsFromItem(item, cfSel.keys) }),\n  },\n  create: { schema: createSchema, mapToEntity: (input: any) => ({}), customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  update: { schema: updateSchema, applyToEntity: (entity: ${entity}, input: any) => {}, customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  del: { idFrom: 'query', softDelete: true },\n})\n`
+          const tmpl = `import { z } from 'zod'\nimport { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'\nimport { ${entity} } from '@/modules/${mod}/data/entities'\nimport { E } from '@/generated/entities.ids.generated'\nimport * as F from '@/generated/entities/${entitySnake}'\nimport fieldSets from '@/modules/${mod}/data/fields'\nimport { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'\n\nconst querySchema = z.object({\n  id: z.string().uuid().optional(),\n  page: z.coerce.number().min(1).default(1),\n  pageSize: z.coerce.number().min(1).max(100).default(50),\n  sortField: z.string().optional().default('id'),\n  sortDir: z.enum(['asc','desc']).optional().default('asc'),\n  withDeleted: z.coerce.boolean().optional().default(false),\n}).passthrough()\n\nconst createSchema = z.object({}).passthrough()\nconst updateSchema = z.object({ id: z.string().uuid() }).passthrough()\n\ntype Query = z.infer<typeof querySchema>\n\nconst cfSel = buildCustomFieldSelectorsForEntity(E.${mod}.${entitySnake}, fieldSets)\nconst sortFieldMap: Record<string, unknown> = { id: F.id, created_at: F.created_at, ...Object.fromEntries(cfSel.keys.map(k => [\`cf_\${k}\`, \`cf:\${k}\`])) }\n\nexport const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({\n  metadata: { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },\n  orm: { entity: ${entity}, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },\n  events: { module: '${mod}', entity: '${entitySnake}', persistent: true },\n  list: {\n    schema: querySchema,\n    entityId: E.${mod}.${entitySnake},\n    fields: [F.id, F.created_at, ...cfSel.selectors],\n    sortFieldMap,\n    buildFilters: async (q: Query, ctx) => ({\n      ...(await buildCustomFieldFiltersFromQuery({\n        entityId: E.${mod}.${entitySnake},\n        query: q as any,\n        em: ctx.container.resolve('em'),\n        tenantId: ctx.auth!.tenantId,\n      })),\n    }),\n    transformItem: (item: any) => ({ id: item.id, created_at: item.created_at, ...extractCustomFieldsFromItem(item, cfSel.keys) }),\n  },\n  create: { schema: createSchema, mapToEntity: (input: any) => ({}), customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  update: { schema: updateSchema, applyToEntity: (entity: ${entity}, input: any) => {}, customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  del: { idFrom: 'query', softDelete: true },\n})\n`
           const file = path.join(baseDir, 'route.ts')
           fs.writeFileSync(file, tmpl, { flag: 'wx' })
           console.log(`Created CRUD route: ${path.relative(process.cwd(), file)}`)

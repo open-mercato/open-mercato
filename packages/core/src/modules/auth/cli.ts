@@ -3,6 +3,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { hash } from 'bcryptjs'
 import { User, Role, UserRole, RoleAcl, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -24,13 +25,14 @@ const addUser: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     const org = await em.findOneOrFail(Organization, { id: organizationId }, { populate: ['tenant'] })
+    const orgTenantId = org.tenant?.id ? String(org.tenant.id) : null
     const u = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organizationId: org.id, tenantId: org.tenant.id })
     await em.persistAndFlush(u)
     if (rolesCsv) {
       const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
       for (const name of names) {
         let role = await em.findOne(Role, { name })
-        if (!role) { role = em.create(Role, { name }); await em.persistAndFlush(role) }
+        if (!role) { role = em.create(Role, { name, tenantId: orgTenantId }); await em.persistAndFlush(role) }
         const link = em.create(UserRole, { user: u, role })
         await em.persistAndFlush(link)
       }
@@ -49,7 +51,7 @@ const seedRoles: ModuleCli = {
       for (const name of defaults) {
         const existing = await tem.findOne(Role, { name })
         if (!existing) {
-          tem.persist(tem.create(Role, { name }))
+          tem.persist(tem.create(Role, { name, tenantId: null }))
           console.log('Inserted role', name)
         }
       }
@@ -82,6 +84,7 @@ const addOrganization: ModuleCli = {
     await em.persistAndFlush(tenant)
     const org = em.create(Organization, { name, tenant })
     await em.persistAndFlush(org)
+    await rebuildHierarchyForTenant(em, String(tenant.id))
     console.log('Organization created with id', org.id, 'in tenant', tenant.id)
   },
 }
@@ -120,7 +123,7 @@ const setupApp: ModuleCli = {
     await em.transactional(async (tem: any) => {
       for (const name of roleNames) {
         let role = await tem.findOne(Role, { name })
-        if (!role) { role = tem.create(Role, { name }); tem.persist(role) }
+        if (!role) { role = tem.create(Role, { name, tenantId: null }); tem.persist(role) }
       }
       await tem.flush()
     })
@@ -211,12 +214,33 @@ const setupApp: ModuleCli = {
       // Transaction complete; tenant/org ids captured above
     })
 
+    if (seedTenantId) {
+      await rebuildHierarchyForTenant(em, seedTenantId)
+    }
+
     // 3) Seed role ACLs outside transaction: superadmin -> isSuperAdmin; admin -> all features; employee -> example module
     const superadminRole = await em.findOne(Role, { name: 'superadmin' })
     const adminRole = await em.findOne(Role, { name: 'admin' })
     const employeeRole = await em.findOne(Role, { name: 'employee' })
-    if (superadminRole) await em.persistAndFlush(em.create(RoleAcl, { role: superadminRole, tenantId: seedTenantId, isSuperAdmin: true }))
-    if (adminRole) await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: seedTenantId, featuresJson: ['*'] }))
+    if (superadminRole) {
+      await em.persistAndFlush(em.create(RoleAcl, {
+        role: superadminRole,
+        tenantId: seedTenantId,
+        isSuperAdmin: true,
+        featuresJson: ['directory.tenants.*'],
+      }))
+    }
+    if (adminRole) {
+      const adminFeatures = [
+        'auth.*',
+        'entities.*',
+        'attachments.*',
+        'query_index.*',
+        'directory.organizations.*',
+        'example.*',
+      ]
+      await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: seedTenantId, featuresJson: adminFeatures }))
+    }
     if (employeeRole) await em.persistAndFlush(em.create(RoleAcl, { role: employeeRole, tenantId: seedTenantId, featuresJson: ['example.*'] }))
 
     console.log('Setup complete:', { tenantId: seedTenantId, organizationId: seedOrgId })

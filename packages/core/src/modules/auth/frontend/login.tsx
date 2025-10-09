@@ -6,6 +6,38 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useT } from '@/lib/i18n/context'
 
+function extractErrorMessage(payload: unknown): string | null {
+  if (!payload) return null
+  if (typeof payload === 'string') return payload
+  if (Array.isArray(payload)) {
+    for (const entry of payload) {
+      const resolved = extractErrorMessage(entry)
+      if (resolved) return resolved
+    }
+    return null
+  }
+  if (typeof payload === 'object') {
+    const record = payload as Record<string, unknown>
+    const candidates: unknown[] = [
+      record.error,
+      record.message,
+      record.detail,
+      record.details,
+      record.description,
+    ]
+    for (const candidate of candidates) {
+      const resolved = extractErrorMessage(candidate)
+      if (resolved) return resolved
+    }
+  }
+  return null
+}
+
+function looksLikeJsonString(value: string): boolean {
+  const trimmed = value.trim()
+  return trimmed.startsWith('{') || trimmed.startsWith('[')
+}
+
 export default function LoginPage() {
   const t = useT()
   const router = useRouter()
@@ -29,29 +61,45 @@ export default function LoginPage() {
         return
       }
       if (!res.ok) {
-        let errorMessage = 'An error occurred. Please try again.'
-        try {
-          const text = await res.text()
+        const fallback = (() => {
+          if (res.status === 403) {
+            return 'You do not have permission to access this area. Please contact your administrator.'
+          }
+          if (res.status === 401 || res.status === 400) {
+            return 'Invalid email or password'
+          }
+          return 'An error occurred. Please try again.'
+        })()
+        const cloned = res.clone()
+        let errorMessage = ''
+        const contentType = res.headers.get('content-type') || ''
+        if (contentType.includes('application/json')) {
           try {
-            const data = JSON.parse(text)
-            if (res.status === 403) {
-              errorMessage = data?.error || 'You do not have permission to access this area. Please contact your administrator.'
-            } else {
-              errorMessage = data?.error || 'Invalid email or password'
+            const data = await res.json()
+            errorMessage = extractErrorMessage(data) || ''
+          } catch {
+            try {
+              const text = await cloned.text()
+              const trimmed = text.trim()
+              if (trimmed && !looksLikeJsonString(trimmed)) {
+                errorMessage = trimmed
+              }
+            } catch {
+              errorMessage = ''
+            }
+          }
+        } else {
+          try {
+            const text = await res.text()
+            const trimmed = text.trim()
+            if (trimmed && !looksLikeJsonString(trimmed)) {
+              errorMessage = trimmed
             }
           } catch {
-            // If not JSON, use the text as error message
-            errorMessage = text || errorMessage
-          }
-        } catch {
-          // If can't read response, use default message
-          if (res.status === 403) {
-            errorMessage = 'You do not have permission to access this area. Please contact your administrator.'
-          } else {
-            errorMessage = 'Invalid email or password'
+            errorMessage = ''
           }
         }
-        setError(errorMessage)
+        setError(errorMessage || fallback)
         return
       }
       // In case API returns 200 with JSON

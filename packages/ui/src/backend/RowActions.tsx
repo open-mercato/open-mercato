@@ -116,7 +116,10 @@ export function RowActions({ items }: { items: RowActionItem[] }) {
                 href={it.href}
                 className={`block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent ${it.destructive ? 'text-red-600' : ''}`}
                 role="menuitem"
-                onClick={() => setOpen(false)}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setOpen(false)
+                }}
               >
                 {it.label}
               </a>
@@ -126,7 +129,11 @@ export function RowActions({ items }: { items: RowActionItem[] }) {
                 type="button"
                 className={`block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent ${it.destructive ? 'text-red-600' : ''}`}
                 role="menuitem"
-                onClick={() => { setOpen(false); it.onSelect?.() }}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setOpen(false)
+                  it.onSelect?.()
+                }}
               >
                 {it.label}
               </button>

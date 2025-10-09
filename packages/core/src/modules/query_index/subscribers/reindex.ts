@@ -8,7 +8,6 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   const entityType = String(payload?.entityType || '')
   if (!entityType) return
   // Keep undefined to mean "no filter"; null to mean "global-only"
-  const orgId: string | null | undefined = payload?.organizationId
   const tenantId: string | null | undefined = payload?.tenantId
   const forceFull: boolean = Boolean(payload?.force)
 
@@ -17,11 +16,12 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     return ent.endsWith('s') ? ent : `${ent}s`
   })()
 
-  const lockScope = () =>
-    knex('entity_index_jobs')
-      .where('entity_type', entityType)
-      .andWhereRaw('organization_id is not distinct from ?', [orgId ?? null])
-      .andWhereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
+  const lockScope = () => {
+    let query = knex('entity_index_jobs').where('entity_type', entityType)
+    query = query.whereNull('organization_id')
+    query = query.whereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
+    return query
+  }
 
   // If forced, clear any previous lock for this scope
   if (forceFull) {
@@ -36,7 +36,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     try {
       await knex('entity_index_jobs').insert({
         entity_type: entityType,
-        organization_id: orgId ?? null,
+        organization_id: null,
         tenant_id: tenantId ?? null,
         status: 'reindexing',
         started_at: knex.fn.now(),
@@ -58,10 +58,6 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     if (hasDeletedCol) q = q.whereNull('b.deleted_at')
 
     // Scope base rows
-    if (orgId !== undefined && hasOrgCol) {
-      if (orgId === null) q = q.whereNull('b.organization_id')
-      else q = q.andWhere((bld: any) => bld.where({ 'b.organization_id': orgId }).orWhereNull('b.organization_id'))
-    }
     if (tenantId !== undefined && hasTenantCol) {
       if (tenantId === null) q = q.whereNull('b.tenant_id')
       else q = q.andWhere((bld: any) => bld.where({ 'b.tenant_id': tenantId }).orWhereNull('b.tenant_id'))
@@ -69,9 +65,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
     if (!forceFull) {
       // Resume: only rows missing in index for the target scope
-      const orgExpr = (orgId !== undefined)
-        ? knex.raw('?', [orgId])
-        : (hasOrgCol ? knex.raw('b.organization_id') : knex.raw('null'))
+      const orgExpr = hasOrgCol ? knex.raw('b.organization_id') : knex.raw('null')
       const tenantExpr = (tenantId !== undefined)
         ? knex.raw('?', [tenantId])
         : (hasTenantCol ? knex.raw('b.tenant_id') : knex.raw('null'))
@@ -87,7 +81,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
     const rows = await q
     for (const r of rows) {
-      const scopeOrg = orgId !== undefined ? orgId : (hasOrgCol ? (r as any).organization_id ?? null : null)
+      const scopeOrg = hasOrgCol ? (r as any).organization_id ?? null : null
       const scopeTenant = tenantId !== undefined ? tenantId : (hasTenantCol ? (r as any).tenant_id ?? null : null)
       await eventBus.emitEvent('query_index.upsert_one', { entityType, recordId: String(r.id), organizationId: scopeOrg, tenantId: scopeTenant })
     }

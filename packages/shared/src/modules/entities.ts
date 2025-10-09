@@ -25,6 +25,8 @@ export type CustomFieldKind =
   | 'float'
   | 'boolean'
   | 'select'
+  | 'relation'
+  | 'attachment'
 
 export type CustomFieldDefinition = {
   id?: string // stable id; generated if omitted
@@ -42,6 +44,7 @@ export type CustomFieldDefinition = {
   // whether field should be editable in generated CRUD forms
   formEditable?: boolean
   indexed?: boolean
+  listVisible?: boolean
   // Optional UI hints for generated forms/filters
   // Editors for multiline-rich text fields:
   //  - 'markdown' -> UIW Markdown editor
@@ -49,7 +52,15 @@ export type CustomFieldDefinition = {
   //  - 'htmlRichText' -> contenteditable rich text
   editor?: 'markdown' | 'simpleMarkdown' | 'htmlRichText'
   // Input hint for plain text fields (e.g., tags input when multi=true)
-  input?: 'tags'
+  // Allow additional custom renderers (e.g., listbox from modules)
+  input?: string
+  // Relation helper metadata
+  relatedEntityId?: string
+  // Advanced validation rules applied in UI + API
+  validation?: Array<{ rule: string; param?: unknown; message?: string }>
+  // Attachments config passthrough (handled by attachments module)
+  maxAttachmentSizeMb?: number
+  acceptExtensions?: string[]
 }
 
 export type CustomFieldSet = {
@@ -64,4 +75,15 @@ export type EntityRegistrySpec = {
   extensions?: EntityExtension[]
   // Static, per-module declared custom fields (seeded via migrations/CLI)
   customFieldSets?: CustomFieldSet[]
+}
+
+export type CustomEntitySpec = {
+  id: EntityId
+  label?: string
+  description?: string
+  labelField?: string
+  defaultEditor?: string
+  showInSidebar?: boolean
+  global?: boolean
+  fields?: CustomFieldDefinition[]
 }

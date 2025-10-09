@@ -12,6 +12,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import Link from 'next/link'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
 type RecordsResponse = {
   items: any[]
@@ -54,6 +55,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
   const [loading, setLoading] = React.useState(false)
   const [cfDefs, setCfDefs] = React.useState<CfDef[]>([])
   const [showAllColumns, setShowAllColumns] = React.useState(false)
+  const scopeVersion = useOrganizationScopeVersion()
 
   // Load CF definitions for labeling and to respect per-field visibility (listVisible)
   React.useEffect(() => {
@@ -115,7 +117,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     }
     if (entityId) run()
     return () => { cancelled = true }
-  }, [entityId, page, pageSize, sorting, filterValues])
+  }, [entityId, page, pageSize, sorting, filterValues, scopeVersion])
 
   // Build columns from custom field definitions only (no data round-trip)
   React.useEffect(() => {

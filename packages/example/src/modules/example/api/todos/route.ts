@@ -160,10 +160,22 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     beforeList: async (_q, ctx) => {
       try {
         const em = ctx.container.resolve<any>('em')
+        const baseOrgIds = ctx.organizationIds === null
+          ? null
+          : (ctx.organizationIds ?? []).filter((id): id is string => typeof id === 'string' && id.length > 0)
+        const scopedOrgIds = baseOrgIds === null
+          ? null
+          : (baseOrgIds.length > 0
+            ? Array.from(new Set(baseOrgIds))
+            : ((ctx.selectedOrganizationId ?? ctx.auth!.orgId) ? [ctx.selectedOrganizationId ?? ctx.auth!.orgId] : []))
         const defs = await em.find(CustomFieldDef, {
           entityId: E.example.todo as any,
           $and: [
-            { $or: [ { organizationId: ctx.auth!.orgId as any }, { organizationId: null } ] },
+            ...(scopedOrgIds === null
+              ? []
+              : scopedOrgIds.length > 0
+                ? [ { $or: [ { organizationId: { $in: scopedOrgIds as any } }, { organizationId: null } ] } ]
+                : [ { organizationId: null } ]),
             { $or: [ { tenantId: ctx.auth!.tenantId as any }, { tenantId: null } ] },
           ],
         })
@@ -189,8 +201,16 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
             .distinct('field_key')
             .where({ entity_id: E.example.todo as any })
             .modify((qb: any) => {
-              if (ctx.auth!.orgId != null) qb.andWhere((b: any) => b.where({ organization_id: ctx.auth!.orgId }).orWhereNull('organization_id'))
-              else qb.whereNull('organization_id')
+              if (scopedOrgIds === null) {
+                // no organization restriction
+              } else if (scopedOrgIds.length > 0) {
+                qb.andWhere((b: any) => {
+                  b.whereIn('organization_id', scopedOrgIds as any)
+                  b.orWhereNull('organization_id')
+                })
+              } else {
+                qb.whereNull('organization_id')
+              }
               if (ctx.auth!.tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: ctx.auth!.tenantId }).orWhereNull('tenant_id'))
               else qb.whereNull('tenant_id')
             })

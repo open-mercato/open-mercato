@@ -325,8 +325,8 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
       <aside className={`${asideClassesBase} ${collapsed ? 'px-2' : 'px-3'} hidden lg:block`}>{renderSidebar(collapsed, true)}</aside>
 
       <div className="flex min-h-svh flex-col">
-        <header className="border-b bg-background/60 px-3 lg:px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <header className="border-b bg-background/60 px-3 lg:px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-2 flex-wrap">
             {/* Mobile menu button */}
             <button type="button" className="lg:hidden rounded border px-2 py-1" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
@@ -369,7 +369,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
               )
             })()}
           </div>
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex items-center gap-2 text-sm w-full lg:w-auto lg:justify-end">
             {rightHeaderSlot ? (
               rightHeaderSlot
             ) : (

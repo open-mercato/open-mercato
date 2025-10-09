@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import type { QueryEngine, Where, Sort } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, QueryOptions, Where, Sort } from '@open-mercato/shared/lib/query/types'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { setRecordCustomFields } from '../lib/helpers'
 import { CustomFieldValue } from '../data/entities'
 
@@ -25,7 +27,7 @@ export async function GET(req: Request) {
   if (!entityId) return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
 
   const auth = getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const format = (url.searchParams.get('format') || '').toLowerCase()
   const exportAll = parseBool(url.searchParams.get('all'), false)
@@ -45,12 +47,18 @@ export async function GET(req: Request) {
     const { resolve } = await createRequestContainer()
     const qe = resolve('queryEngine') as QueryEngine
     const em = resolve('em') as any
+    const rbac = resolve('rbacService') as RbacService
+    const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
+    let organizationIds: string[] | null = scope.filterIds
     let isCustomEntity = false
     try {
       const { CustomEntity } = await import('../data/entities')
       const found = await em.findOne(CustomEntity as any, { entityId, isActive: true })
       isCustomEntity = !!found
     } catch {}
+    if (organizationIds && organizationIds.length === 0) {
+      return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 0 })
+    }
     // Build filters with awareness of custom-entity mode
     const filtersObj: Where<any> = {}
     const buildFilter = (key: string, val: string, allowAnyKey: boolean) => {
@@ -85,17 +93,22 @@ export async function GET(req: Request) {
       }
     }
 
-    const qopts = {
-      organizationId: auth.orgId!,
+    if (organizationIds && organizationIds.length) {
+      (filtersObj as any).organization_id = { $in: organizationIds }
+    }
+    const qopts: QueryOptions = {
       tenantId: auth.tenantId!,
       includeCustomFields: true,
       page: { page, pageSize },
       sort: [{ field: sortField as any, dir: sortDir as any }] as Sort[],
-      get filters() { return filtersObj as any },
+      filters: filtersObj as any,
       withDeleted,
-    } as const
+    }
+    if (organizationIds && organizationIds.length) {
+      qopts.organizationIds = organizationIds
+    }
     for (const [k, v] of qpEntries) buildFilter(k, v, isCustomEntity)
-    const res = await qe.query(entityId as any, qopts as any)
+    const res = await qe.query(entityId as any, qopts)
 
     const payload = {
       items: (res.items || []).map((row: any) => {
@@ -185,7 +198,7 @@ const postBodySchema = z.object({
 
 export async function POST(req: Request) {
   const auth = getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let json: unknown
   try { json = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
@@ -198,12 +211,16 @@ export async function POST(req: Request) {
     const { resolve } = await createRequestContainer()
     const de = resolve('dataEngine') as any
     const em = resolve('em') as any
+    const rbac = resolve('rbacService') as RbacService
+    const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
+    const targetOrgId = scope.selectedId ?? auth.orgId
+    if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
     const norm = normalizeValues(values)
 
     // Validate against custom field definitions
     try {
       const { validateCustomFieldValuesServer } = await import('../lib/validation')
-      const check = await validateCustomFieldValuesServer(em, { entityId, organizationId: auth.orgId!, tenantId: auth.tenantId!, values: norm })
+      const check = await validateCustomFieldValuesServer(em, { entityId, organizationId: targetOrgId, tenantId: auth.tenantId!, values: norm })
       if (!check.ok) return NextResponse.json({ error: 'Validation failed', fields: check.fieldErrors }, { status: 400 })
     } catch { /* ignore if helper missing */ }
 
@@ -219,7 +236,7 @@ export async function POST(req: Request) {
     const { id } = await de.createCustomEntityRecord({
       entityId,
       recordId: normalizedRecordId,
-      organizationId: auth.orgId!,
+      organizationId: targetOrgId,
       tenantId: auth.tenantId!,
       values: norm,
     })
@@ -243,7 +260,7 @@ function parsePutBody(json: any): { ok: true; data: { entityId: string; recordId
 
 export async function PUT(req: Request) {
   const auth = getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let json: any
   try { json = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
@@ -255,13 +272,17 @@ export async function PUT(req: Request) {
     const { resolve } = await createRequestContainer()
     const de = resolve('dataEngine') as any
     const em = resolve('em') as any
+    const rbac = resolve('rbacService') as RbacService
+    const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
+    const targetOrgId = scope.selectedId ?? auth.orgId
+    if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
     const norm = normalizeValues(values)
 
 
     // Validate against custom field definitions
     try {
       const { validateCustomFieldValuesServer } = await import('../lib/validation')
-      const check = await validateCustomFieldValuesServer(em, { entityId, organizationId: auth.orgId!, tenantId: auth.tenantId!, values: norm })
+      const check = await validateCustomFieldValuesServer(em, { entityId, organizationId: targetOrgId, tenantId: auth.tenantId!, values: norm })
       if (!check.ok) return NextResponse.json({ error: 'Validation failed', fields: check.fieldErrors }, { status: 400 })
     } catch { /* ignore if helper missing */ }
 
@@ -275,7 +296,7 @@ export async function PUT(req: Request) {
       const created = await de.createCustomEntityRecord({
         entityId,
         recordId: undefined,
-        organizationId: auth.orgId!,
+        organizationId: targetOrgId,
         tenantId: auth.tenantId!,
         values: norm,
       })
@@ -285,7 +306,7 @@ export async function PUT(req: Request) {
     await de.updateCustomEntityRecord({
       entityId,
       recordId: rid,
-      organizationId: auth.orgId!,
+      organizationId: targetOrgId,
       tenantId: auth.tenantId!,
       values: norm,
     })
@@ -302,7 +323,7 @@ const deleteBodySchema = z.object({
 
 export async function DELETE(req: Request) {
   const auth = getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const url = new URL(req.url)
   const qpEntityId = url.searchParams.get('entityId')
@@ -318,7 +339,12 @@ export async function DELETE(req: Request) {
   try {
     const { resolve } = await createRequestContainer()
     const de = resolve('dataEngine') as any
-    await de.deleteCustomEntityRecord({ entityId, recordId, organizationId: auth.orgId!, tenantId: auth.tenantId!, soft: true })
+    const em = resolve('em') as any
+    const rbac = resolve('rbacService') as RbacService
+    const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
+    const targetOrgId = scope.selectedId ?? auth.orgId
+    if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
+    await de.deleteCustomEntityRecord({ entityId, recordId, organizationId: targetOrgId, tenantId: auth.tenantId!, soft: true })
     return NextResponse.json({ ok: true })
   } catch (e) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

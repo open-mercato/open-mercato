@@ -8,6 +8,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 // Extensions and custom fields will be added iteratively.
 
 export class BasicQueryEngine implements QueryEngine {
+  private columnCache = new Map<string, boolean>()
+
   constructor(private em: EntityManager, private getKnexFn?: () => any) {}
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
@@ -18,6 +20,7 @@ export class BasicQueryEngine implements QueryEngine {
 
     let q = knex(table)
     const qualify = (col: string) => `${table}.${col}`
+    const orgScope = this.resolveOrganizationScope(opts)
     // Require tenant scope for all queries
     if (!opts.tenantId) {
       throw new Error(
@@ -27,10 +30,8 @@ export class BasicQueryEngine implements QueryEngine {
       )
     }
     // Optional organization filter (when present in schema)
-    if (opts.organizationId) {
-      if (await this.columnExists(table, 'organization_id')) {
-        q = q.where(qualify('organization_id'), opts.organizationId)
-      }
+    if (orgScope && await this.columnExists(table, 'organization_id')) {
+      q = this.applyOrganizationScope(q, qualify('organization_id'), orgScope)
     }
     // Tenant guard (required) when present in schema
     if (await this.columnExists(table, 'tenant_id')) {
@@ -46,20 +47,22 @@ export class BasicQueryEngine implements QueryEngine {
 
     // Filters (base fields handled here; cf:* handled later)
     for (const f of arrayFilters) {
-      const col = f.field.startsWith('cf:') ? null : f.field
-      if (!col) continue
+      if (f.field.startsWith('cf:')) continue
+      const column = await this.resolveBaseColumn(table, f.field)
+      if (!column) continue
+      const qualified = qualify(column)
       switch (f.op) {
-        case 'eq': q = q.where(qualify(col), f.value); break
-        case 'ne': q = q.whereNot(qualify(col), f.value); break
-        case 'gt': q = q.where(qualify(col), '>', f.value); break
-        case 'gte': q = q.where(qualify(col), '>=', f.value); break
-        case 'lt': q = q.where(qualify(col), '<', f.value); break
-        case 'lte': q = q.where(qualify(col), '<=', f.value); break
-        case 'in': q = q.whereIn(qualify(col), f.value ?? []); break
-        case 'nin': q = q.whereNotIn(qualify(col), f.value ?? []); break
-        case 'like': q = q.where(qualify(col), 'like', f.value); break
-        case 'ilike': q = q.where(qualify(col), 'ilike', f.value); break
-        case 'exists': f.value ? q = q.whereNotNull(qualify(col)) : q = q.whereNull(qualify(col)); break
+        case 'eq': q = q.where(qualified, f.value); break
+        case 'ne': q = q.whereNot(qualified, f.value); break
+        case 'gt': q = q.where(qualified, '>', f.value); break
+        case 'gte': q = q.where(qualified, '>=', f.value); break
+        case 'lt': q = q.where(qualified, '<', f.value); break
+        case 'lte': q = q.where(qualified, '<=', f.value); break
+        case 'in': q = q.whereIn(qualified, f.value ?? []); break
+        case 'nin': q = q.whereNotIn(qualified, f.value ?? []); break
+        case 'like': q = q.where(qualified, 'like', f.value); break
+        case 'ilike': q = q.where(qualified, 'ilike', f.value); break
+        case 'exists': f.value ? q = q.whereNotNull(qualified) : q = q.whereNull(qualified); break
       }
     }
     // Selection (base columns only here; cf:* handled later)
@@ -92,10 +95,11 @@ export class BasicQueryEngine implements QueryEngine {
         .select('key')
         .where({ entity_id: entityId, is_active: true })
         .modify((qb: any) => {
-          qb.andWhere({ tenant_id: tenantId })
+          qb.andWhere((inner: any) => {
+            inner.where({ tenant_id: tenantId }).orWhereNull('tenant_id')
+          })
           // NOTE: organization-level scoping intentionally disabled for custom fields
-          // if (orgId != null) qb.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
-          // else qb.whereNull('organization_id')
+          // if (orgId != null) inner.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
         })
       for (const r of rows) cfKeys.add(r.key)
     } else if (Array.isArray(opts.includeCustomFields)) {
@@ -105,15 +109,17 @@ export class BasicQueryEngine implements QueryEngine {
     // Custom fields: project requested cf:* keys and apply cf filters
     const cfValueExprByKey: Record<string, any> = {}
     const cfSelectedAliases: string[] = []
+    const cfJsonAliases = new Set<string>()
+    const cfMultiAliasByAlias = new Map<string, string>()
     for (const key of cfKeys) {
       const defAlias = `cfd_${sanitize(key)}`
       const valAlias = `cfv_${sanitize(key)}`
       // Join definitions for kind resolution
-    q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function (this: any) {
+      q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function (this: any) {
         this.on(`${defAlias}.entity_id`, '=', knex.raw('?', [entityId]))
           .andOn(`${defAlias}.key`, '=', knex.raw('?', [key]))
           .andOn(`${defAlias}.is_active`, '=', knex.raw('true'))
-        this.andOn(`${defAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
+          .andOn(knex.raw(`(${defAlias}.tenant_id = ? OR ${defAlias}.tenant_id IS NULL)`, [tenantId]))
         // NOTE: organization-level scoping intentionally disabled for custom fields
         // this.andOn(function (this: any) {
         //   this.on(`${defAlias}.organization_id`, '=', knex.raw('?', [orgId]))
@@ -121,11 +127,11 @@ export class BasicQueryEngine implements QueryEngine {
         // })
       })
       // Join values with record match
-    q = q.leftJoin({ [valAlias]: 'custom_field_values' }, function (this: any) {
+      q = q.leftJoin({ [valAlias]: 'custom_field_values' }, function (this: any) {
         this.on(`${valAlias}.entity_id`, '=', knex.raw('?', [entityId]))
           .andOn(`${valAlias}.field_key`, '=', knex.raw('?', [key]))
           .andOn(`${valAlias}.record_id`, '=', baseIdExpr)
-        this.andOn(`${valAlias}.tenant_id`, '=', knex.raw('?', [tenantId]))
+          .andOn(knex.raw(`(${valAlias}.tenant_id = ? OR ${valAlias}.tenant_id IS NULL)`, [tenantId]))
         // NOTE: organization-level scoping intentionally disabled for custom fields
         // if (orgId != null) this.andOn(`${valAlias}.organization_id`, '=', knex.raw('?', [orgId]))
       })
@@ -145,13 +151,17 @@ export class BasicQueryEngine implements QueryEngine {
       if ((opts.fields || []).includes(`cf:${key}`) || opts.includeCustomFields === true || (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.includes(key))) {
         // Use bool_or over config_json->>multi so it's valid under GROUP BY
         const isMulti = knex.raw(`bool_or(coalesce((${defAlias}.config_json->>'multi')::boolean, false))`)
+        const aggregatedArray = `array_remove(array_agg(DISTINCT ${caseExpr.toString()}), NULL)`
         const expr = `CASE WHEN ${isMulti.toString()}
-                THEN array_remove(array_agg(DISTINCT ${caseExpr.toString()}), NULL)
-                ELSE array[max(${caseExpr.toString()})]
+                THEN to_jsonb(${aggregatedArray})
+                ELSE to_jsonb(max(${caseExpr.toString()}))
            END`
-        // Expose as text[]; callers may treat singletons as scalars
+        const multiAlias = `${alias}__is_multi`
         q = q.select(knex.raw(`${expr} as ??`, [alias]))
+        q = q.select(knex.raw(`${isMulti.toString()} as ??`, [multiAlias]))
         cfSelectedAliases.push(alias)
+        cfJsonAliases.add(alias)
+        cfMultiAliasByAlias.set(alias, multiAlias)
       }
     }
 
@@ -209,7 +219,9 @@ export class BasicQueryEngine implements QueryEngine {
         }
         q = q.orderBy(alias, s.dir ?? 'asc')
       } else {
-        q = q.orderBy(qualify(s.field), s.dir ?? 'asc')
+        const column = await this.resolveBaseColumn(table, s.field)
+        if (!column) continue
+        q = q.orderBy(qualify(column), s.dir ?? 'asc')
       }
     }
 
@@ -229,15 +241,81 @@ export class BasicQueryEngine implements QueryEngine {
       .first()
     const total = Number((countRow as any)?.count ?? 0)
     const items = await q.limit(pageSize).offset((page - 1) * pageSize)
+
+    if (cfJsonAliases.size > 0) {
+      for (const row of items as any[]) {
+        for (const alias of cfJsonAliases) {
+          const multiAlias = cfMultiAliasByAlias.get(alias)
+          const isMulti = multiAlias ? Boolean(row[multiAlias]) : false
+          let raw = row[alias]
+          if (typeof raw === 'string') {
+            try { raw = JSON.parse(raw) } catch { /* ignore malformed json */ }
+          }
+          if (isMulti) {
+            if (raw == null) row[alias] = []
+            else if (Array.isArray(raw)) row[alias] = raw
+            else row[alias] = [raw]
+          } else {
+            if (Array.isArray(raw)) row[alias] = raw.length > 0 ? raw[0] : null
+            else row[alias] = raw
+          }
+          if (multiAlias) delete row[multiAlias]
+        }
+      }
+    }
+
     return { items, page, pageSize, total }
   }
 
+  private async resolveBaseColumn(table: string, field: string): Promise<string | null> {
+    if (await this.columnExists(table, field)) return field
+    if (field === 'organization_id' && await this.columnExists(table, 'id')) return 'id'
+    return null
+  }
+
   private async columnExists(table: string, column: string): Promise<boolean> {
+    const key = `${table}.${column}`
+    if (this.columnCache.has(key)) return this.columnCache.get(key)!
     const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
     const exists = await knex('information_schema.columns')
       .where({ table_name: table, column_name: column })
       .first()
-    return !!exists
+    const present = !!exists
+    this.columnCache.set(key, present)
+    return present
+  }
+
+  private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {
+    if (opts.organizationIds !== undefined) {
+      const raw = (opts.organizationIds ?? []).map((id) => (typeof id === 'string' ? id.trim() : id))
+      const includeNull = raw.some((id) => id == null || id === '')
+      const ids = raw.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      return { ids: Array.from(new Set(ids)), includeNull }
+    }
+    if (typeof opts.organizationId === 'string' && opts.organizationId.trim().length > 0) {
+      return { ids: [opts.organizationId], includeNull: false }
+    }
+    return null
+  }
+
+  private applyOrganizationScope(q: any, column: string, scope: { ids: string[]; includeNull: boolean }): any {
+    if (!scope) return q
+    if (scope.ids.length === 0 && !scope.includeNull) {
+      return q.whereRaw('1 = 0')
+    }
+    return q.where((builder: any) => {
+      let applied = false
+      if (scope.ids.length > 0) {
+        builder.whereIn(column as any, scope.ids)
+        applied = true
+      }
+      if (scope.includeNull) {
+        if (applied) builder.orWhereNull(column)
+        else builder.whereNull(column)
+        applied = true
+      }
+      if (!applied) builder.whereRaw('1 = 0')
+    })
   }
 
   private normalizeFilters(filters?: QueryOptions['filters']): { field: string; op: any; value?: any }[] {

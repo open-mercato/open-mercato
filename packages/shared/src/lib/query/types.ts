@@ -55,6 +55,8 @@ export type QueryOptions = {
   page?: Page
   organizationId?: string // enforce multi-tenant scope
   tenantId?: string // enforce tenant scope
+  // Optional list of organization ids to scope results. Takes precedence over organizationId.
+  organizationIds?: string[]
   // Soft-delete behavior: when false (default), rows with non-null deleted_at
   // are excluded if the base table has that column. Set true to include them.
   withDeleted?: boolean

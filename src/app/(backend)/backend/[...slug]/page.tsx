@@ -1,13 +1,17 @@
 import { notFound, redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromCookies } from '@/lib/auth/server'
 import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
 import { createRequestContainer } from '@/lib/di/container'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
-export default async function BackendCatchAll({ params }: { params: Promise<{ slug: string[] }> }) {
-  const p = await params
-  const pathname = '/backend/' + (p.slug?.join('/') ?? '')
+type Awaitable<T> = T | Promise<T>
+
+export default async function BackendCatchAll(props: { params: Awaitable<{ slug?: string[] }> }) {
+  const params = await props.params
+  const pathname = '/backend/' + (params.slug?.join('/') ?? '')
   const match = findBackendMatch(modules, pathname)
   if (!match) return notFound()
   if (match.route.requireAuth) {
@@ -23,7 +27,19 @@ export default async function BackendCatchAll({ params }: { params: Promise<{ sl
     if (features && features.length) {
       const container = await createRequestContainer()
       const rbac = container.resolve<any>('rbacService')
-      const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: auth.orgId })
+      let organizationIdForCheck: string | null = auth.orgId ?? null
+      const cookieStore = await cookies()
+      const cookieSelected = cookieStore.get('om_selected_org')?.value ?? null
+      try {
+        const { organizationId, allowedOrganizationIds } = await resolveFeatureCheckContext({ container, auth, selectedId: cookieSelected })
+        organizationIdForCheck = organizationId
+        if (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length === 0) {
+          redirect('/login?requireFeature=' + encodeURIComponent(features.join(',')))
+        }
+      } catch {
+        organizationIdForCheck = auth.orgId ?? null
+      }
+      const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: organizationIdForCheck })
       if (!ok) redirect('/login?requireFeature=' + encodeURIComponent(features.join(',')))
     }
   }
@@ -35,3 +51,5 @@ export default async function BackendCatchAll({ params }: { params: Promise<{ sl
     </>
   )
 }
+
+export const dynamic = 'force-dynamic'

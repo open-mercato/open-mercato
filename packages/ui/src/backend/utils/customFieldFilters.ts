@@ -4,6 +4,23 @@ import { apiFetch } from './api'
 import type { CustomFieldDefDto } from './customFieldDefs'
 import { filterCustomFieldDefs } from './customFieldDefs'
 
+function buildOptionsUrl(base: string, query?: string): string {
+  if (!query) return base
+  try {
+    const isAbsolute = /^([a-z][a-z\d+\-.]*:)?\/\//i.test(base)
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+    const url = isAbsolute ? new URL(base) : new URL(base, origin)
+    if (!url.searchParams.has('query')) url.searchParams.append('query', query)
+    if (!url.searchParams.has('q')) url.searchParams.append('q', query)
+    if (isAbsolute) return url.toString()
+    return `${url.pathname}${url.search}`
+  } catch {
+    const sep = base.includes('?') ? '&' : '?'
+    if (base.includes('query=')) return `${base}${sep}q=${encodeURIComponent(query)}`
+    return `${base}${sep}query=${encodeURIComponent(query)}`
+  }
+}
+
 export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): FilterDef[] {
   const f: FilterDef[] = []
   const visible = filterCustomFieldDefs(defs, 'filter')
@@ -21,9 +38,9 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
       const base: FilterDef = { id: d.multi ? `${id}In` : id, label, type: 'select', multiple: !!d.multi, options }
       // When optionsUrl is provided, allow async options loading for filters too
       if (d.optionsUrl) {
-        ;(base as FilterDef).loadOptions = async () => {
+        ;(base as FilterDef).loadOptions = async (query?: string) => {
           try {
-            const res = await apiFetch(d.optionsUrl!)
+            const res = await apiFetch(buildOptionsUrl(d.optionsUrl!, query))
             const json = await res.json()
             const items = Array.isArray(json?.items) ? json.items : []
             return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
@@ -44,9 +61,9 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
       } as any
       // Enable async suggestions when optionsUrl provided
       if (d.optionsUrl) {
-        ;(base as any).loadOptions = async () => {
+        ;(base as any).loadOptions = async (query?: string) => {
           try {
-            const res = await apiFetch(d.optionsUrl!)
+            const res = await apiFetch(buildOptionsUrl(d.optionsUrl!, query))
             const json = await res.json()
             const items = Array.isArray(json?.items) ? json.items : []
             return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
