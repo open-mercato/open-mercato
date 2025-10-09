@@ -4,6 +4,8 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -28,6 +30,30 @@ const updateSchema = z.object({
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
 })
+
+type SplitBodyResult = { base: Record<string, any>; custom: Record<string, any> }
+
+function splitCustomFieldPayload(raw: any): SplitBodyResult {
+  const base: Record<string, any> = {}
+  const custom: Record<string, any> = {}
+  if (!raw || typeof raw !== 'object') return { base, custom }
+  for (const [key, value] of Object.entries(raw)) {
+    if (key === 'customFields' && value && typeof value === 'object') {
+      for (const [ck, cv] of Object.entries(value as Record<string, any>)) custom[String(ck)] = cv
+      continue
+    }
+    if (key.startsWith('cf_')) {
+      custom[key.slice(3)] = value
+      continue
+    }
+    if (key.startsWith('cf:')) {
+      custom[key.slice(3)] = value
+      continue
+    }
+    base[key] = value
+  }
+  return { base, custom }
+}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.users.list'] },
@@ -128,11 +154,15 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const auth = getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const body = await req.json().catch(() => ({}))
-  const parsed = createSchema.safeParse(body)
+  const rawBody = await req.json().catch(() => ({}))
+  const { base, custom } = splitCustomFieldPayload(rawBody)
+  const parsed = createSchema.safeParse(base)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const de = resolve('dataEngine') as DataEngine
+  let bus: any
+  try { bus = resolve('eventBus') } catch { bus = null }
   const { email, password, organizationId, roles } = parsed.data
   // Resolve tenant from organization
   const org = await em.findOneOrFail(Organization, { id: organizationId }, { populate: ['tenant'] })
@@ -148,18 +178,53 @@ export async function POST(req: Request) {
       await em.persistAndFlush(link)
     }
   }
+  if (Object.keys(custom).length) {
+    await de.setCustomFields({
+      entityId: E.auth.user,
+      recordId: String(user.id),
+      organizationId: user.organizationId ? String(user.organizationId) : null,
+      tenantId: user.tenantId ? String(user.tenantId) : null,
+      values: custom,
+      notify: false,
+    })
+  }
+  if (bus) {
+    try {
+      const userOrgId = user.organizationId ? String(user.organizationId) : null
+      const userTenantId = user.tenantId ? String(user.tenantId) : null
+      await bus.emitEvent(
+        'auth.user.created',
+        {
+          id: String(user.id),
+          organizationId: userOrgId,
+          tenantId: userTenantId,
+        },
+        { persistent: true },
+      )
+      await bus.emitEvent('query_index.upsert_one', {
+        entityType: E.auth.user,
+        recordId: String(user.id),
+        organizationId: userOrgId,
+        tenantId: userTenantId,
+      })
+    } catch {}
+  }
   return NextResponse.json({ id: String(user.id) })
 }
 
 export async function PUT(req: Request) {
   const auth = getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const body = await req.json().catch(() => ({}))
-  const parsed = updateSchema.safeParse(body)
+  const rawBody = await req.json().catch(() => ({}))
+  const { base, custom } = splitCustomFieldPayload(rawBody)
+  const parsed = updateSchema.safeParse(base)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
   const rbacService = resolve('rbacService') as any
+  const de = resolve('dataEngine') as DataEngine
+  let bus: any
+  try { bus = resolve('eventBus') } catch { bus = null }
   const user = await em.findOne(User, { id: parsed.data.id })
   if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   
@@ -194,6 +259,37 @@ export async function PUT(req: Request) {
     await em.flush()
     shouldInvalidateCache = true // Roles changed affects ACL
   }
+  if (Object.keys(custom).length) {
+    await de.setCustomFields({
+      entityId: E.auth.user,
+      recordId: String(user.id),
+      organizationId: user.organizationId ? String(user.organizationId) : null,
+      tenantId: user.tenantId ? String(user.tenantId) : null,
+      values: custom,
+      notify: false,
+    })
+  }
+  if (bus) {
+    try {
+      const userOrgId = user.organizationId ? String(user.organizationId) : null
+      const userTenantId = user.tenantId ? String(user.tenantId) : null
+      await bus.emitEvent(
+        'auth.user.updated',
+        {
+          id: String(user.id),
+          organizationId: userOrgId,
+          tenantId: userTenantId,
+        },
+        { persistent: true },
+      )
+      await bus.emitEvent('query_index.upsert_one', {
+        entityType: E.auth.user,
+        recordId: String(user.id),
+        organizationId: userOrgId,
+        tenantId: userTenantId,
+      })
+    } catch {}
+  }
   
   // Invalidate cache if roles or organization changed
   if (shouldInvalidateCache) {
@@ -218,10 +314,28 @@ export async function DELETE(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
   const rbacService = resolve('rbacService') as any
+  let bus: any
+  try { bus = resolve('eventBus') } catch { bus = null }
   const user = await em.findOne(User, { id })
   if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const deletedOrgId = user.organizationId ? String(user.organizationId) : null
+  const deletedTenantId = user.tenantId ? String(user.tenantId) : null
   await em.nativeDelete(UserRole, { user: user as any })
   await em.removeAndFlush(user)
+  if (bus) {
+    try {
+      await bus.emitEvent(
+        'auth.user.deleted',
+        { id: String(id), organizationId: deletedOrgId, tenantId: deletedTenantId },
+        { persistent: true },
+      )
+      await bus.emitEvent('query_index.delete_one', {
+        entityType: E.auth.user,
+        recordId: String(id),
+        organizationId: deletedOrgId,
+      })
+    } catch {}
+  }
   
   // Invalidate cache for deleted user
   await rbacService.invalidateUserCache(id)

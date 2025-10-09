@@ -114,6 +114,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           onChange={(next) => setValue(next ?? null)}
           required
           includeEmptyOption
+          className="w-full h-9 rounded border px-2 text-sm"
           includeInactiveIds={selectedOrgId ? [selectedOrgId] : undefined}
         />
       ),

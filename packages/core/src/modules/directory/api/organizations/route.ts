@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
-import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   organizationCreateSchema,
@@ -104,6 +104,9 @@ export async function GET(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const de = resolve('dataEngine') as DataEngine
+  let bus: any
+  try { bus = resolve('eventBus') } catch { bus = null }
 
   if (!tenantId && !authTenantId && ids?.length) {
     const scopedOrgs: Organization[] = await em.find(
@@ -295,15 +298,22 @@ export async function POST(req: Request) {
 
   await em.flush()
   if (Object.keys(custom).length) {
-    await setRecordCustomFields(em, {
+    await de.setCustomFields({
       entityId: E.directory.organization,
       recordId: id,
       tenantId,
       organizationId: id,
       values: custom,
+      notify: false,
     })
   }
   await rebuildHierarchyForTenant(em, tenantId)
+  if (bus) {
+    try {
+      await bus.emitEvent('directory.organization.created', { id, tenantId, organizationId: id }, { persistent: true })
+      await bus.emitEvent('query_index.upsert_one', { entityType: E.directory.organization, recordId: id, organizationId: id, tenantId })
+    } catch {}
+  }
   return NextResponse.json({ id })
 }
 
@@ -317,6 +327,9 @@ export async function PUT(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const de = resolve('dataEngine') as DataEngine
+  let bus: any
+  try { bus = resolve('eventBus') } catch { bus = null }
   const org = await em.findOne(Organization, { id: parsed.data.id, deletedAt: null })
   if (!org) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -387,15 +400,22 @@ export async function PUT(req: Request) {
 
   await em.flush()
   if (Object.keys(custom).length) {
-    await setRecordCustomFields(em, {
+    await de.setCustomFields({
       entityId: E.directory.organization,
       recordId: String(org.id),
       tenantId,
       organizationId: String(org.id),
       values: custom,
+      notify: false,
     })
   }
   await rebuildHierarchyForTenant(em, tenantId)
+  if (bus) {
+    try {
+      await bus.emitEvent('directory.organization.updated', { id: String(org.id), tenantId, organizationId: String(org.id) }, { persistent: true })
+      await bus.emitEvent('query_index.upsert_one', { entityType: E.directory.organization, recordId: String(org.id), organizationId: String(org.id), tenantId })
+    } catch {}
+  }
   return NextResponse.json({ ok: true })
 }
 
@@ -432,5 +452,10 @@ export async function DELETE(req: Request) {
   org.parentId = null
   await em.flush()
   await rebuildHierarchyForTenant(em, tenantId)
+  try {
+    const bus = resolve('eventBus') as any
+    await bus.emitEvent('directory.organization.deleted', { id: String(org.id), tenantId, organizationId: String(org.id) }, { persistent: true })
+    await bus.emitEvent('query_index.delete_one', { entityType: E.directory.organization, recordId: String(org.id), organizationId: String(org.id) })
+  } catch {}
   return NextResponse.json({ ok: true })
 }

@@ -136,3 +136,31 @@ export async function resolveOrganizationScopeForRequest({
   const reqSelected = selectedId ?? (request ? getSelectedOrganizationFromRequest(request as any) : null)
   return resolveOrganizationScope({ em, rbac, auth, selectedId: reqSelected })
 }
+
+export type FeatureCheckContext = {
+  organizationId: string | null
+  scope: OrganizationScope
+  allowedOrganizationIds: string[] | null
+}
+
+export async function resolveFeatureCheckContext({
+  container,
+  auth,
+  request,
+  selectedId,
+}: {
+  container: AwilixContainer
+  auth: AuthContext | null | undefined
+  request?: Request | { cookies?: { get: (name: string) => { value: string } | undefined } }
+  selectedId?: string | null
+}): Promise<FeatureCheckContext> {
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request, selectedId })
+  const allowedOrganizationIds = scope.allowedIds ?? null
+  const authOrgId = auth?.orgId ?? null
+  const organizationId =
+    scope.selectedId
+    ?? (authOrgId && (!Array.isArray(allowedOrganizationIds) || allowedOrganizationIds.includes(authOrgId)) ? authOrgId : null)
+    ?? (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length ? allowedOrganizationIds[0] : null)
+
+  return { organizationId, scope, allowedOrganizationIds }
+}

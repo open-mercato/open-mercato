@@ -4,7 +4,7 @@ import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 async function checkAuthorization(
   methodMetadata: any,
@@ -26,16 +26,11 @@ async function checkAuthorization(
     }
     const container = await createRequestContainer()
     const rbac = container.resolve<RbacService>('rbacService')
-    const em = container.resolve('em') as any
-    let organizationScopeId = auth.orgId ?? null
-    if (auth.tenantId) {
-      const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
-      organizationScopeId = scope.selectedId ?? auth.orgId ?? null
-    }
+    const { organizationId } = await resolveFeatureCheckContext({ container, auth, request: req })
     const ok = await rbac.userHasAllFeatures(
       auth.sub,
       methodMetadata.requireFeatures,
-      { tenantId: auth.tenantId, organizationId: organizationScopeId }
+      { tenantId: auth.tenantId, organizationId }
     )
     if (!ok) {
       return NextResponse.json({ error: 'Forbidden', requiredFeatures: methodMetadata.requireFeatures }, { status: 403 })
