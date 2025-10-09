@@ -2,101 +2,134 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { emitOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
+import { OrganizationSelect, type OrganizationTreeNode } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 
 type OrganizationMenuNode = {
   id: string
   name: string
   depth: number
   selectable: boolean
-  path: string[]
   children: OrganizationMenuNode[]
 }
 
-type FlatOption = {
-  value: string
-  name: string
-  path: string[]
-  selectable: boolean
-  depth: number
-}
+type SwitcherState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'hidden' }
+  | { status: 'ready'; nodes: OrganizationMenuNode[]; selectedId: string | null; canManage: boolean }
 
-type OrganizationSwitcherProps = {
-  items: OrganizationMenuNode[]
-  selectedId: string | null
-  canManage: boolean
-}
-
-function flatten(
-  nodes: OrganizationMenuNode[],
-  acc: FlatOption[] = [],
-  seen: Set<string> = new Set()
-): FlatOption[] {
-  for (const node of nodes) {
-    if (!seen.has(node.id)) {
-      seen.add(node.id)
-      const path = Array.isArray(node.path) && node.path.length ? node.path : [node.name]
-      acc.push({ value: node.id, name: node.name, path, selectable: node.selectable, depth: node.depth })
-    }
-    if (node.children.length) {
-      flatten(node.children, acc, seen)
+function readSelectedOrganizationCookie(): string {
+  if (typeof document === 'undefined') return ''
+  const cookies = document.cookie.split(';')
+  for (const entry of cookies) {
+    const trimmed = entry.trim()
+    if (trimmed.startsWith('om_selected_org=')) {
+      const raw = trimmed.slice('om_selected_org='.length)
+      try {
+        const decoded = decodeURIComponent(raw)
+        return decoded || ''
+      } catch {
+        return raw || ''
+      }
     }
   }
-  return acc
+  return ''
 }
 
-export default function OrganizationSwitcher({ items, selectedId, canManage }: OrganizationSwitcherProps) {
+export default function OrganizationSwitcher() {
   const router = useRouter()
-  const [value, setValue] = React.useState<string>(selectedId ?? '')
-  const options = React.useMemo(() => flatten(items), [items])
-  const hasOptions = options.length > 0
+  const [state, setState] = React.useState<SwitcherState>({ status: 'loading' })
+  const [value, setValue] = React.useState<string>(() => readSelectedOrganizationCookie())
 
-  const handleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const next = event.target.value
-    setValue(next)
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await apiFetch('/api/directory/organization-switcher')
+        if (cancelled) return
+        if (res.status === 401 || res.status === 403) {
+          setState({ status: 'hidden' })
+          return
+        }
+        if (!res.ok) {
+          setState({ status: 'error' })
+          return
+        }
+        const json = await res.json().catch(() => ({}))
+        const rawItems = Array.isArray(json.items) ? json.items : []
+        const selected = typeof json.selectedId === 'string' ? json.selectedId : null
+        const manage = Boolean(json.canManage)
+        if (!rawItems.length && !manage) {
+          setState({ status: 'hidden' })
+          setValue(selected ?? '')
+          return
+        }
+        setState({ status: 'ready', nodes: rawItems as OrganizationMenuNode[], selectedId: selected, canManage: manage })
+        setValue(selected ?? '')
+      } catch {
+        if (!cancelled) setState({ status: 'error' })
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const nodes = React.useMemo<OrganizationTreeNode[]>(() => {
+    if (state.status !== 'ready') return []
+    const items = state.nodes
+    const map = (node: OrganizationMenuNode, parents: string[]): OrganizationTreeNode => {
+      const nextPath = [...parents, node.name]
+      return {
+        id: node.id,
+        name: node.name,
+        depth: node.depth,
+        pathLabel: nextPath.join(' / '),
+        selectable: node.selectable,
+        children: node.children.map((child) => map(child, nextPath)),
+      }
+    }
+    return items.map((node) => map(node, []))
+  }, [state])
+
+  const hasOptions = nodes.length > 0 && state.status === 'ready'
+  const canManage = state.status === 'ready' && state.canManage
+
+  const handleChange = (next: string | null) => {
+    const resolved = next ?? ''
+    setValue(resolved)
     const maxAge = 60 * 60 * 24 * 30 // 30 days
-    if (!next) {
+    if (!resolved) {
       document.cookie = `om_selected_org=; path=/; max-age=0; samesite=lax`
     } else {
-      document.cookie = `om_selected_org=${encodeURIComponent(next)}; path=/; max-age=${maxAge}; samesite=lax`
+      document.cookie = `om_selected_org=${encodeURIComponent(resolved)}; path=/; max-age=${maxAge}; samesite=lax`
     }
-    emitOrganizationScopeChanged({ organizationId: next || null })
+    emitOrganizationScopeChanged({ organizationId: resolved || null })
     try { router.refresh() } catch {}
   }
 
-  if (!hasOptions && !canManage) {
+  if (state.status === 'hidden') {
     return null
   }
-
-  const renderedOptions = [
-    { value: '', label: 'All organizations', selectable: true, depth: 0 },
-    ...options.map((opt) => ({
-      value: opt.value,
-      label: opt.name,
-      selectable: opt.selectable,
-      depth: opt.depth,
-    })),
-  ]
 
   return (
     <div className="flex items-center gap-2 text-sm">
       <label className="text-xs text-muted-foreground" htmlFor="org-switcher">Organization</label>
-      {hasOptions ? (
-        <select
+      {state.status === 'loading' ? (
+        <span className="text-xs text-muted-foreground">Loading…</span>
+      ) : state.status === 'error' ? (
+        <span className="text-xs text-destructive">Failed to load</span>
+      ) : hasOptions ? (
+        <OrganizationSelect
           id="org-switcher"
-          className="h-9 rounded border px-2 text-sm"
-          value={value}
+          value={value || null}
           onChange={handleChange}
-        >
-          {renderedOptions.map((opt) => {
-            const indent = opt.depth > 0 ? `${'\u00A0\u00A0'.repeat(opt.depth)}• ` : ''
-            return (
-              <option key={opt.value || 'all'} value={opt.value} disabled={!opt.selectable && opt.value !== ''}>
-                {indent}{opt.label}
-              </option>
-            )
-          })}
-        </select>
+          nodes={nodes}
+          fetchOnMount={false}
+          includeAllOption
+          className="h-9 rounded border px-2 text-sm"
+        />
       ) : (
         <span className="text-xs text-muted-foreground">No organizations</span>
       )}

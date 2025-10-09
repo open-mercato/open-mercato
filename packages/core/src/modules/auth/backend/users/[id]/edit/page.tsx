@@ -4,13 +4,13 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
+import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 
 export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const [initial, setInitial] = React.useState<any>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [orgOptions, setOrgOptions] = React.useState<{ value: string; label: string }[]>([])
   const [canEditOrgs, setCanEditOrgs] = React.useState(false)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
 
@@ -51,25 +51,34 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       } catch (err) {
         console.error('Failed to check features:', err)
       }
-      try {
-        const res = await apiFetch('/api/directory/organizations')
-        const j = await res.json()
-        if (!cancelled) setOrgOptions((j.items || []).map((o: any) => ({ value: o.id, label: o.name })))
-      } catch (err) {
-        console.error('Failed to load organizations:', err)
-      }
       if (!cancelled) setLoading(false)
     }
     load()
     return () => { cancelled = true }
   }, [id])
 
-  const fields: CrudField[] = [
+  const selectedOrgId = initial?.organizationId ? String(initial.organizationId) : null
+
+  const fields: CrudField[] = React.useMemo(() => ([
     { id: 'email', label: 'Email', type: 'text', required: true },
     { id: 'password', label: 'Password', type: 'text' },
-    { id: 'organizationId', label: 'Organization', type: 'select', required: true, options: orgOptions },
+    {
+      id: 'organizationId',
+      label: 'Organization',
+      type: 'custom',
+      component: ({ id, value, setValue }) => (
+        <OrganizationSelect
+          id={id}
+          value={typeof value === 'string' ? value : value ?? null}
+          onChange={(next) => setValue(next ?? undefined)}
+          required
+          includeEmptyOption
+          includeInactiveIds={selectedOrgId ? [selectedOrgId] : undefined}
+        />
+      ),
+    },
     { id: 'roles', label: 'Roles', type: 'tags' },
-  ]
+  ]), [selectedOrgId])
 
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['email', 'password', 'organizationId', 'roles'] },
@@ -116,4 +125,3 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     </Page>
   )
 }
-

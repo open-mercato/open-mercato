@@ -5,6 +5,7 @@ export type ComputedOrganizationNode = {
   id: string
   tenantId: string
   name: string
+  pathLabel: string
   parentId: string | null
   depth: number
   rootId: string
@@ -69,10 +70,12 @@ export function computeHierarchyForOrganizations(organizations: Organization[], 
   function walk(nodeId: string, ancestors: string[]): string[] {
     if (ancestors.includes(nodeId)) {
       // Cycle detected; break by treating as root
+      const orgName = nodes.get(nodeId)?.org.name || ''
       computed.set(nodeId, {
         id: nodeId,
         tenantId,
-        name: nodes.get(nodeId)?.org.name || '',
+        name: orgName,
+        pathLabel: orgName,
         parentId: null,
         depth: 0,
         rootId: nodeId,
@@ -120,11 +123,16 @@ export function computeHierarchyForOrganizations(organizations: Organization[], 
     const depth = ancestorIds.length
     const rootId = ancestorIds.length ? ancestorIds[0] : id
     const treePath = nextAncestors.join('/')
+    const ancestorNames = ancestors
+      .map((ancestorId) => nodes.get(ancestorId)?.org.name)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    const pathLabel = [...ancestorNames, org.name].join(' / ')
 
     const computedNode: ComputedOrganizationNode = {
       id,
       tenantId,
       name: org.name,
+      pathLabel,
       parentId: node.parentId,
       depth,
       rootId,

@@ -44,14 +44,6 @@ function enforceTenantScope(authTenantId: string | null, requestedTenantId?: str
   return requestedTenantId || authTenantId
 }
 
-function buildPathLabel(node: ComputedOrganizationNode, hierarchy: Map<string, ComputedOrganizationNode>): string {
-  const labels = node.ancestorIds
-    .map((id) => hierarchy.get(id)?.name)
-    .filter((v): v is string => typeof v === 'string' && v.length > 0)
-  labels.push(node.name)
-  return labels.join(' / ')
-}
-
 type SplitBodyResult = { base: Record<string, any>; custom: Record<string, any> }
 
 function splitCustomFieldPayload(raw: any): SplitBodyResult {
@@ -176,7 +168,7 @@ export async function GET(req: Request) {
         descendantIds: node.descendantIds,
         isActive: node.isActive,
         treePath: node.treePath,
-        pathLabel: buildPathLabel(node, hierarchy.map),
+        pathLabel: node.pathLabel,
         children: [] as any[],
       }
       nodeMap.set(node.id, { node, children: treeNode.children })
@@ -201,7 +193,7 @@ export async function GET(req: Request) {
 
   if (search) {
     rows = rows.filter((node) => {
-      const pathLabel = buildPathLabel(node, hierarchy.map).toLowerCase()
+      const pathLabel = (node.pathLabel || '').toLowerCase()
       return node.name.toLowerCase().includes(search) || pathLabel.includes(search)
     })
   }
@@ -217,7 +209,7 @@ export async function GET(req: Request) {
   const paged = rows.slice(start, start + pageSize)
   const items = paged.map((node) => {
     const parentName = node.parentId ? hierarchy.map.get(node.parentId)?.name ?? null : null
-    const pathLabel = buildPathLabel(node, hierarchy.map)
+    const pathLabel = node.pathLabel || node.name
     return {
       id: node.id,
       name: node.name,

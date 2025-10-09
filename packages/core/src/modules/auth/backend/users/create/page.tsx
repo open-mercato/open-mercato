@@ -3,36 +3,36 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { AclEditor } from '@open-mercato/core/modules/auth/components/AclEditor'
+import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
+
+type CreateUserFormValues = {
+  email: string
+  password: string
+  organizationId: string | null
+  roles: string[]
+}
 
 export default function CreateUserPage() {
-  const [orgOptions, setOrgOptions] = React.useState<{ value: string; label: string }[]>([])
-  const [canEditOrgs, setCanEditOrgs] = React.useState(false)
-
-  React.useEffect(() => {
-    let cancelled = false
-    async function load() {
-      try {
-        const f = await apiFetch('/api/auth/feature-check', { method: 'POST', body: JSON.stringify({ features: ['directory.organizations.view'] }) })
-        const j = await f.json()
-        if (!cancelled) setCanEditOrgs(!!j.ok)
-      } catch {}
-      try {
-        const res = await apiFetch('/api/directory/organizations')
-        const j = await res.json()
-        if (!cancelled) setOrgOptions((j.items || []).map((o: any) => ({ value: o.id, label: o.name })))
-      } catch {}
-    }
-    load()
-    return () => { cancelled = true }
-  }, [])
-
-  const fields: CrudField[] = [
+  const fields: CrudField[] = React.useMemo(() => ([
     { id: 'email', label: 'Email', type: 'text', required: true },
     { id: 'password', label: 'Password', type: 'text', required: true },
-    { id: 'organizationId', label: 'Organization', type: 'select', required: true, options: orgOptions },
+    {
+      id: 'organizationId',
+      label: 'Organization',
+      type: 'custom',
+      component: ({ id, value, setValue }) => (
+        <OrganizationSelect
+          id={id}
+          value={typeof value === 'string' ? value : value ?? null}
+          onChange={(next) => setValue(next ?? null)}
+          required
+          includeEmptyOption
+          className="w-full h-9 rounded border px-2 text-sm"
+        />
+      ),
+    },
     { id: 'roles', label: 'Roles', type: 'tags' },
-  ]
+  ]), [])
 
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['email', 'password', 'organizationId', 'roles'] },
@@ -42,18 +42,30 @@ export default function CreateUserPage() {
   return (
     <Page>
       <PageBody>
-        <CrudForm
+        <CrudForm<CreateUserFormValues>
           title="Create User"
           backHref="/backend/users"
           fields={fields}
           groups={groups}
+          initialValues={{ email: '', password: '', organizationId: null, roles: [] }}
           submitLabel="Create"
           cancelHref="/backend/users"
           successRedirect="/backend/users?flash=User%20created&type=success"
-          onSubmit={async (vals: any) => { await apiFetch('/api/auth/users', { method: 'POST', body: JSON.stringify(vals) }) }}
+          onSubmit={async (values) => {
+            const payload = {
+              email: values.email,
+              password: values.password,
+              organizationId: values.organizationId ? values.organizationId : null,
+              roles: Array.isArray(values.roles) ? values.roles : [],
+            }
+            await apiFetch('/api/auth/users', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+          }}
         />
       </PageBody>
     </Page>
   )
 }
-

@@ -1,19 +1,18 @@
 "use client"
 import * as React from 'react'
-import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField, type CrudFormGroup, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
+import {
+  buildOrganizationTreeOptions,
+  type OrganizationTreeNode,
+  type OrganizationTreeOption,
+} from '@open-mercato/core/modules/directory/lib/tree'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 
-type TreeNode = {
-  id: string
-  name: string
-  depth: number
-  children?: TreeNode[]
-}
-
 type TreeResponse = {
-  items: TreeNode[]
+  items: OrganizationTreeNode[]
 }
 
 type OrganizationResponse = {
@@ -30,30 +29,10 @@ type OrganizationResponse = {
   }>
 }
 
-type TreeOption = { value: string; name: string; depth: number }
 type EntityRecordResponse = { items?: Record<string, any>[] }
 
 const TREE_STEP = 16
 const TREE_PADDING = 12
-
-function formatTreeOptionLabel(name: string, depth: number): string {
-  if (depth <= 0) return name
-  return `${'\u00A0'.repeat(Math.max(0, (depth - 1) * 2))}↳ ${name}`
-}
-
-function buildTreeOptions(nodes: TreeNode[], exclude: Set<string> = new Set()): TreeOption[] {
-  const result: TreeOption[] = []
-  function walk(list: TreeNode[]) {
-    for (const node of list) {
-      if (!exclude.has(node.id)) {
-        result.push({ value: node.id, name: node.name, depth: node.depth })
-      }
-      if (node.children?.length) walk(node.children)
-    }
-  }
-  walk(nodes)
-  return result
-}
 
 const groups: CrudFormGroup[] = [
   { id: 'details', title: 'Details', column: 1, fields: ['name', 'parentId', 'childrenInfo', 'isActive'] },
@@ -67,8 +46,8 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
   const [tenantId, setTenantId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [parentOptions, setParentOptions] = React.useState<CrudFieldOption[]>([{ value: '', label: '— Root level —' }])
-  const [childSummary, setChildSummary] = React.useState<TreeOption[]>([])
+  const [parentTree, setParentTree] = React.useState<OrganizationTreeNode[]>([])
+  const [childSummary, setChildSummary] = React.useState<OrganizationTreeOption[]>([])
   const [originalChildIds, setOriginalChildIds] = React.useState<string[]>([])
 
   React.useEffect(() => {
@@ -92,14 +71,19 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
         const tree: TreeResponse = await treeRes.json()
         if (cancelled) return
         const excludedForParent = new Set<string>([orgId, ...record.descendantIds])
-        const excludedForChildren = new Set<string>([orgId, ...record.ancestorIds])
-        const fullTree = buildTreeOptions(tree.items)
-        const parentTree = buildTreeOptions(tree.items, excludedForParent)
-        setParentOptions([{ value: '', label: '— Root level —' }, ...parentTree.map((opt) => ({ value: opt.value, label: formatTreeOptionLabel(opt.name, opt.depth) }))])
+        const markSelectable = (nodes: OrganizationTreeNode[]): OrganizationTreeNode[] => nodes.map((node) => ({
+          ...node,
+          selectable: !excludedForParent.has(node.id),
+          children: Array.isArray(node.children) ? markSelectable(node.children) : [],
+        }))
+        const baseTree = Array.isArray(tree.items) ? tree.items : []
+        const treeWithSelectable = markSelectable(baseTree)
+        setParentTree(treeWithSelectable)
+        const fullTree = buildOrganizationTreeOptions(baseTree)
         const nodeMap = new Map(fullTree.map((opt) => [opt.value, opt]))
         const childrenDetails = record.childIds
           .map((id) => nodeMap.get(id))
-          .filter((node): node is TreeOption => !!node)
+          .filter((node): node is OrganizationTreeOption => !!node)
         setChildSummary(childrenDetails)
         setOriginalChildIds(Array.isArray(record.childIds) ? record.childIds : [])
 
@@ -149,7 +133,21 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: 'Name', type: 'text', required: true },
-    { id: 'parentId', label: 'Parent', type: 'select', options: parentOptions, placeholder: 'No parent (root)' },
+    {
+      id: 'parentId',
+      label: 'Parent',
+      type: 'custom',
+      component: ({ id, value, setValue }) => (
+        <OrganizationSelect
+          id={id}
+          value={value ? String(value) : null}
+          onChange={(next) => setValue(next ?? '')}
+          nodes={parentTree}
+          includeEmptyOption
+          emptyOptionLabel="— Root level —"
+        />
+      ),
+    },
     {
       id: 'childrenInfo',
       label: 'Children',
@@ -173,7 +171,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
       },
     },
     { id: 'isActive', label: 'Active', type: 'checkbox' },
-  ], [parentOptions, childSummary])
+  ], [parentTree, childSummary])
 
   if (!orgId) return null
 

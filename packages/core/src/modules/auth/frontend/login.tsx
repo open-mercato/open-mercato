@@ -6,6 +6,33 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useT } from '@/lib/i18n/context'
 
+function extractErrorMessage(payload: unknown): string | null {
+  if (!payload) return null
+  if (typeof payload === 'string') return payload
+  if (Array.isArray(payload)) {
+    for (const entry of payload) {
+      const resolved = extractErrorMessage(entry)
+      if (resolved) return resolved
+    }
+    return null
+  }
+  if (typeof payload === 'object') {
+    const record = payload as Record<string, unknown>
+    const candidates: unknown[] = [
+      record.error,
+      record.message,
+      record.detail,
+      record.details,
+      record.description,
+    ]
+    for (const candidate of candidates) {
+      const resolved = extractErrorMessage(candidate)
+      if (resolved) return resolved
+    }
+  }
+  return null
+}
+
 export default function LoginPage() {
   const t = useT()
   const router = useRouter()
@@ -29,29 +56,28 @@ export default function LoginPage() {
         return
       }
       if (!res.ok) {
-        let errorMessage = 'An error occurred. Please try again.'
+        const fallback = res.status === 403
+          ? 'You do not have permission to access this area. Please contact your administrator.'
+          : 'Invalid email or password'
+        let errorMessage = ''
         try {
           const text = await res.text()
-          try {
-            const data = JSON.parse(text)
-            if (res.status === 403) {
-              errorMessage = data?.error || 'You do not have permission to access this area. Please contact your administrator.'
-            } else {
-              errorMessage = data?.error || 'Invalid email or password'
+          if (text) {
+            try {
+              const data = JSON.parse(text)
+              errorMessage = extractErrorMessage(data) || ''
+            } catch {
+              const trimmed = text.trim()
+              const looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[')
+              if (!looksLikeJson) {
+                errorMessage = trimmed
+              }
             }
-          } catch {
-            // If not JSON, use the text as error message
-            errorMessage = text || errorMessage
           }
         } catch {
-          // If can't read response, use default message
-          if (res.status === 403) {
-            errorMessage = 'You do not have permission to access this area. Please contact your administrator.'
-          } else {
-            errorMessage = 'Invalid email or password'
-          }
+          errorMessage = ''
         }
-        setError(errorMessage)
+        setError(errorMessage || fallback)
         return
       }
       // In case API returns 200 with JSON

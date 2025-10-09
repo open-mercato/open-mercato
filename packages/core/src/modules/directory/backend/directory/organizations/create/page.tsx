@@ -3,47 +3,82 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-
-type TreeNode = {
-  id: string
-  name: string
-  depth: number
-  children?: TreeNode[]
-}
+import {
+  buildOrganizationTreeOptions,
+  formatOrganizationTreeLabel,
+  type OrganizationTreeNode,
+} from '@open-mercato/core/modules/directory/lib/tree'
 
 type TreeResponse = {
-  items: TreeNode[]
+  items: OrganizationTreeNode[]
 }
 
-function flattenTree(nodes: TreeNode[], options: { excludeIds?: Set<string> } = {}): { value: string; label: string }[] {
-  const result: { value: string; label: string }[] = []
-  const exclude = options.excludeIds || new Set()
-  function walk(list: TreeNode[]) {
-    for (const node of list) {
-      if (!exclude.has(node.id)) {
-        const indent = node.depth > 0 ? `${'\u00A0\u00A0'.repeat(node.depth)}• ` : ''
-        result.push({ value: node.id, label: `${indent}${node.name}` })
-      }
-      if (node.children?.length) walk(node.children)
-    }
+type ChildTreeSelectProps = {
+  nodes: OrganizationTreeNode[]
+  value: string[]
+  onChange: (vals: string[]) => void
+}
+
+function flattenTree(nodes: OrganizationTreeNode[]): { value: string; label: string }[] {
+  const options = buildOrganizationTreeOptions(nodes)
+  return options.map((opt) => ({
+    value: opt.value,
+    label: formatOrganizationTreeLabel(opt.name, opt.depth),
+  }))
+}
+
+function ChildTreeSelect({ nodes, value, onChange }: ChildTreeSelectProps) {
+  const selected = React.useMemo(() => new Set(value), [value])
+  const handleToggle = React.useCallback((id: string) => {
+    const next = new Set(value)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onChange(Array.from(next))
+  }, [value, onChange])
+
+  if (!nodes.length) {
+    return (
+      <div className="text-sm text-muted-foreground">No organizations available to assign.</div>
+    )
   }
-  walk(nodes)
-  return result
+
+  return (
+    <div className="rounded border px-3 py-2 max-h-64 overflow-auto space-y-2">
+      <TreeCheckboxGroup nodes={nodes} selected={selected} onToggle={handleToggle} level={0} />
+    </div>
+  )
 }
 
-const baseFields: CrudField[] = [
-  { id: 'name', label: 'Name', type: 'text', required: true },
-  { id: 'parentId', label: 'Parent', type: 'select', options: [], placeholder: 'No parent (root)' },
-  { id: 'childIds', label: 'Children', type: 'select', multiple: true, options: [], placeholder: 'Select children to assign' },
-  { id: 'isActive', label: 'Active', type: 'checkbox' },
-]
+function TreeCheckboxGroup({ nodes, selected, onToggle, level }: { nodes: OrganizationTreeNode[]; selected: Set<string>; onToggle: (id: string) => void; level: number }) {
+  return (
+    <div className={level === 0 ? 'space-y-1' : 'space-y-1 pl-5'}>
+      {nodes.map((node) => (
+        <div key={node.id} className="space-y-1">
+          <label className="inline-flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="size-4 mt-0.5"
+              checked={selected.has(node.id)}
+              onChange={() => onToggle(node.id)}
+            />
+            <span>{node.name}</span>
+          </label>
+          {node.children?.length ? (
+            <TreeCheckboxGroup nodes={node.children} selected={selected} onToggle={onToggle} level={level + 1} />
+          ) : null}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 const groups: CrudFormGroup[] = [
   { id: 'details', title: 'Details', column: 1, fields: ['name', 'parentId', 'childIds', 'isActive'] },
 ]
 
 export default function CreateOrganizationPage() {
-  const [fields, setFields] = React.useState(baseFields)
+  const [parentOptions, setParentOptions] = React.useState<{ value: string; label: string }[]>([])
+  const [tree, setTree] = React.useState<OrganizationTreeNode[]>([])
 
   React.useEffect(() => {
     let cancelled = false
@@ -53,21 +88,32 @@ export default function CreateOrganizationPage() {
         if (!res.ok) return
         const data: TreeResponse = await res.json()
         if (cancelled) return
-        const allOptions = flattenTree(data.items)
-        setFields((prev) => prev.map((field) => {
-          if (field.id === 'parentId') {
-            return { ...field, options: [{ value: '', label: '— Root level —' }, ...allOptions] }
-          }
-          if (field.id === 'childIds') {
-            return { ...field, options: allOptions }
-          }
-          return field
-        }))
+        const items = Array.isArray(data.items) ? data.items : []
+        setTree(items)
+        setParentOptions(flattenTree(items))
       } catch {}
     }
     loadTree()
     return () => { cancelled = true }
   }, [])
+
+  const fields = React.useMemo<CrudField[]>(() => [
+    { id: 'name', label: 'Name', type: 'text', required: true },
+    { id: 'parentId', label: 'Parent', type: 'select', options: [{ value: '', label: '— Root level —' }, ...parentOptions], placeholder: 'No parent (root)' },
+    {
+      id: 'childIds',
+      label: 'Children',
+      type: 'custom',
+      component: ({ value, setValue }) => (
+        <ChildTreeSelect
+          nodes={tree}
+          value={Array.isArray(value) ? value : []}
+          onChange={(vals) => setValue(vals)}
+        />
+      ),
+    },
+    { id: 'isActive', label: 'Active', type: 'checkbox' },
+  ], [parentOptions, tree])
 
   return (
     <Page>
@@ -99,4 +145,3 @@ export default function CreateOrganizationPage() {
     </Page>
   )
 }
-

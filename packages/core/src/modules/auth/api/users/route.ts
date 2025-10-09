@@ -202,6 +202,7 @@ export async function DELETE(req: Request) {
   const rbacService = resolve('rbacService') as any
   const user = await em.findOne(User, { id })
   if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  await em.nativeDelete(UserRole, { user: user as any })
   await em.removeAndFlush(user)
   
   // Invalidate cache for deleted user
