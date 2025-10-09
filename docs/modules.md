@@ -136,6 +136,7 @@ export const entities = [
 Notes:
 - `data/fields.ts` is no longer supported. Always declare fields under `ce.ts` as shown above.
 - Sidebar visibility is controlled via the entity row (`showInSidebar`), which is set during `entities install`.
+- The installer (`yarn mercato entities install`) processes every tenant by default and skips system entities automatically. Use `--tenant <id>`, `--global`, or `--no-global` to control the scope, and `--dry-run` / `--force` when testing.
 
 ### Validation (zod)
 - Put validators alongside entities in `src/modules/<module>/data/validators.ts`.

@@ -68,6 +68,11 @@ export const entities = [
 ]
 ```
 
+- Installer behaviour:
+  - If the `id` matches a generated system entity (from `generated/entities.ids.generated.ts`), it only seeds or updates field definitions. The base entity stays marked as “system”.
+  - If the `id` is not a system entity, the installer automatically creates/updates a corresponding row in `custom_entities` so the entity shows up in the UI and can store records.
+  - All entries are processed per tenant by default; mark an entry with `global: true` to install it once with `tenant_id = null`.
+
 ### Declaring fields via DSL (legacy) — deprecated
 ```ts
 import { defineFields, entityId, cf } from '@/modules/dsl'
@@ -87,14 +92,25 @@ export default [
 
 ### Seeding definitions from modules
 
-- Global custom fields are auto-seeded after `npm run db:migrate`.
-- To seed per-organization definitions (or re-seed), run the CLI:
+Custom entity definitions and field sets declared in `ce.ts` are applied by the entities CLI. The command is idempotent and uses checksums to skip unchanged configurations.
 
 ```
-yarn mercato entities install --org <orgId> --tenant <tenantId>
+yarn mercato entities install
 ```
 
-Why not migrations? Migrations are module-scoped, run in isolation, and should alter schema deterministically. Field sets aggregate across all enabled modules at the app level and may target specific organizations; executing them in each module’s migration would cause duplication, ordering problems, and environment coupling. Use the CLI to seed or re-seed idempotently whenever modules change.
+Key flags:
+
+| Flag | Description |
+| ---- | ----------- |
+| `--tenant <id>` | Restrict sync to a specific tenant. Without this flag, every tenant in the database is processed. |
+| `--global` | Only install global definitions (sets `tenant_id = null`). |
+| `--no-global` | Skip global scope (default is to include both global and tenant-specific). |
+| `--force` | Ignore cached checksums and reapply definitions even if nothing changed. |
+| `--dry-run` | Show what would change without writing to the database. |
+
+The CLI runs quickly thanks to checksum caching stored under `custom-entity:*` cache tags. Use `--force` (or the `reinstall` subcommand) after editing `ce.ts` if you need to bypass the cache immediately.
+
+Why not migrations? Migrations are module-scoped, run in isolation, and should alter schema deterministically. Field sets aggregate across all enabled modules at the app level and may target specific tenants; executing them in each module’s migration would cause duplication, ordering problems, and environment coupling. Use the CLI to seed or re-seed idempotently whenever modules change.
 
 ## Multi-tenant
 - Custom fields and values are tenant-scoped for querying: the query layer filters by `tenant_id` only. `organization_id` is not applied to custom field discovery or value joins.
@@ -110,7 +126,7 @@ Why not migrations? Migrations are module-scoped, run in isolation, and should a
 
 ### Declaring virtual entities from module code
 
-Modules can register additional logical entities (not backed by a new table) so that users can attach custom fields to them. Use the helper provided by the core module:
+When you declare a new entity in `ce.ts`, `yarn mercato entities install` automatically ensures a matching row exists in `custom_entities` (unless the entity id is already part of the generated system enum). In advanced scenarios you may still register entities manually—for example, during a bespoke bootstrap flow or runtime provisioning. Use the helper provided by the core module:
 
 ```
 import { upsertCustomEntity } from '@open-mercato/core/modules/entities/lib/register'

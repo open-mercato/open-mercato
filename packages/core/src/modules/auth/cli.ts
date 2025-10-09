@@ -3,6 +3,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { hash } from 'bcryptjs'
 import { User, Role, UserRole, RoleAcl, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -82,6 +83,7 @@ const addOrganization: ModuleCli = {
     await em.persistAndFlush(tenant)
     const org = em.create(Organization, { name, tenant })
     await em.persistAndFlush(org)
+    await rebuildHierarchyForTenant(em, String(tenant.id))
     console.log('Organization created with id', org.id, 'in tenant', tenant.id)
   },
 }
@@ -210,6 +212,10 @@ const setupApp: ModuleCli = {
 
       // Transaction complete; tenant/org ids captured above
     })
+
+    if (seedTenantId) {
+      await rebuildHierarchyForTenant(em, seedTenantId)
+    }
 
     // 3) Seed role ACLs outside transaction: superadmin -> isSuperAdmin; admin -> all features; employee -> example module
     const superadminRole = await em.findOne(Role, { name: 'superadmin' })

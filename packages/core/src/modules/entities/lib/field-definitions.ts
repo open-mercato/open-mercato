@@ -14,6 +14,12 @@ export type EnsureFieldDefinitionsOptions = {
   dryRun?: boolean
 }
 
+export type EnsureFieldDefinitionsResult = {
+  created: number
+  updated: number
+  unchanged: number
+}
+
 const CONFIG_PASSTHROUGH_KEYS: Array<keyof CustomFieldDefinition> = [
   'label',
   'description',
@@ -34,13 +40,31 @@ const CONFIG_PASSTHROUGH_KEYS: Array<keyof CustomFieldDefinition> = [
   'acceptExtensions',
 ]
 
+function normalizeValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => normalizeValue(item))
+  if (value && typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>)
+      .sort()
+      .reduce<Record<string, unknown>>((acc, key) => {
+        acc[key] = normalizeValue((value as Record<string, unknown>)[key])
+        return acc
+      }, {})
+  }
+  return value
+}
+
+function configEquals(a: unknown, b: unknown): boolean {
+  return JSON.stringify(normalizeValue(a ?? null)) === JSON.stringify(normalizeValue(b ?? null))
+}
+
 export async function ensureCustomFieldDefinitions(
   em: EntityManager,
   sets: FieldSetInput[],
   scope: EnsureFieldDefinitionsOptions
-): Promise<{ created: number; updated: number }> {
+): Promise<EnsureFieldDefinitionsResult> {
   let created = 0
   let updated = 0
+  let unchanged = 0
 
   for (const set of sets) {
     for (const field of set.fields) {
@@ -76,17 +100,25 @@ export async function ensureCustomFieldDefinitions(
         continue
       }
 
-      const patch: any = {}
-      if (existing.kind !== field.kind) patch.kind = field.kind
-      patch.configJson = configJson
-      patch.isActive = true
+      const kindChanged = existing.kind !== field.kind
+      const configChanged = !configEquals(existing.configJson ?? null, configJson)
+      const needsActivation = existing.isActive !== true || existing.deletedAt != null
+      if (!kindChanged && !configChanged && !needsActivation) {
+        unchanged++
+        continue
+      }
+
       if (!scope.dryRun) {
-        em.assign(existing, patch)
+        existing.kind = field.kind
+        ;(existing as any).configJson = configJson
+        existing.isActive = true
+        existing.updatedAt = new Date()
+        if (existing.deletedAt) existing.deletedAt = null
         await em.flush()
       }
       updated++
     }
   }
 
-  return { created, updated }
+  return { created, updated, unchanged }
 }

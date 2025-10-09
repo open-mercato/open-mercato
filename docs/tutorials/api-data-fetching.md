@@ -140,9 +140,8 @@ import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 ## 5) Tips
 
 - Keep module code under `src/modules/<module>`.
-- Define CFs in `ce.ts` (entities[].fields); use `yarn mercato entities install` to seed.
+- Define CFs in `ce.ts` (entities[].fields); run `yarn mercato entities install` (optionally with `--tenant <id>`) to sync them.
 - Use the helpers from `@open-mercato/shared/lib/crud/custom-fields` to stay DRY.
 - Emit and process events via the built-in Event Bus; see Events tutorial.
 
 That’s it — you’ve built a complete, DRY CRUD API and UI flow aligned with Open Mercato conventions.
-

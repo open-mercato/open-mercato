@@ -76,3 +76,14 @@ export type EntityRegistrySpec = {
   // Static, per-module declared custom fields (seeded via migrations/CLI)
   customFieldSets?: CustomFieldSet[]
 }
+
+export type CustomEntitySpec = {
+  id: EntityId
+  label?: string
+  description?: string
+  labelField?: string
+  defaultEditor?: string
+  showInSidebar?: boolean
+  global?: boolean
+  fields?: CustomFieldDefinition[]
+}

@@ -1,22 +1,13 @@
 import type { ModuleCli } from '@/modules/registry'
-import { modules } from '@/generated/modules.generated'
 import { createRequestContainer } from '@/lib/di/container'
-import { upsertCustomEntity } from '@open-mercato/core/modules/entities/lib/register'
-import { E as GeneratedEntities } from '@/generated/entities.ids.generated'
-import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
-import { ensureCustomFieldDefinitions, type FieldSetInput } from './lib/field-definitions'
+import type { CacheStrategy } from '@open-mercato/cache/types'
+import { CustomEntity, CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import {
+  installCustomEntitiesFromModules,
+  getAggregatedCustomEntityConfigs,
+} from './lib/install-from-ce'
 import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
-
-const SYSTEM_ENTITY_IDS: Set<string> = (() => {
-  const ids = new Set<string>()
-  for (const moduleEntities of Object.values(GeneratedEntities)) {
-    for (const id of Object.values(moduleEntities as Record<string, string>)) {
-      ids.add(id)
-    }
-  }
-  return ids
-})()
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}
@@ -37,47 +28,40 @@ const seedDefs: ModuleCli = {
   command: 'install',
   async run(rest) {
     const args = parseArgs(rest)
-    const orgIdArg = (args.org as string) || (args.organizationId as string)
     const tenantIdArg = (args.tenant as string) || (args.tenantId as string)
-    const globalFlag = Boolean(args.global)
+    const globalOnly = Boolean(args.global)
     const dry = Boolean(args['dry-run'] || args.dry)
-    if (!globalFlag && !orgIdArg) {
-      console.error('Usage: mercato entities install [--global] [--org <id>] [--tenant <id>] [--dry-run]')
+    const force = Boolean(args.force)
+    const includeGlobal = args['no-global'] ? false : true
+
+    if (globalOnly && includeGlobal === false) {
+      console.error('Cannot combine --global with --no-global.')
       return
     }
-    const targetOrgId = globalFlag ? null : (orgIdArg as string)
-    const targetTenantId = globalFlag ? null : (tenantIdArg as string)
+
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
+    let cache: CacheStrategy | null = null
+    try { cache = resolve('cache') as CacheStrategy } catch {}
 
-    // 1) Ensure declared custom entities exist (global scope only for now)
-    {
-      const { modules } = await import('@/generated/modules.generated')
-      let created = 0
-      for (const m of modules) {
-        const entities = (m as any).customEntities as Array<{ id: string; label?: string; description?: string; showInSidebar?: boolean; registerEntity?: boolean }> | undefined
-        if (!entities?.length) continue
-        for (const ce of entities) {
-          if (SYSTEM_ENTITY_IDS.has(ce.id)) continue
-          if (ce.registerEntity === false) continue
-          await upsertCustomEntity(em as any, ce.id, { label: ce.label || ce.id, description: ce.description || null, organizationId: null, tenantId: null, showInSidebar: !!ce.showInSidebar })
-          created++
-        }
-      }
-      if (created > 0) console.log(`Custom entities ensured: ${created}`)
+    const tenantIds = tenantIdArg
+      ? [tenantIdArg]
+      : (globalOnly ? [] : undefined)
+
+    const logger = (message: string) => {
+      const prefix = dry ? '[dry-run] ' : ''
+      console.log(`${prefix}${message}`)
     }
 
-    // 2) Collect all declared fieldSets from enabled modules
-    const sets: FieldSetInput[] = []
-    for (const m of modules) {
-      const fieldSets = (m as any).customFieldSets as any[] | undefined
-      if (!fieldSets?.length) continue
-      for (const s of fieldSets) sets.push({ entity: s.entity, fields: s.fields, source: s.source ?? m.id })
-    }
-    if (!sets.length) { console.log('No fieldSets declared by modules. Nothing to seed.'); return }
-
-    const { created, updated } = await ensureCustomFieldDefinitions(em as any, sets, { organizationId: targetOrgId, tenantId: targetTenantId, dryRun: dry })
-    console.log(`Field definitions ensured: created=${created}, updated=${updated}${dry ? ' (dry-run)' : ''}`)
+    const result = await installCustomEntitiesFromModules(em, cache, {
+      tenantIds,
+      includeGlobal,
+      dryRun: dry,
+      force,
+      logger,
+    })
+    const label = dry ? 'Dry-run' : 'Sync'
+    console.log(`${label} complete: processed=${result.processed}, updated=${result.synchronized}, fieldsChanged=${result.fieldChanges}, skipped=${result.skipped}`)
   },
 }
 
@@ -86,50 +70,76 @@ const reinstallDefs: ModuleCli = {
   command: 'reinstall',
   async run(rest) {
     const args = parseArgs(rest)
-    const orgIdArg = (args.org as string) || (args.organizationId as string)
     const tenantIdArg = (args.tenant as string) || (args.tenantId as string)
-    const globalFlag = Boolean(args.global)
+    const globalOnly = Boolean(args.global)
     const dry = Boolean(args['dry-run'] || args.dry)
-    if (!globalFlag && !orgIdArg) {
-      console.error('Usage: mercato entities reinstall [--global] [--org <id>] [--tenant <id>] [--dry-run]')
+    const includeGlobal = globalOnly ? true : (args['no-global'] ? false : true)
+
+    if (globalOnly && includeGlobal === false) {
+      console.error('Cannot combine --global with --no-global.')
       return
     }
-    const targetOrgId = globalFlag ? null : (orgIdArg as string)
-    const targetTenantId = globalFlag ? null : (tenantIdArg as string)
 
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
+    let cache: CacheStrategy | null = null
+    try { cache = resolve('cache') as CacheStrategy } catch {}
 
-    // Collect all declared fieldSets from enabled modules to know which entities to reset
-    const { modules } = await import('@/generated/modules.generated')
-    const sets: Array<{ entity: string; fields: any[] }> = []
-    for (const m of modules) {
-      const fieldSets = (m as any).customFieldSets as any[] | undefined
-      if (!fieldSets?.length) continue
-      for (const s of fieldSets) sets.push({ entity: s.entity, fields: s.fields })
+    const tenantIds = tenantIdArg
+      ? [tenantIdArg]
+      : (globalOnly ? [] : undefined)
+
+    const aggregates = getAggregatedCustomEntityConfigs()
+    const relevant = aggregates.filter((entry) => (globalOnly ? entry.spec?.global === true : true))
+    if (!relevant.length) {
+      console.log('No custom entities or fields discovered. Nothing to reinstall.')
+      return
     }
-    if (!sets.length) { console.log('No fieldSets declared by modules. Nothing to reinstall.'); return }
+    const entityIds = Array.from(new Set(relevant.map((entry) => entry.entityId)))
+    if (!entityIds.length) {
+      console.log('No entity ids discovered. Nothing to reinstall.')
+      return
+    }
 
-    const entityIds = Array.from(new Set(sets.map((s) => s.entity)))
+    const logger = (message: string) => {
+      const prefix = dry ? '[dry-run] ' : ''
+      console.log(`${prefix}${message}`)
+    }
 
-    // Delete current definitions for those entities in the exact target scope
-    const whereBase: any = { entityId: { $in: entityIds }, isActive: true }
-    if (targetOrgId == null) whereBase.organizationId = null
-    else whereBase.organizationId = targetOrgId
-    if (targetTenantId == null) whereBase.tenantId = null
-    else whereBase.tenantId = targetTenantId
-
-    const existingCount = await em.count(CustomFieldDef, whereBase)
     if (dry) {
-      console.log(`Would delete ${existingCount} definition(s) for scope ${targetOrgId ?? 'GLOBAL'} / ${targetTenantId ?? 'GLOBAL'}`)
-    } else if (existingCount > 0) {
-      await em.nativeDelete(CustomFieldDef, whereBase)
-      console.log(`Deleted ${existingCount} old definition(s) in scope ${targetOrgId ?? 'GLOBAL'} / ${targetTenantId ?? 'GLOBAL'}`)
+      console.log('Dry-run: would remove existing custom entity definitions before reinstall.')
+    } else {
+      const fieldWhere: any = { entityId: { $in: entityIds } }
+      if (tenantIds !== undefined) {
+        if (tenantIds.length === 0) fieldWhere.tenantId = null
+        else fieldWhere.tenantId = { $in: tenantIds }
+      }
+      const removedFields = await em.nativeDelete(CustomFieldDef, fieldWhere)
+
+      const entityWhere: any = { entityId: { $in: entityIds } }
+      if (tenantIds !== undefined) {
+        if (tenantIds.length === 0) entityWhere.tenantId = null
+        else entityWhere.tenantId = { $in: tenantIds }
+      }
+      const removedEntities = await em.nativeDelete(CustomEntity, entityWhere)
+
+      if (cache && entityIds.length) {
+        try {
+          await cache.deleteByTags(entityIds.map((id) => `custom-entity:${id}`))
+        } catch {}
+      }
+      console.log(`Cleared definitions: fields=${removedFields}, entities=${removedEntities}`)
     }
 
-    // Re-seed like install
-    const { created, updated } = await ensureCustomFieldDefinitions(em as any, sets, { organizationId: targetOrgId, tenantId: targetTenantId, dryRun: dry })
-    console.log(`Field definitions reinstalled: created=${created}, updated=${updated}${dry ? ' (dry-run)' : ''}`)
+    const result = await installCustomEntitiesFromModules(em, cache, {
+      tenantIds,
+      includeGlobal,
+      dryRun: dry,
+      force: true,
+      logger,
+    })
+    const label = dry ? 'Dry-run' : 'Reinstall'
+    console.log(`${label} complete: processed=${result.processed}, updated=${result.synchronized}, fieldsChanged=${result.fieldChanges}, skipped=${result.skipped}`)
   },
 }
 

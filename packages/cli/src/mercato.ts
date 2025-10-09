@@ -3,16 +3,19 @@
 // We'll lazy-load modules and DI only when required by a specific command.
 
 export async function run(argv = process.argv) {
-  const [, , modName, cmdName, ...rest] = argv
+  const [, , ...parts] = argv
+  const [first, second, ...remaining] = parts
   
   // Handle init command directly
-  if (modName === 'init') {
+  if (first === 'init') {
     const { execSync } = await import('child_process')
     
     console.log('🚀 Initializing Open Mercato app...\n')
     
     try {
-      const reinstall = rest.includes('--reinstall') || rest.includes('-r')
+      const initArgs = parts.slice(1).filter(Boolean)
+      const reinstall = initArgs.includes('--reinstall') || initArgs.includes('-r')
+      console.log(`🔄 Reinstall mode: ${reinstall ? 'enabled' : 'disabled'}`)
 
       if (reinstall) {
         // Load env variables so DATABASE_URL is available
@@ -81,10 +84,20 @@ export async function run(argv = process.argv) {
       console.log('✅ Roles seeded\n')
       
       // Step 5: Setup RBAC (tenant/org, users, ACLs)
-      const orgName = rest.find(arg => arg.startsWith('--org='))?.split('=')[1] || 'Acme Corp'
-      const email = rest.find(arg => arg.startsWith('--email='))?.split('=')[1] || 'superadmin@acme.com'
-      const password = rest.find(arg => arg.startsWith('--password='))?.split('=')[1] || 'secret'
-      const roles = rest.find(arg => arg.startsWith('--roles='))?.split('=')[1] || 'superadmin,admin,employee'
+      const findArgValue = (names: string[], fallback: string) => {
+        for (const name of names) {
+          const match = initArgs.find((arg) => arg.startsWith(name))
+          if (match) {
+            const value = match.slice(name.length)
+            if (value) return value
+          }
+        }
+        return fallback
+      }
+      const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
+      const email = findArgValue(['--email='], 'superadmin@acme.com')
+      const password = findArgValue(['--password='], 'secret')
+      const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
       
       console.log('🔐 Setting up RBAC and users...')
       const setupOutput = execSync(`yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`, { stdio: 'pipe' }).toString()
@@ -120,14 +133,14 @@ export async function run(argv = process.argv) {
       console.log('║    yarn dev                                                  ║')
       console.log('║                                                              ║')
       console.log('║  Users created:                                              ║')
-      console.log(`║    👑 Superadmin: ${email.padEnd(41)} ║`)
+      console.log(`║    👑 Superadmin: ${email.padEnd(42)} ║`)
       console.log(`║       Password: ${password.padEnd(44)} ║`)
       if (adminEmailDerived) {
-        console.log(`║    🧰 Admin:      ${adminEmailDerived.padEnd(41)} ║`)
+        console.log(`║    🧰 Admin:      ${adminEmailDerived.padEnd(42)} ║`)
         console.log(`║       Password: ${password.padEnd(44)} ║`)
       }
       if (employeeEmailDerived) {
-        console.log(`║    👷 Employee:   ${employeeEmailDerived.padEnd(41)} ║`)
+        console.log(`║    👷 Employee:   ${employeeEmailDerived.padEnd(42)} ║`)
         console.log(`║       Password: ${password.padEnd(44)} ║`)
       }
       console.log('║                                                              ║')
@@ -135,11 +148,19 @@ export async function run(argv = process.argv) {
       console.log('╚══════════════════════════════════════════════════════════════╝')
       
       return 0
-    } catch (error: any) {
-      console.error('❌ Initialization failed:', error.message)
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('❌ Initialization failed:', error.message)
+      } else {
+        console.error('❌ Initialization failed:', error)
+      }
       return 1
     }
   }
+
+  const modName = first
+  const cmdName = second
+  const rest = remaining
   
   // Load modules lazily, after init handling
   const { modules } = await import('@/generated/modules.generated')

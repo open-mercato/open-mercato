@@ -1,9 +1,10 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
-import { ensureCustomFieldDefinitions, type FieldSetInput } from '@open-mercato/core/modules/entities/lib/field-definitions'
+import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/example/datamodel/entities'
+import type { CacheStrategy } from '@open-mercato/cache/types'
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}
@@ -45,22 +46,18 @@ const seedTodos: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
 
-    // Ensure custom field definitions declared in ce.ts are installed for the tenant scope
+    // Ensure module custom entities/fields are installed for this tenant
     const entityId = E.example.todo
-    const { modules } = await import('@/generated/modules.generated')
-    const exampleModule = modules.find((m) => m.id === 'example')
-    const fieldSets = ((exampleModule?.customFieldSets as FieldSetInput[] | undefined) || []).filter((set) => set.entity === entityId)
-    if (fieldSets.length === 0) {
-      console.warn('No custom field definitions discovered for example:todo; skipping field setup.')
-    } else {
-      const { created, updated } = await ensureCustomFieldDefinitions(
-        em as any,
-        fieldSets,
-        { organizationId: null, tenantId: null, dryRun: false },
-      )
-      if (created || updated) {
-        console.log(`Ensured custom field definitions for ${entityId}: created=${created}, updated=${updated} (global scope)`)
-      }
+    let cache: CacheStrategy | null = null
+    try { cache = resolve('cache') as CacheStrategy } catch {}
+    const installResult = await installCustomEntitiesFromModules(em as any, cache, {
+      tenantIds: [tenantId],
+      includeGlobal: false,
+      dryRun: false,
+      logger: (message) => console.log(message),
+    })
+    if (installResult.synchronized === 0 && installResult.fieldChanges === 0) {
+      console.log(`Custom entity definitions already up to date for tenant=${tenantId}`)
     }
 
     // Seed 10 todos with custom field values
