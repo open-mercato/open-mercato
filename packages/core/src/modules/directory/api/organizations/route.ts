@@ -437,15 +437,15 @@ export async function GET(req: Request) {
   }
 
   if (!tenantId) {
-    const selectedOrgId = getSelectedOrganizationFromRequest(req)
-    if (selectedOrgId) {
-      const selectedOrg = await em.findOne(
+    const candidateOrgId = getSelectedOrganizationFromRequest(req) ?? auth.orgId ?? null
+    if (candidateOrgId) {
+      const candidateOrg = await em.findOne(
         Organization,
-        { id: selectedOrgId, deletedAt: null },
+        { id: candidateOrgId, deletedAt: null },
         { populate: ['tenant'] },
       )
-      if (selectedOrg?.tenant && selectedOrg.tenant.id) {
-        tenantId = stringId(selectedOrg.tenant.id)
+      if (candidateOrg?.tenant && candidateOrg.tenant.id) {
+        tenantId = stringId(candidateOrg.tenant.id)
       }
     }
   }
