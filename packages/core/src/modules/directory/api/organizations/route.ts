@@ -418,8 +418,8 @@ export async function GET(req: Request) {
   const status = query.status ?? 'all'
   const includeInactive = query.includeInactive === 'true' || status !== 'active'
 
-  const container = await createRequestContainer()
-  const em = container.resolve<EntityManager>('em')
+  const { resolve } = await createRequestContainer()
+  const em = resolve<EntityManager>('em')
 
   if (!tenantId && !authTenantId && ids?.length) {
     const scopedOrgs: Organization[] = await em.find(
