@@ -1,6 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import type {
+  CrudEventAction,
+  CrudEventsConfig,
+  CrudIndexerConfig,
+  CrudEntityIdentifiers,
+  CrudEmitContext,
+} from '../crud/types'
 
 export interface DataEngine {
   setCustomFields(opts: {
@@ -58,6 +65,14 @@ export interface DataEngine {
     soft?: boolean
     softDeleteField?: string
   }): Promise<T | null>
+
+  emitOrmEntityEvent<T = any>(opts: {
+    action: CrudEventAction
+    entity: T
+    events?: CrudEventsConfig<T>
+    indexer?: CrudIndexerConfig<T>
+    identifiers: CrudEntityIdentifiers
+  }): Promise<void>
 }
 
 export class DefaultDataEngine implements DataEngine {
@@ -290,5 +305,77 @@ export class DefaultDataEngine implements DataEngine {
       await repo.removeAndFlush(current)
     }
     return current as T
+  }
+
+  async emitOrmEntityEvent<T = any>(opts: Parameters<DataEngine['emitOrmEntityEvent']>[0]): Promise<void> {
+    const { action, entity, events, indexer, identifiers } = opts
+    if (!events && !indexer) return
+    if (!identifiers?.id) return
+
+    let bus: any
+    try {
+      bus = this.container.resolve<any>('eventBus')
+    } catch {
+      bus = null
+    }
+    if (!bus) return
+
+    const ctx: CrudEmitContext<T> = {
+      action,
+      entity,
+      identifiers: {
+        id: identifiers.id,
+        organizationId: identifiers.organizationId ?? null,
+        tenantId: identifiers.tenantId ?? null,
+      },
+    }
+
+    if (events) {
+      const eventName = `${events.module}.${events.entity}.${action}`
+      const payload = events.buildPayload
+        ? events.buildPayload(ctx)
+        : {
+            id: ctx.identifiers.id,
+            organizationId: ctx.identifiers.organizationId,
+            tenantId: ctx.identifiers.tenantId,
+          }
+      try {
+        await bus.emitEvent(eventName, payload, { persistent: !!events.persistent })
+      } catch {
+        // non-blocking
+      }
+    }
+
+    if (indexer) {
+      if (action === 'deleted') {
+        const payload = indexer.buildDeletePayload
+          ? indexer.buildDeletePayload(ctx)
+          : {
+              entityType: indexer.entityType,
+              recordId: ctx.identifiers.id,
+              organizationId: ctx.identifiers.organizationId,
+              tenantId: ctx.identifiers.tenantId,
+            }
+        try {
+          await bus.emitEvent('query_index.delete_one', payload)
+        } catch {
+          // non-blocking
+        }
+      } else {
+        const payload = indexer.buildUpsertPayload
+          ? indexer.buildUpsertPayload(ctx)
+          : {
+              entityType: indexer.entityType,
+              recordId: ctx.identifiers.id,
+              organizationId: ctx.identifiers.organizationId,
+              tenantId: ctx.identifiers.tenantId,
+            }
+        try {
+          await bus.emitEvent('query_index.upsert_one', payload)
+        } catch {
+          // non-blocking
+        }
+      }
+    }
   }
 }

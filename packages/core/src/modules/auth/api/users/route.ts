@@ -193,8 +193,6 @@ export async function POST(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
   const de = resolve('dataEngine') as DataEngine
-  let bus: any
-  try { bus = resolve('eventBus') } catch { bus = null }
   const { email, password, organizationId, roles } = parsed.data
   // Resolve tenant from organization
   const org = await em.findOneOrFail(Organization, { id: organizationId }, { populate: ['tenant'] })
@@ -224,27 +222,18 @@ export async function POST(req: Request) {
       notify: false,
     })
   }
-  if (bus) {
-    try {
-      const userOrgId = user.organizationId ? String(user.organizationId) : null
-      const userTenantId = user.tenantId ? String(user.tenantId) : null
-      await bus.emitEvent(
-        'auth.user.created',
-        {
-          id: String(user.id),
-          organizationId: userOrgId,
-          tenantId: userTenantId,
-        },
-        { persistent: true },
-      )
-      await bus.emitEvent('query_index.upsert_one', {
-        entityType: E.auth.user,
-        recordId: String(user.id),
-        organizationId: userOrgId,
-        tenantId: userTenantId,
-      })
-    } catch {}
+  const createdIdentifiers = {
+    id: String(user.id),
+    organizationId: user.organizationId ? String(user.organizationId) : null,
+    tenantId: user.tenantId ? String(user.tenantId) : null,
   }
+  await de.emitOrmEntityEvent({
+    action: 'created',
+    entity: user,
+    identifiers: createdIdentifiers,
+    events: { module: 'auth', entity: 'user', persistent: true },
+    indexer: { entityType: E.auth.user },
+  })
   return NextResponse.json({ id: String(user.id) })
 }
 
@@ -259,8 +248,6 @@ export async function PUT(req: Request) {
   const em = resolve('em') as any
   const rbacService = resolve('rbacService') as any
   const de = resolve('dataEngine') as DataEngine
-  let bus: any
-  try { bus = resolve('eventBus') } catch { bus = null }
   const user = await em.findOne(User, { id: parsed.data.id })
   if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   
@@ -309,27 +296,18 @@ export async function PUT(req: Request) {
       notify: false,
     })
   }
-  if (bus) {
-    try {
-      const userOrgId = user.organizationId ? String(user.organizationId) : null
-      const userTenantId = user.tenantId ? String(user.tenantId) : null
-      await bus.emitEvent(
-        'auth.user.updated',
-        {
-          id: String(user.id),
-          organizationId: userOrgId,
-          tenantId: userTenantId,
-        },
-        { persistent: true },
-      )
-      await bus.emitEvent('query_index.upsert_one', {
-        entityType: E.auth.user,
-        recordId: String(user.id),
-        organizationId: userOrgId,
-        tenantId: userTenantId,
-      })
-    } catch {}
+  const updatedIdentifiers = {
+    id: String(user.id),
+    organizationId: user.organizationId ? String(user.organizationId) : null,
+    tenantId: user.tenantId ? String(user.tenantId) : null,
   }
+  await de.emitOrmEntityEvent({
+    action: 'updated',
+    entity: user,
+    identifiers: updatedIdentifiers,
+    events: { module: 'auth', entity: 'user', persistent: true },
+    indexer: { entityType: E.auth.user },
+  })
   
   // Invalidate cache if roles or organization changed
   if (shouldInvalidateCache) {
@@ -354,8 +332,7 @@ export async function DELETE(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
   const rbacService = resolve('rbacService') as any
-  let bus: any
-  try { bus = resolve('eventBus') } catch { bus = null }
+  const de = resolve('dataEngine') as DataEngine
   const user = await em.findOne(User, { id })
   if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const deletedOrgId = user.organizationId ? String(user.organizationId) : null
@@ -363,20 +340,18 @@ export async function DELETE(req: Request) {
   await em.nativeDelete(UserAcl, { user: user as any })
   await em.nativeDelete(UserRole, { user: user as any })
   await em.removeAndFlush(user)
-  if (bus) {
-    try {
-      await bus.emitEvent(
-        'auth.user.deleted',
-        { id: String(id), organizationId: deletedOrgId, tenantId: deletedTenantId },
-        { persistent: true },
-      )
-      await bus.emitEvent('query_index.delete_one', {
-        entityType: E.auth.user,
-        recordId: String(id),
-        organizationId: deletedOrgId,
-      })
-    } catch {}
+  const deletedIdentifiers = {
+    id: String(id),
+    organizationId: deletedOrgId,
+    tenantId: deletedTenantId,
   }
+  await de.emitOrmEntityEvent({
+    action: 'deleted',
+    entity: user,
+    identifiers: deletedIdentifiers,
+    events: { module: 'auth', entity: 'user', persistent: true },
+    indexer: { entityType: E.auth.user },
+  })
   
   // Invalidate cache for deleted user
   await rbacService.invalidateUserCache(id)

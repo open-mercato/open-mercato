@@ -99,6 +99,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     softDeleteField: 'deletedAt',
   },
   events: { module: 'example', entity: 'todo', persistent: true },
+  indexer: { entityType: E.example.todo },
   list: {
     schema: querySchema,
     entityId: E.example.todo,

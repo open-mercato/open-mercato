@@ -7,10 +7,14 @@ import type { QueryEngine, Where, Sort, Page } from '@open-mercato/shared/lib/qu
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type {
+  CrudEventAction,
+  CrudEventsConfig,
+  CrudIndexerConfig,
+  CrudIdentifierResolver,
+} from './types'
 import { extractCustomFieldValuesFromPayload } from './custom-fields'
 import { CrudHttpError } from './errors'
-
-export type CrudEventAction = 'created' | 'updated' | 'deleted'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -88,15 +92,6 @@ export type DeleteConfig = {
   response?: (id: string) => any
 }
 
-export type CrudEventsConfig = {
-  // Standard: `<module>.<entity>.<action>` e.g. `example.todo.created`
-  module: string
-  entity: string
-  persistent?: boolean
-  // Optional payload builder override
-  buildPayload?: (action: CrudEventAction, data: any) => any
-}
-
 export type CrudCtx = {
   container: AwilixContainer
   auth: AuthContext | null
@@ -113,6 +108,8 @@ export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
   update?: UpdateConfig<TUpdate>
   del?: DeleteConfig
   events?: CrudEventsConfig
+  indexer?: CrudIndexerConfig
+  resolveIdentifiers?: CrudIdentifierResolver
   hooks?: CrudHooks<TCreate, TUpdate, TList>
 }
 
@@ -134,16 +131,15 @@ function isUuid(v: any): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
 }
 
-async function emitCrudEvent(container: AwilixContainer, cfg: CrudEventsConfig | undefined, action: CrudEventAction, payload: any) {
-  if (!cfg) return
-  try {
-    const bus = container.resolve<any>('eventBus')
-    const event = `${cfg.module}.${cfg.entity}.${action}`
-    const data = cfg.buildPayload ? cfg.buildPayload(action, payload) : payload
-    await bus.emitEvent(event, data, { persistent: !!cfg.persistent })
-  } catch {
-    // Do not block the flow on event errors
+function normalizeIdentifierValue(value: any): string | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+  if (typeof value === 'object') {
+    if (value instanceof Date) return value.toISOString()
+    if (value && typeof (value as any).id !== 'undefined') return normalizeIdentifierValue((value as any).id)
   }
+  return String(value)
 }
 
 export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: CrudFactoryOptions<TCreate, TUpdate, TList>) {
@@ -155,6 +151,29 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     tenantField: opts.orm.tenantField === null ? null : opts.orm.tenantField ?? 'tenantId',
     softDeleteField: opts.orm.softDeleteField === null ? null : opts.orm.softDeleteField ?? 'deletedAt',
   }
+  const defaultIdentifierResolver: CrudIdentifierResolver = (entity, _action) => {
+    const id = normalizeIdentifierValue((entity as any)[ormCfg.idField!])
+    const orgId = ormCfg.orgField ? normalizeIdentifierValue((entity as any)[ormCfg.orgField]) : null
+    const tenantId = ormCfg.tenantField ? normalizeIdentifierValue((entity as any)[ormCfg.tenantField]) : null
+    return {
+      id: id ?? '',
+      organizationId: orgId ?? null,
+      tenantId: tenantId ?? null,
+    }
+  }
+  const identifierResolver: CrudIdentifierResolver = opts.resolveIdentifiers
+    ? (entity, action) => {
+        const raw = opts.resolveIdentifiers!(entity, action)
+        const id = normalizeIdentifierValue(raw?.id)
+        const organizationId = normalizeIdentifierValue(raw?.organizationId)
+        const tenantId = normalizeIdentifierValue(raw?.tenantId)
+        return {
+          id: id ?? '',
+          organizationId: organizationId ?? null,
+          tenantId: tenantId ?? null,
+        }
+      }
+    : defaultIdentifierResolver
 
   async function ensureAuth() {
     const auth = await getAuthFromCookies()
@@ -315,7 +334,15 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
 
       await opts.hooks?.afterCreate?.(entity, { ...ctx, input: input as any })
-      await emitCrudEvent(ctx.container, opts.events, 'created', { id: String((entity as any)[ormCfg.idField!]) })
+
+      const identifiers = identifierResolver(entity, 'created')
+      await de.emitOrmEntityEvent({
+        action: 'created',
+        entity,
+        identifiers,
+        events: opts.events as CrudEventsConfig | undefined,
+        indexer: opts.indexer as CrudIndexerConfig | undefined,
+      })
 
       const payload = opts.create.response ? opts.create.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
       return json(payload, { status: 201 })
@@ -375,7 +402,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
 
       await opts.hooks?.afterUpdate?.(entity, { ...ctx, input: input as any })
-      await emitCrudEvent(ctx.container, opts.events, 'updated', { id })
+      const identifiers = identifierResolver(entity, 'updated')
+      await de.emitOrmEntityEvent({
+        action: 'updated',
+        entity,
+        identifiers,
+        events: opts.events as CrudEventsConfig | undefined,
+        indexer: opts.indexer as CrudIndexerConfig | undefined,
+      })
       const payload = opts.update.response ? opts.update.response(entity) : { success: true }
       return json(payload)
     } catch (e) {
@@ -413,7 +447,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const entity = await de.deleteOrmEntity({ entity: ormCfg.entity, where, soft: opts.del?.softDelete !== false, softDeleteField: ormCfg.softDeleteField })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })
       await opts.hooks?.afterDelete?.(id!, ctx)
-      await emitCrudEvent(ctx.container, opts.events, 'deleted', { id })
+      if (entity) {
+        const identifiers = identifierResolver(entity, 'deleted')
+        await de.emitOrmEntityEvent({
+          action: 'deleted',
+          entity,
+          identifiers,
+          events: opts.events as CrudEventsConfig | undefined,
+          indexer: opts.indexer as CrudIndexerConfig | undefined,
+        })
+      }
       const payload = opts.del?.response ? opts.del.response(id) : { success: true }
       return json(payload)
     } catch (e) {

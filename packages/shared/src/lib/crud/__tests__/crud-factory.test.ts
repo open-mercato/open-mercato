@@ -41,38 +41,40 @@ const queryEngine = {
   query: jest.fn(async (_entityId: any, _q: any) => ({ items: [{ id: 'id-1', title: 'A', is_done: false, organization_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tenant_id: '123e4567-e89b-12d3-a456-426614174000' }], total: 1 })),
 }
 
+const mockDataEngine = {
+  createOrmEntity: jest.fn(async ({ entity, data }: any) => {
+    const created = em.create(entity, data)
+    await em.persistAndFlush(created as any)
+    return created
+  }),
+  updateOrmEntity: jest.fn(async ({ entity, where, apply }: any) => {
+    const current = await (em.getRepository(entity).findOne(where) as any)
+    if (!current) return null
+    await apply(current)
+    await em.persistAndFlush(current)
+    return current
+  }),
+  deleteOrmEntity: jest.fn(async ({ entity, where, soft, softDeleteField }: any) => {
+    const repo = em.getRepository(entity)
+    const current = await (repo.findOne(where) as any)
+    if (!current) return null
+    if (soft !== false) { (current as any)[softDeleteField || 'deletedAt'] = new Date(); await em.persistAndFlush(current) }
+    else await repo.removeAndFlush(current)
+    return current
+  }),
+  setCustomFields: jest.fn(async (args: any) => {
+    await (setRecordCustomFields as any)(em, args)
+  }),
+  emitOrmEntityEvent: jest.fn(async () => {}),
+}
+
 jest.mock('@/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (name: string) => ({
       em,
       queryEngine,
       eventBus: mockEventBus,
-      dataEngine: {
-        createOrmEntity: async ({ entity, data }: any) => {
-          const created = em.create(entity, data)
-          await em.persistAndFlush(created as any)
-          return created
-        },
-        updateOrmEntity: async ({ entity, where, apply }: any) => {
-          const current = await (em.getRepository(entity).findOne(where) as any)
-          if (!current) return null
-          await apply(current)
-          await em.persistAndFlush(current)
-          return current
-        },
-        deleteOrmEntity: async ({ entity, where, soft, softDeleteField }: any) => {
-          const repo = em.getRepository(entity)
-          const current = await (repo.findOne(where) as any)
-          if (!current) return null
-          if (soft !== false) { (current as any)[softDeleteField || 'deletedAt'] = new Date(); await em.persistAndFlush(current) }
-          else await repo.removeAndFlush(current)
-          return current
-        },
-        setCustomFields: async (args: any) => {
-          // Bridge into helper so existing expectations still work
-          await (setRecordCustomFields as any)(em, args)
-        },
-      },
+      dataEngine: mockDataEngine,
     } as any)[name],
   })
 }))
@@ -104,6 +106,7 @@ describe('CRUD Factory', () => {
     metadata: { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },
     orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
     events: { module: 'example', entity: 'todo', persistent: true },
+    indexer: { entityType: 'example.todo' },
     list: {
       schema: querySchema,
       entityId: 'example.todo',
@@ -151,8 +154,14 @@ describe('CRUD Factory', () => {
     expect(data.id).toBeDefined()
     // CF saved
     expect(setRecordCustomFields).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entityId: 'example.todo', values: { priority: 3 } }))
-    // Event emitted
-    expect(mockEventBus.emitEvent).toHaveBeenCalledWith('example.todo.created', expect.anything(), { persistent: true })
+    // Event + indexer delegated to data engine
+    expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
+    const createdArgs = mockDataEngine.emitOrmEntityEvent.mock.calls[0][0]
+    expect(createdArgs.action).toBe('created')
+    expect(createdArgs.identifiers.id).toBe(data.id)
+    expect(createdArgs.events?.module).toBe('example')
+    expect(createdArgs.events?.entity).toBe('todo')
+    expect(createdArgs.indexer?.entityType).toBe('example.todo')
     // Entity in db
     const rec = db[data.id]
     expect(rec).toBeTruthy()
@@ -169,7 +178,11 @@ describe('CRUD Factory', () => {
     const res = await route.PUT(new Request('http://x/api/example/todos', { method: 'PUT', body: JSON.stringify({ id: created.id, title: 'X2', cf_priority: 5 }), headers: { 'content-type': 'application/json' } }))
     expect(res.status).toBe(200)
     expect(setRecordCustomFields).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ values: { priority: 5 } }))
-    expect(mockEventBus.emitEvent).toHaveBeenCalledWith('example.todo.updated', { id: created.id }, { persistent: true })
+    expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
+    const updatedArgs = mockDataEngine.emitOrmEntityEvent.mock.calls[0][0]
+    expect(updatedArgs.action).toBe('updated')
+    expect(updatedArgs.identifiers.id).toBe(created.id)
+    expect(updatedArgs.indexer?.entityType).toBe('example.todo')
     expect(db[created.id].title).toBe('X2')
   })
 
@@ -179,7 +192,11 @@ describe('CRUD Factory', () => {
     await em.persistAndFlush(created)
     const res = await route.DELETE(new Request(`http://x/api/example/todos?id=${created.id}`, { method: 'DELETE' }))
     expect(res.status).toBe(200)
-    expect(mockEventBus.emitEvent).toHaveBeenCalledWith('example.todo.deleted', { id: created.id }, { persistent: true })
+    expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
+    const deletedArgs = mockDataEngine.emitOrmEntityEvent.mock.calls[0][0]
+    expect(deletedArgs.action).toBe('deleted')
+    expect(deletedArgs.identifiers.id).toBe(created.id)
+    expect(deletedArgs.indexer?.entityType).toBe('example.todo')
     expect(db[created.id].deletedAt).toBeInstanceOf(Date)
   })
 })

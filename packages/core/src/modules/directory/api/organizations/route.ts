@@ -20,7 +20,6 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
-import type { EventBus } from '@open-mercato/events/types'
 
 type CrudInput = Record<string, unknown>
 type CustomPayload = Record<string, unknown>
@@ -59,6 +58,25 @@ type TreeNode = {
 type DeleteMeta = { tenantId: string; parentId: string | null; entity: Organization }
 
 const deleteMetaStore = new WeakMap<object, DeleteMeta>()
+
+function resolveTenantIdFromEntity(entity: Organization): string | null {
+  const cached = (entity as any)?.__tenantId
+  if (cached) return String(cached)
+  const tenantRef = (entity as any)?.tenant
+  if (tenantRef) {
+    if (typeof tenantRef === 'string') return tenantRef
+    if (typeof tenantRef === 'object') {
+      if (typeof tenantRef.id === 'string') return tenantRef.id
+      if (tenantRef.id !== undefined && tenantRef.id !== null) return String(tenantRef.id)
+      if (typeof tenantRef.getEntity === 'function') {
+        const nested = tenantRef.getEntity()
+        if (nested && nested.id) return String(nested.id)
+      }
+    }
+  }
+  const fallback = (entity as any)?.tenantId ?? (entity as any)?.tenant_id ?? null
+  return fallback ? String(fallback) : null
+}
 
 const viewSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -101,6 +119,34 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     orgField: null,
     tenantField: null,
     softDeleteField: 'deletedAt',
+  },
+  events: {
+    module: 'directory',
+    entity: 'organization',
+    persistent: true,
+    buildPayload: (ctx) => {
+      const tenantId = resolveTenantIdFromEntity(ctx.entity)
+      return {
+        id: ctx.identifiers.id,
+        tenantId,
+        organizationId: ctx.identifiers.id,
+      }
+    },
+  },
+  indexer: {
+    entityType: E.directory.organization,
+    buildUpsertPayload: (ctx) => ({
+      entityType: E.directory.organization,
+      recordId: ctx.identifiers.id,
+      organizationId: ctx.identifiers.id,
+      tenantId: resolveTenantIdFromEntity(ctx.entity),
+    }),
+    buildDeletePayload: (ctx) => ({
+      entityType: E.directory.organization,
+      recordId: ctx.identifiers.id,
+      organizationId: ctx.identifiers.id,
+      tenantId: resolveTenantIdFromEntity(ctx.entity),
+    }),
   },
   create: {
     schema: rawBodySchema,
@@ -173,6 +219,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       const input = ctxWithInput.input as CreateState
       const em = ctxWithInput.container.resolve<EntityManager>('em')
       const tenantId = input.tenantId
+      ;(entity as any).__tenantId = tenantId
       const recordId = String(entity.id)
       const childIds = Array.from(new Set(input.childIds ?? [])).filter((id) => id !== recordId)
       if (childIds.length) {
@@ -194,13 +241,6 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
         })
       }
       await rebuildHierarchyForTenant(em, tenantId)
-      try {
-        const bus = ctxWithInput.container.resolve<EventBus>('eventBus')
-        await bus.emitEvent('directory.organization.created', { id: recordId, tenantId, organizationId: recordId }, { persistent: true })
-        await bus.emitEvent('query_index.upsert_one', { entityType: E.directory.organization, recordId, organizationId: recordId, tenantId })
-      } catch {
-        // Event bus is optional; ignore failures
-      }
     },
     beforeUpdate: async (raw, ctx) => {
       const { base, custom } = splitCustomFieldPayload(raw)
@@ -256,6 +296,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       const input = ctxWithInput.input as UpdateState
       const em = ctxWithInput.container.resolve<EntityManager>('em')
       const tenantId = input.tenantId
+      ;(entity as any).__tenantId = tenantId
       const recordId = String(entity.id)
 
       const desiredChildIds = new Set((input.childIds ?? []).filter((id) => id !== recordId))
@@ -301,13 +342,6 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       }
 
       await rebuildHierarchyForTenant(em, tenantId)
-      try {
-        const bus = ctxWithInput.container.resolve<EventBus>('eventBus')
-        await bus.emitEvent('directory.organization.updated', { id: recordId, tenantId, organizationId: recordId }, { persistent: true })
-        await bus.emitEvent('query_index.upsert_one', { entityType: E.directory.organization, recordId, organizationId: recordId, tenantId })
-      } catch {
-        // Event bus is optional; ignore failures
-      }
     },
     beforeDelete: async (id, ctx) => {
       const em = ctx.container.resolve<EntityManager>('em')
@@ -319,6 +353,8 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       const tenantId = authTenantId ?? String(org.tenant?.id ?? '')
       if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
       if (authTenantId && tenantId !== authTenantId) throw new CrudHttpError(403, { error: 'Forbidden' })
+
+      ;(org as any).__tenantId = tenantId
 
       deleteMetaStore.set(ctx, {
         tenantId,
@@ -345,13 +381,6 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       if (toPersist.length) await em.persistAndFlush(toPersist)
 
       await rebuildHierarchyForTenant(em, meta.tenantId)
-      try {
-        const bus = ctx.container.resolve<EventBus>('eventBus')
-        await bus.emitEvent('directory.organization.deleted', { id, tenantId: meta.tenantId, organizationId: id }, { persistent: true })
-        await bus.emitEvent('query_index.delete_one', { entityType: E.directory.organization, recordId: id, organizationId: id })
-      } catch {
-        // Event bus is optional; ignore failures
-      }
       deleteMetaStore.delete(ctx)
     },
   },
