@@ -231,7 +231,11 @@ export function DashboardScreen() {
       if (from === -1 || to === -1) return prev
       const [moved] = items.splice(from, 1)
       items.splice(to, 0, moved)
-      const next = sortLayout(items)
+      const next = items.map((item, index) => ({
+        ...item,
+        order: index,
+        priority: index,
+      }))
       queueLayoutSave(next)
       return next
     })
@@ -345,7 +349,11 @@ export function DashboardScreen() {
           if (from === -1) return prev
           const [moved] = items.splice(from, 1)
           items.push(moved)
-          const next = sortLayout(items)
+          const next = items.map((item, index) => ({
+            ...item,
+            order: index,
+            priority: index,
+          }))
           queueLayoutSave(next)
           return next
         })
