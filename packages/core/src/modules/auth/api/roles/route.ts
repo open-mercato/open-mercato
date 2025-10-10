@@ -177,8 +177,8 @@ export async function GET(req: Request) {
     search: url.searchParams.get('search') || undefined,
   })
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
-  const container = await createRequestContainer()
-  const em = container.resolve('em') as any
+  const { resolve } = await createRequestContainer()
+  const em = resolve('em') as any
   let isSuperAdmin = false
   try {
     if (auth.sub) {
