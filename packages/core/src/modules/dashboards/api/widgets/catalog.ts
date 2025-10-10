@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
-import { hasFeature } from '@open-mercato/core/modules/dashboards/lib/featureCheck'
+import { hasFeature } from '@open-mercato/shared/security/features'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['dashboards.admin.assign-widgets'] },

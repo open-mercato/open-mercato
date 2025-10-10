@@ -6,7 +6,7 @@ import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/enti
 import { dashboardLayoutSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
-import { hasFeature } from '@open-mercato/core/modules/dashboards/lib/featureCheck'
+import { hasFeature } from '@open-mercato/shared/security/features'
 
 const DEFAULT_SIZE = 'md'
 

@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/entities'
 import { dashboardLayoutItemPatchSchema } from '@open-mercato/core/modules/dashboards/data/validators'
-import { hasFeature } from '@open-mercato/core/modules/dashboards/lib/featureCheck'
+import { hasFeature } from '@open-mercato/shared/security/features'
 
 const DEFAULT_SIZE = 'md'
 

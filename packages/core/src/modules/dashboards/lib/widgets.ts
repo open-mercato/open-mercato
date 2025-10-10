@@ -1,18 +1,27 @@
-import { modules } from '@/generated/modules.generated'
-import type { ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
+import type { Module, ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { DashboardWidgetMetadata, DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 
 type LoadedWidgetModule = DashboardWidgetModule<any> & { metadata: DashboardWidgetMetadata }
 
 type WidgetEntry = ModuleDashboardWidgetEntry & { moduleId: string }
 
-const widgetEntries: WidgetEntry[] = modules.flatMap((mod) => {
-  const entries = mod.dashboardWidgets ?? []
-  return entries.map((entry) => ({
-    ...entry,
-    moduleId: mod.id,
-  }))
-})
+let widgetEntriesPromise: Promise<WidgetEntry[]> | null = null
+
+async function loadWidgetEntries(): Promise<WidgetEntry[]> {
+  if (!widgetEntriesPromise) {
+    widgetEntriesPromise = import('@/generated/modules.generated').then((registry) => {
+      const list = (registry.modules ?? []) as Module[]
+      return list.flatMap((mod) => {
+        const entries = mod.dashboardWidgets ?? []
+        return entries.map((entry) => ({
+          ...entry,
+          moduleId: mod.id,
+        }))
+      })
+    })
+  }
+  return widgetEntriesPromise
+}
 
 const widgetCache = new Map<string, Promise<LoadedWidgetModule>>()
 
@@ -43,6 +52,7 @@ function ensureValidWidgetModule(mod: any, key: string, moduleId: string): Loade
 async function loadEntry(entry: WidgetEntry): Promise<LoadedWidgetModule> {
   if (!widgetCache.has(entry.key)) {
     const promise = entry.loader()
+      .then((mod) => mod)
       .then((mod) => ensureValidWidgetModule(mod, entry.key, entry.moduleId))
     widgetCache.set(entry.key, promise)
   }
@@ -50,6 +60,7 @@ async function loadEntry(entry: WidgetEntry): Promise<LoadedWidgetModule> {
 }
 
 export async function loadAllWidgets(): Promise<Array<LoadedWidgetModule & { moduleId: string; key: string }>> {
+  const widgetEntries = await loadWidgetEntries()
   const loaded = await Promise.all(widgetEntries.map(async (entry) => {
     const widget = await loadEntry(entry)
     return { ...widget, moduleId: entry.moduleId, key: entry.key }
@@ -64,6 +75,7 @@ export async function loadAllWidgets(): Promise<Array<LoadedWidgetModule & { mod
 }
 
 export async function loadWidgetById(widgetId: string): Promise<(LoadedWidgetModule & { moduleId: string; key: string }) | null> {
+  const widgetEntries = await loadWidgetEntries()
   for (const entry of widgetEntries) {
     const widget = await loadEntry(entry)
     if (widget.metadata.id === widgetId) {

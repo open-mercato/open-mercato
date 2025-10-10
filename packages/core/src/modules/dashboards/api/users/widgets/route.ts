@@ -5,7 +5,7 @@ import { DashboardUserWidgets } from '@open-mercato/core/modules/dashboards/data
 import { userWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
-import { hasFeature } from '@open-mercato/core/modules/dashboards/lib/featureCheck'
+import { hasFeature } from '@open-mercato/shared/security/features'
 
 const FEATURE = 'dashboards.admin.assign-widgets'
 

@@ -250,7 +250,7 @@ const setupApp: ModuleCli = {
         'example.*',
         'dashboards.view',
         'dashboards.configure',
-        'dashboards.widgets.*',
+        'example.widgets.*',
       ],
     }))
 

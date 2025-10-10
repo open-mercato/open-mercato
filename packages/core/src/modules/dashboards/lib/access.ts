@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DashboardRoleWidgets, DashboardUserWidgets } from '../data/entities'
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { hasAllFeatures as userHasAllFeatures } from '@open-mercato/shared/security/features'
 
 type LoadedWidget = {
   metadata: {
@@ -15,21 +16,6 @@ type AccessContext = {
   organizationId: string | null
   features: string[]
   isSuperAdmin: boolean
-}
-
-function hasAllFeatures(required: string[] | undefined, ctx: AccessContext): boolean {
-  if (!required || required.length === 0) return true
-  if (ctx.isSuperAdmin) return true
-  const granted = ctx.features || []
-  const matchFeature = (req: string, grantedFeature: string) => {
-    if (grantedFeature === '*') return true
-    if (grantedFeature.endsWith('.*')) {
-      const prefix = grantedFeature.slice(0, -2)
-      return req === prefix || req.startsWith(prefix + '.')
-    }
-    return req === grantedFeature
-  }
-  return required.every((req) => granted.some((g) => matchFeature(req, g)))
 }
 
 function specificity(record: DashboardRoleWidgets): number {
@@ -107,7 +93,8 @@ export async function resolveAllowedWidgetIds(
 
   const filtered = widgets.filter((widget) => {
     if (!baseSet.has(widget.metadata.id)) return false
-    return hasAllFeatures(widget.metadata.features, ctx)
+    if (ctx.isSuperAdmin) return true
+    return userHasAllFeatures(ctx.features, widget.metadata.features ?? [])
   })
 
   return filtered.map((widget) => widget.metadata.id)

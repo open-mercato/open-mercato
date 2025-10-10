@@ -4,7 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
 import { roleWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
-import { hasFeature } from '@open-mercato/core/modules/dashboards/lib/featureCheck'
+import { hasFeature } from '@open-mercato/shared/security/features'
 
 const FEATURE = 'dashboards.admin.assign-widgets'
 

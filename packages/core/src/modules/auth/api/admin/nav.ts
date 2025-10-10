@@ -3,6 +3,7 @@ import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -28,20 +29,6 @@ export async function GET(req: Request) {
 
   // Load ACL once; we'll evaluate features locally without multiple calls
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
-
-  function matchFeature(required: string, granted: string): boolean {
-    if (granted === '*') return true
-    if (granted.endsWith('.*')) {
-      const prefix = granted.slice(0, -2)
-      return required === prefix || required.startsWith(prefix + '.')
-    }
-    return granted === required
-  }
-  function haveAllFeatures(required?: string[]): boolean {
-    if (!required || required.length === 0) return true
-    if (acl.isSuperAdmin) return true
-    return required.every((reqF) => (acl.features || []).some((g: string) => matchFeature(reqF, g)))
-  }
 
   // Build nav entries from discovered backend routes
   type Entry = { group: string; title: string; href: string; enabled: boolean; order?: number; priority?: number }
@@ -72,7 +59,7 @@ export async function GET(req: Request) {
         if (!ok) continue
       }
       const features = (r as any).requireFeatures as string[] | undefined
-      if (!haveAllFeatures(features)) continue
+      if (!acl.isSuperAdmin && !hasAllFeatures(acl.features, features)) continue
       const order = (r as any).order as number | undefined
       const priority = ((r as any).priority as number | undefined) ?? order
       entries.push({ group, title, href, enabled, order, priority })
@@ -160,5 +147,4 @@ export async function GET(req: Request) {
 
   return NextResponse.json(payload)
 }
-
 

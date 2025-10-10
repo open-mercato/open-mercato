@@ -1,24 +1,29 @@
-import { modules } from '@/generated/modules.generated'
 import type { ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
+import { dashboardWidgetEntries } from '@/generated/dashboard-widgets.generated'
 
-type Entry = ModuleDashboardWidgetEntry & { moduleId: string }
+type Entry = ModuleDashboardWidgetEntry
 
-const entries: Entry[] = modules.flatMap((mod) => {
-  const widgets = mod.dashboardWidgets ?? []
-  return widgets.map((entry) => ({ ...entry, moduleId: mod.id }))
-})
+let entriesPromise: Promise<Entry[]> | null = null
+
+async function getEntries(): Promise<Entry[]> {
+  if (!entriesPromise) {
+    entriesPromise = Promise.resolve(dashboardWidgetEntries)
+  }
+  return entriesPromise
+}
 
 type LoadedWidgetModule = DashboardWidgetModule<any>
 
 const cache = new Map<string, Promise<LoadedWidgetModule>>()
 
-function findEntry(loaderKey: string): Entry | undefined {
+async function findEntry(loaderKey: string): Promise<Entry | undefined> {
+  const entries = await getEntries()
   return entries.find((entry) => entry.key === loaderKey)
 }
 
 export async function loadDashboardWidgetModule(loaderKey: string): Promise<LoadedWidgetModule | null> {
-  const entry = findEntry(loaderKey)
+  const entry = await findEntry(loaderKey)
   if (!entry) return null
   if (!cache.has(loaderKey)) {
     cache.set(loaderKey, entry.loader().then((mod) => (mod.default ?? mod) as LoadedWidgetModule))
