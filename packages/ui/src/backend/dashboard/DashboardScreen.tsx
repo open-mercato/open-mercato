@@ -38,6 +38,9 @@ type LayoutContext = {
   userId: string
   tenantId: string | null
   organizationId: string | null
+  userName: string | null
+  userEmail: string | null
+  userLabel: string | null
 }
 
 type LayoutResponse = {
@@ -116,7 +119,18 @@ export function DashboardScreen() {
       setWidgetCatalog(data.widgets ?? [])
       setAllowedWidgetIds(data.allowedWidgetIds ?? [])
       setCanConfigure(!!data.canConfigure)
-      setContext(data.context ?? null)
+      if (data.context) {
+        setContext({
+          userId: data.context.userId,
+          tenantId: data.context.tenantId ?? null,
+          organizationId: data.context.organizationId ?? null,
+          userName: data.context.userName ?? null,
+          userEmail: data.context.userEmail ?? null,
+          userLabel: data.context.userLabel ?? null,
+        })
+      } else {
+        setContext(null)
+      }
       if (!data.canConfigure) {
         setEditing(false)
         setSettingsId(null)
@@ -569,7 +583,7 @@ function DashboardWidgetCard({
           <WidgetComponent
             mode={mode as 'view' | 'settings'}
             layout={item}
-            context={context ?? { userId: '', tenantId: null, organizationId: null }}
+            context={context ?? { userId: '', tenantId: null, organizationId: null, userName: null, userEmail: null, userLabel: null }}
             settings={hydratedSettings}
             onSettingsChange={handleSettingsChange}
           />

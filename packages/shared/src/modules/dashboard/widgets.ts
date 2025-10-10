@@ -31,6 +31,9 @@ export type DashboardWidgetRenderContext = {
   userId: string
   tenantId?: string | null
   organizationId?: string | null
+  userName?: string | null
+  userEmail?: string | null
+  userLabel?: string | null
 }
 
 export type DashboardWidgetComponentProps<TSettings = unknown> = {

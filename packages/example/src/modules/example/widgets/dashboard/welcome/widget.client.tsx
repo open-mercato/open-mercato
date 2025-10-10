@@ -46,7 +46,14 @@ const WelcomeWidgetClient: React.FC<DashboardWidgetComponentProps<WelcomeSetting
     )
   }
 
-  const userLabel = context?.userId ? context.userId.slice(0, 12) : 'there'
+  const userLabel = React.useMemo(() => {
+    const name = context?.userName?.trim()
+    if (name) return name
+    const label = context?.userLabel?.trim()
+    if (label) return label
+    if (context?.userEmail) return context.userEmail
+    return context?.userId ?? 'there'
+  }, [context])
   const headline = value.headline.includes('{{user}}')
     ? value.headline.replace(/{{user}}/g, userLabel)
     : value.headline

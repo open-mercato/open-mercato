@@ -7,6 +7,7 @@ import { dashboardLayoutSchema } from '@open-mercato/core/modules/dashboards/dat
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 
 const DEFAULT_SIZE = 'md'
 
@@ -128,11 +129,29 @@ export async function GET(req: Request) {
 
   const canConfigure = acl.isSuperAdmin || hasFeature(acl.features, 'dashboards.configure')
 
+  let userEmail: string | null = null
+  let userName: string | null = null
+  let userLabel: string | null = null
+  const user = await em.findOne(User, { id: scope.userId, deletedAt: null })
+  if (user) {
+    userName = user.name ?? null
+    userEmail = user.email ?? null
+    userLabel = (user.name && user.name.trim().length > 0 ? user.name : user.email) ?? null
+  }
+  if (!userLabel) {
+    userLabel = scope.userId
+  }
+
   return NextResponse.json({
     layout: { items },
     allowedWidgetIds: allowedIds,
     canConfigure,
-    context: scope,
+    context: {
+      ...scope,
+      userName,
+      userEmail,
+      userLabel,
+    },
     widgets: allowedWidgets.map((widget) => ({
       id: widget.metadata.id,
       title: widget.metadata.title,
