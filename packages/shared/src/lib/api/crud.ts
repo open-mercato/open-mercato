@@ -2,25 +2,32 @@ import type { EntityManager } from '@mikro-orm/core'
 
 type Scope = { organizationId?: string | null; organizationIds?: string[] | null; tenantId?: string | null }
 
-export function buildScopedWhere(base: Record<string, any>, scope: Scope & { orgField?: string; tenantField?: string; softDeleteField?: string }): Record<string, any> {
+export function buildScopedWhere(
+  base: Record<string, any>,
+  scope: Scope & { orgField?: string | null; tenantField?: string | null; softDeleteField?: string | null }
+): Record<string, any> {
   const where: any = { ...base }
-  const orgField = (scope.orgField as string) || 'organizationId'
-  const tenantField = (scope.tenantField as string) || 'tenantId'
-  const softField = (scope.softDeleteField as string) || 'deletedAt'
-  if (scope.organizationIds !== undefined) {
-    const ids = (scope.organizationIds ?? []).filter((id): id is string => typeof id === 'string' && id.length > 0)
-    if (ids.length === 0) {
-      where[orgField] = { $in: [] }
-    } else if (ids.length === 1) {
-      where[orgField] = ids[0]
-    } else {
-      where[orgField] = { $in: ids }
+  const orgField = scope.orgField === null ? null : (scope.orgField as string) || 'organizationId'
+  const tenantField = scope.tenantField === null ? null : (scope.tenantField as string) || 'tenantId'
+  const softField = scope.softDeleteField === null ? null : (scope.softDeleteField as string) || 'deletedAt'
+
+  if (orgField) {
+    if (scope.organizationIds !== undefined) {
+      const ids = (scope.organizationIds ?? []).filter((id): id is string => typeof id === 'string' && id.length > 0)
+      if (ids.length === 0) {
+        where[orgField] = { $in: [] }
+      } else if (ids.length === 1) {
+        where[orgField] = ids[0]
+      } else {
+        where[orgField] = { $in: ids }
+      }
+    } else if (scope.organizationId !== undefined) {
+      where[orgField] = scope.organizationId
     }
-  } else if (scope.organizationId !== undefined) {
-    where[orgField] = scope.organizationId
   }
-  if (scope.tenantId !== undefined) where[tenantField] = scope.tenantId
-  where[softField] = null
+
+  if (tenantField && scope.tenantId !== undefined) where[tenantField] = scope.tenantId
+  if (softField) where[softField] = null
   return where
 }
 

@@ -1,11 +1,11 @@
-import { randomUUID } from 'crypto'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import type { OrganizationCreateInput, OrganizationUpdateInput } from '@open-mercato/core/modules/directory/data/validators'
 import {
   organizationCreateSchema,
   organizationUpdateSchema,
@@ -16,6 +16,27 @@ import {
   type ComputedOrganizationNode,
 } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { loadCustomFieldValues, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
+
+type CrudInput = Record<string, unknown>
+type CustomPayload = Record<string, unknown>
+
+type CreateState = OrganizationCreateInput & {
+  tenantId: string
+  parentId: string | null
+  childIds: string[]
+  __custom?: CustomPayload
+}
+
+type UpdateState = OrganizationUpdateInput & {
+  tenantId: string
+  parentId: string | null
+  childIds: string[]
+  __custom?: CustomPayload
+}
+
+const rawBodySchema = z.object({}).passthrough()
 
 const viewSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -45,12 +66,283 @@ function enforceTenantScope(authTenantId: string | null, requestedTenantId?: str
   return requestedTenantId || authTenantId
 }
 
-export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['directory.organizations.view'] },
-  POST: { requireAuth: true, requireFeatures: ['directory.organizations.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['directory.organizations.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['directory.organizations.manage'] },
-}
+const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
+  metadata: {
+    GET: { requireAuth: true, requireFeatures: ['directory.organizations.view'] },
+    POST: { requireAuth: true, requireFeatures: ['directory.organizations.manage'] },
+    PUT: { requireAuth: true, requireFeatures: ['directory.organizations.manage'] },
+    DELETE: { requireAuth: true, requireFeatures: ['directory.organizations.manage'] },
+  },
+  orm: {
+    entity: Organization,
+    idField: 'id',
+    orgField: null,
+    tenantField: null,
+    softDeleteField: 'deletedAt',
+  },
+  create: {
+    schema: rawBodySchema,
+    mapToEntity: (input, ctx) => {
+      const data = input as CreateState
+      const em = ctx.container.resolve<any>('em')
+      const tenantRef = em.getReference(Tenant, data.tenantId)
+      return {
+        tenant: tenantRef,
+        name: data.name,
+        isActive: data.isActive ?? true,
+        parentId: data.parentId ?? null,
+      }
+    },
+    response: (entity: Organization) => ({ id: String(entity.id) }),
+  },
+  update: {
+    schema: rawBodySchema,
+    applyToEntity: (entity: Organization, input) => {
+      const data = input as UpdateState
+      if (data.name !== undefined) entity.name = data.name
+      if (data.isActive !== undefined) entity.isActive = data.isActive
+      entity.parentId = data.parentId ?? null
+    },
+    response: () => ({ ok: true }),
+  },
+  del: {
+    idFrom: 'query',
+    softDelete: true,
+    response: () => ({ ok: true }),
+  },
+  hooks: {
+    beforeCreate: async (raw, ctx) => {
+      const { base, custom } = splitCustomFieldPayload(raw)
+      const parsed = organizationCreateSchema.safeParse(base)
+      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
+
+      const em = ctx.container.resolve<any>('em')
+      const authTenantId = ctx.auth?.tenantId ?? null
+      const tenantId = authTenantId ?? parsed.data.tenantId ?? null
+      if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
+      if (authTenantId && parsed.data.tenantId && parsed.data.tenantId !== authTenantId) {
+        throw new CrudHttpError(403, { error: 'Forbidden' })
+      }
+
+      const parentId = parsed.data.parentId ?? null
+      if (parentId) {
+        const parent = await em.findOne(Organization, { id: parentId, tenant: tenantId as any, deletedAt: null })
+        if (!parent) throw new CrudHttpError(400, { error: 'Parent not found' })
+      }
+
+      const childIds = Array.from(new Set(parsed.data.childIds ?? [])).filter((id) => id !== parentId)
+      if (childIds.some((id) => id === parentId)) throw new CrudHttpError(400, { error: 'Child cannot equal parent' })
+      if (childIds.length) {
+        const children = await em.find(Organization, { id: { $in: childIds }, tenant: tenantId as any, deletedAt: null })
+        if (children.length !== childIds.length) throw new CrudHttpError(400, { error: 'Invalid child assignment' })
+      }
+
+      return {
+        ...parsed.data,
+        tenantId,
+        parentId,
+        childIds,
+        __custom: custom,
+      } as unknown as CrudInput
+    },
+    afterCreate: async (entity, ctxWithInput) => {
+      const input = ctxWithInput.input as CreateState
+      const em = ctxWithInput.container.resolve<any>('em')
+      const tenantId = input.tenantId
+      const recordId = String(entity.id)
+      const childIds = Array.from(new Set(input.childIds ?? [])).filter((id) => id !== recordId)
+      if (childIds.length) {
+        const children = await em.find(Organization, {
+          tenant: tenantId as any,
+          deletedAt: null,
+          id: { $in: childIds },
+        })
+        const updates = children.filter((child) => String(child.id) !== recordId && child.parentId !== recordId)
+        for (const child of updates) child.parentId = recordId
+        if (updates.length) await em.persistAndFlush(updates)
+      }
+      if (input.__custom && Object.keys(input.__custom).length) {
+        const de = ctxWithInput.container.resolve<DataEngine>('dataEngine')
+        await de.setCustomFields({
+          entityId: E.directory.organization,
+          recordId,
+          tenantId,
+          organizationId: recordId,
+          values: input.__custom,
+          notify: false,
+        })
+      }
+      await rebuildHierarchyForTenant(em, tenantId)
+      try {
+        const bus = ctxWithInput.container.resolve<any>('eventBus')
+        await bus.emitEvent('directory.organization.created', { id: recordId, tenantId, organizationId: recordId }, { persistent: true })
+        await bus.emitEvent('query_index.upsert_one', { entityType: E.directory.organization, recordId, organizationId: recordId, tenantId })
+      } catch {
+        // Event bus is optional; ignore failures
+      }
+    },
+    beforeUpdate: async (raw, ctx) => {
+      const { base, custom } = splitCustomFieldPayload(raw)
+      const parsed = organizationUpdateSchema.safeParse(base)
+      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
+
+      const em = ctx.container.resolve<any>('em')
+      const org = await em.findOne(Organization, { id: parsed.data.id, deletedAt: null })
+      if (!org) throw new CrudHttpError(404, { error: 'Not found' })
+
+      const authTenantId = ctx.auth?.tenantId ?? null
+      const tenantId = authTenantId ?? parsed.data.tenantId ?? String(org.tenant?.id ?? '')
+      if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
+      if (authTenantId && tenantId !== authTenantId) throw new CrudHttpError(403, { error: 'Forbidden' })
+      if (String(org.tenant?.id ?? tenantId) !== tenantId) throw new CrudHttpError(403, { error: 'Tenant mismatch' })
+
+      const parentId = parsed.data.parentId ?? null
+      if (parentId) {
+        if (parentId === parsed.data.id) throw new CrudHttpError(400, { error: 'Organization cannot be its own parent' })
+        if (Array.isArray(org.descendantIds) && org.descendantIds.includes(parentId)) {
+          throw new CrudHttpError(400, { error: 'Cannot assign descendant as parent' })
+        }
+        const parent = await em.findOne(Organization, { id: parentId, tenant: tenantId as any, deletedAt: null })
+        if (!parent) throw new CrudHttpError(400, { error: 'Parent not found' })
+      }
+
+      const normalizedChildIds = Array.from(new Set(parsed.data.childIds ?? [])).filter((id) => id !== parsed.data.id && id !== parentId)
+      if (normalizedChildIds.some((id) => id === parentId)) throw new CrudHttpError(400, { error: 'Child cannot equal parent' })
+      if (Array.isArray(org.ancestorIds) && normalizedChildIds.some((id) => org.ancestorIds.includes(id))) {
+        throw new CrudHttpError(400, { error: 'Cannot assign ancestor as child' })
+      }
+      if (normalizedChildIds.length) {
+        const children = await em.find(Organization, {
+          id: { $in: normalizedChildIds },
+          tenant: tenantId as any,
+          deletedAt: null,
+        })
+        if (children.length !== normalizedChildIds.length) throw new CrudHttpError(400, { error: 'Invalid child assignment' })
+        for (const child of children) {
+          if (Array.isArray(child.descendantIds) && child.descendantIds.includes(parsed.data.id)) {
+            throw new CrudHttpError(400, { error: 'Cannot assign descendant cycle' })
+          }
+        }
+      }
+
+      return {
+        ...parsed.data,
+        tenantId,
+        parentId,
+        childIds: normalizedChildIds,
+        __custom: custom,
+      } as unknown as CrudInput
+    },
+    afterUpdate: async (entity, ctxWithInput) => {
+      const input = ctxWithInput.input as UpdateState
+      const em = ctxWithInput.container.resolve<any>('em')
+      const tenantId = input.tenantId
+      const recordId = String(entity.id)
+
+      const desiredChildIds = new Set((input.childIds ?? []).filter((id) => id !== recordId))
+      const toPersist: Organization[] = []
+
+      const currentChildren = await em.find(Organization, {
+        tenant: tenantId as any,
+        parentId: recordId,
+        deletedAt: null,
+      })
+      for (const child of currentChildren) {
+        if (!desiredChildIds.has(String(child.id))) {
+          child.parentId = null
+          toPersist.push(child)
+        }
+      }
+
+      if (desiredChildIds.size > 0) {
+        const targetChildren = await em.find(Organization, {
+          tenant: tenantId as any,
+          deletedAt: null,
+          id: { $in: Array.from(desiredChildIds) },
+        })
+        for (const child of targetChildren) {
+          if (String(child.id) === recordId) continue
+          if (child.parentId !== recordId) {
+            child.parentId = recordId
+            toPersist.push(child)
+          }
+        }
+      }
+
+      if (toPersist.length) await em.persistAndFlush(toPersist)
+
+      if (input.__custom && Object.keys(input.__custom).length) {
+        const de = ctxWithInput.container.resolve<DataEngine>('dataEngine')
+        await de.setCustomFields({
+          entityId: E.directory.organization,
+          recordId,
+          tenantId,
+          organizationId: recordId,
+          values: input.__custom,
+          notify: false,
+        })
+      }
+
+      await rebuildHierarchyForTenant(em, tenantId)
+      try {
+        const bus = ctxWithInput.container.resolve<any>('eventBus')
+        await bus.emitEvent('directory.organization.updated', { id: recordId, tenantId, organizationId: recordId }, { persistent: true })
+        await bus.emitEvent('query_index.upsert_one', { entityType: E.directory.organization, recordId, organizationId: recordId, tenantId })
+      } catch {
+        // Event bus is optional; ignore failures
+      }
+    },
+    beforeDelete: async (id, ctx) => {
+      const em = ctx.container.resolve<any>('em')
+      const org = await em.findOne(Organization, { id, deletedAt: null })
+      if (!org) throw new CrudHttpError(404, { error: 'Not found' })
+
+      const authTenantId = ctx.auth?.tenantId ?? null
+      const tenantId = authTenantId ?? String(org.tenant?.id ?? '')
+      if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
+      if (authTenantId && tenantId !== authTenantId) throw new CrudHttpError(403, { error: 'Forbidden' })
+
+      ;(ctx as any).__deleteMeta = {
+        tenantId,
+        parentId: org.parentId ?? null,
+        entity: org,
+      }
+    },
+    afterDelete: async (id, ctx) => {
+      const meta = (ctx as any).__deleteMeta as { tenantId: string; parentId: string | null; entity: Organization } | undefined
+      if (!meta) return
+
+      const em = ctx.container.resolve<any>('em')
+      const children = await em.find(Organization, {
+        tenant: meta.tenantId as any,
+        parentId: id,
+        deletedAt: null,
+      })
+
+      const toPersist: Organization[] = []
+      for (const child of children) {
+        child.parentId = meta.parentId
+        toPersist.push(child)
+      }
+      meta.entity.isActive = false
+      meta.entity.parentId = null
+      toPersist.push(meta.entity)
+      if (toPersist.length) await em.persistAndFlush(toPersist)
+
+      await rebuildHierarchyForTenant(em, meta.tenantId)
+      try {
+        const bus = ctx.container.resolve<any>('eventBus')
+        await bus.emitEvent('directory.organization.deleted', { id, tenantId: meta.tenantId, organizationId: id }, { persistent: true })
+        await bus.emitEvent('query_index.delete_one', { entityType: E.directory.organization, recordId: id, organizationId: id })
+      } catch {
+        // Event bus is optional; ignore failures
+      }
+      delete (ctx as any).__deleteMeta
+    },
+  },
+})
+
+export const metadata = crud.metadata
 
 export async function GET(req: Request) {
   const auth = getAuthFromRequest(req)
@@ -228,230 +520,6 @@ export async function GET(req: Request) {
   return NextResponse.json({ items, total, page, pageSize, totalPages })
 }
 
-export async function POST(req: Request) {
-  const auth = getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const rawBody = await req.json().catch(() => ({}))
-  const { base, custom } = splitCustomFieldPayload(rawBody)
-  const parsed = organizationCreateSchema.safeParse(base)
-  if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
-
-  const tenantId = auth.tenantId ?? parsed.data.tenantId ?? null
-  if (!tenantId) return NextResponse.json({ error: 'Tenant scope required' }, { status: 400 })
-  if (auth.tenantId && tenantId !== auth.tenantId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const de = resolve('dataEngine') as DataEngine
-  let bus: any
-  try { bus = resolve('eventBus') } catch { bus = null }
-
-  const parentId = parsed.data.parentId ?? null
-  const childIds = Array.from(new Set(parsed.data.childIds ?? [])).filter((id) => id !== parentId)
-
-  if (parentId === null) {
-    // ok
-  } else {
-    const parent = await em.findOne(Organization, { id: parentId, tenant: tenantId as any, deletedAt: null })
-    if (!parent) return NextResponse.json({ error: 'Parent not found' }, { status: 400 })
-  }
-
-  if (childIds.length) {
-    if (childIds.includes(parentId || '')) {
-      return NextResponse.json({ error: 'Child cannot equal parent' }, { status: 400 })
-    }
-  }
-
-  const id = randomUUID()
-  const tenantRef = em.getReference(Tenant, tenantId)
-  const org = em.create(Organization, {
-    id,
-    tenant: tenantRef,
-    name: parsed.data.name,
-    isActive: parsed.data.isActive ?? true,
-    parentId: parentId,
-  })
-  em.persist(org)
-
-  if (childIds.length) {
-    const children = await em.find(Organization, {
-      tenant: tenantId as any,
-      deletedAt: null,
-      id: { $in: childIds },
-    })
-    if (children.length !== childIds.length) {
-      return NextResponse.json({ error: 'Invalid child assignment' }, { status: 400 })
-    }
-    for (const child of children) {
-      if (String(child.id) === id) {
-        return NextResponse.json({ error: 'Organization cannot be its own child' }, { status: 400 })
-      }
-      child.parentId = id
-    }
-  }
-
-  await em.flush()
-  if (Object.keys(custom).length) {
-    await de.setCustomFields({
-      entityId: E.directory.organization,
-      recordId: id,
-      tenantId,
-      organizationId: id,
-      values: custom,
-      notify: false,
-    })
-  }
-  await rebuildHierarchyForTenant(em, tenantId)
-  if (bus) {
-    try {
-      await bus.emitEvent('directory.organization.created', { id, tenantId, organizationId: id }, { persistent: true })
-      await bus.emitEvent('query_index.upsert_one', { entityType: E.directory.organization, recordId: id, organizationId: id, tenantId })
-    } catch {}
-  }
-  return NextResponse.json({ id })
-}
-
-export async function PUT(req: Request) {
-  const auth = getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const rawBody = await req.json().catch(() => ({}))
-  const { base, custom } = splitCustomFieldPayload(rawBody)
-  const parsed = organizationUpdateSchema.safeParse(base)
-  if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
-
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const de = resolve('dataEngine') as DataEngine
-  let bus: any
-  try { bus = resolve('eventBus') } catch { bus = null }
-  const org = await em.findOne(Organization, { id: parsed.data.id, deletedAt: null })
-  if (!org) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  const tenantId = auth.tenantId ?? parsed.data.tenantId ?? String(org.tenant?.id || '')
-  if (!tenantId) return NextResponse.json({ error: 'Tenant scope required' }, { status: 400 })
-  if (auth.tenantId && tenantId !== auth.tenantId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-  if (String(org.tenant?.id || tenantId) !== tenantId) {
-    return NextResponse.json({ error: 'Tenant mismatch' }, { status: 403 })
-  }
-
-  const parentId = parsed.data.parentId ?? null
-  if (parentId) {
-    if (parentId === String(org.id)) {
-      return NextResponse.json({ error: 'Organization cannot be its own parent' }, { status: 400 })
-    }
-    if (Array.isArray(org.descendantIds) && org.descendantIds.includes(parentId)) {
-      return NextResponse.json({ error: 'Cannot assign descendant as parent' }, { status: 400 })
-    }
-    const parent = await em.findOne(Organization, { id: parentId, tenant: tenantId as any, deletedAt: null })
-    if (!parent) return NextResponse.json({ error: 'Parent not found' }, { status: 400 })
-  }
-
-  const childIds = Array.from(new Set(parsed.data.childIds ?? [])).filter((id) => id !== String(org.id))
-  if (childIds.some((id) => id === parentId)) {
-    return NextResponse.json({ error: 'Child cannot equal parent' }, { status: 400 })
-  }
-  if (Array.isArray(org.ancestorIds) && childIds.some((id) => org.ancestorIds.includes(id))) {
-    return NextResponse.json({ error: 'Cannot assign ancestor as child' }, { status: 400 })
-  }
-
-  if (parsed.data.name !== undefined) org.name = parsed.data.name
-  if (parsed.data.isActive !== undefined) org.isActive = parsed.data.isActive
-  org.parentId = parentId
-
-  // Update direct children assignments
-  const desiredChildSet = new Set(childIds)
-
-  const currentChildren = await em.find(Organization, {
-    tenant: tenantId as any,
-    parentId: org.id,
-    deletedAt: null,
-  })
-  for (const child of currentChildren) {
-    if (!desiredChildSet.has(String(child.id))) {
-      child.parentId = null
-    }
-  }
-
-  if (desiredChildSet.size > 0) {
-    const desiredChildIds = Array.from(desiredChildSet)
-    const targetChildren = await em.find(Organization, {
-      tenant: tenantId as any,
-      deletedAt: null,
-      id: { $in: desiredChildIds },
-    })
-    if (targetChildren.length !== desiredChildIds.length) {
-      return NextResponse.json({ error: 'Invalid child assignment' }, { status: 400 })
-    }
-    for (const child of targetChildren) {
-      if (Array.isArray(child.descendantIds) && child.descendantIds.includes(String(org.id))) {
-        return NextResponse.json({ error: 'Cannot assign descendant cycle' }, { status: 400 })
-      }
-      child.parentId = String(org.id)
-    }
-  }
-
-  await em.flush()
-  if (Object.keys(custom).length) {
-    await de.setCustomFields({
-      entityId: E.directory.organization,
-      recordId: String(org.id),
-      tenantId,
-      organizationId: String(org.id),
-      values: custom,
-      notify: false,
-    })
-  }
-  await rebuildHierarchyForTenant(em, tenantId)
-  if (bus) {
-    try {
-      await bus.emitEvent('directory.organization.updated', { id: String(org.id), tenantId, organizationId: String(org.id) }, { persistent: true })
-      await bus.emitEvent('query_index.upsert_one', { entityType: E.directory.organization, recordId: String(org.id), organizationId: String(org.id), tenantId })
-    } catch {}
-  }
-  return NextResponse.json({ ok: true })
-}
-
-export async function DELETE(req: Request) {
-  const auth = getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const url = new URL(req.url)
-  const id = url.searchParams.get('id')
-  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
-
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const org = await em.findOne(Organization, { id, deletedAt: null })
-  if (!org) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  const tenantId = auth.tenantId ?? String(org.tenant?.id || '')
-  if (!tenantId) return NextResponse.json({ error: 'Tenant scope required' }, { status: 400 })
-  if (auth.tenantId && tenantId !== auth.tenantId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
-  const parentId = org.parentId ?? null
-  const children = await em.find(Organization, {
-    tenant: tenantId as any,
-    parentId: org.id,
-    deletedAt: null,
-  })
-  for (const child of children) {
-    child.parentId = parentId
-  }
-
-  org.deletedAt = new Date()
-  org.isActive = false
-  org.parentId = null
-  await em.flush()
-  await rebuildHierarchyForTenant(em, tenantId)
-  try {
-    const bus = resolve('eventBus') as any
-    await bus.emitEvent('directory.organization.deleted', { id: String(org.id), tenantId, organizationId: String(org.id) }, { persistent: true })
-    await bus.emitEvent('query_index.delete_one', { entityType: E.directory.organization, recordId: String(org.id), organizationId: String(org.id) })
-  } catch {}
-  return NextResponse.json({ ok: true })
-}
+export const POST = crud.POST
+export const PUT = crud.PUT
+export const DELETE = crud.DELETE

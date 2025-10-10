@@ -233,7 +233,7 @@ export async function run(argv = process.argv) {
       },
     ],
   } as any)
-
+  
   // Built-in CLI module: scaffold
   all.push({
     id: 'scaffold',
@@ -252,11 +252,12 @@ export async function run(argv = process.argv) {
           const base = path.resolve('src/modules', name)
           const folders = ['api', 'backend', 'frontend', 'data', 'subscribers']
           for (const f of folders) fs.mkdirSync(path.join(base, f), { recursive: true })
-          const indexTs = `export const metadata = { title: '${name[0].toUpperCase()}${name.slice(1)}', group: 'Modules' }\n`
+          const moduleTitle = `${name[0].toUpperCase()}${name.slice(1)}`
+          const indexTs = `export const metadata = { title: '${moduleTitle}', group: 'Modules' }\n`
           fs.writeFileSync(path.join(base, 'index.ts'), indexTs, { flag: 'wx' })
-          const fieldsTs = `import { defineFields } from '@/modules/dsl'\nimport type { CustomFieldSet } from '@/modules/entities'\nimport { E } from '@/generated/entities.ids.generated'\n\nexport const fieldSets: CustomFieldSet[] = [\n  // defineFields(E.${name}.your_entity, [ /* cf.* definitions */ ], '${name}')\n]\n\nexport default fieldSets\n`
-          fs.writeFileSync(path.join(base, 'data', 'fields.ts'), fieldsTs, { flag: 'wx' })
-          const entitiesTs = `import { Entity, PrimaryKey, Property } from '@mikro-orm/core'\n\n// Add your entities here. Example:\n// @Entity({ tableName: '${name}_items' })\n// export class ${name[0].toUpperCase()}${name.slice(1)}Item {\n//   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' }) id!: string\n//   @Property({ type: 'text' }) title!: string\n//   @Property({ name: 'organization_id', type: 'uuid', nullable: true }) organizationId?: string | null\n//   @Property({ name: 'tenant_id', type: 'uuid', nullable: true }) tenantId?: string | null\n//   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() }) createdAt: Date = new Date()\n//   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() }) updatedAt: Date = new Date()\n//   @Property({ name: 'deleted_at', type: Date, nullable: true }) deletedAt?: Date | null\n// }\n`
+          const ceTs = `export const entities = [\n  {\n    id: '${name}:sample',\n    label: '${moduleTitle} Sample',\n    description: 'Describe your custom entity',\n    showInSidebar: true,\n    fields: [\n      // { key: 'priority', kind: 'integer', label: 'Priority' },\n    ],\n  },\n]\n\nexport default entities\n`
+          fs.writeFileSync(path.join(base, 'ce.ts'), ceTs, { flag: 'wx' })
+          const entitiesTs = `import { Entity, PrimaryKey, Property } from '@mikro-orm/core'\n\n// Add your entities here. Example:\n// @Entity({ tableName: '${name}_items' })\n// export class ${moduleTitle}Item {\n//   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' }) id!: string\n//   @Property({ type: 'text' }) title!: string\n//   @Property({ name: 'organization_id', type: 'uuid', nullable: true }) organizationId?: string | null\n//   @Property({ name: 'tenant_id', type: 'uuid', nullable: true }) tenantId?: string | null\n//   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() }) createdAt: Date = new Date()\n//   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() }) updatedAt: Date = new Date()\n//   @Property({ name: 'deleted_at', type: Date, nullable: true }) deletedAt?: Date | null\n// }\n`
           fs.writeFileSync(path.join(base, 'data', 'entities.ts'), entitiesTs, { flag: 'wx' })
           console.log(`Created module at ${path.relative(process.cwd(), base)}`)
           execSync('yarn modules:prepare', { stdio: 'inherit' })
@@ -290,18 +291,26 @@ export async function run(argv = process.argv) {
               const n = f.n
               const t = f.t
               if (!n || !t) continue
-              const map: Record<string, { ts: string; db?: string }> = {
-                text: { ts: 'text' },
-                boolean: { ts: 'boolean' },
-                integer: { ts: 'int' },
-                float: { ts: 'float' },
-                date: { ts: 'Date' },
-              }
-              const m = map[t] || map.text
-              const col = n.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
-              const tsType = m.ts === 'Date' ? 'Date' : (m.ts === 'int' || m.ts === 'float') ? 'number' : m.ts
-              const dbType = m.ts === 'int' ? 'int' : m.ts === 'float' ? 'float' : m.ts === 'boolean' ? 'boolean' : m.ts === 'Date' ? 'Date' : 'text'
-              content += `\n  @Property({ name: '${col}', type: ${dbType}${t === 'boolean' ? ', default: false' : ''} })\n  ${n}${t === 'boolean' ? ': boolean = false' : tsType === 'Date' ? ': Date = new Date()' : tsType === 'number' ? '?: number | null' : '!: string'}\n`
+              const map = {
+                text: { ts: 'string', db: 'text' },
+                multiline: { ts: 'string', db: 'text' },
+                integer: { ts: 'number', db: 'int' },
+                float: { ts: 'number', db: 'float' },
+                boolean: { ts: 'boolean', db: 'boolean' },
+                date: { ts: 'Date', db: 'Date' },
+              } as const
+              const info = map[t as keyof typeof map]
+              const fallback = { ts: 'string', db: 'text' }
+              const resolved = info || fallback
+              const propName = n.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
+              const columnName = n.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
+              const dbType = resolved.db
+              const tsType = resolved.ts === 'int' || resolved.ts === 'float' ? 'number' : resolved.ts
+              const defaultValue =
+                resolved.ts === 'boolean' ? ' = false' :
+                resolved.ts === 'Date' ? ' = new Date()' :
+                ''
+              content += `\n  @Property({ name: '${columnName}', type: ${dbType === 'Date' ? 'Date' : `'${dbType}'`}${resolved.ts === 'boolean' ? ', default: false' : ''} })\n  ${propName}${tsType === 'number' ? '?: number | null' : tsType === 'boolean' ? ': boolean' : tsType === 'Date' ? ': Date' : '!: string'}${defaultValue}\n`
             }
             content += `}\n`
             fs.writeFileSync(file, content)
@@ -322,7 +331,7 @@ export async function run(argv = process.argv) {
           const path = await import('node:path')
           const { execSync } = await import('node:child_process')
           const mod = (args[0] || '').trim()
-          const entity = (args[1] || '').trim() // ClassName
+          const entity = (args[1] || '').trim()
           const routeSeg = (args[2] || '').trim() || `${entity.toLowerCase()}s`
           if (!mod || !entity) {
             console.error('Usage: mercato scaffold crud <moduleId> <EntityClass> [routeSegment]')
@@ -331,7 +340,7 @@ export async function run(argv = process.argv) {
           const baseDir = path.resolve('src/modules', mod, 'api', routeSeg)
           fs.mkdirSync(baseDir, { recursive: true })
           const entitySnake = entity.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
-          const tmpl = `import { z } from 'zod'\nimport { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'\nimport { ${entity} } from '@/modules/${mod}/data/entities'\nimport { E } from '@/generated/entities.ids.generated'\nimport * as F from '@/generated/entities/${entitySnake}'\nimport fieldSets from '@/modules/${mod}/data/fields'\nimport { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'\n\nconst querySchema = z.object({\n  id: z.string().uuid().optional(),\n  page: z.coerce.number().min(1).default(1),\n  pageSize: z.coerce.number().min(1).max(100).default(50),\n  sortField: z.string().optional().default('id'),\n  sortDir: z.enum(['asc','desc']).optional().default('asc'),\n  withDeleted: z.coerce.boolean().optional().default(false),\n}).passthrough()\n\nconst createSchema = z.object({}).passthrough()\nconst updateSchema = z.object({ id: z.string().uuid() }).passthrough()\n\ntype Query = z.infer<typeof querySchema>\n\nconst cfSel = buildCustomFieldSelectorsForEntity(E.${mod}.${entitySnake}, fieldSets)\nconst sortFieldMap: Record<string, unknown> = { id: F.id, created_at: F.created_at, ...Object.fromEntries(cfSel.keys.map(k => [\`cf_\${k}\`, \`cf:\${k}\`])) }\n\nexport const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({\n  metadata: { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },\n  orm: { entity: ${entity}, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },\n  events: { module: '${mod}', entity: '${entitySnake}', persistent: true },\n  list: {\n    schema: querySchema,\n    entityId: E.${mod}.${entitySnake},\n    fields: [F.id, F.created_at, ...cfSel.selectors],\n    sortFieldMap,\n    buildFilters: async (q: Query, ctx) => ({\n      ...(await buildCustomFieldFiltersFromQuery({\n        entityId: E.${mod}.${entitySnake},\n        query: q as any,\n        em: ctx.container.resolve('em'),\n        tenantId: ctx.auth!.tenantId,\n      })),\n    }),\n    transformItem: (item: any) => ({ id: item.id, created_at: item.created_at, ...extractCustomFieldsFromItem(item, cfSel.keys) }),\n  },\n  create: { schema: createSchema, mapToEntity: (input: any) => ({}), customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  update: { schema: updateSchema, applyToEntity: (entity: ${entity}, input: any) => {}, customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  del: { idFrom: 'query', softDelete: true },\n})\n`
+          const tmpl = `import { z } from 'zod'\nimport { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'\nimport { ${entity} } from '@/modules/${mod}/data/entities'\nimport { E } from '@/generated/entities.ids.generated'\nimport * as F from '@/generated/entities/${entitySnake}'\nimport ceEntities from '@/modules/${mod}/ce'\nimport { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'\nimport type { CustomFieldSet } from '@open-mercato/shared/modules/entities'\n\nconst querySchema = z.object({\n  id: z.string().uuid().optional(),\n  page: z.coerce.number().min(1).default(1),\n  pageSize: z.coerce.number().min(1).max(100).default(50),\n  sortField: z.string().optional().default('id'),\n  sortDir: z.enum(['asc','desc']).optional().default('asc'),\n  withDeleted: z.coerce.boolean().optional().default(false),\n}).passthrough()\n\nconst createSchema = z.object({}).passthrough()\nconst updateSchema = z.object({ id: z.string().uuid() }).passthrough()\n\ntype Query = z.infer<typeof querySchema>\n\nconst fieldSets: CustomFieldSet[] = []\nconst ceEntity = Array.isArray(ceEntities) ? ceEntities.find((entity) => entity?.id === '${mod}:${entitySnake}') : undefined\nif (ceEntity?.fields?.length) {\n  fieldSets.push({ entity: ceEntity.id, fields: ceEntity.fields, source: '${mod}' })\n}\n\nconst cfSel = buildCustomFieldSelectorsForEntity(E.${mod}.${entitySnake}, fieldSets)\nconst sortFieldMap: Record<string, unknown> = { id: F.id, created_at: F.created_at, ...Object.fromEntries(cfSel.keys.map(k => [\`cf_\${k}\`, \`cf:\${k}\`])) }\n\nexport const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({\n  metadata: { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },\n  orm: { entity: ${entity}, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },\n  events: { module: '${mod}', entity: '${entitySnake}', persistent: true },\n  list: {\n    schema: querySchema,\n    entityId: E.${mod}.${entitySnake},\n    fields: [F.id, F.created_at, ...cfSel.selectors],\n    sortFieldMap,\n    buildFilters: async (q: Query, ctx) => ({\n      ...(await buildCustomFieldFiltersFromQuery({\n        entityId: E.${mod}.${entitySnake},\n        query: q as any,\n        em: ctx.container.resolve('em'),\n        tenantId: ctx.auth!.tenantId,\n      })),\n    }),\n    transformItem: (item: any) => ({ id: item.id, created_at: item.created_at, ...extractCustomFieldsFromItem(item, cfSel.keys) }),\n  },\n  create: { schema: createSchema, mapToEntity: (input: any) => ({}), customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  update: { schema: updateSchema, applyToEntity: (entity: ${entity}, input: any) => {}, customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  del: { idFrom: 'query', softDelete: true },\n})\n`
           const file = path.join(baseDir, 'route.ts')
           fs.writeFileSync(file, tmpl, { flag: 'wx' })
           console.log(`Created CRUD route: ${path.relative(process.cwd(), file)}`)
