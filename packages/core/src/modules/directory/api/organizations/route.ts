@@ -16,7 +16,10 @@ import {
   rebuildHierarchyForTenant,
   type ComputedOrganizationNode,
 } from '@open-mercato/core/modules/directory/lib/hierarchy'
-import { getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import {
+  getSelectedOrganizationFromRequest,
+  resolveOrganizationScopeForRequest,
+} from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { loadCustomFieldValues, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -415,8 +418,8 @@ export async function GET(req: Request) {
   const status = query.status ?? 'all'
   const includeInactive = query.includeInactive === 'true' || status !== 'active'
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve<EntityManager>('em')
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
 
   if (!tenantId && !authTenantId && ids?.length) {
     const scopedOrgs: Organization[] = await em.find(
@@ -437,15 +440,37 @@ export async function GET(req: Request) {
   }
 
   if (!tenantId) {
-    const candidateOrgId = getSelectedOrganizationFromRequest(req) ?? auth.orgId ?? null
-    if (candidateOrgId) {
-      const candidateOrg = await em.findOne(
+    const candidateOrgIds = new Set<string>()
+    const cookieOrgId = getSelectedOrganizationFromRequest(req)
+    if (cookieOrgId) candidateOrgIds.add(cookieOrgId)
+    if (auth.orgId) candidateOrgIds.add(auth.orgId)
+
+    try {
+      const scope = await resolveOrganizationScopeForRequest({
+        container,
+        auth,
+        request: req,
+        selectedId: cookieOrgId ?? undefined,
+      })
+      if (scope.selectedId) candidateOrgIds.add(scope.selectedId)
+      if (Array.isArray(scope.filterIds) && scope.filterIds.length) {
+        candidateOrgIds.add(scope.filterIds[0]!)
+      }
+      if (Array.isArray(scope.allowedIds) && scope.allowedIds.length) {
+        candidateOrgIds.add(scope.allowedIds[0]!)
+      }
+    } catch {}
+
+    for (const orgId of candidateOrgIds) {
+      if (!orgId) continue
+      const org = await em.findOne(
         Organization,
-        { id: candidateOrgId, deletedAt: null },
+        { id: orgId, deletedAt: null },
         { populate: ['tenant'] },
       )
-      if (candidateOrg?.tenant && candidateOrg.tenant.id) {
-        tenantId = stringId(candidateOrg.tenant.id)
+      if (org?.tenant && org.tenant.id) {
+        tenantId = stringId(org.tenant.id)
+        break
       }
     }
   }

@@ -1,13 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -26,12 +29,142 @@ const updateSchema = z.object({
   tenantId: z.string().uuid().nullable().optional(),
 })
 
-export const metadata = {
+const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.roles.list'] },
   POST: { requireAuth: true, requireFeatures: ['auth.roles.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['auth.roles.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['auth.roles.manage'] },
 }
+
+export const metadata = routeMetadata
+
+const rawBodySchema = z.object({}).passthrough()
+type CrudInput = Record<string, unknown>
+
+type CreateState = {
+  input: z.infer<typeof createSchema>
+  custom: Record<string, unknown>
+  resolvedTenantId: string | null
+}
+
+type UpdateState = {
+  input: z.infer<typeof updateSchema>
+  custom: Record<string, unknown>
+}
+
+const createStateStore = new WeakMap<object, CreateState>()
+const updateStateStore = new WeakMap<object, UpdateState>()
+
+const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
+  metadata: routeMetadata,
+  orm: {
+    entity: Role,
+    idField: 'id',
+    orgField: null,
+    tenantField: null,
+    softDeleteField: 'deletedAt',
+  },
+  events: { module: 'auth', entity: 'role', persistent: true },
+  indexer: { entityType: E.auth.role },
+  resolveIdentifiers: (entity) => ({
+    id: String((entity as any).id),
+    organizationId: null,
+    tenantId: (entity as any).tenantId ? String((entity as any).tenantId) : null,
+  }),
+  create: {
+    schema: rawBodySchema,
+    mapToEntity: (input) => {
+      const state = createStateStore.get(input as object)
+      if (!state) throw new CrudHttpError(400, { error: 'Invalid input' })
+      return {
+        name: state.input.name,
+        tenantId: state.resolvedTenantId ?? null,
+      }
+    },
+    response: (entity: Role) => ({ id: String(entity.id) }),
+  },
+  update: {
+    schema: rawBodySchema,
+    applyToEntity: (entity: Role, input) => {
+      const state = updateStateStore.get(input as object)
+      if (!state) throw new CrudHttpError(400, { error: 'Invalid input' })
+      if (state.input.name !== undefined) entity.name = state.input.name
+      if (state.input.tenantId !== undefined) entity.tenantId = state.input.tenantId ?? null
+    },
+    response: () => ({ ok: true }),
+  },
+  del: {
+    idFrom: 'query',
+    softDelete: false,
+    response: () => ({ ok: true }),
+  },
+  hooks: {
+    beforeCreate: async (raw, ctx) => {
+      const { base, custom } = splitCustomFieldPayload(raw)
+      const parsed = createSchema.safeParse(base)
+      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
+      const resolvedTenantId = parsed.data.tenantId === undefined ? ctx.auth?.tenantId ?? null : parsed.data.tenantId ?? null
+      const token = parsed.data as unknown as object
+      createStateStore.set(token, {
+        input: parsed.data,
+        custom,
+        resolvedTenantId,
+      })
+      return token as CrudInput
+    },
+    afterCreate: async (entity, ctx) => {
+      const state = createStateStore.get(ctx.input as object)
+      if (!state) return
+      if (Object.keys(state.custom).length) {
+        const de = ctx.container.resolve<DataEngine>('dataEngine')
+        await de.setCustomFields({
+          entityId: E.auth.role,
+          recordId: String(entity.id),
+          organizationId: null,
+          tenantId: state.resolvedTenantId,
+          values: state.custom,
+          notify: false,
+        })
+      }
+      createStateStore.delete(ctx.input as object)
+    },
+    beforeUpdate: async (raw) => {
+      const { base, custom } = splitCustomFieldPayload(raw)
+      const parsed = updateSchema.safeParse(base)
+      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
+      const token = parsed.data as unknown as object
+      updateStateStore.set(token, {
+        input: parsed.data,
+        custom,
+      })
+      return token as CrudInput
+    },
+    afterUpdate: async (entity, ctx) => {
+      const state = updateStateStore.get(ctx.input as object)
+      if (!state) return
+      if (Object.keys(state.custom).length) {
+        const de = ctx.container.resolve<DataEngine>('dataEngine')
+        await de.setCustomFields({
+          entityId: E.auth.role,
+          recordId: String(entity.id),
+          organizationId: null,
+          tenantId: entity.tenantId ? String(entity.tenantId) : null,
+          values: state.custom,
+          notify: false,
+        })
+      }
+      updateStateStore.delete(ctx.input as object)
+    },
+    beforeDelete: async (id, ctx) => {
+      const em = ctx.container.resolve<EntityManager>('em')
+      const role = await em.findOne(Role, { id })
+      if (!role || (role as any).deletedAt) throw new CrudHttpError(404, { error: 'Not found' })
+      const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
+      if (activeAssignments > 0) throw new CrudHttpError(400, { error: 'Role has assigned users' })
+      await em.nativeDelete(RoleAcl, { role: id as any })
+    },
+  },
+})
 
 export async function GET(req: Request) {
   const auth = getAuthFromRequest(req)
@@ -44,12 +177,12 @@ export async function GET(req: Request) {
     search: url.searchParams.get('search') || undefined,
   })
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as any
   let isSuperAdmin = false
   try {
     if (auth.sub) {
-      const rbacService = resolve('rbacService') as any
+      const rbacService = container.resolve('rbacService') as any
       const acl = await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
       isSuperAdmin = !!acl?.isSuperAdmin
     }
@@ -125,110 +258,6 @@ export async function GET(req: Request) {
   return NextResponse.json({ items, total: count, totalPages, isSuperAdmin })
 }
 
-export async function POST(req: Request) {
-  const auth = getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const rawBody = await req.json().catch(() => ({}))
-  const { base, custom } = splitCustomFieldPayload(rawBody)
-  const parsed = createSchema.safeParse(base)
-  if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const de = resolve('dataEngine') as DataEngine
-  const resolvedTenantId = parsed.data.tenantId === undefined ? auth.tenantId ?? null : parsed.data.tenantId
-  const role = em.create(Role, { name: parsed.data.name, tenantId: resolvedTenantId })
-  await em.persistAndFlush(role)
-  if (Object.keys(custom).length) {
-    await de.setCustomFields({
-      entityId: E.auth.role,
-      recordId: String(role.id),
-      tenantId: resolvedTenantId ?? null,
-      organizationId: null,
-      values: custom,
-      notify: false,
-    })
-  }
-  await de.emitOrmEntityEvent({
-    action: 'created',
-    entity: role,
-    identifiers: {
-      id: String(role.id),
-      organizationId: null,
-      tenantId: resolvedTenantId ?? null,
-    },
-    events: { module: 'auth', entity: 'role', persistent: true },
-    indexer: { entityType: E.auth.role },
-  })
-  return NextResponse.json({ id: String(role.id) })
-}
-
-export async function PUT(req: Request) {
-  const auth = getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const rawBody = await req.json().catch(() => ({}))
-  const { base, custom } = splitCustomFieldPayload(rawBody)
-  const parsed = updateSchema.safeParse(base)
-  if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const de = resolve('dataEngine') as DataEngine
-  const role = await em.findOne(Role, { id: parsed.data.id })
-  if (!role) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (parsed.data.name !== undefined) (role as any).name = parsed.data.name
-  if (parsed.data.tenantId !== undefined) (role as any).tenantId = parsed.data.tenantId ?? null
-  await em.persistAndFlush(role)
-  const roleTenantId = role?.tenantId ? String(role.tenantId) : null
-  if (Object.keys(custom).length) {
-    await de.setCustomFields({
-      entityId: E.auth.role,
-      recordId: String(role.id),
-      tenantId: roleTenantId,
-      organizationId: null,
-      values: custom,
-      notify: false,
-    })
-  }
-  await de.emitOrmEntityEvent({
-    action: 'updated',
-    entity: role,
-    identifiers: {
-      id: String(role.id),
-      organizationId: null,
-      tenantId: roleTenantId,
-    },
-    events: { module: 'auth', entity: 'role', persistent: true },
-    indexer: { entityType: E.auth.role },
-  })
-  return NextResponse.json({ ok: true })
-}
-
-export async function DELETE(req: Request) {
-  const auth = getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const url = new URL(req.url)
-  const id = url.searchParams.get('id')
-  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const role = await em.findOne(Role, { id })
-  if (!role) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
-  if (activeAssignments > 0) {
-    return NextResponse.json({ error: 'Role has assigned users' }, { status: 400 })
-  }
-  await em.nativeDelete(RoleAcl, { role: id })
-  const roleTenantId = role?.tenantId ? String(role.tenantId) : null
-  await em.removeAndFlush(role)
-  await de.emitOrmEntityEvent({
-    action: 'deleted',
-    entity: role,
-    identifiers: {
-      id: String(role.id),
-      organizationId: null,
-      tenantId: roleTenantId,
-    },
-    events: { module: 'auth', entity: 'role', persistent: true },
-    indexer: { entityType: E.auth.role },
-  })
-  return NextResponse.json({ ok: true })
-}
+export const POST = crud.POST
+export const PUT = crud.PUT
+export const DELETE = crud.DELETE
