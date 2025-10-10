@@ -105,7 +105,6 @@ export async function GET(req: Request) {
   ]
   try {
     const entities = await em.find(CustomEntity as any, where as any, { orderBy: { label: 'asc' } as any })
-    console.log('entities', entities, 'where', where)
     const items = (entities as any[]).map((e) => ({
       entityId: e.entityId,
       label: e.label,

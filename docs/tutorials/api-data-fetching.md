@@ -24,22 +24,17 @@ This tutorial shows the recommended DRY approach to building API routes and UI d
 - Node.js 20+, PostgreSQL configured, migrations applied
 - Basic understanding of TypeScript, Next.js, and the module system
 
-## 1) Scaffold module, entity, and CRUD
+## 1) Prepare module, entity, and CRUD
 
-Use the CLI to bootstrap pieces quickly:
+The legacy `mercato scaffold` commands have been removed while we rebuild them around template files. Until the new generators are ready, create the module skeleton manually (or copy it from `packages/example/src/modules/example`):
 
 ```
-# Create a new module under src/modules/<module>
-yarn mercato scaffold module inventory
-
-# Add an entity (interactive: fields, types)
-yarn mercato scaffold entity
-
-# Generate a CRUD route for the entity (module, ClassName, route segment)
-yarn mercato scaffold crud inventory Product products
+mkdir -p src/modules/inventory/{api,backend,frontend,data,subscribers}
+cp packages/example/src/modules/example/index.ts src/modules/inventory/index.ts
+# Populate data/entities.ts, data/extensions.ts, ce.ts, and api routes as needed.
 ```
 
-Behind the scenes, the CRUD route uses the factory and custom-field helpers. If you already have an entity, you can run only the last command.
+The remainder of this tutorial assumes you have an `inventory` module with a `Product` entity defined under `src/modules/inventory/data/entities.ts`.
 
 ## 2) API route with CRUD factory
 

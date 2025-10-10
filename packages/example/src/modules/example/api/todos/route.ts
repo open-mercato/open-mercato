@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
@@ -5,9 +6,10 @@ import { E } from '@open-mercato/example/datamodel/entities'
 import { id, title, tenant_id, organization_id, is_done } from '@open-mercato/example/datamodel/entities/todo'
 import type { Where, WhereValue } from '@open-mercato/shared/lib/query/types'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
-import fieldSets from '@open-mercato/example/modules/example/data/fields'
+import ceEntities from '@open-mercato/example/modules/example/ce'
 import { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import type { CustomFieldSet } from '@open-mercato/shared/modules/entities'
 
 // Query (list) schema
 const querySchema = z
@@ -47,8 +49,14 @@ type Query = z.infer<typeof querySchema>
 type CreateInput = z.infer<typeof createSchema>
 type UpdateInput = z.infer<typeof updateSchema>
 
-// Start from code-declared field sets; will be extended per-request from DB definitions
-const cfSel = buildCustomFieldSelectorsForEntity(E.example.todo, fieldSets)
+// Start from code-declared field sets (declared in ce.ts); extend per-request from DB definitions
+const baseFieldSets: CustomFieldSet[] = []
+const todoEntity = Array.isArray(ceEntities) ? ceEntities.find((entity) => entity?.id === 'example:todo') : undefined
+if (todoEntity?.fields?.length) {
+  baseFieldSets.push({ entity: todoEntity.id, fields: todoEntity.fields, source: 'example' })
+}
+
+const cfSel = buildCustomFieldSelectorsForEntity(E.example.todo, baseFieldSets)
 let dynamicCfKeys: string[] = [...cfSel.keys]
 let listFields: any[] = [id, title, tenant_id, organization_id, is_done, ...cfSel.selectors]
 const sortFieldMapRef: Record<string, unknown> = { id, title, tenant_id, organization_id, is_done }
@@ -62,20 +70,6 @@ type BaseFields = {
   organization_id: string | null
   created_at: Date
 } & Record<`cf:${string}` | `cf_${string}`, unknown>
-
-function toArray(val: unknown): string[] {
-  if (Array.isArray(val)) return val as string[]
-  if (typeof val === 'string') {
-    const s = val.trim()
-    const inner = s.startsWith('{') && s.endsWith('}') ? s.slice(1, -1) : s
-    if (!inner) return []
-    return inner
-      .split(/[\s,]+/)
-      .map((x) => x.trim())
-      .filter(Boolean)
-  }
-  return val != null ? [String(val)] : []
-}
 
 export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   metadata: {
@@ -92,6 +86,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     softDeleteField: 'deletedAt',
   },
   events: { module: 'example', entity: 'todo', persistent: true },
+  indexer: { entityType: E.example.todo },
   list: {
     schema: querySchema,
     entityId: E.example.todo,

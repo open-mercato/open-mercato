@@ -44,6 +44,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   },
   orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
   events: { module: 'example', entity: 'todo', persistent: true },
+  indexer: { entityType: E.example.todo },
   list: {
     schema: querySchema,
     entityId: E.example.todo,
@@ -98,7 +99,11 @@ This exports `metadata` and HTTP handlers, which the modules registry auto-disco
 - events: CrudEventsConfig
   - module/entity: used for event naming
   - persistent: mark emitted events as persistent (for offline replay)
-  - buildPayload(action, data): optional override for emitted payloads
+  - buildPayload(ctx): optional override for emitted payloads (`ctx` includes `action`, `entity`, and resolved identifiers)
+- indexer: CrudIndexerConfig
+  - entityType: datamodel entity identifier (e.g. `E.example.todo`)
+  - buildUpsertPayload(ctx) / buildDeletePayload(ctx): override payloads sent to the query indexer bus events
+- resolveIdentifiers(entity, action): override how `{ id, organizationId, tenantId }` are derived before emitting events/indexer notifications
 - hooks: lifecycle hooks (`beforeList`, `afterList`, `beforeCreate`, `afterCreate`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete`)
 
 ## Event Naming
@@ -114,6 +119,8 @@ Example: `example.todo.created`
 Enable persistence via `events.persistent: true` so events are persisted (local/Redis) and available for offline processing.
 
 See also: `docs/events-and-subscribers.md` for strategy, persistence, and CLI.
+
+When an `indexer` config is provided, the factory also emits `query_index.upsert_one` (for creates/updates) and `query_index.delete_one` (for deletes) with the resolved identifiers so search/index subscribers stay in sync automatically.
 
 ## Multi-tenant Safety
 

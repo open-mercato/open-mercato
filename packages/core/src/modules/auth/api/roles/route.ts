@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
@@ -134,8 +135,6 @@ export async function POST(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
   const de = resolve('dataEngine') as DataEngine
-  let bus: any
-  try { bus = resolve('eventBus') } catch { bus = null }
   const resolvedTenantId = parsed.data.tenantId === undefined ? auth.tenantId ?? null : parsed.data.tenantId
   const role = em.create(Role, { name: parsed.data.name, tenantId: resolvedTenantId })
   await em.persistAndFlush(role)
@@ -149,12 +148,17 @@ export async function POST(req: Request) {
       notify: false,
     })
   }
-  if (bus) {
-    try {
-      await bus.emitEvent('auth.role.created', { id: String(role.id), tenantId: resolvedTenantId ?? null, organizationId: null }, { persistent: true })
-      await bus.emitEvent('query_index.upsert_one', { entityType: E.auth.role, recordId: String(role.id), organizationId: null, tenantId: resolvedTenantId ?? null })
-    } catch {}
-  }
+  await de.emitOrmEntityEvent({
+    action: 'created',
+    entity: role,
+    identifiers: {
+      id: String(role.id),
+      organizationId: null,
+      tenantId: resolvedTenantId ?? null,
+    },
+    events: { module: 'auth', entity: 'role', persistent: true },
+    indexer: { entityType: E.auth.role },
+  })
   return NextResponse.json({ id: String(role.id) })
 }
 
@@ -168,8 +172,6 @@ export async function PUT(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
   const de = resolve('dataEngine') as DataEngine
-  let bus: any
-  try { bus = resolve('eventBus') } catch { bus = null }
   const role = await em.findOne(Role, { id: parsed.data.id })
   if (!role) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (parsed.data.name !== undefined) (role as any).name = parsed.data.name
@@ -186,12 +188,17 @@ export async function PUT(req: Request) {
       notify: false,
     })
   }
-  if (bus) {
-    try {
-      await bus.emitEvent('auth.role.updated', { id: String(role.id), tenantId: roleTenantId, organizationId: null }, { persistent: true })
-      await bus.emitEvent('query_index.upsert_one', { entityType: E.auth.role, recordId: String(role.id), organizationId: null, tenantId: roleTenantId })
-    } catch {}
-  }
+  await de.emitOrmEntityEvent({
+    action: 'updated',
+    entity: role,
+    identifiers: {
+      id: String(role.id),
+      organizationId: null,
+      tenantId: roleTenantId,
+    },
+    events: { module: 'auth', entity: 'role', persistent: true },
+    indexer: { entityType: E.auth.role },
+  })
   return NextResponse.json({ ok: true })
 }
 
@@ -212,10 +219,16 @@ export async function DELETE(req: Request) {
   await em.nativeDelete(RoleAcl, { role: id })
   const roleTenantId = role?.tenantId ? String(role.tenantId) : null
   await em.removeAndFlush(role)
-  try {
-    const bus = resolve('eventBus') as any
-    await bus.emitEvent('auth.role.deleted', { id: String(role.id), tenantId: roleTenantId, organizationId: null }, { persistent: true })
-    await bus.emitEvent('query_index.delete_one', { entityType: E.auth.role, recordId: String(role.id), organizationId: null })
-  } catch {}
+  await de.emitOrmEntityEvent({
+    action: 'deleted',
+    entity: role,
+    identifiers: {
+      id: String(role.id),
+      organizationId: null,
+      tenantId: roleTenantId,
+    },
+    events: { module: 'auth', entity: 'role', persistent: true },
+    indexer: { entityType: E.auth.role },
+  })
   return NextResponse.json({ ok: true })
 }

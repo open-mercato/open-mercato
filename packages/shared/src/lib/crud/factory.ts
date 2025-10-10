@@ -7,9 +7,14 @@ import type { QueryEngine, Where, Sort, Page } from '@open-mercato/shared/lib/qu
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type {
+  CrudEventAction,
+  CrudEventsConfig,
+  CrudIndexerConfig,
+  CrudIdentifierResolver,
+} from './types'
 import { extractCustomFieldValuesFromPayload } from './custom-fields'
-
-export type CrudEventAction = 'created' | 'updated' | 'deleted'
+import { CrudHttpError } from './errors'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -32,9 +37,9 @@ export type CrudMetadata = {
 export type OrmEntityConfig = {
   entity: any // MikroORM entity class
   idField?: string // default: 'id'
-  orgField?: string // default: 'organizationId'
-  tenantField?: string // default: 'tenantId'
-  softDeleteField?: string // default: 'deletedAt'
+  orgField?: string | null // default: 'organizationId'; pass null to disable automatic org scoping
+  tenantField?: string | null // default: 'tenantId'; pass null to disable automatic tenant scoping
+  softDeleteField?: string | null // default: 'deletedAt'; pass null to disable implicit soft delete filter
 }
 
 export type CustomFieldsConfig =
@@ -84,15 +89,7 @@ export type DeleteConfig = {
   // Where to take id from; default: query param `id`
   idFrom?: 'query' | 'body'
   softDelete?: boolean // default true
-}
-
-export type CrudEventsConfig = {
-  // Standard: `<module>.<entity>.<action>` e.g. `example.todo.created`
-  module: string
-  entity: string
-  persistent?: boolean
-  // Optional payload builder override
-  buildPayload?: (action: CrudEventAction, data: any) => any
+  response?: (id: string) => any
 }
 
 export type CrudCtx = {
@@ -111,6 +108,8 @@ export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
   update?: UpdateConfig<TUpdate>
   del?: DeleteConfig
   events?: CrudEventsConfig
+  indexer?: CrudIndexerConfig
+  resolveIdentifiers?: CrudIdentifierResolver
   hooks?: CrudHooks<TCreate, TUpdate, TList>
 }
 
@@ -121,35 +120,65 @@ function json(data: any, init?: ResponseInit) {
   })
 }
 
+function handleError(err: unknown): Response {
+  if (err instanceof Response) return err
+  if (err instanceof CrudHttpError) return json(err.body, { status: err.status })
+  if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
+  return json({ error: 'Internal server error' }, { status: 500 })
+}
+
 function isUuid(v: any): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
 }
 
-async function emitCrudEvent(container: AwilixContainer, cfg: CrudEventsConfig | undefined, action: CrudEventAction, payload: any) {
-  if (!cfg) return
-  try {
-    const bus = container.resolve<any>('eventBus')
-    const event = `${cfg.module}.${cfg.entity}.${action}`
-    const data = cfg.buildPayload ? cfg.buildPayload(action, payload) : payload
-    await bus.emitEvent(event, data, { persistent: !!cfg.persistent })
-  } catch {
-    // Do not block the flow on event errors
+function normalizeIdentifierValue(value: any): string | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+  if (typeof value === 'object') {
+    if (value instanceof Date) return value.toISOString()
+    if (value && typeof (value as any).id !== 'undefined') return normalizeIdentifierValue((value as any).id)
   }
+  return String(value)
 }
 
 export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: CrudFactoryOptions<TCreate, TUpdate, TList>) {
   const metadata = opts.metadata || {}
   const ormCfg = {
-    idField: 'id',
-    orgField: 'organizationId',
-    tenantField: 'tenantId',
-    softDeleteField: 'deletedAt',
-    ...opts.orm,
+    entity: opts.orm.entity,
+    idField: opts.orm.idField ?? 'id',
+    orgField: opts.orm.orgField === null ? null : opts.orm.orgField ?? 'organizationId',
+    tenantField: opts.orm.tenantField === null ? null : opts.orm.tenantField ?? 'tenantId',
+    softDeleteField: opts.orm.softDeleteField === null ? null : opts.orm.softDeleteField ?? 'deletedAt',
   }
+  const defaultIdentifierResolver: CrudIdentifierResolver = (entity, _action) => {
+    const id = normalizeIdentifierValue((entity as any)[ormCfg.idField!])
+    const orgId = ormCfg.orgField ? normalizeIdentifierValue((entity as any)[ormCfg.orgField]) : null
+    const tenantId = ormCfg.tenantField ? normalizeIdentifierValue((entity as any)[ormCfg.tenantField]) : null
+    return {
+      id: id ?? '',
+      organizationId: orgId ?? null,
+      tenantId: tenantId ?? null,
+    }
+  }
+  const identifierResolver: CrudIdentifierResolver = opts.resolveIdentifiers
+    ? (entity, action) => {
+        const raw = opts.resolveIdentifiers!(entity, action)
+        const id = normalizeIdentifierValue(raw?.id)
+        const organizationId = normalizeIdentifierValue(raw?.organizationId)
+        const tenantId = normalizeIdentifierValue(raw?.tenantId)
+        return {
+          id: id ?? '',
+          organizationId: organizationId ?? null,
+          tenantId: tenantId ?? null,
+        }
+      }
+    : defaultIdentifierResolver
 
   async function ensureAuth() {
     const auth = await getAuthFromCookies()
-    if (!auth?.orgId || !auth?.tenantId || !isUuid(auth.tenantId)) return null
+    if (!auth) return null
+    if (auth.tenantId && !isUuid(auth.tenantId)) return null
     return auth
   }
 
@@ -196,24 +225,25 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         const filters = opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>)
         const withDeleted = String((queryParams as any).withDeleted || 'false') === 'true'
-        if (ctx.organizationIds && ctx.organizationIds.length === 0) {
+        if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
           const emptyPayload = { items: [], total: 0, page: page.page, pageSize: page.pageSize, totalPages: 0 }
           await opts.hooks?.afterList?.(emptyPayload, { ...ctx, query: validated as any })
           return json(emptyPayload)
         }
-        const res = await qe.query(opts.list.entityId as any, {
-          organizationId: ctx.selectedOrganizationId ?? undefined,
-          organizationIds: ctx.organizationIds ?? undefined,
-          tenantId: ctx.auth.tenantId!,
+        const queryOpts: any = {
           fields: opts.list.fields!,
-          // Ensure CF projections are available even if not explicitly listed;
-          // transformItem will only pick the ones it needs.
           includeCustomFields: true,
           sort,
           page,
           filters,
           withDeleted,
-        })
+        }
+        if (ormCfg.tenantField) queryOpts.tenantId = ctx.auth.tenantId!
+        if (ormCfg.orgField) {
+          queryOpts.organizationId = ctx.selectedOrganizationId ?? undefined
+          queryOpts.organizationIds = ctx.organizationIds ?? undefined
+        }
+        const res = await qe.query(opts.list.entityId as any, queryOpts)
         const items = (res.items || []).map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
 
         // CSV
@@ -238,16 +268,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       // Fallback: plain ORM list
       const em = ctx.container.resolve<any>('em')
       const repo = em.getRepository(ormCfg.entity)
-      if (ctx.organizationIds && ctx.organizationIds.length === 0) {
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
         await opts.hooks?.afterList?.({ items: [], total: 0 }, { ...ctx, query: validated as any })
         return json({ items: [], total: 0 })
       }
       const where: any = buildScopedWhere(
         {},
         {
-          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
-          organizationIds: ctx.organizationIds ?? undefined,
-          tenantId: ctx.auth.tenantId,
+          organizationId: ormCfg.orgField ? (ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null) : undefined,
+          organizationIds: ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
+          tenantId: ormCfg.tenantField ? ctx.auth.tenantId : undefined,
           orgField: ormCfg.orgField,
           tenantField: ormCfg.tenantField,
           softDeleteField: ormCfg.softDeleteField,
@@ -257,7 +287,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await opts.hooks?.afterList?.({ items: list, total: list.length }, { ...ctx, query: validated as any })
       return json({ items: list, total: list.length })
     } catch (e) {
-      return json({ error: 'Internal server error' }, { status: 500 })
+      return handleError(e)
     }
   }
 
@@ -266,7 +296,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.create) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      if (ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
       const body = await request.json().catch(() => ({}))
       let input = opts.create.schema.parse(body)
       const modified = await opts.hooks?.beforeCreate?.(input as any, ctx)
@@ -274,10 +304,15 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const de = ctx.container.resolve<DataEngine>('dataEngine')
       const entityData = opts.create.mapToEntity(input as any, ctx)
       // Inject org/tenant
-      const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId
-      if (!targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
-      entityData[ormCfg.orgField!] = targetOrgId
-      entityData[ormCfg.tenantField!] = ctx.auth.tenantId
+      const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+      if (ormCfg.orgField) {
+        if (!targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
+        entityData[ormCfg.orgField] = targetOrgId
+      }
+      if (ormCfg.tenantField) {
+        if (!ctx.auth.tenantId) return json({ error: 'Tenant context is required' }, { status: 400 })
+        entityData[ormCfg.tenantField] = ctx.auth.tenantId
+      }
       const entity = await de.createOrmEntity({ entity: ormCfg.entity, data: entityData })
 
       // Custom fields
@@ -299,12 +334,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
 
       await opts.hooks?.afterCreate?.(entity, { ...ctx, input: input as any })
-      await emitCrudEvent(ctx.container, opts.events, 'created', { id: String((entity as any)[ormCfg.idField!]) })
+
+      const identifiers = identifierResolver(entity, 'created')
+      await de.emitOrmEntityEvent({
+        action: 'created',
+        entity,
+        identifiers,
+        events: opts.events as CrudEventsConfig | undefined,
+        indexer: opts.indexer as CrudIndexerConfig | undefined,
+      })
 
       const payload = opts.create.response ? opts.create.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
       return json(payload, { status: 201 })
     } catch (e) {
-      return json({ error: 'Internal server error' }, { status: 500 })
+      return handleError(e)
     }
   }
 
@@ -313,7 +356,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.update) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      if (ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
       const body = await request.json().catch(() => ({}))
       let input = opts.update.schema.parse(body)
       const modified = await opts.hooks?.beforeUpdate?.(input as any, ctx)
@@ -322,18 +365,19 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const id = opts.update.getId ? opts.update.getId(input as any) : (input as any).id
       if (!isUuid(id)) return json({ error: 'Invalid id' }, { status: 400 })
 
-      const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId
-      if (!targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
+      const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+      if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
 
       const de = ctx.container.resolve<DataEngine>('dataEngine')
       const where: any = buildScopedWhere(
         { [ormCfg.idField!]: id },
         {
-          organizationId: targetOrgId,
-          organizationIds: ctx.organizationIds ?? undefined,
-          tenantId: ctx.auth.tenantId,
+          organizationId: ormCfg.orgField ? targetOrgId : undefined,
+          organizationIds: ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
+          tenantId: ormCfg.tenantField ? ctx.auth.tenantId : undefined,
           orgField: ormCfg.orgField,
           tenantField: ormCfg.tenantField,
+          softDeleteField: ormCfg.softDeleteField,
         }
       )
       const entity = await de.updateOrmEntity({ entity: ormCfg.entity, where, apply: (e: any) => opts.update!.applyToEntity(e, input as any, ctx) })
@@ -358,11 +402,18 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
 
       await opts.hooks?.afterUpdate?.(entity, { ...ctx, input: input as any })
-      await emitCrudEvent(ctx.container, opts.events, 'updated', { id })
+      const identifiers = identifierResolver(entity, 'updated')
+      await de.emitOrmEntityEvent({
+        action: 'updated',
+        entity,
+        identifiers,
+        events: opts.events as CrudEventsConfig | undefined,
+        indexer: opts.indexer as CrudIndexerConfig | undefined,
+      })
       const payload = opts.update.response ? opts.update.response(entity) : { success: true }
       return json(payload)
     } catch (e) {
-      return json({ error: 'Internal server error' }, { status: 500 })
+      return handleError(e)
     }
   }
 
@@ -370,35 +421,46 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     try {
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      if (ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
       const idFrom = opts.del?.idFrom || 'query'
       const id = idFrom === 'query'
         ? new URL(request.url).searchParams.get('id')
         : (await request.json().catch(() => ({}))).id
       if (!isUuid(id)) return json({ error: 'ID is required' }, { status: 400 })
 
-      const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId
-      if (!targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
+      const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+      if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
 
       const de = ctx.container.resolve<DataEngine>('dataEngine')
       const where: any = buildScopedWhere(
         { [ormCfg.idField!]: id },
         {
-          organizationId: targetOrgId,
-          organizationIds: ctx.organizationIds ?? undefined,
-          tenantId: ctx.auth.tenantId,
+          organizationId: ormCfg.orgField ? targetOrgId : undefined,
+          organizationIds: ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
+          tenantId: ormCfg.tenantField ? ctx.auth.tenantId : undefined,
           orgField: ormCfg.orgField,
           tenantField: ormCfg.tenantField,
+          softDeleteField: ormCfg.softDeleteField,
         }
       )
       await opts.hooks?.beforeDelete?.(id!, ctx)
       const entity = await de.deleteOrmEntity({ entity: ormCfg.entity, where, soft: opts.del?.softDelete !== false, softDeleteField: ormCfg.softDeleteField })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })
       await opts.hooks?.afterDelete?.(id!, ctx)
-      await emitCrudEvent(ctx.container, opts.events, 'deleted', { id })
-      return json({ success: true })
+      if (entity) {
+        const identifiers = identifierResolver(entity, 'deleted')
+        await de.emitOrmEntityEvent({
+          action: 'deleted',
+          entity,
+          identifiers,
+          events: opts.events as CrudEventsConfig | undefined,
+          indexer: opts.indexer as CrudIndexerConfig | undefined,
+        })
+      }
+      const payload = opts.del?.response ? opts.del.response(id) : { success: true }
+      return json(payload)
     } catch (e) {
-      return json({ error: 'Internal server error' }, { status: 500 })
+      return handleError(e)
     }
   }
 

@@ -1,5 +1,7 @@
 export const metadata = { event: 'query_index.reindex', persistent: true }
 
+const deriveOrgFromId = new Set<string>(['directory:organization'])
+
 export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
   const em = ctx.resolve<any>('em')
   const knex = (em as any).getConnection().getKnex()
@@ -65,7 +67,9 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
     if (!forceFull) {
       // Resume: only rows missing in index for the target scope
-      const orgExpr = hasOrgCol ? knex.raw('b.organization_id') : knex.raw('null')
+      const orgExpr = hasOrgCol
+        ? knex.raw('b.organization_id')
+        : (deriveOrgFromId.has(entityType) ? knex.raw('b.id') : knex.raw('null'))
       const tenantExpr = (tenantId !== undefined)
         ? knex.raw('?', [tenantId])
         : (hasTenantCol ? knex.raw('b.tenant_id') : knex.raw('null'))
@@ -81,7 +85,9 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
     const rows = await q
     for (const r of rows) {
-      const scopeOrg = hasOrgCol ? (r as any).organization_id ?? null : null
+      const scopeOrg = hasOrgCol
+        ? (r as any).organization_id ?? null
+        : (deriveOrgFromId.has(entityType) ? String((r as any).id) : null)
       const scopeTenant = tenantId !== undefined ? tenantId : (hasTenantCol ? (r as any).tenant_id ?? null : null)
       await eventBus.emitEvent('query_index.upsert_one', { entityType, recordId: String(r.id), organizationId: scopeOrg, tenantId: scopeTenant })
     }

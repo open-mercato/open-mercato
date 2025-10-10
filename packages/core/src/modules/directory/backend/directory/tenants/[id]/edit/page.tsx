@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -8,7 +9,7 @@ type TenantFormValues = {
   id: string
   name: string
   isActive: boolean
-}
+} & Record<string, unknown>
 
 const fields: CrudField[] = [
   { id: 'name', label: 'Name', type: 'text', required: true },
@@ -17,6 +18,7 @@ const fields: CrudField[] = [
 
 const groups: CrudFormGroup[] = [
   { id: 'details', title: 'Details', column: 1, fields: ['name', 'isActive'] },
+  { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
 ]
 
 async function ensureResponseOk(res: Response, fallback: string): Promise<void> {
@@ -57,14 +59,23 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
         const rows = Array.isArray(data?.items) ? data.items : []
         const row = rows[0]
         if (!row) throw new Error('Tenant not found')
+        const cfValues: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
+          if (key.startsWith('cf_')) cfValues[key] = value
+          else if (key.startsWith('cf:')) cfValues[`cf_${key.slice(3)}`] = value
+        }
         const values: TenantFormValues = {
           id: String(row.id),
           name: String(row.name),
           isActive: !!row.isActive,
+          ...cfValues,
         }
         if (!cancelled) setInitial(values)
-      } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Failed to load tenant')
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : 'Failed to load tenant'
+          setError(message)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -95,6 +106,7 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
           backHref="/backend/directory/tenants"
           fields={fields}
           groups={groups}
+          entityId={E.directory.tenant}
           initialValues={(initial || { id: tenantId, name: '', isActive: true }) as Partial<TenantFormValues>}
           isLoading={loading}
           loadingMessage="Loading tenant…"
@@ -102,10 +114,28 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
           cancelHref="/backend/directory/tenants"
           successRedirect="/backend/directory/tenants?flash=Tenant%20updated&type=success"
           onSubmit={async (values) => {
+            const customFields: Record<string, unknown> = {}
+            for (const [key, value] of Object.entries(values)) {
+              if (key.startsWith('cf_')) customFields[key.slice(3)] = value
+              else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
+            }
+            const payload: {
+              id: string
+              name: string
+              isActive: boolean
+              customFields?: Record<string, unknown>
+            } = {
+              id: values.id || tenantId,
+              name: values.name,
+              isActive: values.isActive !== false,
+            }
+            if (Object.keys(customFields).length > 0) {
+              payload.customFields = customFields
+            }
             const res = await apiFetch('/api/directory/tenants', {
               method: 'PUT',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(values),
+              body: JSON.stringify(payload),
             })
             await ensureResponseOk(res, 'Failed to update tenant')
           }}
