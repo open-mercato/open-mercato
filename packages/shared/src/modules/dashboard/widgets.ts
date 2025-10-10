@@ -20,6 +20,7 @@ export type DashboardLayoutItem = {
   id: string
   widgetId: string
   order: number
+  priority?: number
   size?: DashboardWidgetSize
   settings?: unknown
 }
@@ -30,6 +31,9 @@ export type DashboardWidgetRenderContext = {
   userId: string
   tenantId?: string | null
   organizationId?: string | null
+  userName?: string | null
+  userEmail?: string | null
+  userLabel?: string | null
 }
 
 export type DashboardWidgetComponentProps<TSettings = unknown> = {

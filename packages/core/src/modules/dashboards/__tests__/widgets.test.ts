@@ -64,6 +64,6 @@ describe('dashboard widget discovery', () => {
     }))
 
     const { loadAllWidgets } = await import('../lib/widgets')
-    await expect(loadAllWidgets()).rejects.toThrow('Invalid dashboard widget export')
+    await expect(loadAllWidgets()).rejects.toThrow('missing metadata')
   })
 })

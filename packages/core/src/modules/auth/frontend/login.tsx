@@ -1,10 +1,12 @@
 "use client"
 import { useState } from 'react'
+import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useT } from '@/lib/i18n/context'
+import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 function extractErrorMessage(payload: unknown): string | null {
   if (!payload) return null
@@ -40,10 +42,16 @@ function looksLikeJsonString(value: string): boolean {
 
 export default function LoginPage() {
   const t = useT()
+  const translate = (key: string, fallback: string, params?: Record<string, string | number>) =>
+    translateWithFallback(t, key, fallback, params)
   const router = useRouter()
   const searchParams = useSearchParams()
   const requireRole = (searchParams.get('requireRole') || searchParams.get('role') || '').trim()
   const requireFeature = (searchParams.get('requireFeature') || '').trim()
+  const requiredRoles = requireRole ? requireRole.split(',').map((value) => value.trim()).filter(Boolean) : []
+  const requiredFeatures = requireFeature ? requireFeature.split(',').map((value) => value.trim()).filter(Boolean) : []
+  const translatedRoles = requiredRoles.map((role) => translate(`auth.roles.${role}`, role))
+  const translatedFeatures = requiredFeatures.map((feature) => translate(`features.${feature}`, feature))
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -53,7 +61,7 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       const form = new FormData(e.currentTarget)
-      if (requireRole) form.set('requireRole', requireRole)
+      if (requiredRoles.length) form.set('requireRole', requiredRoles.join(','))
       const res = await fetch('/api/auth/login', { method: 'POST', body: form })
       if (res.redirected) {
         // NextResponse.redirect from API
@@ -63,12 +71,15 @@ export default function LoginPage() {
       if (!res.ok) {
         const fallback = (() => {
           if (res.status === 403) {
-            return 'You do not have permission to access this area. Please contact your administrator.'
+            return translate(
+              'auth.login.errors.permissionDenied',
+              'You do not have permission to access this area. Please contact your administrator.',
+            )
           }
           if (res.status === 401 || res.status === 400) {
-            return 'Invalid email or password'
+            return translate('auth.login.errors.invalidCredentials', 'Invalid email or password')
           }
-          return 'An error occurred. Please try again.'
+          return translate('auth.login.errors.generic', 'An error occurred. Please try again.')
         })()
         const cloned = res.clone()
         let errorMessage = ''
@@ -107,9 +118,10 @@ export default function LoginPage() {
       if (data && data.redirect) {
         router.replace(data.redirect)
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Handle any errors thrown (e.g., network errors or thrown exceptions)
-      setError(err?.message || 'An error occurred. Please try again.')
+      const message = err instanceof Error ? err.message : ''
+      setError(message || translate('auth.login.errors.generic', 'An error occurred. Please try again.'))
     } finally {
       setSubmitting(false)
     }
@@ -118,22 +130,33 @@ export default function LoginPage() {
   return (
     <div className="min-h-svh flex items-center justify-center p-4">
       <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>{t('auth.signIn')}</CardTitle>
-          <CardDescription>Access your workspace</CardDescription>
+        <CardHeader className="flex flex-col items-center gap-4 text-center p-10">
+          <Image alt={translate('auth.login.logoAlt', 'Open Mercato logo')} src="/open-mercato.svg" width={150} height={150} priority />
+          <h1 className="text-2xl font-semibold">{translate('auth.login.brandName', 'Open Mercato')}</h1>
+          <CardDescription>{translate('auth.login.subtitle', 'Access your workspace')}</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="grid gap-3" onSubmit={onSubmit} noValidate>
-            {requireRole && (
-              <div className="text-xs text-muted-foreground">Access requires role: <span className="font-medium">{requireRole}</span></div>
+            {!!translatedRoles.length && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-xs text-blue-900">
+                {translate(
+                  translatedRoles.length > 1 ? 'auth.login.requireRolesMessage' : 'auth.login.requireRoleMessage',
+                  translatedRoles.length > 1
+                    ? 'Access requires one of the following roles: {roles}'
+                    : 'Access requires role: {roles}',
+                  { roles: translatedRoles.join(', ') },
+                )}
+              </div>
             )}
-            {requireFeature && (
-              <div className="text-xs text-muted-foreground">
-                You don't have access to this feature. Please contact your administrator.
+            {!!translatedFeatures.length && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-xs text-blue-900">
+                {translate('auth.login.featureDenied', "You don't have access to this feature ({feature}). Please contact your administrator.", {
+                  feature: translatedFeatures.join(', '),
+                })}
               </div>
             )}
             {error && (
-              <div className="text-sm text-red-600" role="alert" aria-live="polite">
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700" role="alert" aria-live="polite">
                 {error}
               </div>
             )}
@@ -147,13 +170,13 @@ export default function LoginPage() {
             </div>
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               <input type="checkbox" name="remember" className="accent-foreground" />
-              <span>Remember me</span>
+              <span>{translate('auth.login.rememberMe', 'Remember me')}</span>
             </label>
             <button disabled={submitting} className="h-10 rounded-md bg-foreground text-background mt-2 hover:opacity-90 transition disabled:opacity-60">
-              {submitting ? '...' : t('auth.signIn')}
+              {submitting ? translate('auth.login.loading', 'Loading...') : translate('auth.signIn', 'Sign in')}
             </button>
             <div className="text-xs text-muted-foreground mt-2">
-              <a className="underline" href="/reset">Forgot password?</a>
+              <a className="underline" href="/reset">{translate('auth.login.forgotPassword', 'Forgot password?')}</a>
             </div>
           </form>
         </CardContent>

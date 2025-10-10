@@ -89,7 +89,7 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
             fields={baseFields}
             groups={groups}
             initialValues={(initial || { id }) as any}
-            submitLabel="Save Changes"
+            submitLabel="Save"
             cancelHref="/backend/todos"
             successRedirect="/backend/todos?flash=Todo%20saved&type=success"
             isLoading={loading}

@@ -7,6 +7,7 @@ import { dashboardLayoutSchema } from '@open-mercato/core/modules/dashboards/dat
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 
 const DEFAULT_SIZE = 'md'
 
@@ -38,7 +39,8 @@ function normalizeLayoutItems(items: any[]) {
     .map((item) => ({
       id: String(item.id),
       widgetId: String(item.widgetId),
-      order: Number.isInteger(item.order) ? Number(item.order) : 0,
+      order: Number.isInteger(item.order) ? Number(item.order) : undefined,
+      priority: Number.isInteger(item.priority) ? Number(item.priority) : undefined,
       size: typeof item.size === 'string' ? item.size : undefined,
       settings: item.settings,
     }))
@@ -48,8 +50,12 @@ function normalizeLayoutItems(items: any[]) {
       seenIds.add(item.id)
       return true
     })
-    .sort((a, b) => a.order - b.order)
-    .map((item, idx) => ({ ...item, order: idx }))
+    .sort((a, b) => {
+      const aOrder = a.order ?? a.priority ?? 0
+      const bOrder = b.order ?? b.priority ?? 0
+      return aOrder - bOrder
+    })
+    .map((item, idx) => ({ ...item, order: idx, priority: idx }))
   return sanitized
 }
 
@@ -92,6 +98,7 @@ export async function GET(req: Request) {
       id: randomUUID(),
       widgetId: widget.metadata.id,
       order: index,
+      priority: index,
       size: widget.metadata.defaultSize ?? DEFAULT_SIZE,
       settings: widget.metadata.defaultSettings ?? undefined,
     }))
@@ -109,7 +116,7 @@ export async function GET(req: Request) {
       hasChanged = true
       items = filtered
     }
-    items = items.map((item, index) => (item.order !== index ? { ...item, order: index } : item))
+    items = items.map((item, index) => (item.order !== index || item.priority !== index ? { ...item, order: index, priority: index } : item))
     if (layout.layoutJson.length !== items.length || items.some((item, idx) => layout.layoutJson[idx]?.id !== item.id)) {
       hasChanged = true
     }
@@ -122,11 +129,29 @@ export async function GET(req: Request) {
 
   const canConfigure = acl.isSuperAdmin || hasFeature(acl.features, 'dashboards.configure')
 
+  let userEmail: string | null = null
+  let userName: string | null = null
+  let userLabel: string | null = null
+  const user = await em.findOne(User, { id: scope.userId, deletedAt: null })
+  if (user) {
+    userName = user.name?.trim() ?? null
+    userEmail = user.email ?? null
+    userLabel = (userName && userName.length > 0 ? userName : userEmail) ?? null
+  }
+  if (!userLabel) {
+    userLabel = scope.userId
+  }
+
   return NextResponse.json({
     layout: { items },
     allowedWidgetIds: allowedIds,
     canConfigure,
-    context: scope,
+    context: {
+      ...scope,
+      userName,
+      userEmail,
+      userLabel,
+    },
     widgets: allowedWidgets.map((widget) => ({
       id: widget.metadata.id,
       title: widget.metadata.title,
@@ -192,6 +217,7 @@ export async function PUT(req: Request) {
       id: item.id,
       widgetId: item.widgetId,
       order: index,
+      priority: index,
       size: item.size ?? DEFAULT_SIZE,
       settings: item.settings,
     }))

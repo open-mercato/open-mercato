@@ -191,7 +191,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           initialValues={initialValues}
           isLoading={loading}
           loadingMessage="Loading user data..."
-          submitLabel="Save Changes"
+          submitLabel="Save"
           cancelHref="/backend/users"
           successRedirect="/backend/users?flash=User%20saved&type=success"
           onSubmit={async (values) => {

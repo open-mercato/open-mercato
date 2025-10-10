@@ -61,7 +61,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
           initialValues={initial || { id }}
           isLoading={loading}
           loadingMessage="Loading data..."
-          submitLabel="Save Changes"
+          submitLabel="Save"
           cancelHref="/backend/roles"
           successRedirect="/backend/roles?flash=Role%20saved&type=success"
           onSubmit={async (vals: any) => { 

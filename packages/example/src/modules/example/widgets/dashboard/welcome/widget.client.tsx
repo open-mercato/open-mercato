@@ -12,6 +12,15 @@ const WelcomeWidgetClient: React.FC<DashboardWidgetComponentProps<WelcomeSetting
     onSettingsChange({ ...normalized, [key]: next })
   }, [onSettingsChange, settings])
 
+  const userLabel = React.useMemo(() => {
+    const name = context?.userName?.trim()
+    if (name) return name
+    const label = context?.userLabel?.trim()
+    if (label) return label
+    if (context?.userEmail) return context.userEmail
+    return context?.userId ?? 'there'
+  }, [context])
+
   if (mode === 'settings') {
     return (
       <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
@@ -45,8 +54,6 @@ const WelcomeWidgetClient: React.FC<DashboardWidgetComponentProps<WelcomeSetting
       </form>
     )
   }
-
-  const userLabel = context?.userId ? context.userId.slice(0, 12) : 'there'
   const headline = value.headline.includes('{{user}}')
     ? value.headline.replace(/{{user}}/g, userLabel)
     : value.headline

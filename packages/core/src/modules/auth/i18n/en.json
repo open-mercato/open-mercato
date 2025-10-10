@@ -5,5 +5,20 @@
   "auth.sendResetLink": "Send reset link",
   "auth.resetPassword": "Reset password",
   "auth.usersRoles": "Users & Roles",
-  "auth.manageAuthSettings": "Manage authentication settings."
+  "auth.manageAuthSettings": "Manage authentication settings.",
+  "auth.login.errors.permissionDenied": "You do not have permission to access this area. Please contact your administrator.",
+  "auth.login.errors.invalidCredentials": "Invalid email or password",
+  "auth.login.errors.generic": "An error occurred. Please try again.",
+  "auth.login.logoAlt": "Open Mercato logo",
+  "auth.login.brandName": "Open Mercato",
+  "auth.login.subtitle": "Access your workspace",
+  "auth.login.requireRoleMessage": "Access requires role: {roles}",
+  "auth.login.requireRolesMessage": "Access requires one of the following roles: {roles}",
+  "auth.login.featureDenied": "You don't have access to this feature ({feature}). Please contact your administrator.",
+  "auth.login.rememberMe": "Remember me",
+  "auth.login.loading": "Loading...",
+  "auth.login.forgotPassword": "Forgot password?",
+  "auth.roles.superadmin": "Super Admin",
+  "auth.roles.admin": "Admin",
+  "auth.roles.employee": "Employee"
 }

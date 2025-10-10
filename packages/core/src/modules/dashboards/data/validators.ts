@@ -6,6 +6,7 @@ export const dashboardLayoutItemSchema = z.object({
   id: z.string().uuid(),
   widgetId: dashboardWidgetIdSchema,
   order: z.number().int().min(0),
+  priority: z.number().int().min(0).optional(),
   size: z.enum(['sm', 'md', 'lg']).optional(),
   settings: z.unknown().optional(),
 })
