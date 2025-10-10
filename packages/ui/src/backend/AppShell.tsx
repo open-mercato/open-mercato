@@ -223,8 +223,8 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
         {!hideHeader && (
           <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
             <Link href="/backend" className="flex items-center gap-2" aria-label="Go to dashboard">
-              <Image src="/open-mercato.svg" alt="Open Mercato" width={48} height={48} className="rounded" />
-              {!compact && <div className="text-sm font-semibold">{productName}</div>}
+              <Image src="/open-mercato.svg" alt="Open Mercato" width={32} height={32} className="rounded m-4" />
+              {!compact && <div className="text-m font-semibold">{productName}</div>}
             </Link>
           </div>
         )}
