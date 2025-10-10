@@ -16,6 +16,7 @@ import {
   rebuildHierarchyForTenant,
   type ComputedOrganizationNode,
 } from '@open-mercato/core/modules/directory/lib/hierarchy'
+import { getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { loadCustomFieldValues, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -432,6 +433,20 @@ export async function GET(req: Request) {
       tenantId = Array.from(tenantCandidates)[0] ?? null
     } else if (tenantCandidates.size > 1) {
       return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
+    }
+  }
+
+  if (!tenantId) {
+    const selectedOrgId = getSelectedOrganizationFromRequest(req)
+    if (selectedOrgId) {
+      const selectedOrg = await em.findOne(
+        Organization,
+        { id: selectedOrgId, deletedAt: null },
+        { populate: ['tenant'] },
+      )
+      if (selectedOrg?.tenant && selectedOrg.tenant.id) {
+        tenantId = stringId(selectedOrg.tenant.id)
+      }
     }
   }
 

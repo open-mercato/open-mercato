@@ -1,9 +1,21 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
-import { tenantCreateSchema, tenantUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
+import {
+  tenantCreateSchema,
+  tenantUpdateSchema,
+  type TenantCreateInput,
+  type TenantUpdateInput,
+} from '@open-mercato/core/modules/directory/data/validators'
+import { splitCustomFieldPayload, loadCustomFieldValues, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { FilterQuery } from '@mikro-orm/core'
 
 const listQuerySchema = z.object({
   id: z.string().uuid().optional(),
@@ -15,32 +27,158 @@ const listQuerySchema = z.object({
   isActive: z.enum(['true', 'false']).optional(),
 }).passthrough()
 
-export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['directory.tenants.view'] },
-  POST: { requireAuth: true, requireFeatures: ['directory.tenants.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['directory.tenants.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['directory.tenants.manage'] },
-}
-
 type TenantRow = {
   id: string
   name: string
   isActive: boolean
   createdAt: string | null
   updatedAt: string | null
+} & Record<string, unknown>
+
+const routeMetadata = {
+  GET: { requireAuth: true, requireFeatures: ['directory.tenants.view'] },
+  POST: { requireAuth: true, requireFeatures: ['directory.tenants.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['directory.tenants.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['directory.tenants.manage'] },
 }
 
-const toRow = (tenant: Tenant): TenantRow => ({
+export const metadata = routeMetadata
+
+const rawBodySchema = z.object({}).passthrough()
+type CrudInput = Record<string, unknown>
+
+type CreateState = {
+  data: TenantCreateInput
+  custom: Record<string, unknown>
+}
+
+type UpdateState = {
+  data: TenantUpdateInput
+  custom: Record<string, unknown>
+}
+
+const createStateStore = new WeakMap<object, CreateState>()
+const updateStateStore = new WeakMap<object, UpdateState>()
+
+const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
+  metadata: routeMetadata,
+  orm: {
+    entity: Tenant,
+    idField: 'id',
+    orgField: null,
+    tenantField: null,
+    softDeleteField: 'deletedAt',
+  },
+  events: { module: 'directory', entity: 'tenant', persistent: true },
+  indexer: { entityType: E.directory.tenant },
+  create: {
+    schema: rawBodySchema,
+    mapToEntity: (input) => {
+      const state = createStateStore.get(input as object)
+      if (!state) throw new CrudHttpError(400, { error: 'Invalid input' })
+      return {
+        name: state.data.name,
+        isActive: state.data.isActive ?? true,
+      }
+    },
+    response: (entity: Tenant) => ({ id: String(entity.id) }),
+  },
+  update: {
+    schema: rawBodySchema,
+    applyToEntity: (entity: Tenant, input) => {
+      const state = updateStateStore.get(input as object)
+      if (!state) throw new CrudHttpError(400, { error: 'Invalid input' })
+      if (state.data.name !== undefined) entity.name = state.data.name
+      if (state.data.isActive !== undefined) entity.isActive = state.data.isActive
+      entity.updatedAt = new Date()
+    },
+    response: () => ({ ok: true }),
+  },
+  del: {
+    idFrom: 'query',
+    softDelete: true,
+    response: () => ({ ok: true }),
+  },
+  hooks: {
+    beforeCreate: async (raw) => {
+      const { base, custom } = splitCustomFieldPayload(raw)
+      const parsed = tenantCreateSchema.safeParse(base)
+      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
+      const token = parsed.data as unknown as object
+      createStateStore.set(token, { data: parsed.data, custom })
+      return token as CrudInput
+    },
+    afterCreate: async (entity, ctx) => {
+      const state = createStateStore.get(ctx.input as object)
+      if (!state) return
+      if (Object.keys(state.custom).length) {
+        const de = ctx.container.resolve<DataEngine>('dataEngine')
+        await de.setCustomFields({
+          entityId: E.directory.tenant,
+          recordId: String(entity.id),
+          organizationId: null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          values: state.custom,
+          notify: false,
+        })
+      }
+      createStateStore.delete(ctx.input as object)
+    },
+    beforeUpdate: async (raw) => {
+      const { base, custom } = splitCustomFieldPayload(raw)
+      const parsed = tenantUpdateSchema.safeParse(base)
+      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
+      const token = parsed.data as unknown as object
+      updateStateStore.set(token, { data: parsed.data, custom })
+      return token as CrudInput
+    },
+    afterUpdate: async (entity, ctx) => {
+      const state = updateStateStore.get(ctx.input as object)
+      if (!state) return
+      if (Object.keys(state.custom).length) {
+        const de = ctx.container.resolve<DataEngine>('dataEngine')
+        await de.setCustomFields({
+          entityId: E.directory.tenant,
+          recordId: String(entity.id),
+          organizationId: null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          values: state.custom,
+          notify: false,
+        })
+      }
+      updateStateStore.delete(ctx.input as object)
+    },
+    beforeDelete: async (id, ctx) => {
+      const em = ctx.container.resolve<EntityManager>('em')
+      const tenant = await em.findOne(Tenant, { id })
+      if (!tenant || tenant.deletedAt) throw new CrudHttpError(404, { error: 'Not found' })
+      if (tenant.isActive) {
+        tenant.isActive = false
+        await em.persistAndFlush(tenant)
+      }
+    },
+  },
+})
+
+const toRow = (tenant: Tenant, cf: Record<string, unknown>): TenantRow => ({
   id: String(tenant.id),
   name: String(tenant.name),
   isActive: !!tenant.isActive,
   createdAt: tenant.createdAt ? tenant.createdAt.toISOString() : null,
   updatedAt: tenant.updatedAt ? tenant.updatedAt.toISOString() : null,
+  ...cf,
 })
+
+const matchesValue = (current: unknown, expected: unknown): boolean => {
+  if (Array.isArray(current)) return current.some((item) => item === expected)
+  return current === expected
+}
 
 export async function GET(req: Request) {
   const auth = getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 401 })
+  if (!auth) {
+    return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 401 })
+  }
 
   const url = new URL(req.url)
   const parsed = listQuerySchema.safeParse({
@@ -57,12 +195,12 @@ export async function GET(req: Request) {
   }
 
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const em = resolve('em') as EntityManager
 
   const { id, page, pageSize, search, sortField, sortDir, isActive } = parsed.data
-  const where: any = { deletedAt: null }
+  const where: FilterQuery<Tenant> = { deletedAt: null }
   if (id) where.id = id
-  if (search) where.name = { $ilike: `%${search}%` } as any
+  if (search) where.name = { $ilike: `%${search}%` } as FilterQuery<Tenant>['name']
   if (isActive === 'true') where.isActive = true
   if (isActive === 'false') where.isActive = false
 
@@ -70,91 +208,82 @@ export async function GET(req: Request) {
   const orderBy: Record<string, 'ASC' | 'DESC'> = {}
   if (sortField) {
     const mapped = fieldMap[sortField] || 'name'
-    orderBy[mapped] = (sortDir === 'desc' ? 'DESC' : 'ASC')
+    orderBy[mapped] = sortDir === 'desc' ? 'DESC' : 'ASC'
   } else {
     orderBy.name = 'ASC'
   }
 
-  const [rows, total] = await em.findAndCount(Tenant, where, {
-    limit: pageSize,
-    offset: (page - 1) * pageSize,
-    orderBy,
+  const all = await em.find(Tenant, where, { orderBy })
+  const recordIds = all.map((tenant) => String(tenant.id))
+
+  const tenantIdByRecord: Record<string, string | null> = {}
+  const organizationIdByRecord: Record<string, string | null> = {}
+  for (const rid of recordIds) {
+    tenantIdByRecord[rid] = null
+    organizationIdByRecord[rid] = null
+  }
+
+  const cfValues = recordIds.length
+    ? await loadCustomFieldValues({
+        em,
+        entityId: E.directory.tenant,
+        recordIds,
+        tenantIdByRecord,
+        organizationIdByRecord,
+        tenantFallbacks: auth.tenantId ? [auth.tenantId] : [],
+      })
+    : {}
+
+  const rawQuery = Array.from(url.searchParams.keys()).reduce<Record<string, unknown>>((acc, key) => {
+    const values = url.searchParams.getAll(key)
+    if (!values.length) return acc
+    acc[key] = values.length === 1 ? values[0] : values
+    return acc
+  }, {})
+
+  const cfFilters = await buildCustomFieldFiltersFromQuery({
+    entityId: E.directory.tenant,
+    query: rawQuery,
+    em,
+    tenantId: auth.tenantId ?? null,
+  })
+  const cfFilterEntries = Object.entries(cfFilters).map(([rawKey, condition]) => {
+    const normalizedKey = rawKey.startsWith('cf:') ? rawKey.slice(3) : rawKey.replace(/^cf_/, '')
+    return [normalizedKey, condition] as const
   })
 
-  const items = rows.map((row: Tenant) => toRow(row))
+  const filtered = cfFilterEntries.length
+    ? all.filter((tenant) => {
+        const rid = String(tenant.id)
+        const payload = cfValues[rid] ?? {}
+        return cfFilterEntries.every(([key, expected]) => {
+          const value = payload[`cf_${key}`]
+          if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
+            const maybeIn = (expected as { $in?: unknown[] }).$in
+            if (Array.isArray(maybeIn)) {
+              if (value === undefined || value === null) return false
+              if (Array.isArray(value)) return value.some((val) => maybeIn.includes(val))
+              return maybeIn.includes(value)
+            }
+          }
+          return matchesValue(value, expected)
+        })
+      })
+    : all
+
+  const total = filtered.length
+  const start = (page - 1) * pageSize
+  const paged = filtered.slice(start, start + pageSize)
+  const items = paged.map((tenant) => {
+    const rid = String(tenant.id)
+    const cf = cfValues[rid] ?? {}
+    return toRow(tenant, cf)
+  })
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
   return NextResponse.json({ items, total, page, pageSize, totalPages })
 }
 
-export async function POST(req: Request) {
-  const auth = getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const body = await req.json().catch(() => ({}))
-  const parsed = tenantCreateSchema.safeParse(body)
-  if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
-
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const tenant = em.create(Tenant, {
-    name: parsed.data.name,
-    isActive: parsed.data.isActive ?? true,
-  })
-  try {
-    await em.persistAndFlush(tenant)
-  } catch (err) {
-    console.error('Failed to create tenant', err)
-    return NextResponse.json({ error: 'Failed to create tenant' }, { status: 500 })
-  }
-  return NextResponse.json({ id: String(tenant.id) }, { status: 201 })
-}
-
-export async function PUT(req: Request) {
-  const auth = getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const body = await req.json().catch(() => ({}))
-  const parsed = tenantUpdateSchema.safeParse(body)
-  if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
-
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const tenant = await em.findOne(Tenant, { id: parsed.data.id, deletedAt: null })
-  if (!tenant) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  if (parsed.data.name !== undefined) tenant.name = parsed.data.name
-  if (parsed.data.isActive !== undefined) tenant.isActive = parsed.data.isActive
-  tenant.updatedAt = new Date()
-
-  try {
-    await em.persistAndFlush(tenant)
-  } catch (err) {
-    console.error('Failed to update tenant', err)
-    return NextResponse.json({ error: 'Failed to update tenant' }, { status: 500 })
-  }
-  return NextResponse.json({ ok: true })
-}
-
-export async function DELETE(req: Request) {
-  const auth = getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const url = new URL(req.url)
-  const id = url.searchParams.get('id')
-  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
-
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const tenant = await em.findOne(Tenant, { id, deletedAt: null })
-  if (!tenant) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  tenant.deletedAt = new Date()
-  tenant.isActive = false
-  try {
-    await em.persistAndFlush(tenant)
-  } catch (err) {
-    console.error('Failed to delete tenant', err)
-    return NextResponse.json({ error: 'Failed to delete tenant' }, { status: 500 })
-  }
-  return NextResponse.json({ ok: true })
-}
+export const POST = crud.POST
+export const PUT = crud.PUT
+export const DELETE = crud.DELETE
