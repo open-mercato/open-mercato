@@ -7,6 +7,14 @@ type WidgetEntry = ModuleDashboardWidgetEntry & { moduleId: string }
 
 let widgetEntriesPromise: Promise<WidgetEntry[]> | null = null
 
+/**
+ * Invalidate the widget entries and widget module cache.
+ * Call this when the generated registry is updated or modules are reloaded.
+ */
+export function invalidateWidgetCache() {
+  widgetEntriesPromise = null;
+  widgetCache.clear();
+}
 async function loadWidgetEntries(): Promise<WidgetEntry[]> {
   if (!widgetEntriesPromise) {
     widgetEntriesPromise = import('@/generated/modules.generated').then((registry) => {
