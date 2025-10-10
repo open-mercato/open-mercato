@@ -134,9 +134,9 @@ export async function GET(req: Request) {
   let userLabel: string | null = null
   const user = await em.findOne(User, { id: scope.userId, deletedAt: null })
   if (user) {
-    userName = user.name ?? null
+    userName = user.name?.trim() ?? null
     userEmail = user.email ?? null
-    userLabel = (user.name && user.name.trim().length > 0 ? user.name : user.email) ?? null
+    userLabel = (userName && userName.length > 0 ? userName : userEmail) ?? null
   }
   if (!userLabel) {
     userLabel = scope.userId

@@ -865,7 +865,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <div className="flex items-center gap-3">
             {backHref ? (
               <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-                ← Back
+                ← 
               </Link>
             ) : null}
             {title ? <div className="text-base font-medium">{title}</div> : null}
