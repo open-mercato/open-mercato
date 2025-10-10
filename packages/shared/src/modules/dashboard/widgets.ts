@@ -20,6 +20,7 @@ export type DashboardLayoutItem = {
   id: string
   widgetId: string
   order: number
+  priority?: number
   size?: DashboardWidgetSize
   settings?: unknown
 }

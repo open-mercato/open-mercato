@@ -16,6 +16,7 @@ type LayoutItem = {
   id: string
   widgetId: string
   order: number
+  priority?: number
   size?: DashboardWidgetSize
   settings?: unknown
 }
@@ -63,8 +64,12 @@ function sizeClass(size: DashboardWidgetSize | undefined) {
 
 function sortLayout(items: LayoutItem[]): LayoutItem[] {
   return [...items]
-    .sort((a, b) => a.order - b.order)
-    .map((item, index) => ({ ...item, order: index }))
+    .sort((a, b) => {
+      const aOrder = a.order ?? a.priority ?? 0
+      const bOrder = b.order ?? b.priority ?? 0
+      return aOrder - bOrder
+    })
+    .map((item, index) => ({ ...item, order: index, priority: index }))
 }
 
 const DEFAULT_SIZE: DashboardWidgetSize = 'md'
@@ -148,6 +153,7 @@ export function DashboardScreen() {
             id: item.id,
             widgetId: item.widgetId,
             order: index,
+            priority: index,
             size: item.size ?? DEFAULT_SIZE,
             settings: item.settings ?? null,
           })),
@@ -196,6 +202,7 @@ export function DashboardScreen() {
           id: generateId(),
           widgetId: meta.id,
           order: prev.length,
+          priority: prev.length,
           size: meta.defaultSize ?? DEFAULT_SIZE,
           settings: meta.defaultSettings ?? null,
         },
@@ -321,7 +328,29 @@ export function DashboardScreen() {
         'grid-cols-1',
         'md:grid-cols-2',
         'xl:grid-cols-3'
-      )}>
+      )}
+      onDragOver={(event) => {
+        if (!editing || !canConfigure) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+      }}
+      onDrop={(event) => {
+        if (!editing || !canConfigure) return
+        event.preventDefault()
+        const dragId = event.dataTransfer.getData('text/plain') || draggingIdRef.current
+        if (!dragId) return
+        setLayout((prev) => {
+          const items = [...prev]
+          const from = items.findIndex((entry) => entry.id === dragId)
+          if (from === -1) return prev
+          const [moved] = items.splice(from, 1)
+          items.push(moved)
+          const next = sortLayout(items)
+          queueLayoutSave(next)
+          return next
+        })
+        draggingIdRef.current = null
+      }}>
         {layout.map((item) => {
           const meta = metaById.get(item.widgetId)
           if (!meta) return null
@@ -337,10 +366,14 @@ export function DashboardScreen() {
               onRemove={() => handleRemoveWidget(item.id)}
               onSettingsChange={(settings) => handleSettingsChange(item.id, settings)}
               onDragStart={() => { draggingIdRef.current = item.id }}
-              onDrop={() => {
-                handleReorder(draggingIdRef.current, item.id)
+              onDragEnd={() => { draggingIdRef.current = null }}
+              onDrop={(event) => {
+                const dragId = event.dataTransfer.getData('text/plain') || draggingIdRef.current
+                handleReorder(dragId, item.id)
                 draggingIdRef.current = null
               }}
+              onDragEnter={() => {}}
+              onDragLeave={() => {}}
               sizeClass={sizeClass(item.size)}
             />
           )
@@ -366,7 +399,10 @@ type DashboardWidgetCardProps = {
   onRemove: () => void
   onSettingsChange: (next: unknown) => void
   onDragStart: () => void
-  onDrop: () => void
+  onDragEnd: () => void
+  onDrop: (event: React.DragEvent<HTMLDivElement>) => void
+  onDragEnter: () => void
+  onDragLeave: () => void
   sizeClass: string
 }
 
@@ -380,12 +416,16 @@ function DashboardWidgetCard({
   onRemove,
   onSettingsChange,
   onDragStart,
+  onDragEnd,
   onDrop,
+  onDragEnter,
+  onDragLeave,
   sizeClass,
 }: DashboardWidgetCardProps) {
   const [module, setModule] = React.useState<WidgetModule | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
+  const [isDragOver, setIsDragOver] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -437,7 +477,8 @@ function DashboardWidgetCard({
   return (
     <div
       className={cn(
-        'group relative flex h-full flex-col rounded-lg border bg-background shadow-sm transition hover:border-primary/40',
+        'group relative flex h-full flex-col rounded-lg border bg-background shadow-sm transition',
+        isDragOver ? 'border-primary ring-2 ring-primary/20' : 'hover:border-primary/40',
         editing ? 'cursor-grab' : 'cursor-default',
         sizeClass
       )}
@@ -445,17 +486,37 @@ function DashboardWidgetCard({
       onDragStart={(event) => {
         if (!editing) return
         event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', item.id)
         onDragStart()
+      }}
+      onDragEnd={() => {
+        if (!editing) return
+        onDragEnd()
       }}
       onDragOver={(event) => {
         if (!editing) return
         event.preventDefault()
+        event.stopPropagation()
         event.dataTransfer.dropEffect = 'move'
+        if (!isDragOver) {
+          setIsDragOver(true)
+          onDragEnter()
+        }
       }}
       onDrop={(event) => {
         if (!editing) return
         event.preventDefault()
-        onDrop()
+        event.stopPropagation()
+        onDrop(event)
+        setIsDragOver(false)
+        onDragLeave()
+      }}
+      onDragLeave={(event) => {
+        if (!editing) return
+        event.stopPropagation()
+        if (event.currentTarget.contains(event.relatedTarget as Node)) return
+        setIsDragOver(false)
+        onDragLeave()
       }}
     >
       <div className="flex items-center justify-between gap-2 border-b px-3 py-2">

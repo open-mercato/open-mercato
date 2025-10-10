@@ -38,7 +38,8 @@ function normalizeLayoutItems(items: any[]) {
     .map((item) => ({
       id: String(item.id),
       widgetId: String(item.widgetId),
-      order: Number.isInteger(item.order) ? Number(item.order) : 0,
+      order: Number.isInteger(item.order) ? Number(item.order) : undefined,
+      priority: Number.isInteger(item.priority) ? Number(item.priority) : undefined,
       size: typeof item.size === 'string' ? item.size : undefined,
       settings: item.settings,
     }))
@@ -48,8 +49,12 @@ function normalizeLayoutItems(items: any[]) {
       seenIds.add(item.id)
       return true
     })
-    .sort((a, b) => a.order - b.order)
-    .map((item, idx) => ({ ...item, order: idx }))
+    .sort((a, b) => {
+      const aOrder = a.order ?? a.priority ?? 0
+      const bOrder = b.order ?? b.priority ?? 0
+      return aOrder - bOrder
+    })
+    .map((item, idx) => ({ ...item, order: idx, priority: idx }))
   return sanitized
 }
 
@@ -92,6 +97,7 @@ export async function GET(req: Request) {
       id: randomUUID(),
       widgetId: widget.metadata.id,
       order: index,
+      priority: index,
       size: widget.metadata.defaultSize ?? DEFAULT_SIZE,
       settings: widget.metadata.defaultSettings ?? undefined,
     }))
@@ -109,7 +115,7 @@ export async function GET(req: Request) {
       hasChanged = true
       items = filtered
     }
-    items = items.map((item, index) => (item.order !== index ? { ...item, order: index } : item))
+    items = items.map((item, index) => (item.order !== index || item.priority !== index ? { ...item, order: index, priority: index } : item))
     if (layout.layoutJson.length !== items.length || items.some((item, idx) => layout.layoutJson[idx]?.id !== item.id)) {
       hasChanged = true
     }
@@ -192,6 +198,7 @@ export async function PUT(req: Request) {
       id: item.id,
       widgetId: item.widgetId,
       order: index,
+      priority: index,
       size: item.size ?? DEFAULT_SIZE,
       settings: item.settings,
     }))
