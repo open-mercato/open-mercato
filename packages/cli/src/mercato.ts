@@ -115,8 +115,12 @@ export async function run(argv = process.argv) {
         console.log('📝 Seeding example todos...')
         execSync(`yarn mercato example seed-todos --org ${orgId} --tenant ${tenantId}`, { stdio: 'inherit' })
         console.log('✅ Example todos seeded\n')
+
+        console.log('🧩 Enabling default dashboard widgets...')
+        execSync(`yarn mercato dashboards seed-defaults --tenant ${tenantId}`, { stdio: 'inherit' })
+        console.log('✅ Dashboard widgets enabled\n')
       } else {
-        console.log('⚠️  Could not extract organization ID or tenant ID, skipping todo seeding\n')
+        console.log('⚠️  Could not extract organization ID or tenant ID, skipping todo seeding and dashboard widget setup\n')
       }
       
       // Derive admin/employee only when the provided email is a superadmin email

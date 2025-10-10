@@ -1,12 +1,13 @@
 import path from 'node:path'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 
 export type ModuleEntry = { id: string; from?: '@open-mercato/core' | '@app' | string }
 
 export function loadEnabledModules(): ModuleEntry[] {
+  const require = createRequire(import.meta.url)
   const cfgPath = path.resolve('src/modules.ts')
   if (fs.existsSync(cfgPath)) {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require(cfgPath)
     const list = (mod.enabledModules || mod.default || []) as ModuleEntry[]
     if (Array.isArray(list) && list.length) return list

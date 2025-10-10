@@ -4,6 +4,7 @@
 export type ModuleEntry = { id: string; from?: '@open-mercato/core' | '@open-mercato/example' | '@app' | string }
 
 export const enabledModules: ModuleEntry[] = [
+  { id: 'dashboards', from: '@open-mercato/core' },
   { id: 'auth', from: '@open-mercato/core' },
   { id: 'directory', from: '@open-mercato/core' },
   { id: 'entities', from: '@open-mercato/core' },

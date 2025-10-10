@@ -39,6 +39,7 @@ function scan() {
     let featuresImportName: string | null = null
     let customEntitiesImportName: string | null = null
     let customFieldSetsExpr: string = '[]'
+    const dashboardWidgets: string[] = []
 
     // Module metadata: index.ts (overrideable)
     const appIndex = path.join(roots.appBase, 'index.ts')
@@ -476,6 +477,39 @@ function scan() {
       customFieldSetsExpr = parts.length ? `[...${parts.join(', ...')}]` : '[]'
     }
 
+    // Dashboard widgets: src/modules/<module>/widgets/dashboard/**/widget.ts(x)
+    {
+      const widgetApp = path.join(roots.appBase, 'widgets', 'dashboard')
+      const widgetPkg = path.join(roots.pkgBase, 'widgets', 'dashboard')
+      if (fs.existsSync(widgetApp) || fs.existsSync(widgetPkg)) {
+        const found: string[] = []
+        const walk = (dir: string, rel: string[] = []) => {
+          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (e.isDirectory()) {
+              if (e.name === '__tests__' || e.name === '__mocks__') continue
+              walk(path.join(dir, e.name), [...rel, e.name])
+            } else if (e.isFile() && /^widget\.(t|j)sx?$/.test(e.name)) {
+              found.push([...rel, e.name].join('/'))
+            }
+          }
+        }
+        if (fs.existsSync(widgetPkg)) walk(widgetPkg)
+        if (fs.existsSync(widgetApp)) walk(widgetApp)
+        const files = Array.from(new Set(found)).sort()
+        for (const rel of files) {
+          const appFile = path.join(widgetApp, ...rel.split('/'))
+          const fromApp = fs.existsSync(appFile)
+          const segs = rel.split('/')
+          const file = segs.pop()!
+          const base = file.replace(/\.(t|j)sx?$/, '')
+          const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/widgets/dashboard/${[...segs, base].join('/')}`
+          const key = [modId, ...segs, base].filter(Boolean).join(':')
+          const source = fromApp ? 'app' : 'package'
+          dashboardWidgets.push(`{ moduleId: '${modId}', key: '${key}', source: '${source}', loader: () => import('${importPath}') }`)
+        }
+      }
+    }
+
     moduleDecls.push(`{
       id: '${modId}',
       ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
@@ -489,6 +523,7 @@ function scan() {
       customFieldSets: ${customFieldSetsExpr},
       ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
+      ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
     }`)
   }
 

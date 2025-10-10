@@ -4,6 +4,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
+import { WidgetVisibilityEditor } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 export default function EditRolePage({ params }: { params?: { id?: string } }) {
@@ -36,6 +37,15 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
     { id: 'details', title: 'Details', column: 1, fields: ['name'] },
     { id: 'customFields', title: 'Custom Fields', column: 2, kind: 'customFields' },
     { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="role" targetId={String(id)} canEditOrganizations={true} value={aclData} onChange={setAclData} /> : null) },
+    {
+      id: 'dashboardWidgets',
+      title: 'Dashboard Widgets',
+      column: 2,
+      component: () => (id && !loading
+        ? <WidgetVisibilityEditor kind="role" targetId={String(id)} tenantId={initial?.tenantId ?? null} />
+        : null
+      ),
+    },
   ]
 
   if (!id) return null
