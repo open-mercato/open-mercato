@@ -98,6 +98,7 @@ export default function CreateOrganizationPage() {
           value={value ? String(value) : null}
           onChange={(next) => setValue(next ?? '')}
           nodes={tree}
+          fetchOnMount= {true}
           includeEmptyOption
           emptyOptionLabel="— Root level —"
           className="w-full h-9 rounded border px-2 text-sm"

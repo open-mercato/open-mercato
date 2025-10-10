@@ -7,6 +7,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
+import { WidgetVisibilityEditor } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 
 type EditUserFormValues = {
   email: string
@@ -137,6 +138,21 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     { id: 'details', title: 'Details', column: 1, fields: ['email', 'password', 'organizationId', 'roles'] },
     { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
     { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="user" targetId={String(id)} canEditOrganizations={canEditOrgs} value={aclData} onChange={setAclData} userRoles={initialUser?.roles || []} /> : null) },
+    {
+      id: 'dashboardWidgets',
+      title: 'Dashboard Widgets',
+      column: 2,
+      component: () => (id && initialUser
+        ? (
+          <WidgetVisibilityEditor
+            kind="user"
+            targetId={String(id)}
+            tenantId={initialUser?.tenantId ?? null}
+            organizationId={initialUser?.organizationId ?? null}
+          />
+        ) : null
+      ),
+    },
   ]
 
   const initialValues = React.useMemo(() => {

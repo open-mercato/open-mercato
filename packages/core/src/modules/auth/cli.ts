@@ -238,10 +238,21 @@ const setupApp: ModuleCli = {
         'query_index.*',
         'directory.organizations.*',
         'example.*',
+        'dashboards.*',
+        'dashboards.admin.assign-widgets',
       ]
       await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: seedTenantId, featuresJson: adminFeatures }))
     }
-    if (employeeRole) await em.persistAndFlush(em.create(RoleAcl, { role: employeeRole, tenantId: seedTenantId, featuresJson: ['example.*'] }))
+    if (employeeRole) await em.persistAndFlush(em.create(RoleAcl, {
+      role: employeeRole,
+      tenantId: seedTenantId,
+      featuresJson: [
+        'example.*',
+        'dashboards.view',
+        'dashboards.configure',
+        'example.widgets.*',
+      ],
+    }))
 
     console.log('Setup complete:', { tenantId: seedTenantId, organizationId: seedOrgId })
   },

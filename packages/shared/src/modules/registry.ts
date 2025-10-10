@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { DashboardWidgetModule } from './dashboard/widgets'
 
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
@@ -84,6 +85,13 @@ export type ModuleInfo = {
   requires?: string[]
 }
 
+export type ModuleDashboardWidgetEntry = {
+  moduleId: string
+  key: string
+  source: 'app' | 'package'
+  loader: () => Promise<DashboardWidgetModule<any>>
+}
+
 export type Module = {
   id: string
   info?: ModuleInfo
@@ -109,6 +117,7 @@ export type Module = {
   // Optional: per-module declared custom entities (virtual/logical entities)
   // Discovered from ce.ts (module root). Each entry represents an entityId with optional label/description.
   customEntities?: Array<{ id: string; label?: string; description?: string }>
+  dashboardWidgets?: ModuleDashboardWidgetEntry[]
 }
 
 function normPath(s: string) {

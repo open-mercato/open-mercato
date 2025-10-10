@@ -247,19 +247,27 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
     )
   }, [toolbar, searchValue, onSearchChange, searchPlaceholder, searchAlign, baseFilters, cfFilters, filterValues, onFiltersApply, onFiltersClear])
 
+  const hasTitle = title != null
+  const hasActions = actions !== undefined && actions !== null && actions !== false
+  const shouldReserveActionsSpace = actions === null || actions === false
+  const hasToolbar = builtToolbar != null
+  const shouldRenderHeader = hasTitle || hasToolbar || hasActions || shouldReserveActionsSpace
+
   return (
     <div className="rounded-lg border bg-card">
-      {(title || actions || toolbar) && (
+      {shouldRenderHeader && (
         <div className="px-4 py-3 border-b">
-          {(title || actions) && (
+          {(hasTitle || hasActions || shouldReserveActionsSpace) && (
             <div className="flex items-center justify-between">
-              <div className="text-base font-semibold leading-tight">
-                {typeof title === 'string' ? <h2 className="text-base font-semibold">{title}</h2> : title}
+              <div className="text-base font-semibold leading-tight min-h-[2.25rem] flex items-center">
+                {hasTitle ? (typeof title === 'string' ? <h2 className="text-base font-semibold">{title}</h2> : title) : null}
               </div>
-              <div className="flex items-center gap-2">{actions}</div>
+              <div className="flex items-center gap-2 min-h-[2.25rem]">
+                {hasActions ? actions : null}
+              </div>
             </div>
           )}
-          {builtToolbar ? <div className="mt-3 pt-3 border-t">{builtToolbar}</div> : null}
+          {hasToolbar ? <div className="mt-3 pt-3 border-t">{builtToolbar}</div> : null}
         </div>
       )}
       <div className="overflow-auto">
