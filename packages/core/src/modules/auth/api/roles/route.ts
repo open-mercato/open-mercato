@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
@@ -45,7 +46,6 @@ export async function GET(req: Request) {
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
-  const de = resolve('dataEngine') as DataEngine
   let isSuperAdmin = false
   try {
     if (auth.sub) {

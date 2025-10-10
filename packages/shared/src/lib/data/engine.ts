@@ -1,13 +1,16 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityData, EntityName, FilterQuery } from '@mikro-orm/core'
+import type { EntityManager, EntityRepository } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import type { EventBus } from '@open-mercato/events/types'
 import type {
   CrudEventAction,
   CrudEventsConfig,
   CrudIndexerConfig,
   CrudEntityIdentifiers,
-  CrudEmitContext,
 } from '../crud/types'
+
+type CustomEntityValues = Record<string, unknown>
 
 export interface DataEngine {
   setCustomFields(opts: {
@@ -25,7 +28,7 @@ export interface DataEngine {
     recordId?: string // optional; auto-generate if not provided
     organizationId?: string | null
     tenantId?: string | null
-    values: Record<string, any>
+    values: CustomEntityValues
     notify?: boolean // keep event emitting as it is via setCustomFields (updated)
   }): Promise<{ id: string }>
 
@@ -34,7 +37,7 @@ export interface DataEngine {
     recordId: string
     organizationId?: string | null
     tenantId?: string | null
-    values: Record<string, any>
+    values: CustomEntityValues
     notify?: boolean // keep event emitting as it is via setCustomFields (updated)
   }): Promise<void>
 
@@ -48,25 +51,25 @@ export interface DataEngine {
   }): Promise<void>
 
   // Generic ORM-backed entity operations used by CrudFactory
-  createOrmEntity<T = any>(opts: {
-    entity: any
-    data: Record<string, any>
+  createOrmEntity<T>(opts: {
+    entity: EntityName<T>
+    data: EntityData<T>
   }): Promise<T>
 
-  updateOrmEntity<T = any>(opts: {
-    entity: any
-    where: Record<string, any>
+  updateOrmEntity<T>(opts: {
+    entity: EntityName<T>
+    where: FilterQuery<T>
     apply: (current: T) => Promise<void> | void
   }): Promise<T | null>
 
-  deleteOrmEntity<T = any>(opts: {
-    entity: any
-    where: Record<string, any>
+  deleteOrmEntity<T>(opts: {
+    entity: EntityName<T>
+    where: FilterQuery<T>
     soft?: boolean
-    softDeleteField?: string
+    softDeleteField?: keyof T & string
   }): Promise<T | null>
 
-  emitOrmEntityEvent<T = any>(opts: {
+  emitOrmEntityEvent<T>(opts: {
     action: CrudEventAction
     entity: T
     events?: CrudEventsConfig<T>
@@ -88,20 +91,27 @@ export class DefaultDataEngine implements DataEngine {
       values,
     })
     if (opts.notify !== false) {
+      let bus: EventBus | null = null
       try {
-        const bus = this.container.resolve<any>('eventBus')
+        bus = this.container.resolve<EventBus>('eventBus')
+      } catch {
+        bus = null
+      }
+      if (bus) {
         const [mod, ent] = (entityId || '').split(':')
         if (mod && ent) {
-          await bus.emitEvent(`${mod}.${ent}.updated`, { id: recordId, organizationId, tenantId }, { persistent: true })
+          try {
+            await bus.emitEvent(`${mod}.${ent}.updated`, { id: recordId, organizationId, tenantId }, { persistent: true })
+          } catch {
+            // non-blocking
+          }
         }
-      } catch {
-        // non-blocking
       }
     }
   }
 
-  private normalizeDocValues(values: Record<string, any>): Record<string, any> {
-    const out: Record<string, any> = {}
+  private normalizeDocValues(values: CustomEntityValues): CustomEntityValues {
+    const out: CustomEntityValues = {}
     for (const [k, v] of Object.entries(values || {})) {
       // Never allow callers to override reserved identifiers in the doc
       if (k === 'id' || k === 'entity_id' || k === 'entityId') continue
@@ -120,7 +130,7 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   private async ensureStorageTableExists(): Promise<void> {
-    const knex = (this.em as any).getConnection().getKnex()
+    const knex = this.em.getConnection().getKnex()
     const exists = await knex('information_schema.tables')
       .where({ table_name: 'custom_entities_storage' })
       .first()
@@ -130,7 +140,7 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async createCustomEntityRecord(opts: Parameters<DataEngine['createCustomEntityRecord']>[0]): Promise<{ id: string }> {
-    const knex = (this.em as any).getConnection().getKnex()
+    const knex = this.em.getConnection().getKnex()
     await this.ensureStorageTableExists()
     const rawId = String(opts.recordId ?? '').trim()
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId)
@@ -138,10 +148,10 @@ export class DefaultDataEngine implements DataEngine {
     const shouldGenerate = !rawId || !isUuid || sentinel === 'create' || sentinel === 'new' || sentinel === 'null' || sentinel === 'undefined'
     try { console.log('[DataEngine.createCustomEntityRecord] recordId normalize', { rawId, isUuid, sentinel, shouldGenerate }) } catch {}
     const id = shouldGenerate ? ((): string => {
-      const g: any = (globalThis as any)
-      if (g?.crypto?.randomUUID) return g.crypto.randomUUID()
+      const g = globalThis as { crypto?: { randomUUID?: () => string } }
+      if (g.crypto?.randomUUID) return g.crypto.randomUUID()
       // Fallback UUIDv4 generator
-      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
         const r = (Math.random() * 16) | 0
         const v = c === 'x' ? r : (r & 0x3) | 0x8
         return v.toString(16)
@@ -150,7 +160,7 @@ export class DefaultDataEngine implements DataEngine {
     try { console.log('[DataEngine.createCustomEntityRecord] chosen id', id) } catch {}
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null
-    const doc = { id, ...this.normalizeDocValues(opts.values || {}) }
+    const doc: Record<string, unknown> = { id, ...this.normalizeDocValues(opts.values || {}) }
 
     const payload = {
       entity_type: opts.entityId,
@@ -169,7 +179,7 @@ export class DefaultDataEngine implements DataEngine {
         .insert(payload)
         .onConflict(['entity_type', 'entity_id', 'organization_id'])
         .merge({ doc: payload.doc, updated_at: knex.fn.now(), deleted_at: null })
-    } catch (e) {
+    } catch {
       // Fallback for global scope uniqueness
       try {
         const updated = await knex('custom_entities_storage')
@@ -201,7 +211,7 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async updateCustomEntityRecord(opts: Parameters<DataEngine['updateCustomEntityRecord']>[0]): Promise<void> {
-    const knex = (this.em as any).getConnection().getKnex()
+    const knex = this.em.getConnection().getKnex()
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null
@@ -211,8 +221,8 @@ export class DefaultDataEngine implements DataEngine {
     const row = await knex('custom_entities_storage')
       .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
       .first()
-    const prevDoc = row?.doc || { id }
-    const nextDoc = { ...prevDoc, ...this.normalizeDocValues(opts.values || {}), id }
+    const prevDoc: Record<string, unknown> = row?.doc || { id }
+    const nextDoc: Record<string, unknown> = { ...prevDoc, ...this.normalizeDocValues(opts.values || {}), id }
     try {
       const updated = await knex('custom_entities_storage')
         .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
@@ -248,7 +258,7 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async deleteCustomEntityRecord(opts: Parameters<DataEngine['deleteCustomEntityRecord']>[0]): Promise<void> {
-    const knex = (this.em as any).getConnection().getKnex()
+    const knex = this.em.getConnection().getKnex()
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null
     const soft = opts.soft !== false
@@ -265,62 +275,71 @@ export class DefaultDataEngine implements DataEngine {
 
     // Soft-delete EAV values to preserve current behavior
     try {
-      const values = await this.em.find((await import('@open-mercato/core/modules/entities/data/entities')).CustomFieldValue as any, {
+      const { CustomFieldValue } = await import('@open-mercato/core/modules/entities/data/entities')
+      const values = await this.em.find(CustomFieldValue, {
         entityId: opts.entityId,
         recordId: id,
         organizationId: orgId,
         tenantId: opts.tenantId ?? null,
-      } as any)
+      })
       const now = new Date()
-      for (const r of values as any[]) r.deletedAt = r.deletedAt ?? now
-      if (values.length) await this.em.persistAndFlush(values as any)
+      const mutated = values.filter((record) => {
+        if (record.deletedAt) return false
+        record.deletedAt = now
+        return true
+      })
+      if (mutated.length) await this.em.persistAndFlush(values)
     } catch { /* non-blocking */ }
   }
 
-  async createOrmEntity<T = any>(opts: Parameters<DataEngine['createOrmEntity']>[0]): Promise<T> {
-    const repo = (this.em as any).getRepository(opts.entity)
+  async createOrmEntity<T>(opts: { entity: EntityName<T>; data: EntityData<T> }): Promise<T> {
+    const repo: EntityRepository<T> = this.em.getRepository(opts.entity)
     const entity = repo.create(opts.data)
     await this.em.persistAndFlush(entity)
-    return entity as T
+    return entity
   }
 
-  async updateOrmEntity<T = any>(opts: Parameters<DataEngine['updateOrmEntity']>[0]): Promise<T | null> {
-    const repo = (this.em as any).getRepository(opts.entity)
+  async updateOrmEntity<T>(opts: { entity: EntityName<T>; where: FilterQuery<T>; apply: (current: T) => Promise<void> | void }): Promise<T | null> {
+    const repo: EntityRepository<T> = this.em.getRepository(opts.entity)
     const current = await repo.findOne(opts.where)
     if (!current) return null
     await opts.apply(current)
     await this.em.persistAndFlush(current)
-    return current as T
+    return current
   }
 
-  async deleteOrmEntity<T = any>(opts: Parameters<DataEngine['deleteOrmEntity']>[0]): Promise<T | null> {
-    const repo = (this.em as any).getRepository(opts.entity)
+  async deleteOrmEntity<T>(opts: { entity: EntityName<T>; where: FilterQuery<T>; soft?: boolean; softDeleteField?: keyof T & string }): Promise<T | null> {
+    const repo: EntityRepository<T> = this.em.getRepository(opts.entity)
     const current = await repo.findOne(opts.where)
     if (!current) return null
     if (opts.soft !== false) {
-      const field = opts.softDeleteField || 'deletedAt'
-      ;(current as any)[field] = new Date()
-      await this.em.persistAndFlush(current)
+      const field = opts.softDeleteField || ('deletedAt' as keyof T & string)
+      if (typeof current === 'object' && current !== null) {
+        ;(current as Record<string, unknown>)[field] = new Date()
+        await this.em.persistAndFlush(current)
+      } else {
+        await repo.removeAndFlush(current)
+      }
     } else {
       await repo.removeAndFlush(current)
     }
-    return current as T
+    return current
   }
 
-  async emitOrmEntityEvent<T = any>(opts: Parameters<DataEngine['emitOrmEntityEvent']>[0]): Promise<void> {
+  async emitOrmEntityEvent<T>(opts: { action: CrudEventAction; entity: T; events?: CrudEventsConfig<T>; indexer?: CrudIndexerConfig<T>; identifiers: CrudEntityIdentifiers }): Promise<void> {
     const { action, entity, events, indexer, identifiers } = opts
     if (!events && !indexer) return
     if (!identifiers?.id) return
 
-    let bus: any
+    let bus: EventBus | null = null
     try {
-      bus = this.container.resolve<any>('eventBus')
+      bus = this.container.resolve<EventBus>('eventBus')
     } catch {
       bus = null
     }
     if (!bus) return
 
-    const ctx: CrudEmitContext<T> = {
+    const ctx = {
       action,
       entity,
       identifiers: {

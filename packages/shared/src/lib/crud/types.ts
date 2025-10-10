@@ -6,23 +6,23 @@ export type CrudEntityIdentifiers = {
   tenantId: string | null
 }
 
-export type CrudEmitContext<T = any> = {
+export type CrudEmitContext<TEntity = unknown> = {
   action: CrudEventAction
-  entity: T
+  entity: TEntity
   identifiers: CrudEntityIdentifiers
 }
 
-export type CrudEventsConfig<T = any> = {
+export type CrudEventsConfig<TEntity = unknown> = {
   module: string
   entity: string
   persistent?: boolean
-  buildPayload?: (ctx: CrudEmitContext<T>) => any
+  buildPayload?: (ctx: CrudEmitContext<TEntity>) => unknown
 }
 
-export type CrudIndexerConfig<T = any> = {
+export type CrudIndexerConfig<TEntity = unknown> = {
   entityType: string
-  buildUpsertPayload?: (ctx: CrudEmitContext<T>) => any
-  buildDeletePayload?: (ctx: CrudEmitContext<T>) => any
+  buildUpsertPayload?: (ctx: CrudEmitContext<TEntity>) => unknown
+  buildDeletePayload?: (ctx: CrudEmitContext<TEntity>) => unknown
 }
 
-export type CrudIdentifierResolver<T = any> = (entity: T, action: CrudEventAction) => CrudEntityIdentifiers
+export type CrudIdentifierResolver<TEntity = unknown> = (entity: TEntity, action: CrudEventAction) => CrudEntityIdentifiers

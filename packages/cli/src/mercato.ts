@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Note: Avoid top-level imports of generated files or DI container.
 // Some commands (e.g., `init`) must run before generation occurs.
 // We'll lazy-load modules and DI only when required by a specific command.
@@ -265,7 +266,7 @@ export async function run(argv = process.argv) {
       },
       {
         command: 'entity',
-        run: async (_args: string[]) => {
+        run: async () => {
           const fs = await import('node:fs')
           const path = await import('node:path')
           const readline = await import('node:readline/promises')

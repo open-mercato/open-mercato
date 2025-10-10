@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
@@ -69,20 +70,6 @@ type BaseFields = {
   organization_id: string | null
   created_at: Date
 } & Record<`cf:${string}` | `cf_${string}`, unknown>
-
-function toArray(val: unknown): string[] {
-  if (Array.isArray(val)) return val as string[]
-  if (typeof val === 'string') {
-    const s = val.trim()
-    const inner = s.startsWith('{') && s.endsWith('}') ? s.slice(1, -1) : s
-    if (!inner) return []
-    return inner
-      .split(/[\s,]+/)
-      .map((x) => x.trim())
-      .filter(Boolean)
-  }
-  return val != null ? [String(val)] : []
-}
 
 export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   metadata: {
