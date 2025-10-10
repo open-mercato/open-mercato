@@ -18,6 +18,9 @@ import {
 import { loadCustomFieldValues, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { FilterQuery } from '@mikro-orm/core'
+import type { EventBus } from '@open-mercato/events/types'
 
 type CrudInput = Record<string, unknown>
 type CustomPayload = Record<string, unknown>
@@ -37,6 +40,25 @@ type UpdateState = OrganizationUpdateInput & {
 }
 
 const rawBodySchema = z.object({}).passthrough()
+
+type TreeNode = {
+  id: string
+  name: string
+  parentId: string | null
+  tenantId: string | null
+  depth: number
+  ancestorIds: string[]
+  childIds: string[]
+  descendantIds: string[]
+  isActive: boolean
+  treePath: string | null
+  pathLabel: string
+  children: TreeNode[]
+}
+
+type DeleteMeta = { tenantId: string; parentId: string | null; entity: Organization }
+
+const deleteMetaStore = new WeakMap<object, DeleteMeta>()
 
 const viewSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -84,7 +106,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     schema: rawBodySchema,
     mapToEntity: (input, ctx) => {
       const data = input as CreateState
-      const em = ctx.container.resolve<any>('em')
+      const em = ctx.container.resolve<EntityManager>('em')
       const tenantRef = em.getReference(Tenant, data.tenantId)
       return {
         tenant: tenantRef,
@@ -116,7 +138,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       const parsed = organizationCreateSchema.safeParse(base)
       if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
 
-      const em = ctx.container.resolve<any>('em')
+      const em = ctx.container.resolve<EntityManager>('em')
       const authTenantId = ctx.auth?.tenantId ?? null
       const tenantId = authTenantId ?? parsed.data.tenantId ?? null
       if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
@@ -126,14 +148,16 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
 
       const parentId = parsed.data.parentId ?? null
       if (parentId) {
-        const parent = await em.findOne(Organization, { id: parentId, tenant: tenantId as any, deletedAt: null })
+        const parentFilter: FilterQuery<Organization> = { id: parentId, tenant: tenantId, deletedAt: null }
+        const parent = await em.findOne(Organization, parentFilter)
         if (!parent) throw new CrudHttpError(400, { error: 'Parent not found' })
       }
 
       const childIds = Array.from(new Set(parsed.data.childIds ?? [])).filter((id) => id !== parentId)
       if (childIds.some((id) => id === parentId)) throw new CrudHttpError(400, { error: 'Child cannot equal parent' })
       if (childIds.length) {
-        const children = await em.find(Organization, { id: { $in: childIds }, tenant: tenantId as any, deletedAt: null })
+        const childFilter: FilterQuery<Organization> = { id: { $in: childIds }, tenant: tenantId, deletedAt: null }
+        const children = await em.find(Organization, childFilter)
         if (children.length !== childIds.length) throw new CrudHttpError(400, { error: 'Invalid child assignment' })
       }
 
@@ -147,16 +171,13 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     },
     afterCreate: async (entity, ctxWithInput) => {
       const input = ctxWithInput.input as CreateState
-      const em = ctxWithInput.container.resolve<any>('em')
+      const em = ctxWithInput.container.resolve<EntityManager>('em')
       const tenantId = input.tenantId
       const recordId = String(entity.id)
       const childIds = Array.from(new Set(input.childIds ?? [])).filter((id) => id !== recordId)
       if (childIds.length) {
-        const children = await em.find(Organization, {
-          tenant: tenantId as any,
-          deletedAt: null,
-          id: { $in: childIds },
-        })
+        const childFilter: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null, id: { $in: childIds } }
+        const children = await em.find(Organization, childFilter)
         const updates = children.filter((child) => String(child.id) !== recordId && child.parentId !== recordId)
         for (const child of updates) child.parentId = recordId
         if (updates.length) await em.persistAndFlush(updates)
@@ -174,7 +195,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       }
       await rebuildHierarchyForTenant(em, tenantId)
       try {
-        const bus = ctxWithInput.container.resolve<any>('eventBus')
+        const bus = ctxWithInput.container.resolve<EventBus>('eventBus')
         await bus.emitEvent('directory.organization.created', { id: recordId, tenantId, organizationId: recordId }, { persistent: true })
         await bus.emitEvent('query_index.upsert_one', { entityType: E.directory.organization, recordId, organizationId: recordId, tenantId })
       } catch {
@@ -186,7 +207,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       const parsed = organizationUpdateSchema.safeParse(base)
       if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
 
-      const em = ctx.container.resolve<any>('em')
+      const em = ctx.container.resolve<EntityManager>('em')
       const org = await em.findOne(Organization, { id: parsed.data.id, deletedAt: null })
       if (!org) throw new CrudHttpError(404, { error: 'Not found' })
 
@@ -202,7 +223,8 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
         if (Array.isArray(org.descendantIds) && org.descendantIds.includes(parentId)) {
           throw new CrudHttpError(400, { error: 'Cannot assign descendant as parent' })
         }
-        const parent = await em.findOne(Organization, { id: parentId, tenant: tenantId as any, deletedAt: null })
+        const parentFilter: FilterQuery<Organization> = { id: parentId, tenant: tenantId, deletedAt: null }
+        const parent = await em.findOne(Organization, parentFilter)
         if (!parent) throw new CrudHttpError(400, { error: 'Parent not found' })
       }
 
@@ -212,11 +234,8 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
         throw new CrudHttpError(400, { error: 'Cannot assign ancestor as child' })
       }
       if (normalizedChildIds.length) {
-        const children = await em.find(Organization, {
-          id: { $in: normalizedChildIds },
-          tenant: tenantId as any,
-          deletedAt: null,
-        })
+        const childFilter: FilterQuery<Organization> = { id: { $in: normalizedChildIds }, tenant: tenantId, deletedAt: null }
+        const children = await em.find(Organization, childFilter)
         if (children.length !== normalizedChildIds.length) throw new CrudHttpError(400, { error: 'Invalid child assignment' })
         for (const child of children) {
           if (Array.isArray(child.descendantIds) && child.descendantIds.includes(parsed.data.id)) {
@@ -235,18 +254,15 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     },
     afterUpdate: async (entity, ctxWithInput) => {
       const input = ctxWithInput.input as UpdateState
-      const em = ctxWithInput.container.resolve<any>('em')
+      const em = ctxWithInput.container.resolve<EntityManager>('em')
       const tenantId = input.tenantId
       const recordId = String(entity.id)
 
       const desiredChildIds = new Set((input.childIds ?? []).filter((id) => id !== recordId))
       const toPersist: Organization[] = []
 
-      const currentChildren = await em.find(Organization, {
-        tenant: tenantId as any,
-        parentId: recordId,
-        deletedAt: null,
-      })
+      const currentChildrenFilter: FilterQuery<Organization> = { tenant: tenantId, parentId: recordId, deletedAt: null }
+      const currentChildren = await em.find(Organization, currentChildrenFilter)
       for (const child of currentChildren) {
         if (!desiredChildIds.has(String(child.id))) {
           child.parentId = null
@@ -255,11 +271,12 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       }
 
       if (desiredChildIds.size > 0) {
-        const targetChildren = await em.find(Organization, {
-          tenant: tenantId as any,
+        const targetChildrenFilter: FilterQuery<Organization> = {
+          tenant: tenantId,
           deletedAt: null,
           id: { $in: Array.from(desiredChildIds) },
-        })
+        }
+        const targetChildren = await em.find(Organization, targetChildrenFilter)
         for (const child of targetChildren) {
           if (String(child.id) === recordId) continue
           if (child.parentId !== recordId) {
@@ -285,7 +302,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
 
       await rebuildHierarchyForTenant(em, tenantId)
       try {
-        const bus = ctxWithInput.container.resolve<any>('eventBus')
+        const bus = ctxWithInput.container.resolve<EventBus>('eventBus')
         await bus.emitEvent('directory.organization.updated', { id: recordId, tenantId, organizationId: recordId }, { persistent: true })
         await bus.emitEvent('query_index.upsert_one', { entityType: E.directory.organization, recordId, organizationId: recordId, tenantId })
       } catch {
@@ -293,8 +310,9 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       }
     },
     beforeDelete: async (id, ctx) => {
-      const em = ctx.container.resolve<any>('em')
-      const org = await em.findOne(Organization, { id, deletedAt: null })
+      const em = ctx.container.resolve<EntityManager>('em')
+      const orgFilter: FilterQuery<Organization> = { id, deletedAt: null }
+      const org = await em.findOne(Organization, orgFilter)
       if (!org) throw new CrudHttpError(404, { error: 'Not found' })
 
       const authTenantId = ctx.auth?.tenantId ?? null
@@ -302,22 +320,19 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
       if (authTenantId && tenantId !== authTenantId) throw new CrudHttpError(403, { error: 'Forbidden' })
 
-      ;(ctx as any).__deleteMeta = {
+      deleteMetaStore.set(ctx, {
         tenantId,
         parentId: org.parentId ?? null,
         entity: org,
-      }
+      })
     },
     afterDelete: async (id, ctx) => {
-      const meta = (ctx as any).__deleteMeta as { tenantId: string; parentId: string | null; entity: Organization } | undefined
+      const meta = deleteMetaStore.get(ctx)
       if (!meta) return
 
-      const em = ctx.container.resolve<any>('em')
-      const children = await em.find(Organization, {
-        tenant: meta.tenantId as any,
-        parentId: id,
-        deletedAt: null,
-      })
+      const em = ctx.container.resolve<EntityManager>('em')
+      const childrenFilter: FilterQuery<Organization> = { tenant: meta.tenantId, parentId: id, deletedAt: null }
+      const children = await em.find(Organization, childrenFilter)
 
       const toPersist: Organization[] = []
       for (const child of children) {
@@ -331,13 +346,13 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
 
       await rebuildHierarchyForTenant(em, meta.tenantId)
       try {
-        const bus = ctx.container.resolve<any>('eventBus')
+        const bus = ctx.container.resolve<EventBus>('eventBus')
         await bus.emitEvent('directory.organization.deleted', { id, tenantId: meta.tenantId, organizationId: id }, { persistent: true })
         await bus.emitEvent('query_index.delete_one', { entityType: E.directory.organization, recordId: id, organizationId: id })
       } catch {
         // Event bus is optional; ignore failures
       }
-      delete (ctx as any).__deleteMeta
+      deleteMetaStore.delete(ctx)
     },
   },
 })
@@ -370,7 +385,7 @@ export async function GET(req: Request) {
   const includeInactive = query.includeInactive === 'true' || status !== 'active'
 
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const em = resolve<EntityManager>('em')
 
   if (!tenantId && !authTenantId && ids?.length) {
     const scopedOrgs: Organization[] = await em.find(
@@ -395,12 +410,12 @@ export async function GET(req: Request) {
   }
 
   if (query.view === 'options') {
-    const where: any = { tenant: tenantId as any, deletedAt: null }
+    const where: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
     if (status === 'active') where.isActive = true
     if (status === 'inactive') where.isActive = false
     if (status === 'all' && !includeInactive) where.isActive = true
     if (ids) where.id = { $in: ids }
-    const orgs: Organization[] = await em.find(Organization, where, { orderBy: { name: 'ASC' } })
+    const orgs = await em.find(Organization, where, { orderBy: { name: 'ASC' } })
     const items = orgs.map((org) => ({
       id: stringId(org.id),
       name: org.name,
@@ -413,18 +428,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ items })
   }
 
-  const orgs: Organization[] = await em.find(
-    Organization,
-    { tenant: tenantId as any, deletedAt: null },
-    { orderBy: { name: 'ASC' } },
-  )
+  const orgListFilter: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
+  const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
   const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
 
   if (query.view === 'tree') {
-    const nodeMap = new Map<string, { node: ComputedOrganizationNode; children: any[] }>()
-    const roots: any[] = []
+    const nodeMap = new Map<string, { node: ComputedOrganizationNode; children: TreeNode[] }>()
+    const roots: TreeNode[] = []
     for (const node of hierarchy.ordered) {
-      const treeNode = {
+      const treeNode: TreeNode = {
         id: node.id,
         name: node.name,
         parentId: node.parentId,
@@ -436,7 +448,7 @@ export async function GET(req: Request) {
         isActive: node.isActive,
         treePath: node.treePath,
         pathLabel: node.pathLabel,
-        children: [] as any[],
+        children: [],
       }
       nodeMap.set(node.id, { node, children: treeNode.children })
       if (node.parentId && nodeMap.has(node.parentId)) {
