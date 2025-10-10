@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { E } from '@open-mercato/example/datamodel/entities'
-import { id, title, tenant_id, organization_id, is_done } from '@open-mercato/example/datamodel/entities/todo'
+import { id, title, tenant_id, organization_id, is_done, created_at } from '@open-mercato/example/datamodel/entities/todo'
 import type { Where, WhereValue } from '@open-mercato/shared/lib/query/types'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 import ceEntities from '@open-mercato/example/modules/example/ce'
@@ -58,8 +58,8 @@ if (todoEntity?.fields?.length) {
 
 const cfSel = buildCustomFieldSelectorsForEntity(E.example.todo, baseFieldSets)
 let dynamicCfKeys: string[] = [...cfSel.keys]
-let listFields: any[] = [id, title, tenant_id, organization_id, is_done, ...cfSel.selectors]
-const sortFieldMapRef: Record<string, unknown> = { id, title, tenant_id, organization_id, is_done }
+let listFields: any[] = [id, title, tenant_id, organization_id, is_done, created_at, ...cfSel.selectors]
+const sortFieldMapRef: Record<string, unknown> = { id, title, tenant_id, organization_id, is_done, created_at }
 for (const k of dynamicCfKeys) sortFieldMapRef[`cf_${k}`] = `cf:${k}`
 
 type BaseFields = {

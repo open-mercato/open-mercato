@@ -52,7 +52,6 @@ function ensureValidWidgetModule(mod: any, key: string, moduleId: string): Loade
 async function loadEntry(entry: WidgetEntry): Promise<LoadedWidgetModule> {
   if (!widgetCache.has(entry.key)) {
     const promise = entry.loader()
-      .then((mod) => mod)
       .then((mod) => ensureValidWidgetModule(mod, entry.key, entry.moduleId))
     widgetCache.set(entry.key, promise)
   }

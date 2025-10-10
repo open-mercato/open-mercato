@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from 'react'
-import type { DashboardWidgetModule, DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
+import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { DEFAULT_SETTINGS, hydrateTodoSettings, type TodoSettings } from './config'
 
 type TodoItem = {
   id: string
@@ -12,30 +13,11 @@ type TodoItem = {
   is_done: boolean
 }
 
-type TodoSettings = {
-  pageSize: number
-  showCompleted: boolean
-}
-
-const DEFAULT_SETTINGS: TodoSettings = {
-  pageSize: 5,
-  showCompleted: true,
-}
-
-function normalizeSettings(raw: unknown): TodoSettings {
-  if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS }
-  const data = raw as Partial<TodoSettings>
-  const pageSize = Number(data.pageSize)
-  return {
-    pageSize: Number.isFinite(pageSize) && pageSize >= 1 && pageSize <= 20 ? Math.floor(pageSize) : DEFAULT_SETTINGS.pageSize,
-    showCompleted: data.showCompleted ?? DEFAULT_SETTINGS.showCompleted,
-  }
-}
-
 async function fetchTodos(settings: TodoSettings): Promise<TodoItem[]> {
   const params = new URLSearchParams({
     page: '1',
     pageSize: String(settings.pageSize),
+    sortField: 'created_at',
     sortDir: 'desc',
   })
   if (!settings.showCompleted) params.set('isDone', 'false')
@@ -50,20 +32,16 @@ async function fetchTodos(settings: TodoSettings): Promise<TodoItem[]> {
   })).filter((todo) => todo.id && todo.title)
 }
 
-async function createTodo(title: string): Promise<TodoItem> {
+async function createTodo(title: string): Promise<void> {
   const res = await apiFetch('/api/example/todos', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ title }),
   })
   if (!res.ok) throw new Error(`Failed with status ${res.status}`)
-  const json = await res.json().catch(() => ({}))
-  const id = json?.id ? String(json.id) : null
-  if (!id) throw new Error('Missing todo id from response')
-  return { id, title, is_done: false }
 }
 
-async function toggleTodo(id: string, isDone: boolean) {
+async function toggleTodo(id: string, isDone: boolean): Promise<void> {
   const res = await apiFetch('/api/example/todos', {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
@@ -72,8 +50,8 @@ async function toggleTodo(id: string, isDone: boolean) {
   if (!res.ok) throw new Error(`Failed with status ${res.status}`)
 }
 
-const TodoWidget: React.FC<DashboardWidgetComponentProps<TodoSettings>> = ({ mode, settings, onSettingsChange }) => {
-  const value = React.useMemo(() => normalizeSettings(settings), [settings])
+const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = ({ mode, settings, onSettingsChange }) => {
+  const value = React.useMemo(() => hydrateTodoSettings(settings), [settings])
   const [items, setItems] = React.useState<TodoItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -231,22 +209,4 @@ const TodoWidget: React.FC<DashboardWidgetComponentProps<TodoSettings>> = ({ mod
   )
 }
 
-const widget: DashboardWidgetModule<TodoSettings> = {
-  metadata: {
-    id: 'example.dashboard.todos',
-    title: 'Todos',
-    description: 'Stay on top of Example module todos and add new ones without leaving the dashboard.',
-    features: ['dashboards.view', 'example.widgets.todo'],
-    defaultSize: 'md',
-    defaultEnabled: true,
-    defaultSettings: DEFAULT_SETTINGS,
-  },
-  Widget: TodoWidget,
-  hydrateSettings: normalizeSettings,
-  dehydrateSettings: (value) => ({
-    pageSize: value.pageSize,
-    showCompleted: value.showCompleted,
-  }),
-}
-
-export default widget
+export default TodoWidgetClient
