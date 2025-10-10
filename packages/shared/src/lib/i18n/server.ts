@@ -2,6 +2,7 @@ import { cookies, headers } from 'next/headers'
 import { defaultLocale, locales, type Locale } from './config'
 import type { Dict } from './context'
 import { modules } from '@/generated/modules.generated'
+import { createFallbackTranslator, createTranslator } from './translate'
 
 export async function detectLocale(): Promise<Locale> {
   const c = (await cookies()).get('locale')?.value
@@ -19,4 +20,12 @@ export async function loadDictionary(locale: Locale): Promise<Dict> {
     if (dict) Object.assign(merged, dict)
   }
   return merged
+}
+
+export async function resolveTranslations() {
+  const locale = await detectLocale()
+  const dict = await loadDictionary(locale)
+  const t = createTranslator(dict)
+  const translate = createFallbackTranslator(dict)
+  return { locale, dict, t, translate }
 }

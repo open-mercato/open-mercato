@@ -41,7 +41,7 @@ export default async function Home() {
         <Image
           src="/open-mercato.svg"
           alt="Open Mercato"
-          width={120}
+          width={40}
           height={40}
           className="dark:invert"
           priority

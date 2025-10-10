@@ -160,26 +160,39 @@ Notes:
 - The generator auto-imports module JSON and adds them to `Module.translations`.
 - Layout merges base + all module dictionaries for the current locale and provides:
   - `useT()` hook for client components (`@/lib/i18n/context`).
-  - `loadDictionary(locale)` for server components (`@/lib/i18n/server`).
+  - `loadDictionary(locale)` for server components (`@open-mercato/shared/lib/i18n/server`).
+  - `resolveTranslations()` to fetch locale/dictionary plus ready-to-use translators.
+  - `createTranslator(dict)` to build a reusable translator from a dictionary.
+  - `createFallbackTranslator(dict)` to get a single-call `translate(key, fallback, params?)`.
+  - `translateWithFallback(t, key, fallback, params?)` for graceful defaults and string interpolation.
 
 Client usage:
 ```tsx
 "use client"
 import { useT } from '@/lib/i18n/context'
+import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+
 export default function MyComponent() {
   const t = useT()
-  return <h1>{t('example.moduleTitle')}</h1>
+  const heading = translateWithFallback(t, 'example.moduleTitle', 'Example module')
+  return <h1>{heading}</h1>
 }
 ```
 
 Server usage:
 ```tsx
-import { detectLocale, loadDictionary } from '@/lib/i18n/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+
 export default async function Page() {
-  const locale = detectLocale()
-  const dict = await loadDictionary(locale)
-  const t = (k: string) => dict[k] ?? k
-  return <h1>{t('backend.title')}</h1>
+  const { translate } = await resolveTranslations()
+  const title = translate('backend.title', 'Dashboard')
+  const subtitle = translate('backend.subtitle', 'Manage your workspace', { org: 'Acme' })
+  return (
+    <>
+      <h1>{title}</h1>
+      <p>{subtitle}</p>
+    </>
+  )
 }
 ```
 

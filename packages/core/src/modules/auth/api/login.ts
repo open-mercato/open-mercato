@@ -3,10 +3,12 @@ import { userLoginSchema } from '@open-mercato/core/modules/auth/data/validators
 import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { signJwt } from '@/lib/auth/jwt'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 // validation comes from userLoginSchema
 
 export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
   const form = await req.formData()
   const email = String(form.get('email') ?? '')
   const password = String(form.get('password') ?? '')
@@ -15,24 +17,24 @@ export async function POST(req: Request) {
   const requiredRoles = requireRoleRaw ? requireRoleRaw.split(',').map((s) => s.trim()).filter(Boolean) : []
   const parsed = userLoginSchema.pick({ email: true, password: true }).safeParse({ email, password })
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'Invalid credentials' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid credentials') }, { status: 400 })
   }
   const container = await createRequestContainer()
   const auth = container.resolve<AuthService>('authService')
   const user = await auth.findUserByEmail(parsed.data.email)
   if (!user || !user.passwordHash) {
-    return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
+    return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   const ok = await auth.verifyPassword(user, parsed.data.password)
   if (!ok) {
-    return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
+    return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   // Optional role requirement
   if (requiredRoles.length) {
     const userRoleNames = await auth.getUserRoles(user)
     const authorized = requiredRoles.some(r => userRoleNames.includes(r))
     if (!authorized) {
-      return NextResponse.json({ ok: false, error: 'Not authorized for this area' }, { status: 403 })
+      return NextResponse.json({ ok: false, error: translate('auth.login.errors.permissionDenied', 'Not authorized for this area') }, { status: 403 })
     }
   }
   await auth.updateLastLoginAt(user)

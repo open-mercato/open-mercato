@@ -5,5 +5,20 @@
   "auth.sendResetLink": "Wyślij link resetujący",
   "auth.resetPassword": "Resetuj hasło",
   "auth.usersRoles": "Użytkownicy i role",
-  "auth.manageAuthSettings": "Zarządzaj ustawieniami uwierzytelniania."
+  "auth.manageAuthSettings": "Zarządzaj ustawieniami uwierzytelniania.",
+  "auth.login.errors.permissionDenied": "Nie masz uprawnień do tego obszaru. Skontaktuj się z administratorem.",
+  "auth.login.errors.invalidCredentials": "Nieprawidłowy email lub hasło",
+  "auth.login.errors.generic": "Wystąpił błąd. Spróbuj ponownie.",
+  "auth.login.logoAlt": "Logo Open Mercato",
+  "auth.login.brandName": "Open Mercato",
+  "auth.login.subtitle": "Uzyskaj dostęp do swojego środowiska",
+  "auth.login.requireRoleMessage": "Dostęp wymaga roli: {roles}",
+  "auth.login.requireRolesMessage": "Dostęp wymaga jednej z następujących ról: {roles}",
+  "auth.login.featureDenied": "Nie masz dostępu do tej funkcji ({feature}). Skontaktuj się z administratorem.",
+  "auth.login.rememberMe": "Zapamiętaj mnie",
+  "auth.login.loading": "Ładowanie...",
+  "auth.login.forgotPassword": "Nie pamiętasz hasła?",
+  "auth.roles.superadmin": "Superadministrator",
+  "auth.roles.admin": "Administrator",
+  "auth.roles.employee": "Pracownik"
 }
