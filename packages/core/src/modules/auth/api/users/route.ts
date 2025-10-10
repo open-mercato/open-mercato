@@ -131,13 +131,14 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       const tenantId = org.tenant?.id ? String(org.tenant.id) : null
       const roles = Array.isArray(parsed.data.roles) ? parsed.data.roles : []
 
-      createStateStore.set(raw as object, {
+      createStateStore.set(parsed.data as unknown as object, {
         input: parsed.data,
         custom,
         passwordHash,
         tenantId,
         roles,
       })
+      return parsed.data as unknown as CrudInput
     },
     afterCreate: async (entity, ctx) => {
       const state = createStateStore.get(ctx.input as object)
@@ -183,13 +184,14 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
 
       const shouldInvalidateCache = parsed.data.organizationId !== undefined || parsed.data.roles !== undefined
 
-      updateStateStore.set(raw as object, {
+      updateStateStore.set(parsed.data as unknown as object, {
         input: parsed.data,
         custom,
         passwordHash,
         roles: parsed.data.roles,
         shouldInvalidateCache,
       })
+      return parsed.data as unknown as CrudInput
     },
     afterUpdate: async (entity, ctx) => {
       const state = updateStateStore.get(ctx.input as object)
