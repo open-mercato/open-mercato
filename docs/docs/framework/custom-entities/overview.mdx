@@ -8,7 +8,7 @@ Beyond module-defined MikroORM entities, Open Mercato ships an Entities module t
 ## Definitions
 
 - `ce.ts` – each module can export an `entities` array describing custom entities and their fields.
-- Fields support core types (`text`, `textarea`, `integer`, `float`, `boolean`, `date`, `select`, `relation`, `attachment`) and you can add more via the [field registry](../../customization/forms/field-registry).
+- Fields support core types (`text`, `textarea`, `integer`, `float`, `boolean`, `date`, `select`, `relation`, `attachment`) and you can add more via the [field registry](../admin-ui/field-registry).
 - Generators compile definitions into `modules.generated.ts` so runtime registries know which modules supply which custom entities.
 
 ```ts title="src/modules/example/ce.ts"
@@ -32,8 +32,8 @@ export const entities = [
 ## Values
 
 - Custom field values are stored in the shared `entities` module tables. Each record is scoped by `entity_id`, `record_id`, `organization_id`, and `tenant_id`.
-- The [data engine](../../architecture/data-engine) persists values and emits events after updates.
-- The query engine can project custom fields using the `cf:<key>` syntax (e.g., `cf:priority`).
+- The [data engine](../runtime/data-engine) persists values and emits events after updates.
+- The [query engine](../database/query-engine) can project custom fields using the `cf:<key>` syntax (e.g., `cf:priority`).
 
 ## Admin experience
 

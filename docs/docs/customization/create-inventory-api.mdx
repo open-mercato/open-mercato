@@ -1,0 +1,129 @@
+---
+title: Create the data API
+description: Expose REST endpoints for the Inventory module using the CRUD factory.
+---
+
+# Step 4: Create the data API
+
+API handlers live under `api/<method>/<path>.ts`. The CRUD factory from `@open-mercato/core` handles most boilerplate when you supply repositories and validators.
+
+## 1. Implement the repository service
+
+```bash
+mkdir -p packages/inventory/src/modules/inventory/services
+touch packages/inventory/src/modules/inventory/services/inventory-service.ts
+```
+
+```ts title="services/inventory-service.ts"
+import type { EntityManager } from '@mikro-orm/core';
+import { InventoryItemEntity } from '../data/entities';
+import type { UpsertInventoryItemInput } from '../data/validators';
+
+export class InventoryService {
+  constructor(private readonly em: EntityManager) {}
+
+  async list(params: { tenantId: string; organizationId?: string }) {
+    return this.em.find(
+      InventoryItemEntity,
+      {
+        tenant_id: params.tenantId,
+        ...(params.organizationId ? { organization_id: params.organizationId } : {}),
+        deleted_at: null,
+      },
+      { orderBy: { name: 'asc' } },
+    );
+  }
+
+  async create(input: UpsertInventoryItemInput) {
+    const item = this.em.create(InventoryItemEntity, {
+      tenant_id: input.tenantId,
+      organization_id: input.organizationId,
+      sku: input.sku,
+      name: input.name,
+      quantity: input.quantity,
+      location: input.location ?? null,
+    });
+    await this.em.persistAndFlush(item);
+    return item;
+  }
+
+  async update(id: string, input: UpsertInventoryItemInput) {
+    const item = await this.em.findOneOrFail(InventoryItemEntity, {
+      id,
+      tenant_id: input.tenantId,
+      deleted_at: null,
+    });
+    item.organization_id = input.organizationId;
+    item.sku = input.sku;
+    item.name = input.name;
+    item.quantity = input.quantity;
+    item.location = input.location ?? null;
+    await this.em.flush();
+    return item;
+  }
+
+  async remove(id: string, tenantId: string) {
+    const item = await this.em.findOneOrFail(InventoryItemEntity, { id, tenant_id: tenantId });
+    item.deleted_at = new Date();
+    await this.em.flush();
+  }
+}
+```
+
+Wire the service in `di.ts`:
+
+```ts title="di.ts"
+import { asClass } from 'awilix';
+import type { AppContainer } from '@open-mercato/shared/lib/di/container';
+import { InventoryService } from './services/inventory-service';
+
+export function register(container: AppContainer) {
+  container.register({
+    inventoryService: asClass(InventoryService).scoped(),
+  });
+}
+```
+
+## 2. Create CRUD endpoints
+
+```bash
+mkdir -p packages/inventory/src/modules/inventory/api/items
+touch packages/inventory/src/modules/inventory/api/items/route.ts
+```
+
+```ts title="api/items/route.ts"
+import { createCrudRouter } from '@open-mercato/core/modules/api/crud-router';
+import type { AppRouteHandlerContext } from '@open-mercato/shared/modules/api/types';
+import { upsertInventoryItemSchema } from '../../data/validators';
+
+export const { GET, POST, PATCH, DELETE, metadata } = createCrudRouter({
+  entityName: 'inventory_item',
+  requireAuth: true,
+  requireFeatures: {
+    list: ['inventory.view'],
+    create: ['inventory.create'],
+    update: ['inventory.edit'],
+    delete: ['inventory.delete'],
+  },
+  validator: upsertInventoryItemSchema,
+  resolveServices: ({ container }: AppRouteHandlerContext) => ({
+    inventoryService: container.resolve('inventoryService'),
+  }),
+  list: async ({ inventoryService, auth }) =>
+    inventoryService.list({ tenantId: auth.tenantId, organizationId: auth.organizationId }),
+  create: async ({ inventoryService, auth }, input) =>
+    inventoryService.create({ ...input, tenantId: auth.tenantId }),
+  update: async ({ inventoryService, auth }, id, input) =>
+    inventoryService.update(id, { ...input, tenantId: auth.tenantId }),
+  remove: async ({ inventoryService, auth }, id) =>
+    inventoryService.remove(id, auth.tenantId),
+});
+```
+
+The factory:
+
+- Generates per-method metadata so RBAC and auth guards run automatically.
+- Validates request bodies against your zod schema.
+- Injects the Awilix container, making services accessible.
+
+Once you restart the dev server, the new API is available at `/api/items`.

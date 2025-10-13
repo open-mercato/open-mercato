@@ -33,7 +33,7 @@ flowchart LR
 
 **Dependency injection** – Awilix provides request-scoped services so APIs, pages, and subscribers share the same business logic without tight coupling.
 
-**Data layer** – MikroORM entities live inside modules. The [query engine](../framework/database/query-layer) unifies access to base tables, extensions, and custom fields, while the [data engine](./data-engine) persists writes and emits events.
+**Data layer** – MikroORM entities live inside modules. The [query engine](../framework/database/query-engine) unifies access to base tables, extensions, and custom fields, while the [data engine](../framework/runtime/data-engine) persists writes and emits events.
 
 **Events** – The [event bus](../framework/events/overview) propagates domain changes to subscribers (for example, syncing search indexes).
 

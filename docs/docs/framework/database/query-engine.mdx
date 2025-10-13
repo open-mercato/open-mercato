@@ -1,9 +1,9 @@
 ---
-title: Unified query layer
+title: Query engine
 description: Fetch base entities, extensions, and custom fields through a single typed API.
 ---
 
-# Unified Query Layer
+# Query Engine
 
 The query layer provides a consistent API to fetch data across base entities, module extensions, and custom fields. It is available via DI as `queryEngine`.
 
@@ -93,6 +93,13 @@ await query.query(E.auth.user, { filters })
 ```
 
 If you don’t provide the generic, `filters` falls back to a permissive shape.
+
+## Custom fields integration
+
+- Specify custom fields in the `fields` array using the `cf:` prefix (for example, `cf:priority`). They will be projected directly into the result objects.
+- Include custom fields in filters and sorts the same way: `{ field: 'cf:priority', op: 'eq', value: 'High' }`.
+- Because custom fields are scoped per tenant, all queries must supply `tenantId`. Organization filters are optional but recommended for back-office pages.
+- Use the `defineFields` DSL in your module’s `ce.ts` so that generators surface field metadata to UIs. Custom fields created through the admin UI appear automatically once they are published.
 
 ## Implementation notes
 - `BasicQueryEngine` and `HybridQueryEngine` require `tenantId`.

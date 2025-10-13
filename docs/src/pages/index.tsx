@@ -26,7 +26,7 @@ const features = [
     title: 'Customize Admin UX',
     description:
       'Ship new pages, grids, forms, and dashboard widgets with MDX-driven docs and reusable UI primitives.',
-    to: '/customization/modules/quickstart',
+    to: '/customization/build-first-app',
   },
 ];
 

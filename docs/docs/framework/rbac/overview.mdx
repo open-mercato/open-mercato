@@ -81,3 +81,13 @@ Include feature-aware tests alongside APIs or pages:
 - Confirm that super admin and feature overrides behave as intended.
 
 Because RBAC relies on generated module metadata, run `yarn modules:prepare` whenever you add or remove features before executing tests or type checks.
+
+## Managing ACLs in the admin
+
+![Editing role features](/screenshots/open-mercato-managing-roles.png)
+
+Roles aggregate feature flags. Administrators assign features per role in the **Roles** screen, then apply roles to many users at once.
+
+![Editing user ACL overrides](/screenshots/open-mercato-edit-user-and-acl.png)
+
+User-level overrides let you fine-tune access for individuals—grant additional features or revoke ones inherited from roles without creating more roles.

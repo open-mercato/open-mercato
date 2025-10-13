@@ -1,0 +1,43 @@
+---
+title: Hybrid query engine
+description: Accelerate entity queries with the optional JSONB index layer.
+---
+
+# Hybrid Query Engine
+
+The query engine can transparently route requests through a denormalised JSONB index. This hybrid approach keeps write operations on the primary tables while enabling fast reads for list and search screens.
+
+## How it works
+
+1. Each entity that opts in gains an `*_index` table storing flattened rows (base fields, extension fields, custom fields).
+2. Background jobs or CLI commands (`yarn mercato entities install --reindex`) populate and refresh the index.
+3. When the index is up to date, the query engine executes filters and sorts against the JSONB payload, bypassing expensive joins.
+4. If the index is missing or stale, the query engine automatically falls back to the relational query plan.
+
+## Opting in
+
+```ts title="src/modules/inventory/index.ts"
+export const metadata = {
+  id: 'inventory',
+  title: 'Inventory',
+  version: '0.1.0',
+  description: 'Track stock levels for sellable items.',
+  queryIndex: {
+    entities: ['inventory:item'],
+  },
+};
+```
+
+- Add the entity id you want indexed.
+- Run `yarn modules:prepare` and `yarn db:generate` to create the index tables.
+- Trigger an initial backfill (for example, `yarn mercato entities sync-index --entity inventory:item --tenant <tenantId>`).
+
+## Working with custom fields
+
+The hybrid index stores custom fields under the same keys used by the query engine (`cf:<key>`). When you add or remove custom fields via the admin UI or `ce.ts`, rerun the `sync-index` command to update the flattened payload.
+
+## Monitoring freshness
+
+- Inspect `modules.generated.ts` to confirm the entity lists `hybridQuery: true`.
+- Each index record carries an `updated_at` timestamp. Use it to detect stale data and schedule incremental refreshes.
+- The engine logs when it falls back to relational mode, making it easy to flag missing indexes during development.

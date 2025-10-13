@@ -34,8 +34,6 @@ const sidebars: SidebarsConfig = {
       label: 'Architecture',
       items: [
         'architecture/system-overview',
-        'architecture/data-engine',
-        'architecture/request-lifecycle',
       ],
     },
     {
@@ -49,15 +47,19 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Customization Tutorials',
       items: [
-        'customization/modules/quickstart',
-        'customization/modules/authoring-first-module',
-        'customization/api/extending-api',
-        'customization/data-entities/data-extensibility',
-        'customization/forms/crud-form',
-        'customization/forms/field-registry',
-        'customization/forms/custom-field-validation',
-        'customization/grids/data-grids',
-        'customization/dashboard-widgets/overview',
+        'customization/build-first-app',
+        'customization/create-first-module',
+        'customization/create-inventory-data',
+        'customization/create-inventory-api',
+        'customization/list-inventory',
+        'customization/inventory-crud-forms',
+        'customization/custom-fields-overview',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Hands-on Tutorials',
+      items: [
         'tutorials/first-app',
         'tutorials/building-todo-module',
         'tutorials/authoring-first-module',
@@ -83,21 +85,47 @@ const sidebars: SidebarsConfig = {
           label: 'Database & Entities',
           items: [
             'framework/database/entities',
-            'framework/database/query-layer',
+            'framework/database/data-extensibility',
+            'framework/database/query-engine',
+            'framework/database/hybrid-query-engine',
             'framework/database/query-index',
           ],
         },
         'framework/custom-entities/overview',
         {
           type: 'category',
+          label: 'Admin UI',
+          items: [
+            'framework/admin-ui/data-grids',
+            'framework/admin-ui/crud-form',
+            'framework/admin-ui/field-registry',
+            'framework/admin-ui/custom-field-validation',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Dashboard',
+          items: ['framework/dashboard/widgets-overview'],
+        },
+        {
+          type: 'category',
           label: 'API Routes',
           items: [
             'framework/api/overview',
             'framework/api/crud-factory',
+            'framework/api/extending-api',
           ],
         },
         'framework/events/overview',
         'framework/rbac/overview',
+        {
+          type: 'category',
+          label: 'Runtime',
+          items: [
+            'framework/runtime/data-engine',
+            'framework/runtime/request-lifecycle',
+          ],
+        },
       ],
     },
     {

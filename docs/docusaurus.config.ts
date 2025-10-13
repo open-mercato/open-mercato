@@ -81,7 +81,7 @@ const config: Config = {
         },
         {
           type: 'doc',
-          docId: 'customization/modules/quickstart',
+          docId: 'customization/build-first-app',
           label: 'Customization',
           position: 'left',
         },
