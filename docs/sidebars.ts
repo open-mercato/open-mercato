@@ -38,6 +38,13 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'REST API',
+      items: [
+        'api/overview',
+      ],
+    },
+    {
+      type: 'category',
       label: 'CLI',
       items: [
         'cli/overview',

@@ -1,40 +1,114 @@
 ---
 title: System overview
-description: Understand the major building blocks that power Open Mercato.
+description: Understand how Open Mercato is structured, where to extend it, and how requests move through the stack.
 ---
 
-Open Mercato is organised into layers that keep custom code isolated while sharing common infrastructure.
+Open Mercato is a modular platform: every capability lives in a module that can be enabled, overridden, or replaced without touching the core runtime. This page highlights the architecture, shows where customisation happens, and links to deeper references.
+
+## Modular architecture at a glance
+
+- Modules are declared in `packages/<pkg>/src/modules/<module>` (package-supplied) or `src/modules/<module>` (app overrides).
+- The application bootstraps modules from `src/modules.ts`. Removing an entry disables the module; adding a new entry enables a custom package.
+- Generators (`yarn modules:prepare`) scan all enabled modules, merge overrides, and emit registries that drive routing, DI, entities, dashboards, and CLI discovery.
+
+### Module building blocks
+
+| File / folder | Purpose |
+| --- | --- |
+| `index.ts` | Module metadata (`id`, `title`, version, optional query-index configuration). |
+| `acl.ts` | Feature flags exported as `features` (used by RBAC). |
+| `di.ts` | Awilix registrar (`register(container)`) that installs services, repositories, and factories. |
+| `backend/*` & `frontend/*` | Next.js App Router pages. Optional `*.meta.ts` files supply navigation + RBAC metadata. |
+| `api/<method>/<path>.ts` | REST handlers, usually via the [CRUD factory](../framework/api/crud-factory). |
+| `data/entities.ts` & `data/extensions.ts` | MikroORM entities and links to extend other modules. |
+| `data/validators.ts` | Zod schemas reused by APIs, CLIs, and forms. |
+| `subscribers/*.ts` | Event subscribers with metadata (`event`, `persistent`). |
+| `widgets/dashboard/*` | Dashboard widgets auto-discovered by the admin UI. |
+| `ce.ts` | Custom entities & fields definitions for the Entities module. |
+| `i18n/<locale>.json` | Translation bundles for module-specific copy. |
+
+## Runtime stack
+
+```mermaid
+flowchart TD
+    subgraph Presentation
+        FE[Frontend app<br/>/app/(frontend)]
+        BE[Backend app<br/>/app/(backend)]
+    end
+    API[API routes\nsrc/app/api/[...slug]]
+    CE[Custom entities & fields\n(EAV store + cache)]
+    CACHE[(Redis / in-memory cache)]
+    DB[(PostgreSQL)]
+
+    FE -->|auto-discovered pages| API
+    BE -->|server actions| API
+    FE -->|module metadata| CE
+    BE -->|query engine| CE
+    API -->|CRUD factory| CACHE
+    API -->|Data Engine| DB
+    CACHE --> DB
+    CE --> DB
+```
+
+- **Frontend / backend apps** – Catch-all routers in `src/app/(frontend)` and `src/app/(backend)` resolve module pages. Backend pages attach metadata for navigation, RBAC, and features.
+- **API** – Requests hit `src/app/api/[...slug]/route.ts`, which loads module handlers and executes the request lifecycle (see [request lifecycle](../framework/runtime/request-lifecycle)).
+- **Custom entities & fields layer** – The Entities module stores runtime-defined entities as JSONB. It exposes cached definitions and values to pages, forms, and query helpers.
+- **Cache** – Module services can opt into caching (Redis or in-memory) for derived data and queueing subscribers.
+- **PostgreSQL** – The authoritative data store. System entities live in module-owned tables; user entities live in EAV tables. The [query engine](../framework/database/query-engine) and [hybrid query engine](../framework/database/hybrid-query-engine) provide fast read paths, while the [data engine](../framework/runtime/data-engine) coordinates writes.
+
+## Custom application architecture
 
 ```mermaid
 flowchart LR
-    UI[Frontend & Admin Pages]
-    API[API Routes]
-    SUB[Subscribers]
-    DI[(DI Container)]
-    QE[Query Engine]
-    DE[Data Engine]
-    DB[(PostgreSQL)]
-    CF[Custom Fields]
-
-    UI --> DI
-    API --> DI
-    SUB --> DI
-    DI --> QE
-    DI --> DE
-    QE --> DB
-    DE --> DB
-    DE --> CF
-    QE --> CF
+    subgraph App
+        SRC[src/app/*<br/>pages/layouts]
+        SM[src/modules/*<br/>overrides]
+        MT[src/modules.ts<br/>module toggle]
+    end
+    subgraph Packages
+        CORE[@open-mercato/core<br/>modules]
+        EXTRA[Custom packages<br/>@open-mercato/*]
+    end
+    SRC --> Router[Frontend & backend routers]
+    SM --> Generator[yarn modules:prepare]
+    CORE --> Generator
+    EXTRA --> Generator
+    MT --> Generator
+    Generator --> Registry[modules.generated.ts\nentities.generated.ts]
+    Registry --> Runtime[Runtime (routes, APIs, DI)]
 ```
 
-**Presentation layer** – Next.js (App Router) renders frontend and backend routes discovered from modules. Admin-specific pages declare metadata for navigation, RBAC, and features.
+- **`src/app`** – Override or add pages/layouts without touching package sources.
+- **`src/modules`** – Provide module-level overrides (backend/frontend pages, APIs, entities, i18n). Files here take precedence over package files with the same relative path.
+- **`src/modules.ts`** – Acts as a manifest: enabling/disabling modules reconfigures the application without code changes.
+- **Generated registries** – Link together app overrides and package modules. They power auto-discovery for routing, APIs, DI, dashboard widgets, subscribers, and CLI commands.
 
-**API layer** – REST endpoints are registered through the same module discovery process and usually leverage the [CRUD factory](../framework/api/crud-factory) for consistency.
+### Extension points
 
-**Dependency injection** – Awilix provides request-scoped services so APIs, pages, and subscribers share the same business logic without tight coupling.
+- **Application reconfiguration** – Swap modules in `src/modules.ts`, override routers in `src/app`, or adjust DI via `src/lib`.
+- **Modules** – Ship new modules in `packages/<your-package>` or override core behaviour in `src/modules/<module>`.
+- **Custom entities & fields** – Define runtime-managed schemas in `ce.ts` or through the admin UI, then seed them with `yarn mercato entities install`.
+- **Entity links** – Use `data/extensions.ts` with `defineLink()` to relate module entities without violating module isolation.
 
-**Data layer** – MikroORM entities live inside modules. The [query engine](../framework/database/query-engine) unifies access to base tables, extensions, and custom fields, while the [data engine](../framework/runtime/data-engine) persists writes and emits events.
+## Request lifecycle
 
-**Events** – The [event bus](../framework/events/overview) propagates domain changes to subscribers (for example, syncing search indexes).
+Every request (page load, API call, server action) runs through the same pipeline:
 
-This layered approach keeps module boundaries clear and enables teams to mix-and-match capabilities without sacrificing maintainability.
+1. **Routing** – Catch-all routers locate the target module file based on metadata from `modules.generated.ts`.
+2. **DI scope** – `createRequestContainer` builds a request-scoped Awilix container, registers core services, then applies module `di.ts` registrars.
+3. **Auth & RBAC** – `requireAuth`, `requireRoles`, and `requireFeatures` metadata are enforced before handler logic executes.
+4. **Business logic** – Handlers typically call module services, the query engine, or the data engine.
+5. **Events & subscribers** – Writes emit events that persistent subscribers process (for example, index rebuilds, notifications).
+
+See the dedicated [request lifecycle reference](../framework/runtime/request-lifecycle) for a deeper breakdown.
+
+## Translations
+
+- Modules own their own translation bundles under `modules/<module>/i18n/<locale>.json`. These files are merged at build time.
+- Use the shared translation helpers from `@open-mercato/ui` or `@open-mercato/core/lib/i18n` to load strings in pages, APIs, or services.
+- Admin users can select locales; the backend UI automatically loads translated labels for module navigation, forms, and custom entities where available.
+- When overriding copy in `src/modules`, provide matching `i18n` files to keep language coverage consistent.
+
+---
+
+This architecture lets you assemble enterprise features by combining modules, configure them per tenant or organisation, and override behaviour safely as your product evolves. Continue with the [Framework reference](../framework/modules/overview) to dive into the module APIs in detail.

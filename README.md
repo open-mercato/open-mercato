@@ -23,11 +23,36 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
 
 ## Screenshots
 
-| Dashboard | Organizations | Users |
-| --- | --- | --- |
-| <a href="docs/static/screenshots/open-mercato-dashboard.png"><img src="docs/static/screenshots/open-mercato-dashboard.png" alt="Open Mercato dashboard" width="260"/></a> | <a href="docs/static/screenshots/open-mercato-edit-organization.png"><img src="docs/static/screenshots/open-mercato-edit-organization.png" alt="Editing an organization" width="260"/></a> | <a href="docs/static/screenshots/open-mercato-users-management.png"><img src="docs/static/screenshots/open-mercato-users-management.png" alt="Users management view" width="260"/></a> |
-| Roles & ACL | Custom Fields | Custom Entity Records |
-| <a href="docs/static/screenshots/open-mercato-managing-roles.png"><img src="docs/static/screenshots/open-mercato-managing-roles.png" alt="Managing roles and permissions" width="260"/></a> | <a href="docs/static/screenshots/open-mercato-define-custom-fields.png"><img src="docs/static/screenshots/open-mercato-define-custom-fields.png" alt="Defining custom fields" width="260"/></a> | <a href="docs/static/screenshots/open-mercato-custom-entity-records.png"><img src="docs/static/screenshots/open-mercato-custom-entity-records.png" alt="Managing custom entity records" width="260"/></a> |
+<table>
+  <tr>
+    <td><a href="docs/static/screenshots/open-mercato-dashboard.png"><img src="docs/static/screenshots/open-mercato-dashboard.png" alt="Open Mercato dashboard" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-edit-organization.png"><img src="docs/static/screenshots/open-mercato-edit-organization.png" alt="Editing an organization" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-users-management.png"><img src="docs/static/screenshots/open-mercato-users-management.png" alt="Users management view" width="260"/></a></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;">Dashboard</td>
+    <td style="text-align:center;">Organizations</td>
+    <td style="text-align:center;">Users</td>
+  </tr>
+  <tr>
+    <td><a href="docs/static/screenshots/open-mercato-managing-roles.png"><img src="docs/static/screenshots/open-mercato-managing-roles.png" alt="Managing roles and permissions" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-define-custom-fields.png"><img src="docs/static/screenshots/open-mercato-define-custom-fields.png" alt="Defining custom fields" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-custom-entity-records.png"><img src="docs/static/screenshots/open-mercato-custom-entity-records.png" alt="Managing custom entity records" width="260"/></a></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;">Roles &amp; ACL</td>
+    <td style="text-align:center;">Custom Fields</td>
+    <td style="text-align:center;">Custom Entity Records</td>
+  </tr>
+  <tr>
+    <td colspan="3" style="text-align:center;">
+      <a href="docs/static/screenshots/open-mercato-homepage.png"><img src="docs/static/screenshots/open-mercato-homepage.png" alt="Home page showing enabled modules" width="520"/></a>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="3" style="text-align:center;">Home overview with enabled modules list</td>
+  </tr>
+</table>
 
 ## Getting Started
 
@@ -229,27 +254,15 @@ Notes:
 
 ## Documentation
 
-### Getting Started
-- <a href="./docs/tutorials/first-app.md">Quickstart tutorial</a>
-- <a href="./docs/tutorials/testing.md">Writing unit tests</a>
-- <a href="./docs/tutorials/api-data-fetching.md">API Data Fetching Tutorial</a>
-
-### Core Concepts
-- <a href="./docs/modules.md">Modules authoring and usage</a>
-- <a href="./docs/routes-and-pages.md">Creating Routes and Pages</a>
-- <a href="./docs/data-extensibility.md">Entity extensions and custom fields</a>
-- <a href="./docs/query-layer.md">Unified query layer (filters, paging, fields)</a>
-- <a href="./docs/query-index.md">JSONB indexing layer (hybrid)</a>
-- <a href="./docs/data-engine.md">DataEngine (write layer)</a>
-- <a href="./docs/events-and-subscribers.md">Events & subscribers</a>
-- <a href="./docs/api/crud-factory.md">CRUD API factory (reusable handlers, hooks, events)</a>
-
-### CLI
-
-- auth: add-user, seed-roles, add-org, setup
-- events: process, emit, clear, clear-processed
-- example: hello
-- entities: install (upsert module-declared field definitions; use --global or --org ,<id>), add-field
+- Introduction – https://docs.openmercato.com/
+- Installation – https://docs.openmercato.com/installation/setup
+- User Guide – https://docs.openmercato.com/user-guide/overview
+- Architecture – https://docs.openmercato.com/architecture/system-overview
+- CLI – https://docs.openmercato.com/cli/overview
+- Customization Tutorials – https://docs.openmercato.com/customization/build-first-app
+- Hands-on Tutorials – https://docs.openmercato.com/tutorials/first-app
+- Framework Reference – https://docs.openmercato.com/framework/ioc/container
+- Appendix – https://docs.openmercato.com/appendix/troubleshooting
 
 ## Architecture Overview
 
