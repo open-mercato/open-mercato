@@ -58,11 +58,12 @@ const config: Config = {
       logo: {
         alt: 'Open Mercato Logo',
         src: 'img/open-mercato.svg',
+        href: '/',
       },
       items: [
         {
           type: 'doc',
-          docId: 'introduction/overview',
+          docId: 'introduction/use-cases',
           label: 'Introduction',
           position: 'left',
         },

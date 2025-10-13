@@ -60,7 +60,7 @@ function HomepageHeader() {
           It’s modular, extensible, and designed for teams that want strong defaults with room to customize everything.
         </p>
         <div>
-          <Link className="button button--lg button--secondary" to="/introduction/overview">
+          <Link className="button button--lg button--secondary" to="/introduction/use-cases">
             Get Started
           </Link>
           <Link className="button button--lg button--outline button--white margin-left--sm" to="/architecture/system-overview">
