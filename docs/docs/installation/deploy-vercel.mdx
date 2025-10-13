@@ -1,0 +1,38 @@
+---
+title: Deploying to Vercel
+description: Ship both the main application and the documentation site to Vercel.
+---
+
+Open Mercato runs well on Vercel thanks to the hybrid Next.js architecture. The documentation you are reading is a standalone [Docusaurus](https://docusaurus.io/) site and can be deployed independently.
+
+## Deploy the docs site
+
+1. **Install dependencies inside `/docs`**
+   ```bash
+   cd docs
+   npm install
+   npm run build
+   ```
+2. **Create a new Vercel project** and point it to the repository root.
+3. **Override the build command** to run inside the docs workspace:
+   ```text
+   npm install --prefix docs && npm run build --prefix docs
+   ```
+4. **Set the output directory** to `docs/build`.
+5. **Add environment variables** if you customise the docs URL (e.g. `SITE_URL`). None are required by default.
+
+Vercel will serve the static build directly. For preview deployments you can enable caching headers via a `vercel.json` file (see the repository root for an example snippet).
+
+## Deploy the application
+
+1. **Project setup** – create another Vercel project (or a separate environment) pointing to the root.
+2. **Install dependencies and build**
+   ```text
+   npm install
+   npm run modules:prepare
+   npm run build
+   ```
+3. **Environment variables** – set Postgres, Redis (optional), and authentication secrets via the Vercel dashboard.
+4. **Edge vs node runtimes** – most API routes run in the Node runtime because they rely on MikroORM. Leave the default setting.
+
+For advanced needs—such as multi-region databases or background task queues—consider pairing Vercel with managed Postgres (Neon, Supabase) and a hosted queue (Upstash Redis, CloudAMQP). Subscribers and cron jobs can run on a separate worker process using the same module registries.

@@ -1,20 +1,26 @@
 # 🚀 Open Mercato
+ok
+Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑grade CRMs, ERPs, and commerce backends. It’s modular, extensible, and designed so teams can mix their own modules, entities, and workflows while keeping the guardrails of a production-ready stack.
 
-Open Mercato is a new‑era, AI‑supportive ERP foundation framework for service‑ and product‑based companies — built to power bookings, operations, and growth. It’s modular, extensible, and designed for teams that want strong defaults with room to customize everything.
+## Core Use Cases
+
+- 💼 **CRM** – model customers, opportunities, and bespoke workflows with infinitely flexible data definitions.
+- 🏭 **ERP** – manage orders, production, and service delivery while tailoring modules to match your operational reality.
+- 🛒 **Commerce** – launch CPQ flows, B2B ordering portals, or full commerce backends with reusable modules.
+- 🌐 **Headless/API platform** – expose rich, well-typed APIs for mobile and web apps using the same extensible data model.
 
 ## Highlights
 
-- 🧩 Modular architecture with auto‑discovery (pages, APIs, CLI)
-- 🧠 AI‑supportive foundation ready for assistive workflows
-- 🗃️ Per‑module entities and migrations via MikroORM
-- 🧬 Entity extensions + custom fields (EAV) without forking core schemas
-- 🧱 Strong multi‑tenant model (tenants + organizations)
-- 🧰 Dependency Injection (Awilix) for service/component overrides
-- 🔔 Event Bus with subscribers (local/redis) + offline processing
-- ⚡ Hybrid JSONB index for fast custom fields queries (optional)
-- 🔐 Authentication, roles, sessions included
-- ⚙️ Next.js app router, TypeScript, zod, bcryptjs
-
+- 🧩 **Modular architecture** – drop in your own modules, pages, APIs, and entities with auto-discovery and overlay overrides.
+- 🧬 **Custom entities & dynamic forms** – declare fields, validators, and UI widgets per module and manage them live from the admin.
+- 🏢 **Multi-tenant by default** – SaaS-ready tenancy with strict organization/tenant scoping for every entity and API.
+- 🏛️ **Multi-hierarchical organizations** – built-in organization trees with role- and user-level visibility controls.
+- 🛡️ **Feature-based RBAC** – combine per-role and per-user feature flags with organization scoping to gate any page or API.
+- ⚡ **Data indexing & caching** – hybrid JSONB indexing and smart caching for blazing-fast queries across base and custom fields.
+- 🔔 **Event subscribers & workflows** – publish domain events and process them via persistent subscribers (local or Redis).
+- ✅ **Growing test coverage** – expanding unit and integration tests ensure modules stay reliable as you extend them.
+- 🧠 **AI-supportive foundation** – structured for assistive workflows, automation, and conversational interfaces.
+- ⚙️ **Modern stack** – Next.js App Router, TypeScript, zod, Awilix DI, MikroORM, and bcryptjs out of the box.
 <img src="./docs//open-mercato-homepage.jpg" alt="Open Mercato homepage"/>
 
 ## Getting Started

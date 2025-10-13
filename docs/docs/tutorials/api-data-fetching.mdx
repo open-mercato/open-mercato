@@ -1,0 +1,147 @@
+---
+title: API data fetching tutorial
+description: Wire a module end-to-end with the CRUD factory, typed fetching helpers, and admin data tables.
+---
+
+# API Data Fetching Tutorial
+
+This tutorial shows the recommended DRY approach to building API routes and UI data fetching using the CRUD factory, custom-field helpers, and UI utilities. We’ll wire a complete entity: API (GET/POST/PUT/DELETE), filtering/sorting/pagination, CSV export, and a React table consuming it.
+
+## Table of Contents
+
+- [What you’ll build](#what-youll-build)
+- [Prerequisites](#prerequisites)
+- [1) Scaffold module, entity, and CRUD](#1-scaffold-module-entity-and-crud)
+- [2) API route with CRUD factory](#2-api-route-with-crud-factory)
+- [3) Client fetching with UI helpers](#3-client-fetching-with-ui-helpers)
+- [4) Forms with CrudForm](#4-forms-with-crudform)
+- [5) Tips](#5-tips)
+
+## What you’ll build
+
+- Reusable API route powered by the CRUD factory
+- Dynamic custom fields (EAV) without hardcoding
+- Typed client fetching with UI helpers
+- Table with sorting, filtering, and export
+
+## Prerequisites
+
+- Node.js 20+, PostgreSQL configured, migrations applied
+- Basic understanding of TypeScript, Next.js, and the module system
+
+## 1) Prepare module, entity, and CRUD
+
+The legacy `mercato scaffold` commands have been removed while we rebuild them around template files. Until the new generators are ready, create the module skeleton manually (or copy it from `packages/example/src/modules/example`):
+
+```
+mkdir -p src/modules/inventory/{api,backend,frontend,data,subscribers}
+cp packages/example/src/modules/example/index.ts src/modules/inventory/index.ts
+# Populate data/entities.ts, data/extensions.ts, ce.ts, and api routes as needed.
+```
+
+The remainder of this tutorial assumes you have an `inventory` module with a `Product` entity defined under `src/modules/inventory/data/entities.ts`.
+
+## 2) API route with CRUD factory
+
+Generated route structure (simplified):
+
+```ts
+import { z } from 'zod'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { Product } from '@/modules/inventory/data/entities'
+import { E } from '@/generated/entities.ids.generated'
+import * as F from '@/generated/entities/product'
+import fieldSets from '@/modules/inventory/data/fields'
+import { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
+
+const querySchema = z.object({ page: z.coerce.number().min(1).default(1), pageSize: z.coerce.number().min(1).max(100).default(50), sortField: z.string().optional().default('id'), sortDir: z.enum(['asc','desc']).optional().default('asc') }).passthrough()
+const createSchema = z.object({}).passthrough()
+const updateSchema = z.object({ id: z.string().uuid() }).passthrough()
+
+const cf = buildCustomFieldSelectorsForEntity(E.inventory.product, fieldSets)
+const sortFieldMap = { id: F.id, created_at: F.created_at, ...Object.fromEntries(cf.keys.map(k => [`cf_${k}`, `cf:${k}`])) }
+
+export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
+  metadata: { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },
+  orm: { entity: Product, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+  events: { module: 'inventory', entity: 'product', persistent: true },
+  list: {
+    schema: querySchema,
+    entityId: E.inventory.product,
+    fields: [F.id, F.created_at, ...cf.selectors],
+    sortFieldMap,
+    buildFilters: async (q, ctx) => ({ ...(await buildCustomFieldFiltersFromQuery({ entityId: E.inventory.product, query: q as any, em: ctx.container.resolve('em'), orgId: ctx.auth.orgId, tenantId: ctx.auth.tenantId })) }),
+    transformItem: (item: any) => ({ id: item.id, created_at: item.created_at, ...extractCustomFieldsFromItem(item as any, cf.keys) }),
+    allowCsv: true,
+    csv: { headers: ['id','created_at', ...cf.outputKeys], row: (t) => [t.id, t.created_at, ...cf.outputKeys.map(k => String((t as any)[k] ?? ''))], filename: 'products.csv' },
+  },
+  create: { schema: createSchema, mapToEntity: (input: any) => ({}), customFields: { enabled: true, entityId: E.inventory.product, pickPrefixed: true } },
+  update: { schema: updateSchema, applyToEntity: (entity: Product, input: any) => {}, customFields: { enabled: true, entityId: E.inventory.product, pickPrefixed: true } },
+  del: { idFrom: 'query', softDelete: true },
+})
+```
+
+Highlights:
+
+- No hardcoded CFs — selectors, filters, transforms, CSV headers all derive from fieldSets.
+- Multi-tenant safe (org/tenant guarded) with soft-delete handling.
+- Emits `inventory.product.created|updated|deleted` events.
+
+## 3) Client fetching with UI helpers
+
+In your React component, use fetchCrudList for typed fetching and buildCrudCsvUrl for exports.
+
+```tsx
+import { useQuery } from '@tanstack/react-query'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { fetchCrudList, buildCrudCsvUrl } from '@open-mercato/ui/backend/utils/crud'
+
+type ProductRow = { id: string; created_at?: string; cf_sku?: string; cf_price?: number }
+
+export function ProductsTable() {
+  const params = { page: 1, pageSize: 50, sortField: 'id', sortDir: 'asc' }
+  const { data, isLoading } = useQuery({
+    queryKey: ['products', params],
+    queryFn: () => fetchCrudList<ProductRow>('inventory/products', params),
+  })
+
+  return (
+    <DataTable
+      title="Products"
+      data={data?.items || []}
+      columns={[{ accessorKey: 'id', header: 'ID' }, { accessorKey: 'cf_sku', header: 'SKU' }, { accessorKey: 'cf_price', header: 'Price' }]}
+      actions={(
+        <button onClick={() => window.open(buildCrudCsvUrl('inventory/products', params), '_blank')}>Export</button>
+      )}
+      isLoading={isLoading}
+    />
+  )
+}
+```
+
+## 4) Forms with CrudForm
+
+Use `CrudForm` to create/edit entities. Submit to `/api/<module>/<route>` using `createCrud`/`updateCrud` helpers.
+
+```tsx
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+
+// ... define Zod schema and fields
+
+<CrudForm
+  schema={schema}
+  fields={fields}
+  onSubmit={(vals) => createCrud('inventory/products', vals)}
+  successRedirect="/backend/inventory/products"
+/>
+```
+
+## 5) Tips
+
+- Keep module code under `src/modules/<module>`.
+- Define CFs in `ce.ts` (entities[].fields); run `yarn mercato entities install` (optionally with `--tenant <id>`) to sync them.
+- Use the helpers from `@open-mercato/shared/lib/crud/custom-fields` to stay DRY.
+- Emit and process events via the built-in Event Bus; see Events tutorial.
+
+That’s it — you’ve built a complete, DRY CRUD API and UI flow aligned with Open Mercato conventions.

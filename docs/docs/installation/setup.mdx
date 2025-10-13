@@ -1,0 +1,32 @@
+---
+title: Local setup
+description: Step-by-step checklist to run Open Mercato locally.
+---
+
+Follow these steps after the [prerequisites](./prerequisites) are in place:
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/open-mercato/open-mercato.git
+   cd open-mercato
+   ```
+2. **Install workspace dependencies**
+   ```bash
+   yarn install
+   ```
+3. **Bootstrap everything with one command**
+   ```bash
+   yarn mercato init
+   ```
+   This script prepares module registries, generates/apply migrations, seeds default roles, and provisions an admin user.
+4. **Launch the app**
+   ```bash
+   yarn dev
+   ```
+   Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
+
+![Open Mercato admin home](../../screenshots/open-mercato-homepage.png)
+
+> 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything.
+
+For advanced/manual flows (custom migration control, selective seeding, etc.) see the CLI reference in the repository README.

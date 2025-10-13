@@ -26,7 +26,8 @@
     "premercato": "npm run modules:prepare",
     "mercato": "tsx packages/cli/src/bin.ts",
     "test": "jest --passWithNoTests",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "docs:dev": "npm run --prefix docs dev"
   },
   "dependencies": {
     "@mikro-orm/core": "^6.3.7",

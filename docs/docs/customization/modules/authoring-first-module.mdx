@@ -1,0 +1,14 @@
+---
+title: Authoring your first module
+description: Step-by-step guide to ship your first Open Mercato module with back office UI and APIs.
+---
+
+This page mirrors the tutorial in the [Tutorials](../../tutorials/authoring-first-module) section but focuses on the conceptual decisions: how modules are structured, where files live, and which conventions prevent regressions.
+
+1. **Plan the domain** – identify the entity you are modelling, the admin pages you need, and the API consumers.
+2. **Scaffold the module** – create `index.ts`, `acl.ts`, `di.ts`, and add the module to the root `modules.ts` file so generators pick it up.
+3. **Design entities** – colocate MikroORM entities under `data/entities.ts` and define validators and custom fields side-by-side.
+4. **Expose UI and APIs** – leverage the CRUD factory, `CrudForm`, and `DataGrid` to ship fully wired pages quickly.
+5. **Integrate workflows** – register subscribers and dashboard widgets to close the loop between data changes and user feedback.
+
+Jump into the hands-on build in the [Authoring your first module tutorial](../../tutorials/authoring-first-module).
