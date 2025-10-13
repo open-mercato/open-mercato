@@ -3,30 +3,73 @@ import Layout from '@theme/Layout';
 import Head from '@docusaurus/Head';
 import Link from '@docusaurus/Link';
 
-const features = [
+const customizationTutorials = [
   {
-    title: 'Create API Routes',
+    title: 'Build your first Open Mercato app',
     description:
-      'Build REST endpoints with typed handlers, feature guards, and generated metadata powered by module di routes.',
-    to: '/framework/api/overview',
+      'Walk through the default application shell, routing overlays, and where to plug in custom modules.',
+    to: '/customization/build-first-app',
   },
   {
-    title: 'Integrate Workflows',
-    description:
-      'Subscribe to domain events, publish your own, and orchestrate async jobs without coupling modules together.',
-    to: '/framework/events/overview',
+    title: 'Create your first module',
+    description: 'Scaffold the Inventory module and surface its first admin page in the sidebar.',
+    to: '/customization/create-first-module',
   },
   {
-    title: 'Design Data Models',
-    description:
-      'Compose MikroORM entities, extension links, and custom fields that stay tenant-aware and upgrade-safe.',
+    title: 'Create the data structures',
+    description: 'Model MikroORM entities, validators, and migrations for the Inventory module.',
+    to: '/customization/create-inventory-data',
+  },
+  {
+    title: 'Create the data API',
+    description: 'Expose REST endpoints for the Inventory module using the CRUD factory.',
+    to: '/customization/create-inventory-api',
+  },
+];
+
+const frameworkHighlights = [
+  {
+    title: 'Dependency injection container',
+    description: 'See how the Awilix container wires services per request.',
+    to: '/framework/ioc/container',
+  },
+  {
+    title: 'Module authoring & discovery',
+    description: 'Understand how modules are discovered, overridden, and registered across the platform.',
+    to: '/framework/modules/overview',
+  },
+  {
+    title: 'Routes and pages',
+    description: 'Configure frontend and backend routes with metadata-driven auth and navigation.',
+    to: '/framework/modules/routes-and-pages',
+  },
+  {
+    title: 'Entities and migrations',
+    description: 'Structure MikroORM entities per module and keep migrations tenant-safe.',
     to: '/framework/database/entities',
   },
+];
+
+const userGuideSections = [
   {
-    title: 'Customize Admin UX',
-    description:
-      'Ship new pages, grids, forms, and dashboard widgets with MDX-driven docs and reusable UI primitives.',
-    to: '/customization/modules/quickstart',
+    title: 'User guide overview',
+    description: 'Tour the admin dashboard experience and learn where to find core tools.',
+    to: '/user-guide/overview',
+  },
+  {
+    title: 'Dashboard layout',
+    description: 'Understand widgets, navigation, and global search on the home page.',
+    to: '/user-guide/overview#what-you-see-on-the-home-page',
+  },
+  {
+    title: 'Login & authentication',
+    description: 'Review the sign-in flow, organization picker, and session persistence.',
+    to: '/user-guide/login',
+  },
+  {
+    title: 'Resetting access',
+    description: 'See how admins and users handle password resets and recovery.',
+    to: '/user-guide/login#resetting-access',
   },
 ];
 
@@ -61,9 +104,9 @@ const gettingStartedLinks = [
     to: '/introduction/use-cases',
   },
   {
-    title: 'User Guide',
-    description: 'Learn the admin workflows from login to managing data entities.',
-    to: '/user-guide/overview',
+    title: 'Discover the architecture',
+    description: 'Understand the system topology before extending modules.',
+    to: '/architecture/system-overview',
   },
 ];
 
@@ -91,16 +134,16 @@ function HomepageHeader() {
   );
 }
 
-function FeatureHighlights() {
+function CustomizationTutorials() {
   return (
     <section className="margin-top--xl">
       <div className="container">
-        <h2>Guides to Customization</h2>
+        <h2>Customization Tutorial</h2>
         <div className="feature-grid">
-          {features.map((feature) => (
-            <Link key={feature.title} className="feature-card" to={feature.to}>
-              <h3>{feature.title}</h3>
-              <p>{feature.description}</p>
+          {customizationTutorials.map((tutorial) => (
+            <Link key={tutorial.title} className="feature-card" to={tutorial.to}>
+              <h3>{tutorial.title}</h3>
+              <p>{tutorial.description}</p>
             </Link>
           ))}
         </div>
@@ -147,6 +190,44 @@ function GettingStarted() {
   );
 }
 
+function UserGuide() {
+  return (
+    <section className="margin-vert--xl">
+      <div className="container">
+        <h2>User Guide</h2>
+        <p>Share these guides with operators who need a tour of the admin console and onboarding flows.</p>
+        <div className="feature-grid">
+          {userGuideSections.map((section) => (
+            <Link key={section.title} className="feature-card" to={section.to}>
+              <h3>{section.title}</h3>
+              <p>{section.description}</p>
+            </Link>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FrameworkHighlights() {
+  return (
+    <section className="margin-vert--xl">
+      <div className="container">
+        <h2>Framework</h2>
+        <p>Deep dive into the runtime primitives that power modules, data, and routing.</p>
+        <div className="feature-grid">
+          {frameworkHighlights.map((highlight) => (
+            <Link key={highlight.title} className="feature-card" to={highlight.to}>
+              <h3>{highlight.title}</h3>
+              <p>{highlight.description}</p>
+            </Link>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Home(): JSX.Element {
   return (
     <Layout>
@@ -159,8 +240,10 @@ export default function Home(): JSX.Element {
       <HomepageHeader />
       <main>
         <ScreenshotGallery />
+        <UserGuide />
         <GettingStarted />
-        <FeatureHighlights />
+        <CustomizationTutorials />
+        <FrameworkHighlights />
       </main>
     </Layout>
   );

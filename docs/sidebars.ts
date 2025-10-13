@@ -9,7 +9,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'introduction/overview',
         'introduction/use-cases',
-        'introduction/platform-architecture',
       ],
     },
     {
@@ -18,7 +17,18 @@ const sidebars: SidebarsConfig = {
       items: [
         'installation/prerequisites',
         'installation/setup',
-        'installation/deploy-vercel',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'User Guide',
+      items: [
+        'user-guide/overview',
+        'user-guide/login',
+        'user-guide/users-and-roles',
+        'user-guide/user-custom-fields',
+        'user-guide/user-entities',
+        'user-guide/organizations',
       ],
     },
     {
@@ -26,28 +36,81 @@ const sidebars: SidebarsConfig = {
       label: 'Architecture',
       items: [
         'architecture/system-overview',
-        'architecture/data-engine',
-        'architecture/request-lifecycle',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'REST API',
+      items: [
+        'api/overview',
+        {
+          type: 'category',
+          label: 'Module Guides',
+          items: [
+            'api/auth',
+            'api/directory',
+            'api/dashboards',
+            'api/entities',
+          ],
+        },
+      ],
+    },
+    {
+      type: 'category',
+      label: 'CLI',
+      items: [
+        'cli/overview',
+        {
+          type: 'category',
+          label: 'Bootstrap & Database',
+          items: [
+            'cli/init',
+            'cli/db-generate',
+            'cli/db-migrate',
+            'cli/db-greenfield',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Auth Module',
+          items: [
+            'cli/auth-seed-roles',
+            'cli/auth-setup',
+            'cli/auth-add-user',
+            'cli/auth-set-password',
+            'cli/auth-list-orgs',
+            'cli/auth-list-users',
+            'cli/auth-list-tenants',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Example Module',
+          items: [
+            'cli/example-seed-todos',
+            'cli/example-hello',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Entities',
+          items: [
+            'cli/entities-install',
+          ],
+        },
       ],
     },
     {
       type: 'category',
       label: 'Customization Tutorials',
       items: [
-        'customization/modules/quickstart',
-        'customization/modules/authoring-first-module',
-        'customization/api/extending-api',
-        'customization/data-entities/data-extensibility',
-        'customization/forms/crud-form',
-        'customization/forms/field-registry',
-        'customization/forms/custom-field-validation',
-        'customization/grids/data-grids',
-        'customization/dashboard-widgets/overview',
-        'tutorials/first-app',
-        'tutorials/building-todo-module',
-        'tutorials/authoring-first-module',
-        'tutorials/api-data-fetching',
-        'tutorials/testing',
+        'customization/build-first-app',
+        'customization/create-first-module',
+        'customization/create-inventory-data',
+        'customization/create-inventory-api',
+        'customization/list-inventory',
+        'customization/inventory-crud-forms',
+        'customization/custom-fields-overview',
       ],
     },
     {
@@ -68,20 +131,58 @@ const sidebars: SidebarsConfig = {
           label: 'Database & Entities',
           items: [
             'framework/database/entities',
-            'framework/database/query-layer',
+            'framework/database/data-extensibility',
+            'framework/database/query-engine',
+            'framework/database/hybrid-query-engine',
             'framework/database/query-index',
           ],
         },
         'framework/custom-entities/overview',
         {
           type: 'category',
+          label: 'Admin UI',
+          items: [
+            'framework/admin-ui/data-grids',
+            'framework/admin-ui/crud-form',
+            'framework/admin-ui/field-registry',
+            'framework/admin-ui/custom-field-validation',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Dashboard',
+          items: ['framework/dashboard/widgets-overview'],
+        },
+        {
+          type: 'category',
           label: 'API Routes',
           items: [
             'framework/api/overview',
             'framework/api/crud-factory',
+            'framework/api/extending-api',
           ],
         },
         'framework/events/overview',
+        'framework/rbac/overview',
+        {
+          type: 'category',
+          label: 'Runtime',
+          items: [
+            'framework/runtime/data-engine',
+            'framework/runtime/request-lifecycle',
+          ],
+        },
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Hands-on Tutorials',
+      items: [
+        'tutorials/first-app',
+        'tutorials/building-todo-module',
+        'tutorials/authoring-first-module',
+        'tutorials/api-data-fetching',
+        'tutorials/testing',
       ],
     },
     {
@@ -90,14 +191,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'architecture/glossary',
         'architecture/future-roadmap',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'User Guide',
-      items: [
-        'user-guide/overview',
-        'user-guide/login',
+        'appendix/troubleshooting',
       ],
     },
   ],

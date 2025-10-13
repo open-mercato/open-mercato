@@ -5,7 +5,7 @@ description: Accelerate list queries by projecting entities and custom fields in
 
 # JSONB Indexing Layer (Hybrid)
 
-Goal: make querying base entities together with custom fields fast and simple by maintaining a flat, query-friendly JSONB index per entity record, without breaking module isomorphism or schema agility.
+Goal: make querying base entities together with custom fields fast and simple by maintaining a flat, query-friendly JSONB index per entity record, without breaking module isomorphism or schema agility. See the [Hybrid query engine](./hybrid-query-engine) for runtime usage.
 
 What you get
 - Hybrid engine: uses a JSONB-backed index when available; falls back to the join-based engine otherwise.

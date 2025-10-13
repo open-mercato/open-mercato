@@ -1,0 +1,142 @@
+---
+title: Add inventory forms
+description: Use CrudForm to create and edit inventory items.
+---
+
+# Step 6: Add inventory forms
+
+The last piece is a create/edit workflow that reuses the same validators and API you built earlier.
+
+## 1. Create form definitions
+
+```bash
+mkdir -p packages/inventory/src/modules/inventory/backend/inventory/create
+touch packages/inventory/src/modules/inventory/backend/inventory/create/page.tsx
+touch packages/inventory/src/modules/inventory/backend/inventory/create/page.meta.ts
+```
+
+```tsx title="backend/inventory/create/page.tsx"
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm';
+import type { CrudFormSchema } from '@open-mercato/ui/backend/CrudForm/types';
+import { apiFetch } from '@open-mercato/ui/backend/utils/api';
+import type { UpsertInventoryItemInput } from '../../data/validators';
+
+const schema: CrudFormSchema<UpsertInventoryItemInput> = {
+  title: 'Create Inventory Item',
+  fields: [
+    { id: 'sku', label: 'SKU', component: 'text', required: true },
+    { id: 'name', label: 'Name', component: 'text', required: true },
+    { id: 'quantity', label: 'Quantity', component: 'number', required: true, min: 0 },
+    { id: 'location', label: 'Location', component: 'text' },
+  ],
+};
+
+async function submit(data: UpsertInventoryItemInput) {
+  const response = await apiFetch('/api/items', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to create inventory item');
+  }
+  return response.json();
+}
+
+const InventoryCreatePage = () => {
+  return <CrudForm schema={schema} onSubmit={submit} redirectTo="/backend/inventory/list" />;
+};
+
+export default InventoryCreatePage;
+```
+
+```ts title="backend/inventory/create/page.meta.ts"
+import type { PageMetadata } from '@open-mercato/shared/modules/registry';
+
+export const metadata: PageMetadata = {
+  title: 'Add item',
+  group: 'Operations',
+  order: 21,
+  requireAuth: true,
+  requireFeatures: ['inventory.create'],
+};
+```
+
+## 2. Reuse the form for edits
+
+Create an edit route that fetches row data and submits via `PATCH`:
+
+```bash
+mkdir -p packages/inventory/src/modules/inventory/backend/inventory/[id]/edit
+touch packages/inventory/src/modules/inventory/backend/inventory/[id]/edit/page.tsx
+touch packages/inventory/src/modules/inventory/backend/inventory/[id]/edit/page.meta.ts
+```
+
+```tsx title="[id]/edit/page.tsx"
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm';
+import type { CrudFormSchema } from '@open-mercato/ui/backend/CrudForm/types';
+import { apiFetch } from '@open-mercato/ui/backend/utils/api';
+import type { UpsertInventoryItemInput } from '../../../data/validators';
+
+const schema: CrudFormSchema<UpsertInventoryItemInput> = {
+  title: 'Edit Inventory Item',
+  fields: [
+    { id: 'sku', label: 'SKU', component: 'text', required: true },
+    { id: 'name', label: 'Name', component: 'text', required: true },
+    { id: 'quantity', label: 'Quantity', component: 'number', required: true, min: 0 },
+    { id: 'location', label: 'Location', component: 'text' },
+  ],
+};
+
+async function fetchItem(id: string) {
+  const response = await apiFetch(`/api/items/${id}`);
+  if (!response.ok) {
+    throw new Error('Inventory item not found');
+  }
+  return response.json();
+}
+
+async function submit(id: string, data: UpsertInventoryItemInput) {
+  const response = await apiFetch(`/api/items/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update inventory item');
+  }
+  return response.json();
+}
+
+type Props = { params: { id: string } };
+
+const InventoryEditPage = async ({ params }: Props) => {
+  const item = await fetchItem(params.id);
+  return (
+    <CrudForm
+      schema={schema}
+      initialValues={item}
+      onSubmit={(data) => submit(params.id, data)}
+      redirectTo="/backend/inventory/list"
+    />
+  );
+};
+
+export default InventoryEditPage;
+```
+
+```ts title="[id]/edit/page.meta.ts"
+import type { PageMetadata } from '@open-mercato/shared/modules/registry';
+
+export const metadata: PageMetadata = {
+  title: 'Edit item',
+  group: 'Operations',
+  order: 22,
+  requireAuth: true,
+  requireFeatures: ['inventory.edit'],
+};
+```
+
+## 3. Link actions from the grid
+
+Update the list page to surface “Create” and “Edit” buttons—either via `DataGrid` toolbar actions or links in your JSX. Users with the correct features can now manage inventory end to end.
+
+That completes the tutorial sequence. In the rest of the documentation you will dive deeper into the framework primitives that power these steps.

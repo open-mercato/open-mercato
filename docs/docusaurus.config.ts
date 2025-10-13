@@ -69,6 +69,12 @@ const config: Config = {
         },
         {
           type: 'doc',
+          docId: 'user-guide/overview',
+          label: 'User Guide',
+          position: 'left',
+        },
+        {
+          type: 'doc',
           docId: 'installation/prerequisites',
           label: 'Installation',
           position: 'left',
@@ -81,7 +87,13 @@ const config: Config = {
         },
         {
           type: 'doc',
-          docId: 'customization/modules/quickstart',
+          docId: 'api/overview',
+          label: 'REST API',
+          position: 'left',
+        },
+        {
+          type: 'doc',
+          docId: 'customization/build-first-app',
           label: 'Customization',
           position: 'left',
         },

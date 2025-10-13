@@ -1,6 +1,6 @@
 # Open Mercato Documentation Site
 
-This directory contains the standalone documentation site powered by [Docusaurus 3](https://docusaurus.io/). It can be developed locally, deployed to Vercel, or hosted on any static-site provider.
+This directory contains the standalone documentation site powered by [Docusaurus 3](https://docusaurus.io/). It can be developed locally and hosted on any static-site provider.
 
 ## Getting started
 
@@ -21,4 +21,4 @@ The docs will be available at `http://localhost:3000`. Content lives under `docs
 
 ## Deployment
 
-See [Deploying to Vercel](docs/installation/deploy-vercel.mdx) for a full walkthrough, including the build command you can use in CI/CD. Any static hosting provider that serves the `build/` folder will work.
+Build the site with `npm run build` and serve the generated `build/` directory from your preferred static hosting provider or CDN.

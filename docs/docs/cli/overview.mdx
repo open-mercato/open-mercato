@@ -1,0 +1,37 @@
+---
+id: overview
+title: CLI Overview
+sidebar_label: Overview
+description: Command line tooling for automating setup, database maintenance, and module operations in Open Mercato.
+---
+
+Open Mercato bundles CLI commands for project setup, tenant administration, and module scaffolding. Top-level helpers are exposed as Yarn scripts (`yarn init`, `yarn db:generate`, …) while module-specific utilities live under the umbrella command:
+
+```bash
+yarn mercato <module> <command> [options]
+```
+
+Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to drill in.
+
+## Workflow Cheat Sheet
+
+- **Bootstrap & Database**
+  - [`yarn init`](./init) – full app bootstrap with optional reinstall mode.
+  - [`yarn db:generate`](./db-generate) – per-module migration diffing.
+  - [`yarn db:migrate`](./db-migrate) – apply migrations and refresh generated metadata.
+  - [`yarn db:greenfield`](./db-greenfield) – destructive reset that regenerates a clean schema.
+- **Auth module**
+  - [`mercato auth seed-roles`](./auth-seed-roles)
+  - [`mercato auth setup`](./auth-setup)
+  - [`mercato auth add-user`](./auth-add-user)
+  - [`mercato auth set-password`](./auth-set-password)
+  - [`mercato auth list-orgs`](./auth-list-orgs)
+  - [`mercato auth list-users`](./auth-list-users)
+  - [`mercato auth list-tenants`](./auth-list-tenants)
+- **Example module**
+  - [`mercato example seed-todos`](./example-seed-todos)
+  - [`mercato example hello`](./example-hello)
+- **Entities**
+  - [`mercato entities install`](./entities-install)
+
+Each linked page provides usage syntax, option breakdowns, sample output, and troubleshooting notes so you can copy commands directly into your terminal.

@@ -1,0 +1,22 @@
+---
+title: mercato example hello
+sidebar_label: example hello
+description: Sanity-check command that verifies the example module CLI is wired correctly.
+---
+
+`yarn mercato example hello` simply prints `Hello from example module!`. Use it to confirm the `mercato` CLI can locate and execute module-specific commands.
+
+## Usage
+
+```bash
+yarn mercato example hello
+```
+
+Expected output:
+
+```
+🧩 Open Mercato CLI
+Hello from example module!
+```
+
+If you see an error such as `Module "example" has no CLI commands`, ensure `modules:prepare` was run and the example module is enabled in the module registry.

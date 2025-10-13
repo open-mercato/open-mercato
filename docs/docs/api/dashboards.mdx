@@ -1,0 +1,139 @@
+---
+title: Dashboards
+description: Manage dashboard layouts and widget catalogs via REST.
+---
+
+Dashboard endpoints let you hydrate the backend dashboard UI, customize layouts, and introspect widget availability per user or role.
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export AUTH_TOKEN="<jwt from POST /login>"
+export WIDGET_ID="<dashboard item uuid>"
+export ROLE_ID="<role uuid>"
+export USER_ID="<user uuid>"
+```
+
+## Fetch Layout — `GET /dashboards/layout`
+
+**Feature:** `dashboard.widgets.view`
+
+```bash
+curl -X GET "$BASE_URL/dashboards/layout" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Response (trimmed):
+
+```json
+{
+  "widgets": [
+    {
+      "id": "8f221a66-08c3-4ef8-92af-dfb5eca80a2f",
+      "definitionId": "core.stats.summary",
+      "grid": { "x": 0, "y": 0, "w": 4, "h": 3 },
+      "config": { "range": "30d" }
+    }
+  ]
+}
+```
+
+## Update Layout — `PUT /dashboards/layout`
+
+**Feature:** `dashboard.widgets.manage`
+
+```bash
+curl -X PUT "$BASE_URL/dashboards/layout" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "widgets": [
+      {
+        "id": "8f221a66-08c3-4ef8-92af-dfb5eca80a2f",
+        "definitionId": "core.stats.summary",
+        "grid": { "x": 0, "y": 0, "w": 6, "h": 4 },
+        "config": { "range": "90d" }
+      }
+    ]
+  }'
+```
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+## Retrieve Widget — `GET /dashboards/layout/{itemId}`
+
+**Feature:** `dashboard.widgets.view`
+
+```bash
+curl -X GET "$BASE_URL/dashboards/layout/$WIDGET_ID" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Response:
+
+```json
+{
+  "id": "8f221a66-08c3-4ef8-92af-dfb5eca80a2f",
+  "definitionId": "core.stats.summary",
+  "grid": { "x": 0, "y": 0, "w": 6, "h": 4 },
+  "config": { "range": "90d" }
+}
+```
+
+## Delete Widget — `DELETE /dashboards/layout/{itemId}`
+
+**Feature:** `dashboard.widgets.manage`
+
+```bash
+curl -X DELETE "$BASE_URL/dashboards/layout/$WIDGET_ID" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+## Role Widgets — `GET /dashboards/roles/widgets`
+
+**Feature:** `dashboard.widgets.view`  
+Use this endpoint to preview which widgets a role will expose.
+
+```bash
+curl -X GET "$BASE_URL/dashboards/roles/widgets?roleId=$ROLE_ID" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Sample response:
+
+```json
+{
+  "items": [
+    {
+      "definitionId": "core.stats.summary",
+      "title": "Summary",
+      "description": "Key metrics for the tenant"
+    }
+  ]
+}
+```
+
+## User Widgets — `GET /dashboards/users/widgets`
+
+**Feature:** `dashboard.widgets.view`
+
+```bash
+curl -X GET "$BASE_URL/dashboards/users/widgets?userId=$USER_ID" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Response mirrors the role endpoint but reflects direct user overrides. Combine both responses to build a complete widget catalog for custom dashboards.
