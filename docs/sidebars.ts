@@ -25,6 +25,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'user-guide/overview',
         'user-guide/login',
+        'user-guide/organizations',
       ],
     },
     {
@@ -111,17 +112,6 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Hands-on Tutorials',
-      items: [
-        'tutorials/first-app',
-        'tutorials/building-todo-module',
-        'tutorials/authoring-first-module',
-        'tutorials/api-data-fetching',
-        'tutorials/testing',
-      ],
-    },
-    {
-      type: 'category',
       label: 'Framework Reference',
       items: [
         'framework/ioc/container',
@@ -179,6 +169,17 @@ const sidebars: SidebarsConfig = {
             'framework/runtime/request-lifecycle',
           ],
         },
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Hands-on Tutorials',
+      items: [
+        'tutorials/first-app',
+        'tutorials/building-todo-module',
+        'tutorials/authoring-first-module',
+        'tutorials/api-data-fetching',
+        'tutorials/testing',
       ],
     },
     {

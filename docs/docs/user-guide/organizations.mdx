@@ -1,0 +1,30 @@
+---
+title: Manage organizations
+description: Set up the organization hierarchy, understand tenant filtering, and navigate with the organization selector.
+---
+
+Managing organizations keeps every module tenant-safe and scoped to the right hierarchy. Use the directory tools to model subsidiaries, business units, or brand overlays without leaking data across tenants.
+
+![Organization management screen](/screenshots/open-mercato-organiation-management.png)
+
+## Build the organization tree
+
+- **Navigate** to **Directory → Organizations** from the admin sidebar. The list is already filtered to the organizations you can manage, based on `directory.organizations.view`.
+- **Add a new organization** with the **Create organization** action. Supply a name, optional external code, and assign the tenant scope. Use the parent selector to nest entities and mirror your hierarchy.
+- **Edit existing nodes** to move them inside a branch or update metadata. All changes require the `directory.organizations.manage` feature.
+- **Keep context** by watching the breadcrumb above the list—the active tenant and organization path carry over to other modules automatically.
+- **Built-in access** – freshly installed environments ship with `admin` and `superadmin` roles that already include `directory.organizations.view` and `directory.organizations.manage`, so they can manage the tree immediately.
+
+## Tenant and organization filtering
+
+- Directory-backed pages, APIs, and lists always enforce `tenantId` and `organizationId` from the authenticated session. That includes CRUD queries, dashboard widgets, and custom modules built on top of the query engine.
+- When operators select a different organization, every module receives the new scope. Data reloads use the updated organization filter, so records from other branches never appear.
+- Soft-deleted rows remain hidden unless the page explicitly opts into `withDeleted`, still honoring the current organization filters.
+
+## Switch organizations from anywhere
+
+![Organization selector](/screenshots/open-mercato-organizations-selector.png)
+
+- Use the global organization selector in the backend shell to jump between branches you are allowed to access.
+- Selecting an organization raises the `organizationScopeChanged` event so client components can refetch with the correct `organizationId`.
+- The selector also shows the tenant name, making it clear when you are crossing tenant boundaries before any data loads.

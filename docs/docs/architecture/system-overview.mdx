@@ -79,6 +79,13 @@ flowchart TD
 - **Cache** – Module services can opt into caching (Redis or in-memory) for derived data and queueing subscribers.
 - **PostgreSQL** – The authoritative data store. System entities live in module-owned tables; user entities live in EAV tables. The [query engine](../framework/database/query-engine) and [hybrid query engine](../framework/database/hybrid-query-engine) provide fast read paths, while the [data engine](../framework/runtime/data-engine) coordinates writes.
 
+## Multi-tenant directory
+
+- **Tenants** – Provisioned through the directory module and created with CLI helpers such as [`yarn mercato auth setup`](../cli/auth-setup). The command ensures a tenant, its root organization, and bootstrap users exist, and can be rerun safely in any environment.
+- **Organization hierarchy** – Each tenant owns a tree of organizations. Parent/child relationships power the organization switcher and scope-aware APIs described in the [Directory service reference](../api/directory).
+- **Scoped data access** – Runtime services propagate `tenantId` and `organizationId` from the authenticated principal so queries, CRUD factories, and generated pages automatically filter to the active organization branch.
+- **Visibility controls** – Role and user ACLs can limit which organizations a principal may see. Configure feature flags and organization visibility from RBAC settings (see the [RBAC overview](../framework/rbac/overview)); those selections drive the organization switcher and backend list filters.
+
 ## Custom application architecture
 
 ```mermaid

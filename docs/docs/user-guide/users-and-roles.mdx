@@ -1,0 +1,36 @@
+---
+title: Users, roles, and RBAC
+description: Manage accounts, role-based feature access, and dashboard defaults for your operators.
+---
+
+Keep Open Mercato secure by curating roles, features, and user-specific overrides. The Auth module ships dedicated admin pages for both roles and users so you can adjust access in one place.
+
+![Managing roles and ACLs](/screenshots/open-mercato-managing-roles.png)
+
+## Manage role catalogs
+
+- **Navigate** to **Auth → Roles** to review every role in the active tenant. New installations seed `admin` and `superadmin` roles with broad access, including organization management and dashboard visibility.
+- **Inspect role details** to see the features that role grants. Features follow the `<module>.<action>` convention and mirror each module’s `acl.ts`. Toggle features to grant or revoke access without touching code.
+- **Set dashboard defaults** per role so operators land on the right system health widgets. These defaults drive the cards shown immediately after login.
+- **Save changes** to persist them for the current tenant. Role edits never affect other tenants because each tenant maintains its own ACL matrix.
+
+## Assign user access
+
+![Editing a user ACL](/screenshots/open-mercato-edit-user-and-acl.png)
+
+- **Open** **Auth → Users** to invite new operators or adjust identities. The users list respects the current organization and tenant scope.
+- **Select a user** to edit their profile, assign roles, and apply per-user feature overrides. Overrides are additive—you can grant temporary features without cloning roles.
+- **Control dashboard widgets** for individuals when you need tailored visibility. Per-user settings override the role defaults configured above.
+- **Reset access** directly from this screen when operators forget credentials or need a password rotation.
+
+## Review and audit access
+
+- **Feature search** helps confirm which roles expose sensitive functions like `directory.organizations.manage` or module-specific create/edit permissions.
+- **Organization scope** is shown on every edit page so you know which branches a user can enter. Combine role features with organization visibility lists for fine-grained control.
+- **Keep records fresh** by deactivating accounts instead of deleting them. Soft-deleted users retain audit history while preventing new sign-ins.
+
+## Next steps
+
+- Learn more about [RBAC internals](../framework/rbac/overview) and how features flow through the DI layer.
+- Explore [organization management](./organizations) to understand how scopes and visibility interact with user permissions.
+- Return to the [Login & authentication guide](./login) for the end-user sign-in experience.

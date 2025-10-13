@@ -13,6 +13,14 @@ Logging in is the first touchpoint for every operator. The authentication flow r
 - **Organization context** – after signing in, users see the organizations they are allowed to operate. Selecting one sets both organization and tenant scopes for the session.
 - **Remember me** – sessions persist according to the environment configuration (JWT expiration + refresh tokens).
 
+## Landing on the dashboard
+
+![Dashboard widgets overview](/screenshots/open-mercato-dashboard.png)
+
+- **Modular widgets** – the dashboard tiles surface health checks, user onboarding status, recent activity, and any module-provided cards that were enabled for the tenant.
+- **Role defaults** – default widget visibility is set from the Roles management screens (`packages/core/src/modules/auth/backend/roles`) so each role lands on the right data immediately.
+- **Per-user overrides** – individual preferences live in the Users management screens (`packages/core/src/modules/auth/backend/users`), letting you fine-tune the widget set for specific team members.
+
 ## Resetting access
 
 - Administrators can trigger password resets via the Users module.
