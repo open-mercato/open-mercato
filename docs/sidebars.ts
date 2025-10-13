@@ -23,11 +23,26 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'User Guide',
+      items: [
+        'user-guide/overview',
+        'user-guide/login',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Architecture',
       items: [
         'architecture/system-overview',
         'architecture/data-engine',
         'architecture/request-lifecycle',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'CLI',
+      items: [
+        'cli/overview',
       ],
     },
     {
@@ -82,6 +97,7 @@ const sidebars: SidebarsConfig = {
           ],
         },
         'framework/events/overview',
+        'framework/rbac/overview',
       ],
     },
     {
@@ -90,14 +106,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'architecture/glossary',
         'architecture/future-roadmap',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'User Guide',
-      items: [
-        'user-guide/overview',
-        'user-guide/login',
+        'appendix/troubleshooting',
       ],
     },
   ],

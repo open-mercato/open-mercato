@@ -1,5 +1,4 @@
 # 🚀 Open Mercato
-ok
 Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑grade CRMs, ERPs, and commerce backends. It’s modular, extensible, and designed so teams can mix their own modules, entities, and workflows while keeping the guardrails of a production-ready stack.
 
 ## Core Use Cases
@@ -21,51 +20,65 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
 - ✅ **Growing test coverage** – expanding unit and integration tests ensure modules stay reliable as you extend them.
 - 🧠 **AI-supportive foundation** – structured for assistive workflows, automation, and conversational interfaces.
 - ⚙️ **Modern stack** – Next.js App Router, TypeScript, zod, Awilix DI, MikroORM, and bcryptjs out of the box.
-<img src="./docs//open-mercato-homepage.jpg" alt="Open Mercato homepage"/>
+
+## Screenshots
+
+| Dashboard | Organizations | Users |
+| --- | --- | --- |
+| <a href="docs/static/screenshots/open-mercato-dashboard.png"><img src="docs/static/screenshots/open-mercato-dashboard.png" alt="Open Mercato dashboard" width="260"/></a> | <a href="docs/static/screenshots/open-mercato-edit-organization.png"><img src="docs/static/screenshots/open-mercato-edit-organization.png" alt="Editing an organization" width="260"/></a> | <a href="docs/static/screenshots/open-mercato-users-management.png"><img src="docs/static/screenshots/open-mercato-users-management.png" alt="Users management view" width="260"/></a> |
+| Roles & ACL | Custom Fields | Custom Entity Records |
+| <a href="docs/static/screenshots/open-mercato-managing-roles.png"><img src="docs/static/screenshots/open-mercato-managing-roles.png" alt="Managing roles and permissions" width="260"/></a> | <a href="docs/static/screenshots/open-mercato-define-custom-fields.png"><img src="docs/static/screenshots/open-mercato-define-custom-fields.png" alt="Defining custom fields" width="260"/></a> | <a href="docs/static/screenshots/open-mercato-custom-entity-records.png"><img src="docs/static/screenshots/open-mercato-custom-entity-records.png" alt="Managing custom entity records" width="260"/></a> |
 
 ## Getting Started
 
-1) Prerequisites
-- Node.js 20+
-- PostgreSQL database
-- Environment variables in `.env`:
-  - `DATABASE_URL=postgres://user:password@localhost:5432/mercato`
-  - `JWT_SECRET=some-strong-secret`
-  - `DB_POOL_MIN=2` (minimum connections in pool)
-  - `DB_POOL_MAX=10` (maximum connections in pool)
-  - `DB_POOL_IDLE_TIMEOUT=30000` (idle timeout in milliseconds)
-  - `DB_POOL_ACQUIRE_TIMEOUT=60000` (acquire timeout in milliseconds)
+Follow these steps after the prerequisites are in place:
 
-2) Quick setup (recommended)
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/open-mercato/open-mercato.git
+   cd open-mercato
+   ```
+2. **Install workspace dependencies**
+   ```bash
+   yarn install
+   ```
+3. **Bootstrap everything with one command**
+   ```bash
+   yarn mercato init
+   ```
+   This script prepares module registries, generates/applies migrations, seeds default roles, and provisions an admin user.
+4. **Launch the app**
+   ```bash
+   yarn dev
+   ```
+   Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
 
-- `yarn init` - Automatically installs dependencies, prepares modules, runs migrations, and creates admin user
-- Customize admin user: `yarn init --org="My Company" --email="admin@mycompany.com" --password="mypassword" --roles="superadmin,admin"`
+💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything.
 
-**OR** Manual setup:
+Full installation guide (including prerequisites and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
 
-2) Install dependencies
+### `yarn mercato init` output preview
 
-- `yarn install`
+```text
+🎉 App initialization complete!
 
-3) Prepare modules (registry, entities, DI)
-
-- `yarn modules:prepare`
-
-4) Database migrations (per‑module)
-
-- Generate: `yarn db:generate`
-- Apply: `yarn db:migrate` (also seeds global custom fields)
-
-5) Seed roles and bootstrap an organization + admin user
-
-- Seed default roles: `yarn mercato auth seed-roles`
-- Setup tenant/org/admin:
-  - `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles superadmin,admin`
-
-6) Run the app
-
-- `yarn dev`
-- Open http://localhost:3000
+╔══════════════════════════════════════════════════════════════╗
+║  🚀 You're now ready to start development!                   ║
+║                                                              ║
+║  Start the dev server:                                       ║
+║    yarn dev                                                  ║
+║                                                              ║
+║  Users created:                                              ║
+║    👑 Superadmin: superadmin@acme.com                        ║
+║       Password: secret                                       ║
+║    🧰 Admin:      admin@acme.com                             ║
+║       Password: secret                                       ║
+║    👷 Employee:   employee@acme.com                          ║
+║       Password: secret                                       ║
+║                                                              ║
+║  Happy coding!                                               ║
+╚══════════════════════════════════════════════════════════════╝
+```
 
 ## Example: Todos with Custom Fields
 
@@ -213,35 +226,6 @@ yarn modules:prepare
 
 Notes:
 - The Todos page uses `queryEngine` to select and sort `cf:*` fields. Custom field definitions must exist for the current organization; the seeding command ensures they do.
-
-## Database Connection Pooling
-
-Open Mercato uses connection pooling to prevent PostgreSQL "too many clients" errors. The pool settings can be configured via environment variables:
-
-### Pool Configuration
-- **DB_POOL_MIN**: Minimum connections in pool (default: 2)
-- **DB_POOL_MAX**: Maximum connections in pool (default: 10)
-- **DB_POOL_IDLE_TIMEOUT**: Idle timeout in milliseconds (default: 30000)
-- **DB_POOL_ACQUIRE_TIMEOUT**: Acquire timeout in milliseconds (default: 60000)
-
-### Recommended Settings
-For production environments:
-```bash
-# Adjust based on your PostgreSQL max_connections setting
-DB_POOL_MAX=20
-DB_POOL_MIN=5
-DB_POOL_IDLE_TIMEOUT=30000
-DB_POOL_ACQUIRE_TIMEOUT=60000
-```
-
-For development:
-```bash
-# Smaller pool for development
-DB_POOL_MAX=5
-DB_POOL_MIN=1
-DB_POOL_IDLE_TIMEOUT=10000
-DB_POOL_ACQUIRE_TIMEOUT=30000
-```
 
 ## Documentation
 
