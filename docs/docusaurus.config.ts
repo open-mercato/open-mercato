@@ -4,7 +4,7 @@ import type { Config } from '@docusaurus/types';
 const config: Config = {
   title: 'Open Mercato Docs',
   tagline: 'Extensible commerce platform with modular architecture',
-  favicon: 'img/open-mercato-homepage.jpg',
+  favicon: 'img/open-mercato.svg',
   url: 'https://docs.open-mercato.dev',
   baseUrl: '/',
   organizationName: 'open-mercato',
@@ -57,13 +57,31 @@ const config: Config = {
       title: 'Open Mercato',
       logo: {
         alt: 'Open Mercato Logo',
-        src: 'img/open-mercato-homepage.jpg',
+        src: 'img/open-mercato.svg',
       },
       items: [
         {
           type: 'doc',
           docId: 'introduction/overview',
           label: 'Introduction',
+          position: 'left',
+        },
+        {
+          type: 'doc',
+          docId: 'installation/prerequisites',
+          label: 'Installation',
+          position: 'left',
+        },
+        {
+          type: 'doc',
+          docId: 'architecture/system-overview',
+          label: 'Architecture',
+          position: 'left',
+        },
+        {
+          type: 'doc',
+          docId: 'customization/modules/quickstart',
+          label: 'Customization',
           position: 'left',
         },
         {
