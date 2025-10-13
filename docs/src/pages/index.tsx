@@ -30,21 +30,40 @@ const features = [
   },
 ];
 
-const quickLinks = [
+const screenshots = [
   {
-    title: 'Build Your First Module',
-    description: 'Scaffold backend + admin surfaces, exports features, and wire DI services in minutes.',
-    to: '/customization/modules/quickstart',
+    src: '/screenshots/open-mercato-homepage.png',
+    alt: 'Open Mercato dashboard overview',
   },
   {
-    title: 'Add Custom Entities',
-    description: 'Extend your data model with EAV entities and share them across modules safely.',
-    to: '/framework/custom-entities/overview',
+    src: '/screenshots/open-mercato-users-management.png',
+    alt: 'Users management list',
   },
   {
-    title: 'Deploy to Vercel',
-    description: 'Bundle the docs site or your product backend for instant previews and production hosting.',
-    to: '/installation/deploy-vercel',
+    src: '/screenshots/open-mercato-define-custom-fields.png',
+    alt: 'Custom fields configuration',
+  },
+  {
+    src: '/screenshots/open-mercato-custom-entity-records.png',
+    alt: 'Custom entity records table',
+  },
+];
+
+const gettingStartedLinks = [
+  {
+    title: 'Install Locally',
+    description: 'Spin up the platform in minutes with the guided setup.',
+    to: '/installation/setup',
+  },
+  {
+    title: 'Explore Core Use Cases',
+    description: 'See how teams ship CRMs, ERPs, and commerce backends on Open Mercato.',
+    to: '/introduction/use-cases',
+  },
+  {
+    title: 'User Guide',
+    description: 'Learn the admin workflows from login to managing data entities.',
+    to: '/user-guide/overview',
   },
 ];
 
@@ -90,13 +109,33 @@ function FeatureHighlights() {
   );
 }
 
-function QuickStarts() {
+function ScreenshotGallery() {
   return (
     <section className="margin-vert--xl">
       <div className="container">
-        <h2>Choose Your Adventure</h2>
+        <h2>Product Screenshots</h2>
+        <p>Preview core admin experiences. Click any tile to open the full-size capture.</p>
+        <div className="screenshot-grid">
+          {screenshots.map((shot) => (
+            <a key={shot.src} href={shot.src} target="_blank" rel="noopener noreferrer" className="screenshot-link">
+              <img src={shot.src} alt={shot.alt} loading="lazy" className="screenshot-thumb" />
+              <span>{shot.alt}</span>
+            </a>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function GettingStarted() {
+  return (
+    <section className="margin-vert--xl">
+      <div className="container">
+        <h2>Getting Started</h2>
+        <p>Start with setup, understand the platform capabilities, then dive into user-facing workflows.</p>
         <div className="feature-grid">
-          {quickLinks.map((link) => (
+          {gettingStartedLinks.map((link) => (
             <Link key={link.title} className="feature-card" to={link.to}>
               <h3>{link.title}</h3>
               <p>{link.description}</p>
@@ -120,7 +159,8 @@ export default function Home(): JSX.Element {
       <HomepageHeader />
       <main>
         <FeatureHighlights />
-        <QuickStarts />
+        <ScreenshotGallery />
+        <GettingStarted />
       </main>
     </Layout>
   );
