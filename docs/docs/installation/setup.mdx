@@ -1,0 +1,42 @@
+---
+title: Local setup
+description: Step-by-step checklist to run Open Mercato locally.
+---
+
+Follow these steps after satisfying the [prerequisites](./prerequisites):
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/open-mercato/open-mercato.git
+   cd open-mercato
+   ```
+2. **Install dependencies** – use the workspace-aware package manager of your choice.
+   ```bash
+   pnpm install
+   # or
+   npm install
+   ```
+3. **Generate registries** – auto-discover modules, entities, and dependency injection glue.
+   ```bash
+   npm run modules:prepare
+   ```
+4. **Run database migrations** – generates per-module migrations and applies them.
+   ```bash
+   npm run db:generate
+   npm run db:migrate
+   ```
+5. **Seed sample data (optional)** – the example module provides demo entities to explore the admin UI.
+   ```bash
+   npm run mercato example seed-todos
+   ```
+6. **Start development servers** – Next.js app with hot reloading and background generators.
+   ```bash
+   npm run dev
+   ```
+7. **Visit the Admin** – open `http://localhost:3000/backend`. Default credentials live in `packages/core/src/modules/auth/api/login.ts` (update them before going live).
+
+Troubleshooting tips:
+
+- Re-run `npm run modules:prepare` whenever you add new modules, pages, or data definitions.
+- Delete module-specific migrations under `src/modules/<module>/migrations` if you want to regenerate them from scratch (`npm run db:greenfield`).
+- If TypeScript types appear stale, `npm run lint -- --fix` often refreshes generated declarations.

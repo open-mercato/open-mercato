@@ -1,0 +1,22 @@
+---
+title: Prerequisites
+description: Tools and services required before installing Open Mercato locally.
+---
+
+Before cloning the repository ensure the following tools are available:
+
+- **Node.js 20.18+** – aligns with Next.js and Docusaurus requirements. Use `nvm` or `fnm` to manage versions.
+- **pnpm 8 or npm 9 / Yarn 3** – pick one package manager and stick with it. The monorepo uses workspaces.
+- **PostgreSQL 14+** – all modules rely on Postgres for persistence. Local development works great with Docker (`docker run --name mercato-postgres -p 5432:5432 -e POSTGRES_PASSWORD=secret postgres:15`).
+- **Redis (optional)** – required when you enable persistent event delivery with the Redis driver; otherwise the file-backed queue works out-of-the-box.
+- **OpenSSL** – used for generating secrets and TLS assets when running locally.
+
+Copy `.env.example` to `.env` and configure at least:
+
+```bash
+DATABASE_URL=postgres://postgres:secret@localhost:5432/mercato
+JWT_SECRET=$(openssl rand -hex 32)
+NEXTAUTH_SECRET=$(openssl rand -hex 32)
+```
+
+The docs site you are reading lives in `/docs` and has its own dependencies. Install them independently (`pnpm install` or `npm install`) when you want to build or preview the documentation.

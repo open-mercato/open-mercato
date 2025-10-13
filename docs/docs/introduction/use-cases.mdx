@@ -1,0 +1,26 @@
+---
+title: Core use cases
+description: Explore the scenarios where Open Mercato excels compared to traditional monoliths or headless stacks.
+---
+
+Open Mercato is designed to power modern commerce and operations products where configurability, tenant isolation, and integration flexibility are critical. Teams adopt it to avoid rebuilding the same scaffolding for every new vertical.
+
+## Product builders
+
+- Launch marketplace, B2B ordering, or subscription experiences with reusable modules for authentication, organizations, and directory management.
+- Combine React frontend pages, backend admin routes, and REST APIs inside a single module so that UI, workflows, and data evolve together.
+- Enable domain teams to ship independently by granting them ownership of their modules and DI registrations.
+
+## Solution integrators
+
+- Tailor tenant-specific data via [custom fields](../customization/data-entities/data-extensibility) without mutating core tables.
+- Use [dashboard widgets](../customization/dashboard-widgets/overview) to surface KPIs per customer vertical.
+- Extend APIs safely with feature flags and RBAC metadata.
+
+## Platform engineers
+
+- Maintain a curated module catalog and hard dependency graph, ensuring that extensions cannot break base packages.
+- Rely on the [event bus](../framework/events/overview) and [query engine](../framework/database/query-layer) to integrate internal services or external SaaS.
+- Deploy shared infrastructure once and let modules adhere to the multi-tenant rules automatically.
+
+Open Mercato works best when you need a **customizable yet opinionated foundation**: the framework provides conventions, generators, and guardrails so you can innovate on top without reinventing the plumbing.

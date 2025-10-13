@@ -1,0 +1,50 @@
+---
+title: Extend module APIs
+description: Add bespoke endpoints while keeping tenant safety, RBAC, and validation consistent.
+---
+
+While the [CRUD factory](../../framework/api/crud-factory) covers most cases, sometimes you need bespoke endpoints—aggregations, external integrations, or webhooks. Follow these guidelines to extend module APIs safely.
+
+## File structure
+
+```
+packages/<module>/src/modules/<module>/api/<method>/<path>.ts
+```
+
+Example: `api/post/organizations/invite.ts` handles `POST /api/organizations/invite`.
+
+Each handler exports an async function that receives the request, response helpers, and the request-scoped DI container:
+
+```ts title="api/post/organizations/invite.ts"
+import { z } from 'zod';
+import type { ApiHandler } from '@open-mercato/shared/modules/api/types';
+
+const inputSchema = z.object({
+  email: z.string().email(),
+  roleId: z.string().uuid(),
+});
+
+const handler: ApiHandler = async ({ request, container, organization }) => {
+  const body = inputSchema.parse(await request.json());
+  const invitations = container.resolve('organizationInvitationService');
+  await invitations.inviteUser({ ...body, organizationId: organization.id });
+  return Response.json({ ok: true });
+};
+
+export const metadata = {
+  requireAuth: true,
+  requireFeatures: ['directory.invite'],
+};
+
+export default handler;
+```
+
+## Best practices
+
+- **Validate all inputs** using Zod schemas colocated with the entity or service they touch.
+- **Respect tenant boundaries** by scoping queries to `organizationId` or `tenantId` from the request context.
+- **Use services, not repositories directly** – resolve them from DI so you can unit test independently and override implementations per tenant.
+- **Emit events deliberately** when downstream modules should react; otherwise keep handlers idempotent.
+- **Document metadata** (`requireFeatures`, `requireRoles`) to integrate with admin navigation and ACLs.
+
+Mixing CRUD factories and bespoke endpoints gives you the flexibility to move fast while keeping the platform predictable.

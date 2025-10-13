@@ -1,0 +1,41 @@
+:root {
+  --ifm-color-primary: #1d4ed8;
+  --ifm-color-primary-dark: #1a46c2;
+  --ifm-color-primary-darker: #163da9;
+  --ifm-color-primary-darkest: #113491;
+  --ifm-color-primary-light: #3c65df;
+  --ifm-color-primary-lighter: #5678e4;
+  --ifm-color-primary-lightest: #829af0;
+  --ifm-code-font-size: 95%;
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.hero.hero--primary {
+  background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.8), rgba(29, 78, 216, 0.95));
+  color: #f8fafc;
+}
+
+.hero .button--outline {
+  color: #f8fafc;
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.feature-card {
+  background: var(--ifm-card-background-color);
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: var(--ifm-global-shadow-lw);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--ifm-global-shadow-md);
+}

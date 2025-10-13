@@ -1,0 +1,69 @@
+---
+title: Building data grids
+description: Render sortable, filterable tables backed by the query engine.
+---
+
+Admin list pages usually rely on the `DataGrid` component from `@open-mercato/ui`. It pairs beautifully with the [query engine](../../framework/database/query-layer) to deliver fast, tenant-aware listings.
+
+## Minimal grid example
+
+```tsx title="backend/inventory/items/page.tsx"
+import { DataGrid } from '@open-mercato/ui/backend/DataGrid';
+import { apiFetch } from '@open-mercato/ui/backend/utils/api';
+
+const columns = [
+  { id: 'sku', header: 'SKU', width: 140 },
+  { id: 'name', header: 'Name', minWidth: 240 },
+  { id: 'onHand', header: 'On hand', align: 'right' },
+];
+
+export default async function InventoryGrid() {
+  const data = await apiFetch('/api/inventory/items?limit=50');
+  return (
+    <DataGrid
+      title="Inventory"
+      columns={columns}
+      rows={data.items}
+      defaultSort={[{ id: 'updated_at', dir: 'desc' }]}
+      canExport
+    />
+  );
+}
+```
+
+## Filters and custom fields
+
+The query engine lets you filter by base fields, extension fields, and custom fields using a single JSON filter definition. The `DataGrid` exposes `filters` and `onFiltersChange` props to render filter UIs.
+
+```tsx
+const filters = [
+  {
+    id: 'cf:priority',
+    type: 'select',
+    label: 'Priority',
+    options: [
+      { label: 'High', value: 'high' },
+      { label: 'Medium', value: 'medium' },
+      { label: 'Low', value: 'low' },
+    ],
+  },
+];
+```
+
+On the server, map these filters to query engine constraints:
+
+```ts title="api/get/inventory/items.ts"
+const filters = parseFilters(request); // your helper
+const result = await queryEngine.list({
+  entity: 'inventory:item',
+  filters,
+  select: ['sku', 'name', 'cf:priority'],
+  organizationId,
+});
+```
+
+## Performance tips
+
+- Leverage the [JSONB indexing layer](../../framework/database/query-index) for grid-heavy entities.
+- Keep columns narrow—use detail panels or drawers for verbose content.
+- When loading related data, fetch it separately and merge client-side to respect module isolation.
