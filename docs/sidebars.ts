@@ -92,6 +92,14 @@ const sidebars: SidebarsConfig = {
         'architecture/future-roadmap',
       ],
     },
+    {
+      type: 'category',
+      label: 'User Guide',
+      items: [
+        'user-guide/overview',
+        'user-guide/login',
+      ],
+    },
   ],
 };
 

@@ -1,0 +1,25 @@
+---
+title: Login & authentication
+description: How users access Open Mercato, reset credentials, and switch organizations.
+---
+
+Logging in is the first touchpoint for every operator. The authentication flow respects the tenant and organization model, ensuring users only see what they are allowed to manage.
+
+![Open Mercato login](/screenshots/open-mercato-login.png)
+
+## Sign-in experience
+
+- **Email & password** – standard credentials validated against the tenant's directory. Password policies can be enforced per organization via configuration.
+- **Organization context** – after signing in, users see the organizations they are allowed to operate. Selecting one sets both organization and tenant scopes for the session.
+- **Remember me** – sessions persist according to the environment configuration (JWT expiration + refresh tokens).
+
+## Resetting access
+
+- Administrators can trigger password resets via the Users module.
+- Users can request a reset link if you enable the optional password recovery module (see `packages/core/src/modules/auth`).
+
+## Next steps
+
+- [User guide overview](./overview) – go back to the dashboard tour.
+- [Managing users & roles](../customization/forms/crud-form) – learn how admins create accounts and assign permissions.
+- [Organizations & visibility](../customization/modules/authoring-first-module) – extend modules with organization-aware experiences.

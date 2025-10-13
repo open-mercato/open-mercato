@@ -83,3 +83,32 @@ body {
   transform: translateY(-4px);
   box-shadow: 0 24px 50px rgba(180, 83, 9, 0.16);
 }
+
+.screenshot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.screenshot-link {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.screenshot-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 14px;
+  box-shadow: 0 18px 30px rgba(148, 95, 19, 0.14);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.screenshot-link:hover .screenshot-thumb {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 28px 45px rgba(194, 97, 14, 0.25);
+}
