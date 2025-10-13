@@ -49,7 +49,7 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
     <td style="text-align:center;">Custom Entity Records</td>
   </tr>
   <tr>
-    <td colspan="3" style="text-align:center;">
+    <td colspan="3" style="text-align:center;" halign="center">
       <a href="docs/static/screenshots/open-mercato-homepage.png"><img src="docs/static/screenshots/open-mercato-homepage.png" alt="Home page showing enabled modules" width="520"/></a>
     </td>
   </tr>
@@ -100,28 +100,6 @@ Follow these steps after the prerequisites are in place:
 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything.
 
 Full installation guide (including prerequisites and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
-### `yarn mercato init` output preview
-
-```text
-🎉 App initialization complete!
-
-╔══════════════════════════════════════════════════════════════╗
-║  🚀 You're now ready to start development!                   ║
-║                                                              ║
-║  Start the dev server:                                       ║
-║    yarn dev                                                  ║
-║                                                              ║
-║  Users created:                                              ║
-║    👑 Superadmin: superadmin@acme.com                        ║
-║       Password: secret                                       ║
-║    🧰 Admin:      admin@acme.com                             ║
-║       Password: secret                                       ║
-║    👷 Employee:   employee@acme.com                          ║
-║       Password: secret                                       ║
-║                                                              ║
-║  Happy coding!                                               ║
-╚══════════════════════════════════════════════════════════════╝
-```
 
 ## CLI Commands
 
