@@ -56,6 +56,44 @@ const sidebars: SidebarsConfig = {
       label: 'CLI',
       items: [
         'cli/overview',
+        {
+          type: 'category',
+          label: 'Bootstrap & Database',
+          items: [
+            'cli/init',
+            'cli/db-generate',
+            'cli/db-migrate',
+            'cli/db-greenfield',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Auth Module',
+          items: [
+            'cli/auth-seed-roles',
+            'cli/auth-setup',
+            'cli/auth-add-user',
+            'cli/auth-set-password',
+            'cli/auth-list-orgs',
+            'cli/auth-list-users',
+            'cli/auth-list-tenants',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Example Module',
+          items: [
+            'cli/example-seed-todos',
+            'cli/example-hello',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Entities',
+          items: [
+            'cli/entities-install',
+          ],
+        },
       ],
     },
     {

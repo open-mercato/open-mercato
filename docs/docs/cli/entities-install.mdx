@@ -1,0 +1,58 @@
+---
+title: mercato entities install
+sidebar_label: entities install
+description: Synchronizes module-defined custom entities and fields into the database.
+---
+
+`yarn mercato entities install` reads custom entity definitions from every enabled module and installs them for the desired scope. It is typically executed after `yarn db:migrate` or any time module metadata changes.
+
+## Usage
+
+```bash
+yarn mercato entities install [--tenant <tenantId>] [--global] [--no-global] [--dry-run] [--force]
+```
+
+Aliases: `--tenantId` for `--tenant`, `--dry` for `--dry-run`.
+
+## Options
+
+| Option | Description |
+| --- | --- |
+| `--tenant <id>` | Limit synchronization to a single tenant. |
+| `--global` | Process only global (tenant-less) definitions. When set, omitting `--no-global` is recommended. |
+| `--no-global` | Skip global definitions, applying changes only to tenant-specific entries. Cannot be combined with `--global`. |
+| `--dry-run` | Log actions without persisting changes. Output stats are prefixed with `[dry-run]`. |
+| `--force` | Reinstall even when definitions appear up to date (useful after manual edits). |
+
+## Behavior
+
+1. Resolves the tenant scope based on the provided options.
+2. Calls `installCustomEntitiesFromModules`, which compares module metadata with stored `CustomEntity` and `CustomFieldDef` rows.
+3. Writes updates, additions, or skips unchanged entries. Cache backends (if registered) are notified for invalidation.
+4. Prints a summary: `Sync complete: processed=6, updated=2, fieldsChanged=5, skipped=1`. When `--dry-run` is active the prefix becomes `Dry-run`.
+
+## Examples
+
+Install definitions for every tenant plus global scope:
+
+```bash
+yarn mercato entities install
+```
+
+Dry-run the sync for a specific tenant:
+
+```bash
+yarn mercato entities install --tenant 81c3b8b0-6f06-44f6-9c22-12c0d9ec3c63 --dry-run
+```
+
+Install only global definitions (no tenant overrides):
+
+```bash
+yarn mercato entities install --global
+```
+
+## Troubleshooting
+
+- **Conflicting flags** – the command prints `Cannot combine --global with --no-global` and exits when incompatible options are supplied.
+- **Cache issues** – if Redis is unavailable the sync still succeeds; you may need to flush caches manually.
+- **No changes reported** – ensure modules export `entities` arrays or `ce.ts` metadata and that `modules:prepare` has been run recently.

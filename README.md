@@ -54,6 +54,18 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
   </tr>
 </table>
 
+
+## Architecture Overview
+
+- 🧩 Modules: Each feature lives under `src/modules/<module>` with auto‑discovered frontend/backend pages, APIs, CLI, i18n, and DB entities.
+- 🗃️ Database: MikroORM with per‑module entities and migrations; no global schema. Migrations are generated and applied per module.
+- 🧰 Dependency Injection: Awilix container constructed per request. Modules can register and override services/components via `di.ts`.
+- 🏢 Multi‑tenant: Core `directory` module defines `tenants` and `organizations`. Most entities carry `tenant_id` + `organization_id`.
+- 🔐 Security: RBAC roles, zod validation, bcryptjs hashing, JWT sessions, role‑based access in routes and APIs.
+
+Read more on the [Open Mercato Architecture](https://docs.openmercato.com/architecture/system-overview)
+
+
 ## Getting Started
 
 Follow these steps after the prerequisites are in place:
@@ -63,15 +75,18 @@ Follow these steps after the prerequisites are in place:
    git clone https://github.com/open-mercato/open-mercato.git
    cd open-mercato
    ```
+
 2. **Install workspace dependencies**
    ```bash
    yarn install
    ```
+
 3. **Bootstrap everything with one command**
    ```bash
    yarn mercato init
    ```
    This script prepares module registries, generates/applies migrations, seeds default roles, and provisions an admin user.
+
 4. **Launch the app**
    ```bash
    yarn dev
@@ -81,7 +96,6 @@ Follow these steps after the prerequisites are in place:
 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything.
 
 Full installation guide (including prerequisites and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
-
 ### `yarn mercato init` output preview
 
 ```text
@@ -105,172 +119,25 @@ Full installation guide (including prerequisites and cloud deployment): [docs.op
 ╚══════════════════════════════════════════════════════════════╝
 ```
 
-## Example: Todos with Custom Fields
-
-The example module ships a simple Todos demo that showcases custom fields and the unified query layer.
-
-Steps:
-
-1) Ensure migrations are applied and global custom fields are seeded
-- `yarn db:migrate` (runs migrations and seeds global custom fields)
-
-2) Create an organization and admin user
-- `yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles superadmin,admin`
-- Note the printed `organizationId` (use it below)
-
-3) Seed example Todos (entity + per‑org custom field definitions + sample data)
-- `yarn mercato example seed-todos --org <organizationId> --tenant <tenantId>`
-
-4) Open the Todos page
-- Visit `/backend/example/todos` to filter/sort on base fields and custom fields (e.g., priority, severity, blocked).
-
 ## CLI Commands
 
-### Quick Setup Commands
+Open Mercato let the module developers to expose the custom CLI commands for variouse maintenance tasks. Read more on the [CLI documentation](https://docs.openmercato.com/cli/overview)
 
-#### `yarn init` - Complete App Initialization
-One-command setup that prepares the entire application:
-```bash
-# Basic setup with defaults
-yarn init
-
-# Custom setup
-yarn init --org="My Company" --email="admin@mycompany.com" --password="mypassword" --roles="superadmin,admin"
-```
-
-**What it does:**
-- Installs dependencies
-- Prepares modules (registry, entities, DI)
-- Generates database migrations
-- Applies migrations
-- Seeds default roles
-- Creates admin user
-- Seeds example todos
-- Displays success message with admin credentials
-
-#### `yarn db:greenfield` - Clean Slate Setup
-Removes all migrations, snapshots, and checksum files for a fresh start:
-```bash
-yarn db:greenfield
-```
-
-**What it cleans:**
-- Migration files (`Migration*.ts`)
-- Snapshot files (`*.json` containing "snapshot")
-- Checksum files (`*.checksum`)
-- All modules (auth, entities, directory, example)
-
-### Database Commands
-
-#### `yarn db:generate` - Generate Migrations
-Generates database migrations for all modules:
-```bash
-yarn db:generate
-```
-
-#### `yarn db:migrate` - Apply Migrations
-Applies all pending migrations and seeds global custom fields:
-```bash
-yarn db:migrate
-```
-
-### Auth Module Commands
-
-#### `yarn mercato auth setup` - Create Organization & Admin
-Creates a tenant, organization, and admin user:
-```bash
-yarn mercato auth setup --orgName "Acme" --email admin@acme.com --password secret --roles superadmin,admin
-```
-
-#### `yarn mercato auth list-orgs` - List Organizations
-Lists all organizations in the system:
-```bash
-yarn mercato auth list-orgs
-```
-
-#### `yarn mercato auth list-tenants` - List Tenants
-Lists all tenants in the system:
-```bash
-yarn mercato auth list-tenants
-```
-
-#### `yarn mercato auth list-users` - List Users
-Lists all users with filtering options:
-```bash
-# List all users
-yarn mercato auth list-users
-
-# Filter by organization
-yarn mercato auth list-users --org <organizationId>
-
-# Filter by tenant
-yarn mercato auth list-users --tenant <tenantId>
-```
-
-#### `yarn mercato auth add-user` - Add User
-Adds a new user to an organization:
-```bash
-yarn mercato auth add-user --email user@example.com --password secret --organizationId <orgId> --roles customer,employee
-```
-
-#### `yarn mercato auth set-password` - Set User Password
-Changes the password for an existing user:
-```bash
-yarn mercato auth set-password --email user@example.com --password newPassword
-```
-
-**Required parameters:**
-- `--email <email>` - user email address
-- `--password <password>` - new password
-
-#### `yarn mercato auth seed-roles` - Seed Default Roles
-Creates default roles (customer, employee, admin, owner):
-```bash
-yarn mercato auth seed-roles
-```
-
-### Example Module Commands
-
-#### `yarn mercato example seed-todos` - Seed Example Data
-Creates sample todos with custom fields:
-```bash
-yarn mercato example seed-todos --org <organizationId> --tenant <tenantId>
-```
-
-**Required parameters:**
-- `--org <organizationId>` - organization ID
-- `--tenant <tenantId>` - tenant ID
-
-### Other Commands
-
-#### `yarn modules:prepare` - Prepare Modules
-Generates module registry, entities, and DI configuration:
-```bash
-yarn modules:prepare
-```
-
-Notes:
-- The Todos page uses `queryEngine` to select and sort `cf:*` fields. Custom field definitions must exist for the current organization; the seeding command ensures they do.
 
 ## Documentation
 
-- Introduction – https://docs.openmercato.com/
-- Installation – https://docs.openmercato.com/installation/setup
-- User Guide – https://docs.openmercato.com/user-guide/overview
-- Architecture – https://docs.openmercato.com/architecture/system-overview
-- CLI – https://docs.openmercato.com/cli/overview
-- Customization Tutorials – https://docs.openmercato.com/customization/build-first-app
-- Hands-on Tutorials – https://docs.openmercato.com/tutorials/first-app
-- Framework Reference – https://docs.openmercato.com/framework/ioc/container
-- Appendix – https://docs.openmercato.com/appendix/troubleshooting
+Explore the [full project documentation](https://docs.openmercato.com/) - quick links to the main sections:
 
-## Architecture Overview
-
-- 🧩 Modules: Each feature lives under `src/modules/<module>` with auto‑discovered frontend/backend pages, APIs, CLI, i18n, and DB entities.
-- 🗃️ Database: MikroORM with per‑module entities and migrations; no global schema. Migrations are generated and applied per module.
-- 🧰 Dependency Injection: Awilix container constructed per request. Modules can register and override services/components via `di.ts`.
-- 🏢 Multi‑tenant: Core `directory` module defines `tenants` and `organizations`. Most entities carry `tenant_id` + `organization_id`.
-- 🔐 Security: zod validation, bcryptjs hashing, JWT sessions, role‑based access in routes and APIs.
+- [Introduction](https://docs.openmercato.com/introduction/overview)
+- [Installation](https://docs.openmercato.com/installation/setup)
+- [User Guide](https://docs.openmercato.com/user-guide/overview)
+- [Tutorials](https://docs.openmercato.com/tutorials/first-app)
+- [Customization](https://docs.openmercato.com/customization/build-first-app)
+- [Architecture](https://docs.openmercato.com/architecture/system-overview)
+- [Framework](https://docs.openmercato.com/framework/modules/overview)
+- [API Reference](https://docs.openmercato.com/api/overview)
+- [CLI Reference](https://docs.openmercato.com/cli/overview)
+- [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
 
 ## License
 
