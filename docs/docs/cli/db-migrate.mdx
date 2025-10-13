@@ -1,0 +1,35 @@
+---
+title: yarn db:migrate
+sidebar_label: yarn db:migrate
+description: Applies all per-module database migrations and refreshes generated metadata.
+---
+
+`yarn db:migrate` performs three steps in sequence:
+
+1. `yarn modules:prepare` – regenerates module registries, dependency injection bindings, and entity ID maps.
+2. `tsx scripts/mikro-modules.ts apply` – runs MikroORM migrations for every enabled module in alphabetical order.
+3. `tsx packages/cli/src/bin.ts entities install --global` – ensures global custom entity and field definitions are synchronized.
+
+## Usage
+
+```bash
+yarn db:migrate
+```
+
+The command relies on `DATABASE_URL` for database connectivity.
+
+## When to Run
+
+- After pulling new migrations from version control.
+- Immediately after `yarn db:generate` to apply fresh diffs.
+- During CI to guarantee the schema is aligned before running tests or seeding fixtures.
+
+## Output
+
+The script prints progress for each module (`auth: applied`, `directory: applied`, …) followed by entity install stats. Any failure aborts the remaining steps so you can resolve the issue safely.
+
+## Troubleshooting
+
+- **Migration errors** — inspect the failing module’s migration file in `packages/<module>/src/modules/<module>/migrations`. You can retry once the issue is resolved.
+- **Custom entity sync errors** — ensure Redis (if configured) is reachable so cache invalidation succeeds, or run `yarn mercato entities install --force` afterwards.
+- **Long-running migrations** — consider running `yarn db:migrate` with `NODE_ENV=production` pointing to a managed database that has appropriate resources.

@@ -1,0 +1,53 @@
+---
+title: mercato auth add-user
+sidebar_label: auth add-user
+description: Adds a confirmed user to an existing organization with optional role assignments.
+---
+
+`yarn mercato auth add-user` creates a new user, hashes the provided password, and links the account to roles in the same tenant as the organization.
+
+## Usage
+
+```bash
+yarn mercato auth add-user \
+  --email "<user@email>" \
+  --password "<password>" \
+  --organizationId <uuid> \
+  [--roles role1,role2]
+```
+
+Aliases:
+
+- `--org` or `--orgId` for `--organizationId`.
+
+## Behavior
+
+1. Loads the organization (and its tenant) by ID.
+2. Creates a confirmed user with the supplied credentials bound to the organization and tenant.
+3. For each role in `--roles`:
+   - Ensures the role exists (creating it if missing and scoping it to the tenant).
+   - Creates a `UserRole` link.
+4. Prints the new user’s UUID.
+
+## Example
+
+```bash
+ORG_ID=$(yarn mercato auth list-orgs | awk 'NR==5 {print $1}')
+yarn mercato auth add-user \
+  --email manager@acme.dev \
+  --password ChangeMe123 \
+  --organizationId "$ORG_ID" \
+  --roles admin,employee
+```
+
+Output:
+
+```
+User created with id 7c2a91be-7f06-4c6e-9c28-2507a5e5992e
+```
+
+## Troubleshooting
+
+- **Unknown organization** – confirm the UUID exists (`yarn mercato auth list-orgs`) and that the CLI can connect to the database.
+- **Role typos** – misspelled roles are created automatically. If you need tenant-specific roles, create them beforehand and omit from other tenants.
+- **Password policies** – validation happens in the consuming app; the CLI simply hashes whatever password you provide.

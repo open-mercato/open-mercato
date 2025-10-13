@@ -60,7 +60,7 @@ flowchart TD
     end
     API["API routes\nsrc/app/api/[...slug]"]
     CE["Custom entities & fields\n(EAV store + cache)"]
-    CACHE[("Redis / in-memory cache")]
+    CACHE["Redis / in-memory cache"]
     DB[(PostgreSQL)]
 
     FE -->|auto-discovered pages| API

@@ -5,36 +5,32 @@ sidebar_label: Overview
 description: Command line tooling for automating setup, database maintenance, and module operations in Open Mercato.
 ---
 
-Open Mercato bundles CLI commands for project setup, tenant administration, and module scaffolding. Commands are surfaced through yarn scripts prefixed with `mercato`, plus a few top-level helpers.
+Open Mercato bundles CLI commands for project setup, tenant administration, and module scaffolding. Top-level helpers are exposed as Yarn scripts (`yarn init`, `yarn db:generate`, …) while module-specific utilities live under the umbrella command:
 
-## Quick Setup Helpers
+```bash
+yarn mercato <module> <command> [options]
+```
 
-- `yarn init` — Installs dependencies, prepares modules, runs migrations, seeds default roles, and creates an admin user. Pass flags like `--org`, `--email`, `--password`, and `--roles` to customize the bootstrap flow.
-- `yarn db:greenfield` — Removes generated migrations, snapshots, and checksum files to reset the schema while keeping entities intact.
+Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to drill in.
 
-## Database Lifecycle
+## Workflow Cheat Sheet
 
-- `yarn db:generate` — Iterates through each module and produces MikroORM migrations in `src/modules/<module>/migrations`.
-- `yarn db:migrate` — Applies all module migrations in order and seeds global custom fields.
+- **Bootstrap & Database**
+  - [`yarn init`](./init) – full app bootstrap with optional reinstall mode.
+  - [`yarn db:generate`](./db-generate) – per-module migration diffing.
+  - [`yarn db:migrate`](./db-migrate) – apply migrations and refresh generated metadata.
+  - [`yarn db:greenfield`](./db-greenfield) – destructive reset that regenerates a clean schema.
+- **Auth module**
+  - [`mercato auth seed-roles`](./auth-seed-roles)
+  - [`mercato auth setup`](./auth-setup)
+  - [`mercato auth add-user`](./auth-add-user)
+  - [`mercato auth set-password`](./auth-set-password)
+  - [`mercato auth list-users`](./auth-list-users)
+  - [`mercato auth list-tenants`](./auth-list-tenants)
+- **Example module**
+  - [`mercato example seed-todos`](./example-seed-todos)
+  - [`mercato example hello`](./example-hello)
+- **Entities**
+  - [`mercato entities install`](./entities-install)
 
-## Auth Module Commands
-
-- `yarn mercato auth seed-roles` — Seeds default roles (`customer`, `employee`, `admin`, `owner`).
-- `yarn mercato auth setup` — Creates an organization, tenant, and admin user. Accepts `--orgName`, `--email`, `--password`, and `--roles`.
-- `yarn mercato auth add-user` — Adds a user to an organization with the supplied roles.
-- `yarn mercato auth set-password` — Updates credentials for an existing user.
-- `yarn mercato auth list-users` — Lists users with optional `--org` or `--tenant` filters.
-- `yarn mercato auth list-tenants` — Returns all tenants registered in the system.
-
-## Example Module Commands
-
-- `yarn mercato example seed-todos` — Seeds sample Todos plus custom field definitions for a tenant. Requires `--org` and `--tenant`.
-- `yarn mercato example hello` — Prints a quick connectivity check for the example module.
-
-## Entities Utility
-
-- `yarn mercato entities install` — Upserts custom field definitions declared by modules. Use `--global` or `--org <id>` to scope the installation.
-
-## Conventions
-
-All module CLIs follow the pattern `yarn mercato <module> <command>`. Run `yarn mercato --help` or append `--help` to any command to view parameters.
+Each linked page provides usage syntax, option breakdowns, sample output, and troubleshooting notes so you can copy commands directly into your terminal.

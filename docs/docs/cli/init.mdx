@@ -1,0 +1,52 @@
+---
+title: yarn init
+sidebar_label: yarn init
+description: Bootstraps an Open Mercato workspace, installs dependencies, runs migrations, and seeds default data.
+---
+
+The `yarn init` script wraps the Open Mercato CLI `mercato init` command and delivers a ready-to-run workspace. It installs dependencies, prepares generated module artifacts, applies database migrations, seeds baseline RBAC data, and populates sample content when possible.
+
+## Usage
+
+```bash
+yarn init [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--reinstall|-r]
+```
+
+Ensure `DATABASE_URL` points to the Postgres instance you want to initialize before running the command.
+
+## Options
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--org`, `--orgName` | Name of the organization that will be created. | `Acme Corp` |
+| `--email` | Superadmin login email. If the local part is `superadmin`, companion `admin@…` and `employee@…` accounts are also provisioned. | `superadmin@acme.com` |
+| `--password` | Password applied to all seeded accounts. | `secret` |
+| `--roles` | Comma-separated list of roles ensured before user creation. | `superadmin,admin,employee` |
+| `--reinstall`, `-r` | Drops every table in the target database before bootstrapping. Requires a valid `DATABASE_URL`. | off |
+
+## What the Command Does
+
+1. Installs workspace dependencies with `yarn install`.
+2. Regenerates module registries and dependency-injection metadata via `yarn modules:prepare`.
+3. Applies all per-module migrations through `yarn db:migrate`.
+4. Seeds baseline roles (`mercato auth seed-roles`).
+5. Runs `mercato auth setup` to create the tenant, organization, and user accounts specified.
+6. If organization and tenant IDs are detected, seeds example Todos (`mercato example seed-todos`) and dashboard widgets (`mercato dashboards seed-defaults`).
+
+On success, the command prints a boxed summary with created accounts and their passwords.
+
+## Reinstall Mode
+
+When `--reinstall` is present the command:
+
+- Loads env variables via `dotenv/config`.
+- Connects to the configured database and drops all tables in the `public` schema using `CASCADE`.
+- Continues with a clean bootstrap and reseeds example data.
+
+Use this mode for destructive resets in development. **Never run it against production databases.**
+
+## Troubleshooting
+
+- **Missing `DATABASE_URL`** — the command aborts before performing database work. Export the variable or place it in `.env`.
+- **Dependency install fails** — run `yarn install` manually to inspect the error, then re-run `yarn init`.
+- **Migrations fail** — confirm the database credentials and ensure the target user can create tables. The CLI stops on the first failure so you can address the issue before re-running.

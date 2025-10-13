@@ -1,0 +1,39 @@
+---
+title: yarn db:greenfield
+sidebar_label: yarn db:greenfield
+description: Performs a destructive reset by clearing migrations, dropping tables, regenerating diffs, and reapplying them.
+---
+
+`yarn db:greenfield` executes `tsx scripts/mikro-modules.ts greenfield`. It is designed for **development only** when you want to rebuild the schema from scratch.
+
+## Usage
+
+```bash
+yarn db:greenfield
+```
+
+## What the Command Does
+
+1. Cleans every module’s `migrations/` directory by deleting generated migration `.ts` files and snapshot JSON files.
+2. Removes checksum files under the repository’s `/generated` folder.
+3. Drops per-module MikroORM migration tables (`mikro_orm_migrations_<module>`).
+4. Drops **all** tables in the `public` schema of the database referenced by `DATABASE_URL`.
+5. Regenerates fresh migrations for every enabled module by internally calling the `generate` mode.
+6. Applies the newly generated migrations immediately.
+
+## Safety Considerations
+
+- The command irreversibly wipes the target database. Never run it against production or staging environments.
+- Ensure `DATABASE_URL` points to a disposable database before executing.
+- Because it removes migration files, you may want to stash or commit any pending migration work beforehand.
+
+## Suggested Workflow
+
+1. Stop any dev servers using the database.
+2. Run `yarn db:greenfield`.
+3. Optionally execute [`yarn init`](./init) to reseed data and example content.
+
+## Troubleshooting
+
+- **Permission errors when dropping tables** — verify the database user has privileges to drop tables and alter replication roles.
+- **Migrations fail after regeneration** — inspect generated migration files and adjust entity definitions accordingly, then re-run `yarn db:greenfield` or `yarn db:migrate`.

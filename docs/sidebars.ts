@@ -17,7 +17,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'installation/prerequisites',
         'installation/setup',
-        'installation/deploy-vercel',
       ],
     },
     {
