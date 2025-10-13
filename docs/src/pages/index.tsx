@@ -158,9 +158,9 @@ export default function Home(): JSX.Element {
       </Head>
       <HomepageHeader />
       <main>
-        <FeatureHighlights />
         <ScreenshotGallery />
         <GettingStarted />
+        <FeatureHighlights />
       </main>
     </Layout>
   );
