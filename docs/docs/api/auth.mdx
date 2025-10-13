@@ -1,0 +1,333 @@
+---
+title: Authentication & RBAC
+description: Endpoints for logging in, managing users, roles, and fine-grained feature access.
+---
+
+All examples assume the environment variables defined in [REST API Overview](./overview):
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export AUTH_TOKEN="<jwt from POST /login>"
+export USER_ID="<target user uuid>"
+export ROLE_ID="<target role uuid>"
+```
+
+In every authenticated example replace the placeholders with real values from your environment.
+
+## Login
+
+**Endpoint:** `POST /login`  
+**Features:** Public (no token required)  
+**Body:** Form data (`multipart/form-data` or `application/x-www-form-urlencoded`)
+
+Fields:
+
+- `email` &mdash; required user email.
+- `password` &mdash; required password.
+- `remember` &mdash; optional flag (`true`, `on`, or `1`) to create a long-lived session.
+- `requireRole` &mdash; optional comma-separated roles the user must hold.
+
+```bash
+curl -X POST "$BASE_URL/login" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "email=admin@example.com" \
+  --data-urlencode "password=supersecret" \
+  --data-urlencode "remember=true"
+```
+
+Successful responses include a JWT (`token`) and set the `auth_token` cookie:
+
+```json
+{
+  "ok": true,
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "redirect": "/backend"
+}
+```
+
+The `token` should be stored securely and reused as `Authorization: Bearer <token>` for subsequent calls.
+
+## Users
+
+### List Users — `GET /auth/users`
+
+**Feature:** `auth.users.list`  
+**Query parameters:**
+
+- `page` / `pageSize` &mdash; pagination (defaults `1` / `50`, max `100`).
+- `search` &mdash; case-insensitive match on email.
+- `organizationId` &mdash; filter to a particular organization UUID.
+- `roleIds` &mdash; comma-separated role UUIDs.
+
+```bash
+curl -X GET "$BASE_URL/auth/users?page=1&pageSize=20&search=admin" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Sample response (truncated):
+
+```json
+{
+  "items": [
+    {
+      "id": "f5d0220f-59a8-4b8d-ae2c-84f960cc6e6c",
+      "email": "admin@example.com",
+      "organizationId": "37efc239-87ab-4eb8-97f3-1cbbd7b497d0",
+      "roles": ["owner"],
+      "customFields": {
+        "cf_department": "Sales"
+      }
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 1
+}
+```
+
+### Create User — `POST /auth/users`
+
+**Feature:** `auth.users.create`  
+**Body:** JSON
+
+```bash
+curl -X POST "$BASE_URL/auth/users" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"email\": \"new.user@example.com\",
+    \"password\": \"TempPass123!\",
+    \"organizationId\": \"$ORG_ID\",
+    \"roles\": [\"manager\"],
+    \"customFields\": {
+      \"department\": \"Operations\",
+      \"onboardingDate\": \"2024-06-01\"
+    }
+  }"
+```
+
+Response:
+
+```json
+{ "id": "c634b52b-1d0e-4fbf-9a0c-7c3df6f947a2" }
+```
+
+### Update User — `PUT /auth/users`
+
+**Feature:** `auth.users.edit`  
+**Body:** JSON with at least `id`.
+
+```bash
+curl -X PUT "$BASE_URL/auth/users" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"id\": \"$USER_ID\",
+    \"email\": \"updated.user@example.com\",
+    \"organizationId\": \"$ORG_ID\",
+    \"roles\": [\"manager\", \"support\"],
+    \"customFields\": {
+      \"department\": \"Customer Success\"
+    }
+  }"
+```
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+### Delete User — `DELETE /auth/users?id=<uuid>`
+
+**Feature:** `auth.users.delete`
+
+```bash
+curl -X DELETE "$BASE_URL/auth/users?id=$USER_ID" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+### Fetch User ACL — `GET /auth/users/acl?userId=<uuid>`
+
+**Feature:** `auth.acl.manage`
+
+```bash
+curl -X GET "$BASE_URL/auth/users/acl?userId=$USER_ID" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Example response:
+
+```json
+{
+  "hasCustomAcl": true,
+  "isSuperAdmin": false,
+  "features": ["dashboard.widgets.view", "entities.records.manage"],
+  "organizations": ["37efc239-87ab-4eb8-97f3-1cbbd7b497d0"]
+}
+```
+
+### Update User ACL — `PUT /auth/users/acl`
+
+**Feature:** `auth.acl.manage`
+
+```bash
+curl -X PUT "$BASE_URL/auth/users/acl" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"userId\": \"$USER_ID\",
+    \"isSuperAdmin\": false,
+    \"features\": [\"entities.records.manage\", \"entities.definitions.manage\"],
+    \"organizations\": [\"$ORG_ID\"]
+  }"
+```
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+## Roles
+
+### List Roles — `GET /auth/roles`
+
+**Feature:** `auth.roles.list`
+
+```bash
+curl -X GET "$BASE_URL/auth/roles?page=1&pageSize=50&search=admin" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Create Role — `POST /auth/roles`
+
+**Feature:** `auth.roles.manage`
+
+```bash
+curl -X POST "$BASE_URL/auth/roles" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "support-specialist",
+    "tenantId": null
+  }'
+```
+
+Response:
+
+```json
+{ "id": "1dc9bc3a-8f9b-4d3f-af5d-7dbb37a4ba5c" }
+```
+
+### Update Role — `PUT /auth/roles`
+
+**Feature:** `auth.roles.manage`
+
+```bash
+curl -X PUT "$BASE_URL/auth/roles" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"id\": \"$ROLE_ID\",
+    \"name\": \"support-advanced\",
+    \"tenantId\": null
+  }"
+```
+
+### Delete Role — `DELETE /auth/roles?id=<uuid>`
+
+**Feature:** `auth.roles.manage`  
+Deletion fails with `400` if users are still assigned.
+
+```bash
+curl -X DELETE "$BASE_URL/auth/roles?id=$ROLE_ID" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+### Fetch Role Features — `GET /auth/roles/acl?roleId=<uuid>`
+
+**Feature:** `auth.roles.manage`
+
+```bash
+curl -X GET "$BASE_URL/auth/roles/acl?roleId=$ROLE_ID" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Sample response:
+
+```json
+{
+  "features": [
+    "dashboard.widgets.view",
+    "dashboard.widgets.manage",
+    "entities.records.view"
+  ]
+}
+```
+
+### Update Role Features — `PUT /auth/roles/acl`
+
+**Feature:** `auth.roles.manage`
+
+```bash
+curl -X PUT "$BASE_URL/auth/roles/acl" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"roleId\": \"$ROLE_ID\",
+    \"features\": [
+      \"auth.users.list\",
+      \"auth.users.create\",
+      \"dashboard.widgets.view\"
+    ]
+  }"
+```
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+## Admin Navigation — `GET /auth/admin/nav`
+
+**Feature:** Authenticated user (feature checks executed per route)  
+Returns the backend sidebar groups for the current user, factoring tenant/organization scope and RBAC decisions.
+
+```bash
+curl -X GET "$BASE_URL/auth/admin/nav" \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "Accept: application/json"
+```
+
+Simplified response:
+
+```json
+{
+  "groups": [
+    {
+      "name": "Dashboard",
+      "items": [
+        { "href": "/backend", "title": "Overview", "enabled": true }
+      ]
+    }
+  ]
+}
+```
+
+Use this endpoint to drive custom admin shells or to debug visibility rules when developing new modules.

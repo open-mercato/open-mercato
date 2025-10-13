@@ -5,6 +5,29 @@ description: Understand how Open Mercato is structured, where to extend it, and 
 
 Open Mercato is a modular platform: every capability lives in a module that can be enabled, overridden, or replaced without touching the core runtime. This page highlights the architecture, shows where customisation happens, and links to deeper references.
 
+## Architecture flow at a glance
+
+```mermaid
+graph TD
+  A[Modules] -- pages/apis/entities --> B[Generators]
+  B --> C[Runtime Registry]
+  C --> D[Next.js App]
+  C --> E[DI Container]
+  E --> F[Services & Query Engine]
+  F --> G[(PostgreSQL)]
+  E --> H[Event Bus]
+  H --> I[Subscribers]
+  I --> F
+```
+
+At build time, module generators collect every page, API handler, entity, subscriber, and feature definition into registries. During runtime, the Next.js App Router loads these registries to render pages, wire API routes, and boot the Awilix dependency-injection container. The container exposes services such as the query engine, data engine, RBAC checks, and event bus to both API handlers and subscribers.
+
+Key principles:
+
+- **Isomorphic modules** – a module exports everything it needs (UI, APIs, DI, migrations) so it can run in isolation or inside larger solutions.
+- **Overlay overrides** – files under `src/modules/<module>/...` override their package counterparts, letting apps customize behaviour without forking the package.
+- **Generated glue** – tasks like `npm run modules:prepare` regenerate registries so runtime always reflects the filesystem.
+
 ## Modular architecture at a glance
 
 - Modules are declared in `packages/<pkg>/src/modules/<module>` (package-supplied) or `src/modules/<module>` (app overrides).
@@ -32,12 +55,12 @@ Open Mercato is a modular platform: every capability lives in a module that can 
 ```mermaid
 flowchart TD
     subgraph Presentation
-        FE[Frontend app<br/>/app/(frontend)]
-        BE[Backend app<br/>/app/(backend)]
+        FE["Frontend app<br/>/app/(frontend)"]
+        BE["Backend app<br/>/app/(backend)"]
     end
-    API[API routes\nsrc/app/api/[...slug]]
-    CE[Custom entities & fields\n(EAV store + cache)]
-    CACHE[(Redis / in-memory cache)]
+    API["API routes\nsrc/app/api/[...slug]"]
+    CE["Custom entities & fields\n(EAV store + cache)"]
+    CACHE[("Redis / in-memory cache")]
     DB[(PostgreSQL)]
 
     FE -->|auto-discovered pages| API
@@ -61,21 +84,21 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph App
-        SRC[src/app/*<br/>pages/layouts]
-        SM[src/modules/*<br/>overrides]
-        MT[src/modules.ts<br/>module toggle]
+        SRC["src/app/*<br/>pages/layouts"]
+        SM["src/modules/*<br/>overrides"]
+        MT["src/modules.ts<br/>module toggle"]
     end
     subgraph Packages
-        CORE[@open-mercato/core<br/>modules]
-        EXTRA[Custom packages<br/>@open-mercato/*]
+        CORE["@open-mercato/core<br/>modules"]
+        EXTRA["Custom packages<br/>@open-mercato/*"]
     end
-    SRC --> Router[Frontend & backend routers]
-    SM --> Generator[yarn modules:prepare]
+    SRC --> Router["Frontend & backend routers"]
+    SM --> Generator["yarn modules:prepare"]
     CORE --> Generator
     EXTRA --> Generator
     MT --> Generator
-    Generator --> Registry[modules.generated.ts\nentities.generated.ts]
-    Registry --> Runtime[Runtime (routes, APIs, DI)]
+    Generator --> Registry["modules.generated.ts\nentities.generated.ts"]
+    Registry --> Runtime["Runtime (routes, APIs, DI)"]
 ```
 
 - **`src/app`** – Override or add pages/layouts without touching package sources.

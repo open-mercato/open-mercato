@@ -81,6 +81,12 @@ const config: Config = {
         },
         {
           type: 'doc',
+          docId: 'api/overview',
+          label: 'REST API',
+          position: 'left',
+        },
+        {
+          type: 'doc',
           docId: 'customization/build-first-app',
           label: 'Customization',
           position: 'left',

@@ -9,7 +9,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'introduction/overview',
         'introduction/use-cases',
-        'introduction/platform-architecture',
       ],
     },
     {
@@ -41,6 +40,16 @@ const sidebars: SidebarsConfig = {
       label: 'REST API',
       items: [
         'api/overview',
+        {
+          type: 'category',
+          label: 'Module Guides',
+          items: [
+            'api/auth',
+            'api/directory',
+            'api/dashboards',
+            'api/entities',
+          ],
+        },
       ],
     },
     {
