@@ -1,18 +1,18 @@
 :root {
-  --ifm-color-primary: #f59e0b;
-  --ifm-color-primary-dark: #d97706;
-  --ifm-color-primary-darker: #b45309;
-  --ifm-color-primary-darkest: #92400e;
-  --ifm-color-primary-light: #fbbf24;
-  --ifm-color-primary-lighter: #fcd34d;
-  --ifm-color-primary-lightest: #fef3c7;
+  --ifm-color-primary: #d97706;
+  --ifm-color-primary-dark: #b45309;
+  --ifm-color-primary-darker: #92400e;
+  --ifm-color-primary-darkest: #78350f;
+  --ifm-color-primary-light: #f59e0b;
+  --ifm-color-primary-lighter: #fbbf24;
+  --ifm-color-primary-lightest: #fcd34d;
   --ifm-background-color: #fdfcf9;
   --ifm-navbar-background-color: rgba(255, 255, 255, 0.85);
   --ifm-navbar-link-color: #1f2937;
   --ifm-card-background-color: rgba(255, 255, 255, 0.9);
   --ifm-code-font-size: 95%;
   --ifm-font-family-base: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --docs-hero-accent: radial-gradient(circle at top left, #fef3c7, #f59e0b 60%, #ea580c 100%);
+  --docs-hero-accent: radial-gradient(circle at top left, #fde68a, #d97706 60%, #b45309 100%);
 }
 
 html[data-theme='dark'] {

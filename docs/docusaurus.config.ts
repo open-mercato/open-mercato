@@ -69,6 +69,12 @@ const config: Config = {
         },
         {
           type: 'doc',
+          docId: 'user-guide/overview',
+          label: 'User Guide',
+          position: 'left',
+        },
+        {
+          type: 'doc',
           docId: 'installation/prerequisites',
           label: 'Installation',
           position: 'left',

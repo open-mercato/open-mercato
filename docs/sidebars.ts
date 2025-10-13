@@ -25,6 +25,9 @@ const sidebars: SidebarsConfig = {
       items: [
         'user-guide/overview',
         'user-guide/login',
+        'user-guide/users-and-roles',
+        'user-guide/user-custom-fields',
+        'user-guide/user-entities',
         'user-guide/organizations',
       ],
     },

@@ -18,8 +18,8 @@ Logging in is the first touchpoint for every operator. The authentication flow r
 ![Dashboard widgets overview](/screenshots/open-mercato-dashboard.png)
 
 - **Modular widgets** – the dashboard tiles surface health checks, user onboarding status, recent activity, and any module-provided cards that were enabled for the tenant.
-- **Role defaults** – default widget visibility is set from the Roles management screens (`packages/core/src/modules/auth/backend/roles`) so each role lands on the right data immediately.
-- **Per-user overrides** – individual preferences live in the Users management screens (`packages/core/src/modules/auth/backend/users`), letting you fine-tune the widget set for specific team members.
+- **Role defaults** – configure which system health widgets appear after login from the [Users & roles management pages](./users-and-roles); each role can opt into the tiles that matter most.
+- **Per-user overrides** – individual preferences live in the same management screens, letting you fine-tune the widget set for specific team members when roles are not enough.
 
 ## Resetting access
 
@@ -29,5 +29,5 @@ Logging in is the first touchpoint for every operator. The authentication flow r
 ## Next steps
 
 - [User guide overview](./overview) – go back to the dashboard tour.
-- [Managing users & roles](../framework/admin-ui/crud-form) – learn how admins create accounts and assign permissions.
+- [Managing users & roles](./users-and-roles) – learn how admins create accounts, assign permissions, and tailor dashboard widgets.
 - [Organizations & visibility](../customization/create-first-module) – extend modules with organization-aware experiences.
