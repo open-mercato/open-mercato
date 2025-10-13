@@ -17,17 +17,21 @@ const config: Config = {
   },
   markdown: {
     mermaid: true,
+    hooks: {
+      onBrokenMarkdownLinks: 'warn',
+    },
   },
-  themes: [
+  themes: ['@docusaurus/theme-mermaid'],
+  plugins: [
     [
       '@easyops-cn/docusaurus-search-local',
       {
         hashed: true,
         language: ['en'],
+        indexDocs: true,
         indexBlog: false,
       },
     ],
-    '@docusaurus/theme-mermaid',
   ],
   presets: [
     [
