@@ -1,4 +1,4 @@
-# 🚀 Open Mercato
+# <img src="./public/open-mercato.svg" alt="Open Mercato logo" width="36" /> Open Mercato
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-openmercato.com-1F7AE0.svg)](https://docs.openmercato.com/)
@@ -106,6 +106,18 @@ Follow these steps after the prerequisites are in place:
 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything.
 
 Full installation guide (including prerequisites and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
+
+## Contributing
+
+We welcome contributions of all sizes—from fixes and docs updates to new modules. Open a discussion or issue, then submit a pull request when you're ready; the maintainer team will help land it quickly.
+
+Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado.com/).
+
+<div align="center">
+  <a href="https://catchthetornado.com/">
+    <img src="./public/catch-the-tornado-logo.png" alt="Catch The Tornado logo" width="96" />
+  </a>
+</div>
 
 ## CLI Commands
 
