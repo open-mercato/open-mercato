@@ -35,6 +35,7 @@ const sidebars: SidebarsConfig = {
       label: 'Customization Tutorials',
       items: [
         'customization/modules/quickstart',
+        'customization/modules/authoring-first-module',
         'customization/api/extending-api',
         'customization/data-entities/data-extensibility',
         'customization/forms/crud-form',
@@ -44,6 +45,7 @@ const sidebars: SidebarsConfig = {
         'customization/dashboard-widgets/overview',
         'tutorials/first-app',
         'tutorials/building-todo-module',
+        'tutorials/authoring-first-module',
         'tutorials/api-data-fetching',
         'tutorials/testing',
       ],

@@ -52,10 +52,12 @@ function HomepageHeader() {
   return (
     <header className="hero hero--primary">
       <div className="container">
-        <h1 className="hero__title">Build Extensible Commerce Experiences</h1>
+        <h1 className="hero__title">Welcome to Open Mercato</h1>
         <p className="hero__subtitle">
-          Open Mercato blends a modular backend, customizable admin UI, and typed workflows so your product team can
-          ship fast without losing control.
+          Open Mercato is a new‑era, AI‑supportive ERP foundation framework.
+        </p>
+        <p>
+          It’s modular, extensible, and designed for teams that want strong defaults with room to customize everything.
         </p>
         <div>
           <Link className="button button--lg button--secondary" to="/introduction/overview">
