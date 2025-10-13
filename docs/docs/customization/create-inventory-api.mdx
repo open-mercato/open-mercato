@@ -5,9 +5,9 @@ description: Expose REST endpoints for the Inventory module using the CRUD facto
 
 # Step 4: Create the data API
 
-API handlers live under `api/<method>/<path>.ts`. The CRUD factory from `@open-mercato/core` handles most boilerplate when you supply repositories and validators.
+API handlers live under `api/<method>/<path>.ts`. Instead of hand-coding every method, lean on the CRUD factory from `@open-mercato/core`—it wraps validation, RBAC metadata, DI wiring, and event emission so each module stays consistent.
 
-## 1. Implement the repository service
+## 1. Implement a domain service
 
 ```bash
 mkdir -p packages/inventory/src/modules/inventory/services
@@ -32,6 +32,14 @@ export class InventoryService {
       },
       { orderBy: { name: 'asc' } },
     );
+  }
+
+  async findOne(id: string, tenantId: string) {
+    return this.em.findOneOrFail(InventoryItemEntity, {
+      id,
+      tenant_id: tenantId,
+      deleted_at: null,
+    });
   }
 
   async create(input: UpsertInventoryItemInput) {
@@ -84,7 +92,9 @@ export function register(container: AppContainer) {
 }
 ```
 
-## 2. Create CRUD endpoints
+> ℹ️ Use `.scoped()` so each request receives a fresh instance bound to the request-scoped EntityManager.
+
+## 2. Create a CRUD router
 
 ```bash
 mkdir -p packages/inventory/src/modules/inventory/api/items
@@ -113,6 +123,8 @@ export const { GET, POST, PATCH, DELETE, metadata } = createCrudRouter({
     inventoryService.list({ tenantId: auth.tenantId, organizationId: auth.organizationId }),
   create: async ({ inventoryService, auth }, input) =>
     inventoryService.create({ ...input, tenantId: auth.tenantId }),
+  retrieve: async ({ inventoryService, auth }, id) =>
+    inventoryService.findOne(id, auth.tenantId),
   update: async ({ inventoryService, auth }, id, input) =>
     inventoryService.update(id, { ...input, tenantId: auth.tenantId }),
   remove: async ({ inventoryService, auth }, id) =>
@@ -122,8 +134,16 @@ export const { GET, POST, PATCH, DELETE, metadata } = createCrudRouter({
 
 The factory:
 
-- Generates per-method metadata so RBAC and auth guards run automatically.
-- Validates request bodies against your zod schema.
-- Injects the Awilix container, making services accessible.
+- Generates `GET /`, `GET /:id`, `POST`, `PATCH`, and `DELETE` handlers with consistent naming.
+- Derives per-method metadata so RBAC and auth guards run automatically.
+- Validates request bodies against your zod schema and translates errors into HTTP responses.
+- Injects the Awilix container, making services accessible without direct imports.
+- Emits CRUD lifecycle events that indexing and workflow subscribers rely on.
 
 Once you restart the dev server, the new API is available at `/api/items`.
+
+### Why the CRUD factory matters
+
+- **Less boilerplate** – the factory handles transport concerns so you focus on domain logic.
+- **Consistency** – every module shares response shapes, error handling, and emitted events.
+- **Extensibility** – override individual handlers (for example, add advanced filters in `list`) while keeping the rest untouched.
