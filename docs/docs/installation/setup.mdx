@@ -3,40 +3,30 @@ title: Local setup
 description: Step-by-step checklist to run Open Mercato locally.
 ---
 
-Follow these steps after satisfying the [prerequisites](./prerequisites):
+Follow these steps after the [prerequisites](./prerequisites) are in place:
 
 1. **Clone the repository**
    ```bash
    git clone https://github.com/open-mercato/open-mercato.git
    cd open-mercato
    ```
-2. **Install dependencies** – use the workspace-aware package manager of your choice.
+2. **Install workspace dependencies**
    ```bash
-   pnpm install
-   # or
-   npm install
+   yarn install
    ```
-3. **Generate registries** – auto-discover modules, entities, and dependency injection glue.
+3. **Bootstrap everything with one command**
    ```bash
-   npm run modules:prepare
+   yarn mercato init
    ```
-4. **Run database migrations** – generates per-module migrations and applies them.
+   This script prepares module registries, generates/apply migrations, seeds default roles, and provisions an admin user.
+4. **Launch the app**
    ```bash
-   npm run db:generate
-   npm run db:migrate
+   yarn dev
    ```
-5. **Seed sample data (optional)** – the example module provides demo entities to explore the admin UI.
-   ```bash
-   npm run mercato example seed-todos
-   ```
-6. **Start development servers** – Next.js app with hot reloading and background generators.
-   ```bash
-   npm run dev
-   ```
-7. **Visit the Admin** – open `http://localhost:3000/backend`. Default credentials live in `packages/core/src/modules/auth/api/login.ts` (update them before going live).
+   Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
 
-Troubleshooting tips:
+![Open Mercato admin home](../../screenshots/open-mercato-homepage.png)
 
-- Re-run `npm run modules:prepare` whenever you add new modules, pages, or data definitions.
-- Delete module-specific migrations under `src/modules/<module>/migrations` if you want to regenerate them from scratch (`npm run db:greenfield`).
-- If TypeScript types appear stale, `npm run lint -- --fix` often refreshes generated declarations.
+> 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything.
+
+For advanced/manual flows (custom migration control, selective seeding, etc.) see the CLI reference in the repository README.
