@@ -120,20 +120,29 @@ export class CommandBus {
     const actorUserId = metadata.actorUserId ?? options.ctx.auth?.sub ?? null
     const undoToken = metadata.undoToken ?? null
 
-    return await service.log({
-      tenantId,
-      organizationId,
-      actorUserId,
+    const payload: Record<string, unknown> = {
+      tenantId: tenantId ?? undefined,
+      organizationId: organizationId ?? undefined,
+      actorUserId: actorUserId ?? undefined,
       commandId,
-      actionLabel: metadata.actionLabel ?? null,
-      resourceKind: metadata.resourceKind ?? null,
-      resourceId: metadata.resourceId ?? null,
-      undoToken: undoToken ?? undefined,
-      commandPayload: metadata.payload ?? options.input,
-      snapshotBefore: metadata.snapshotBefore ?? null,
-      snapshotAfter: metadata.snapshotAfter ?? null,
-      changes: metadata.changes ?? null,
-      context: metadata.context ?? null,
-    })
+    }
+
+    if (metadata) {
+      if ('actionLabel' in metadata && metadata.actionLabel != null) payload.actionLabel = metadata.actionLabel
+      if ('resourceKind' in metadata && metadata.resourceKind != null) payload.resourceKind = metadata.resourceKind
+      if ('resourceId' in metadata && metadata.resourceId != null) payload.resourceId = metadata.resourceId
+      if ('undoToken' in metadata && metadata.undoToken != null) payload.undoToken = metadata.undoToken
+      if ('payload' in metadata && metadata.payload !== undefined) payload.commandPayload = metadata.payload
+      if ('snapshotBefore' in metadata && metadata.snapshotBefore !== undefined) payload.snapshotBefore = metadata.snapshotBefore
+      if ('snapshotAfter' in metadata && metadata.snapshotAfter !== undefined) payload.snapshotAfter = metadata.snapshotAfter
+      if ('changes' in metadata && metadata.changes !== undefined && metadata.changes !== null) payload.changes = metadata.changes
+      if ('context' in metadata && metadata.context !== undefined && metadata.context !== null) payload.context = metadata.context
+    }
+
+    if (!('commandPayload' in payload)) {
+      payload.commandPayload = options.input
+    }
+
+    return await service.log(payload as any)
   }
 }
