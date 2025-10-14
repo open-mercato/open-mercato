@@ -2,5 +2,8 @@
   "example.moduleTitle": "Beispielmodul",
   "example.publicPage": "Öffentliche Beispielseite.",
   "example.adminTitle": "Beispiel-Admin",
-  "example.manageEntities": "Verwalte Beispiel-Entitäten."
+  "example.manageEntities": "Verwalte Beispiel-Entitäten.",
+  "example.audit.todos.create": "To-do anlegen",
+  "example.audit.todos.update": "To-do aktualisieren",
+  "example.audit.todos.delete": "To-do löschen"
 }

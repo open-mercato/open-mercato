@@ -25,5 +25,12 @@
   "auth.nav.users": "Users",
   "auth.nav.users.create": "Create User",
   "auth.nav.roles": "Roles",
-  "auth.nav.roles.create": "Create Role"
+  "auth.nav.roles.create": "Create Role",
+  "auth.audit.users.create": "Create user",
+  "auth.audit.users.update": "Update user",
+  "auth.audit.users.delete": "Delete user",
+  "auth.audit.roles.create": "Create role",
+  "auth.audit.roles.update": "Update role",
+  "auth.audit.roles.delete": "Delete role",
+  "auth.users.errors.emailExists": "Email already in use"
 }

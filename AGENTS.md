@@ -105,6 +105,30 @@ This repository is designed for extensibility. Agents should leverage the module
  - Favor functional programming (pure functions, data-first utilities) over classes.
  - Write any necessary code comments in English.
 
+## Internationalization
+- Always add user-facing copy to the relevant locale files when introducing or modifying features.
+- Keep locales in sync: update every supported language file, and add fallbacks only when the translation is genuinely unavailable.
+- Run or document any required sync scripts so `src/modules/generated.ts` and other build artefacts stay aligned with locale updates.
+- Avoid hard-coded strings; leverage the shared translation utilities in `packages/ui` to read from locale dictionaries.
+- Client components can grab the translator with `useT` from `@/lib/i18n/context`:
+  ```tsx
+  import { useT } from '@/lib/i18n/context'
+
+  export function LoginTitle() {
+    const t = useT()
+    return <h1>{t('auth.login.title')}</h1>
+  }
+  ```
+- Server code can call `resolveTranslations()` or `createTranslator()` from `@open-mercato/shared/lib/i18n/server` to format copy before rendering:
+  ```ts
+  import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+
+  export async function getLoginLabels() {
+    const { t } = await resolveTranslations()
+    return { title: t('auth.login.title') }
+  }
+  ```
+
 ### Type Safety Addendum
 - Centralize reusable types and constants (e.g., custom field kinds) in `packages/shared` and import them everywhere to avoid drift.
 - Do not introduce new `any`-typed APIs; define DTOs via zod schemas and `z.infer` for runtime + compile-time safety.

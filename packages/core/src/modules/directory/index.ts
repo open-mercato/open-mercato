@@ -1,3 +1,5 @@
+import './commands/tenants'
+import './commands/organizations'
 import type { ModuleInfo } from '@/modules/registry'
 
 export const metadata: ModuleInfo = {

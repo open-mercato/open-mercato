@@ -10,6 +10,7 @@ import ceEntities from '@open-mercato/example/modules/example/ce'
 import { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import type { CustomFieldSet } from '@open-mercato/shared/modules/entities'
+import { todoCrudEvents, todoCrudIndexer } from '@open-mercato/example/modules/example/commands/todos'
 
 // Query (list) schema
 const querySchema = z
@@ -30,24 +31,9 @@ const querySchema = z
   .passthrough()
 
 // Create/Update schemas
-const createSchema = z
-  .object({
-    title: z.string().min(1),
-    is_done: z.boolean().optional().default(false),
-  })
-  .passthrough()
-
-const updateSchema = z
-  .object({
-    id: z.string().uuid(),
-    title: z.string().min(1).optional(),
-    is_done: z.boolean().optional(),
-  })
-  .passthrough()
+const rawBodySchema = z.object({}).passthrough()
 
 type Query = z.infer<typeof querySchema>
-type CreateInput = z.infer<typeof createSchema>
-type UpdateInput = z.infer<typeof updateSchema>
 
 // Start from code-declared field sets (declared in ce.ts); extend per-request from DB definitions
 const baseFieldSets: CustomFieldSet[] = []
@@ -232,19 +218,23 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       }
     }
   },
-  create: {
-    schema: createSchema,
-    mapToEntity: (input: CreateInput) => ({ title: input.title, isDone: !!input.is_done }),
-    customFields: { enabled: true, entityId: E.example.todo, pickPrefixed: true },
-    response: (entity: Todo) => ({ id: String(entity.id) }),
-  },
-  update: {
-    schema: updateSchema,
-    applyToEntity: (entity: Todo, input: UpdateInput) => {
-      if (input.title !== undefined) entity.title = input.title
-      if (input.is_done !== undefined) entity.isDone = !!input.is_done
+  actions: {
+    create: {
+      commandId: 'example.todos.create',
+      schema: rawBodySchema,
+      mapInput: ({ parsed }) => parsed,
+      response: ({ result }) => ({ id: String(result.id) }),
+      status: 201,
     },
-    customFields: { enabled: true, entityId: E.example.todo, pickPrefixed: true },
+    update: {
+      commandId: 'example.todos.update',
+      schema: rawBodySchema,
+      mapInput: ({ parsed }) => parsed,
+      response: () => ({ ok: true }),
+    },
+    delete: {
+      commandId: 'example.todos.delete',
+      response: () => ({ ok: true }),
+    },
   },
-  del: { idFrom: 'query', softDelete: true },
 })

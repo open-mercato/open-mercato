@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { translate } = await resolveTranslations()
+  const { translate, locale } = await resolveTranslations()
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const cache = resolve('cache') as any
 
   // Cache key is user + tenant + organization scoped
-  const cacheKey = `nav:sidebar:${auth.sub}:${auth.tenantId || 'null'}:${auth.orgId || 'null'}`
+  const cacheKey = `nav:sidebar:${locale}:${auth.sub}:${auth.tenantId || 'null'}:${auth.orgId || 'null'}`
   // try {
   //   if (cache) {
   //     const cached = await cache.get(cacheKey)
@@ -113,11 +113,18 @@ export async function GET(req: Request) {
       href: `/backend/entities/user/${encodeURIComponent(e.entityId)}/records`
     }))
     if (items.length) {
-      const dd = roots.find((it: any) => it.group === 'Data designer' && it.title === 'User Entities')
+      const dd = roots.find((it: Entry) => it.groupKey === 'entities.nav.group' && it.titleKey === 'entities.nav.userEntities')
       if (dd) {
         const existing = dd.children || []
-        const dynamic = items.map((it) => ({ group: 'Data designer', title: it.label, href: it.href, enabled: true, order: 1000 }))
-        const byHref = new Map<string, any>()
+        const dynamic = items.map((it) => ({
+          group: dd.group,
+          groupKey: dd.groupKey,
+          title: it.label,
+          href: it.href,
+          enabled: true,
+          order: 1000,
+        }))
+        const byHref = new Map<string, Entry>()
         for (const c of existing) if (!byHref.has(c.href)) byHref.set(c.href, c)
         for (const c of dynamic) if (!byHref.has(c.href)) byHref.set(c.href, c)
         dd.children = Array.from(byHref.values())
@@ -195,7 +202,12 @@ export async function GET(req: Request) {
 
   try {
     if (cache) {
-      const tags = [ `rbac:user:${auth.sub}`, auth.tenantId ? `rbac:tenant:${auth.tenantId}` : undefined, `nav:entities:${auth.tenantId || 'null'}` ].filter(Boolean) as string[]
+      const tags = [
+        `rbac:user:${auth.sub}`,
+        auth.tenantId ? `rbac:tenant:${auth.tenantId}` : undefined,
+        `nav:entities:${auth.tenantId || 'null'}`,
+        `nav:locale:${locale}`,
+      ].filter(Boolean) as string[]
       await cache.set(cacheKey, payload, { tags })
     }
   } catch {}

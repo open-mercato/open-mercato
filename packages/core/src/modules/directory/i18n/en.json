@@ -3,5 +3,11 @@
   "directory.nav.organizations": "Organizations",
   "directory.nav.organizations.create": "Create Organization",
   "directory.nav.tenants": "Tenants",
-  "directory.nav.tenants.create": "Create Tenant"
+  "directory.nav.tenants.create": "Create Tenant",
+  "directory.audit.tenants.create": "Create tenant",
+  "directory.audit.tenants.update": "Update tenant",
+  "directory.audit.tenants.delete": "Delete tenant",
+  "directory.audit.organizations.create": "Create organization",
+  "directory.audit.organizations.update": "Update organization",
+  "directory.audit.organizations.delete": "Delete organization"
 }

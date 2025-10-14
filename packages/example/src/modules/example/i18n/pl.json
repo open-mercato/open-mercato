@@ -2,5 +2,8 @@
   "example.moduleTitle": "Moduł przykładowy",
   "example.publicPage": "Publiczna strona przykładowa.",
   "example.adminTitle": "Panel przykładowy",
-  "example.manageEntities": "Zarządzaj encjami przykładowymi."
+  "example.manageEntities": "Zarządzaj encjami przykładowymi.",
+  "example.audit.todos.create": "Utwórz zadanie",
+  "example.audit.todos.update": "Aktualizuj zadanie",
+  "example.audit.todos.delete": "Usuń zadanie"
 }

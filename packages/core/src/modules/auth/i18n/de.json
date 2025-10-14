@@ -20,5 +20,17 @@
   "auth.login.forgotPassword": "Passwort vergessen?",
   "auth.roles.superadmin": "Superadministrator",
   "auth.roles.admin": "Administrator",
-  "auth.roles.employee": "Mitarbeitende"
+  "auth.roles.employee": "Mitarbeitende",
+  "auth.nav.group": "Authentifizierung",
+  "auth.nav.users": "Benutzer",
+  "auth.nav.users.create": "Benutzer erstellen",
+  "auth.nav.roles": "Rollen",
+  "auth.nav.roles.create": "Rolle erstellen",
+  "auth.audit.users.create": "Benutzer anlegen",
+  "auth.audit.users.update": "Benutzer aktualisieren",
+  "auth.audit.users.delete": "Benutzer löschen",
+  "auth.audit.roles.create": "Rolle anlegen",
+  "auth.audit.roles.update": "Rolle aktualisieren",
+  "auth.audit.roles.delete": "Rolle löschen",
+  "auth.users.errors.emailExists": "E-Mail-Adresse wird bereits verwendet"
 }

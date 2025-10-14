@@ -4,6 +4,7 @@ import { EntityManager } from '@mikro-orm/postgresql'
 import { diRegistrars } from '@/generated/di.generated'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
+import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
 
 export type AppContainer = AwilixContainer
 
@@ -16,6 +17,8 @@ export async function createRequestContainer(): Promise<AppContainer> {
     em: asValue(em),
     queryEngine: asValue(new BasicQueryEngine(em)),
     dataEngine: asValue(new DefaultDataEngine(em, container as any)),
+    commandRegistry: asValue(commandRegistry),
+    commandBus: asValue(new CommandBus()),
   })
   // Allow modules to override/extend
   for (const reg of diRegistrars) {

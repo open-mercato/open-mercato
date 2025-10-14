@@ -1,16 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { User, Role, UserRole, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -21,43 +20,9 @@ const querySchema = z.object({
   roleIds: z.array(z.string().uuid()).optional(),
 }).passthrough()
 
-const createSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-  organizationId: z.string().uuid(),
-  roles: z.array(z.string()).optional(),
-})
-
-const updateSchema = z.object({
-  id: z.string().uuid(),
-  email: z.string().email().optional(),
-  password: z.string().min(6).optional(),
-  organizationId: z.string().uuid().optional(),
-  roles: z.array(z.string()).optional(),
-})
-
 const rawBodySchema = z.object({}).passthrough()
 
 type CrudInput = Record<string, unknown>
-
-type CreateHookState = {
-  input: z.infer<typeof createSchema>
-  custom: Record<string, unknown>
-  passwordHash: string
-  tenantId: string | null
-  roles: string[]
-}
-
-type UpdateHookState = {
-  input: z.infer<typeof updateSchema>
-  custom: Record<string, unknown>
-  passwordHash: string | null
-  roles?: string[]
-  shouldInvalidateCache: boolean
-}
-
-const createStateStore = new WeakMap<object, CreateHookState>()
-const updateStateStore = new WeakMap<object, UpdateHookState>()
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.users.list'] },
@@ -77,196 +42,25 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     tenantField: null,
     softDeleteField: 'deletedAt',
   },
-  events: { module: 'auth', entity: 'user', persistent: true },
-  indexer: { entityType: E.auth.user },
-  resolveIdentifiers: (entity) => ({
-    id: String((entity as any).id),
-    organizationId: (entity as any).organizationId ? String((entity as any).organizationId) : null,
-    tenantId: (entity as any).tenantId ? String((entity as any).tenantId) : null,
-  }),
-  create: {
-    schema: rawBodySchema,
-    mapToEntity: (input) => {
-      const state = createStateStore.get(input as object)
-      if (!state) throw new CrudHttpError(400, { error: 'Invalid input' })
-      return {
-        email: state.input.email,
-        passwordHash: state.passwordHash,
-        isConfirmed: true,
-        organizationId: state.input.organizationId,
-        tenantId: state.tenantId,
-      }
+  events: userCrudEvents,
+  indexer: userCrudIndexer,
+  actions: {
+    create: {
+      commandId: 'auth.users.create',
+      schema: rawBodySchema,
+      mapInput: ({ parsed }) => parsed,
+      response: ({ result }) => ({ id: String(result.id) }),
+      status: 201,
     },
-    response: (entity: User) => ({ id: String(entity.id) }),
-  },
-  update: {
-    schema: rawBodySchema,
-    applyToEntity: (entity: User, input) => {
-      const state = updateStateStore.get(input as object)
-      if (!state) throw new CrudHttpError(400, { error: 'Invalid input' })
-      const data = state.input
-      if (data.email !== undefined) entity.email = data.email
-      if (data.organizationId !== undefined) entity.organizationId = data.organizationId
-      if (state.passwordHash) entity.passwordHash = state.passwordHash
+    update: {
+      commandId: 'auth.users.update',
+      schema: rawBodySchema,
+      mapInput: ({ parsed }) => parsed,
+      response: () => ({ ok: true }),
     },
-    response: () => ({ ok: true }),
-  },
-  del: {
-    idFrom: 'query',
-    softDelete: false,
-    response: () => ({ ok: true }),
-  },
-  hooks: {
-    beforeCreate: async (raw, ctx) => {
-      const { base, custom } = splitCustomFieldPayload(raw)
-      const parsed = createSchema.safeParse(base)
-      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
-
-      const em = ctx.container.resolve<EntityManager>('em')
-      const org = await em.findOne(Organization, { id: parsed.data.organizationId }, { populate: ['tenant'] })
-      if (!org) throw new CrudHttpError(400, { error: 'Organization not found' })
-
-      const { hash } = await import('bcryptjs')
-      const passwordHash = await hash(parsed.data.password, 10)
-      const tenantId = org.tenant?.id ? String(org.tenant.id) : null
-      const roles = Array.isArray(parsed.data.roles) ? parsed.data.roles : []
-
-      createStateStore.set(parsed.data as unknown as object, {
-        input: parsed.data,
-        custom,
-        passwordHash,
-        tenantId,
-        roles,
-      })
-      return parsed.data as unknown as CrudInput
-    },
-    afterCreate: async (entity, ctx) => {
-      const state = createStateStore.get(ctx.input as object)
-      if (!state) return
-      const em = ctx.container.resolve<EntityManager>('em')
-
-      if (state.roles.length) {
-        for (const name of state.roles) {
-          let role = await em.findOne(Role, { name })
-          if (!role) {
-            role = em.create(Role, { name, tenantId: entity.tenantId ? String(entity.tenantId) : null })
-            await em.persistAndFlush(role)
-          }
-          const link = em.create(UserRole, { user: entity, role })
-          await em.persistAndFlush(link)
-        }
-      }
-
-      if (Object.keys(state.custom).length) {
-        const de = ctx.container.resolve<DataEngine>('dataEngine')
-        await de.setCustomFields({
-          entityId: E.auth.user,
-          recordId: String(entity.id),
-          organizationId: entity.organizationId ? String(entity.organizationId) : null,
-          tenantId: entity.tenantId ? String(entity.tenantId) : null,
-          values: state.custom,
-          notify: false,
-        })
-      }
-
-      createStateStore.delete(ctx.input as object)
-    },
-    beforeUpdate: async (raw) => {
-      const { base, custom } = splitCustomFieldPayload(raw)
-      const parsed = updateSchema.safeParse(base)
-      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
-
-      let passwordHash: string | null = null
-      if (parsed.data.password) {
-        const { hash } = await import('bcryptjs')
-        passwordHash = await hash(parsed.data.password, 10)
-      }
-
-      const shouldInvalidateCache = parsed.data.organizationId !== undefined || parsed.data.roles !== undefined
-
-      updateStateStore.set(parsed.data as unknown as object, {
-        input: parsed.data,
-        custom,
-        passwordHash,
-        roles: parsed.data.roles,
-        shouldInvalidateCache,
-      })
-      return parsed.data as unknown as CrudInput
-    },
-    afterUpdate: async (entity, ctx) => {
-      const state = updateStateStore.get(ctx.input as object)
-      if (!state) return
-      const em = ctx.container.resolve<EntityManager>('em')
-
-      if (Array.isArray(state.roles)) {
-        const current = await em.find(UserRole, { user: entity as any }, { populate: ['role'] })
-        const currentNames = new Set(
-          current
-            .map((ur: any) => (ur.role?.name ? String(ur.role.name) : null))
-            .filter((name): name is string => !!name),
-        )
-        const desired = new Set(state.roles)
-
-        for (const link of current) {
-          const name = link.role?.name ? String(link.role.name) : ''
-          if (!desired.has(name)) {
-            em.remove(link)
-          }
-        }
-
-        for (const name of desired) {
-          if (!currentNames.has(name)) {
-            let role = await em.findOne(Role, { name })
-            if (!role) {
-              role = em.create(Role, { name, tenantId: entity.tenantId ? String(entity.tenantId) : null })
-              await em.persistAndFlush(role)
-            }
-            em.persist(em.create(UserRole, { user: entity as any, role: role as any }))
-          }
-        }
-
-        await em.flush()
-      }
-
-      if (Object.keys(state.custom).length) {
-        const de = ctx.container.resolve<DataEngine>('dataEngine')
-        await de.setCustomFields({
-          entityId: E.auth.user,
-          recordId: String(entity.id),
-          organizationId: entity.organizationId ? String(entity.organizationId) : null,
-          tenantId: entity.tenantId ? String(entity.tenantId) : null,
-          values: state.custom,
-          notify: false,
-        })
-      }
-
-      if (state.shouldInvalidateCache) {
-        const rbacService = ctx.container.resolve('rbacService') as { invalidateUserCache: (userId: string) => Promise<void> }
-        await rbacService.invalidateUserCache(state.input.id)
-        try {
-          const cache = ctx.container.resolve('cache') as { deleteByTags?: (tags: string[]) => Promise<void> }
-          if (cache?.deleteByTags) await cache.deleteByTags([`rbac:user:${state.input.id}`])
-        } catch {
-          // noop — cache not available
-        }
-      }
-
-      updateStateStore.delete(ctx.input as object)
-    },
-    beforeDelete: async (id, ctx) => {
-      const em = ctx.container.resolve<EntityManager>('em')
-      await em.nativeDelete(UserAcl, { user: id as any })
-      await em.nativeDelete(UserRole, { user: id as any })
-    },
-    afterDelete: async (id, ctx) => {
-      const rbacService = ctx.container.resolve('rbacService') as { invalidateUserCache: (userId: string) => Promise<void> }
-      await rbacService.invalidateUserCache(id)
-      try {
-        const cache = ctx.container.resolve('cache') as { deleteByTags?: (tags: string[]) => Promise<void> }
-        if (cache?.deleteByTags) await cache.deleteByTags([`rbac:user:${id}`])
-      } catch {
-        // noop — cache not available
-      }
+    delete: {
+      commandId: 'auth.users.delete',
+      response: () => ({ ok: true }),
     },
   },
 })
@@ -285,12 +79,12 @@ export async function GET(req: Request) {
     roleIds: rawRoleIds.length ? rawRoleIds : undefined,
   })
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
   let isSuperAdmin = false
   try {
     if (auth.sub) {
-      const rbacService = resolve('rbacService') as any
+      const rbacService = container.resolve('rbacService') as any
       const acl = await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
       isSuperAdmin = !!acl?.isSuperAdmin
     }
@@ -412,6 +206,18 @@ export async function GET(req: Request) {
     }
   })
   const totalPages = Math.max(1, Math.ceil(count / pageSize))
+  await logCrudAccess({
+    container,
+    auth,
+    request: req,
+    items,
+    idField: 'id',
+    resourceKind: 'auth.user',
+    organizationId: null,
+    tenantId: auth.tenantId ?? null,
+    query: parsed.data,
+    accessType: id ? 'read:item' : undefined,
+  })
   return NextResponse.json({ items, total: count, totalPages, isSuperAdmin })
 }
 

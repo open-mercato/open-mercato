@@ -3,7 +3,10 @@ import React from 'react'
 
 export type AdminNavItem = {
   group: string
+  groupId: string
+  groupKey?: string
   title: string
+  titleKey?: string
   href: string
   enabled: boolean
   order?: number
@@ -15,7 +18,8 @@ export type AdminNavItem = {
 export async function buildAdminNav(
   modules: any[],
   ctx: { auth?: { roles?: string[]; sub?: string; orgId?: string | null; tenantId?: string | null }; path?: string },
-  userEntities?: Array<{ entityId: string; label: string; href: string }>
+  userEntities?: Array<{ entityId: string; label: string; href: string }>,
+  translate?: (key: string | undefined, fallback: string) => string
 ): Promise<AdminNavItem[]> {
   function capitalize(s: string) {
     return s.charAt(0).toUpperCase() + s.slice(1)
@@ -95,7 +99,12 @@ export async function buildAdminNav(
       if (!href || href.includes('[')) continue
       if ((r as any).navHidden) continue
       const title = (r.title as string) || deriveTitleFromPath(href)
+      const titleKey = (r as any).pageTitleKey ?? (r as any).titleKey
       const group = (r.group as string) || groupDefault
+      const groupKey = (r as any).pageGroupKey ?? (r as any).groupKey
+      const groupId = (groupKey as string | undefined) ?? group
+      const displayGroup = translate ? translate(groupKey, group) : group
+      const displayTitle = translate ? translate(titleKey, title) : title
       const visible = r.visible ? await Promise.resolve(r.visible(ctx)) : true
       if (!visible) continue
       const enabled = r.enabled ? await Promise.resolve(r.enabled(ctx)) : true
@@ -115,7 +124,7 @@ export async function buildAdminNav(
       const order = (r as any).order as number | undefined
       const priority = ((r as any).priority as number | undefined) ?? order
       let icon = (r as any).icon as ReactNode | undefined
-      entries.push({ group, title, href, enabled, order, priority, icon })
+      entries.push({ group: displayGroup, groupId, groupKey, title: displayTitle, titleKey, href, enabled, order, priority, icon })
     }
   }
   // Build hierarchy: treat routes whose href starts with a parent href + '/'
@@ -127,7 +136,7 @@ export async function buildAdminNav(
     let parent: AdminNavItem | undefined
     for (const p of entries) {
       if (p === e) continue
-      if (p.group !== e.group) continue
+      if (p.groupId !== e.groupId) continue
       if (!e.href.startsWith(p.href + '/')) continue
       if (!parent || p.href.length > parent.href.length) parent = p
     }
@@ -148,11 +157,13 @@ export async function buildAdminNav(
       React.createElement('path', { d: 'M3 10h18M9 4v16M15 4v16' }),
     )
     // Find the "User Entities" item in the Data designer group (it should be a root item)
-    const userEntitiesItem = roots.find(item => item.group === 'Data designer' && item.title === 'User Entities')
+    const userEntitiesItem = roots.find(item => item.groupKey === 'entities.nav.group' && item.titleKey === 'entities.nav.userEntities')
     if (userEntitiesItem) {
       const existingChildren = userEntitiesItem.children || []
       const dynamicUserEntities = userEntities.map((entity) => ({
-        group: 'Data designer',
+        group: userEntitiesItem.group,
+        groupId: userEntitiesItem.groupId,
+        groupKey: userEntitiesItem.groupKey,
         title: entity.label,
         href: entity.href,
         enabled: true,
@@ -172,7 +183,7 @@ export async function buildAdminNav(
   // Sorting: group, then priority/order, then title. Apply within children too.
   const sortItems = (arr: AdminNavItem[]) => {
     arr.sort((a, b) => {
-      if (a.group !== b.group) return a.group.localeCompare(b.group)
+      if (a.groupId !== b.groupId) return a.groupId.localeCompare(b.groupId)
       const ap = a.priority ?? a.order ?? 10_000
       const bp = b.priority ?? b.order ?? 10_000
       if (ap !== bp) return ap - bp

@@ -1,0 +1,13 @@
+{
+  "directory.nav.group": "Directorio",
+  "directory.nav.organizations": "Organizaciones",
+  "directory.nav.organizations.create": "Crear organización",
+  "directory.nav.tenants": "Inquilinos",
+  "directory.nav.tenants.create": "Crear inquilino",
+  "directory.audit.tenants.create": "Crear inquilino",
+  "directory.audit.tenants.update": "Actualizar inquilino",
+  "directory.audit.tenants.delete": "Eliminar inquilino",
+  "directory.audit.organizations.create": "Crear organización",
+  "directory.audit.organizations.update": "Actualizar organización",
+  "directory.audit.organizations.delete": "Eliminar organización"
+}

@@ -15,6 +15,7 @@ import type {
 } from './types'
 import { extractCustomFieldValuesFromPayload } from './custom-fields'
 import { CrudHttpError } from './errors'
+import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -92,12 +93,22 @@ export type DeleteConfig = {
   response?: (id: string) => any
 }
 
+export type CrudCommandActionConfig = {
+  commandId: string
+  schema?: z.ZodTypeAny
+  mapInput?: (args: { parsed: any; raw: any; ctx: CrudCtx }) => Promise<any> | any
+  metadata?: (args: { input: any; parsed: any; raw: any; ctx: CrudCtx }) => Promise<CommandLogMetadata | null> | CommandLogMetadata | null
+  response?: (args: { result: any; logEntry: any | null; ctx: CrudCtx }) => any
+  status?: number
+}
+
 export type CrudCtx = {
   container: AwilixContainer
   auth: AuthContext | null
   organizationScope: OrganizationScope | null
   selectedOrganizationId: string | null
   organizationIds: string[] | null
+  request?: Request
 }
 
 export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
@@ -111,6 +122,11 @@ export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
   indexer?: CrudIndexerConfig
   resolveIdentifiers?: CrudIdentifierResolver
   hooks?: CrudHooks<TCreate, TUpdate, TList>
+  actions?: {
+    create?: CrudCommandActionConfig
+    update?: CrudCommandActionConfig
+    delete?: CrudCommandActionConfig
+  }
 }
 
 function json(data: any, init?: ResponseInit) {
@@ -124,7 +140,14 @@ function handleError(err: unknown): Response {
   if (err instanceof Response) return err
   if (err instanceof CrudHttpError) return json(err.body, { status: err.status })
   if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
-  return json({ error: 'Internal server error' }, { status: 500 })
+
+  const message = err instanceof Error ? err.message : undefined
+  const stack = err instanceof Error ? err.stack : undefined
+  // eslint-disable-next-line no-console
+  console.error('[crud] unexpected error', { message, stack, err })
+  const body: Record<string, unknown> = { error: 'Internal server error' }
+  if (message) body.message = message
+  return json(body, { status: 500 })
 }
 
 function isUuid(v: any): v is string {
@@ -140,6 +163,112 @@ function normalizeIdentifierValue(value: any): string | null {
     if (value && typeof (value as any).id !== 'undefined') return normalizeIdentifierValue((value as any).id)
   }
   return String(value)
+}
+
+type AccessLogServiceLike = { log: (input: any) => Promise<unknown> | unknown }
+
+function collectFieldNames(items: any[]): string[] {
+  const set = new Set<string>()
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    for (const key of Object.keys(item)) {
+      if (typeof key === 'string' && key.length > 0) set.add(key)
+    }
+  }
+  return Array.from(set)
+}
+
+function determineAccessType(query: unknown, total: number, idField: string): string {
+  if (query && typeof query === 'object' && query !== null && idField in (query as Record<string, unknown>)) {
+    const value = (query as Record<string, unknown>)[idField]
+    if (value !== undefined && value !== null && String(value).length > 0) return 'read:item'
+  }
+  return total > 1 ? 'read:list' : 'read'
+}
+
+function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
+  const containerAny = container as any
+  try {
+    if (typeof containerAny?.hasRegistration === 'function' && !containerAny.hasRegistration('accessLogService')) {
+      return null
+    }
+  } catch {
+    // ignore registration lookup errors
+  }
+  try {
+    const service = container.resolve?.('accessLogService') as AccessLogServiceLike | undefined
+    if (service && typeof service.log === 'function') return service
+  } catch {
+    return null
+  }
+  return null
+}
+
+export type LogCrudAccessOptions = {
+  container: AwilixContainer
+  auth: AuthContext | null
+  request?: Request
+  items: any[]
+  idField?: string
+  resourceKind: string
+  organizationId?: string | null
+  tenantId?: string | null
+  query?: unknown
+  accessType?: string
+  fields?: string[]
+}
+
+export async function logCrudAccess(options: LogCrudAccessOptions) {
+  const { container, auth, request, items, resourceKind } = options
+  if (!auth) return
+  if (!Array.isArray(items) || items.length === 0) return
+  const service = resolveAccessLogService(container)
+  if (!service) return
+
+  const idField = options.idField || 'id'
+  const tenantId = options.tenantId ?? auth.tenantId ?? null
+  const organizationId = options.organizationId ?? auth.orgId ?? null
+  const actorUserId = auth.sub ?? null
+  const fields = options.fields && options.fields.length ? options.fields : collectFieldNames(items)
+  const accessType = options.accessType ?? determineAccessType(options.query, items.length, idField)
+
+  const context: Record<string, unknown> = {
+    resultCount: items.length,
+    accessType,
+  }
+  if (options.query && typeof options.query === 'object' && options.query !== null) {
+    context.queryKeys = Object.keys(options.query as Record<string, unknown>)
+  }
+  try {
+    if (request) {
+      const url = new URL(request.url)
+      context.path = url.pathname
+    }
+  } catch {
+    // ignore url parsing issues
+  }
+
+  const uniqueIds = new Set<string>()
+  const tasks: Promise<unknown>[] = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const rawId = (item as any)[idField]
+    const resourceId = normalizeIdentifierValue(rawId)
+    if (!resourceId || uniqueIds.has(resourceId)) continue
+    uniqueIds.add(resourceId)
+    const payload: Record<string, unknown> = {
+      tenantId,
+      organizationId,
+      actorUserId,
+      resourceKind,
+      resourceId,
+      accessType,
+    }
+    if (fields.length > 0) payload.fields = fields
+    if (Object.keys(context).length > 0) payload.context = context
+    tasks.push(Promise.resolve(service.log(payload)).catch(() => undefined))
+  }
+  if (tasks.length > 0) await Promise.all(tasks)
 }
 
 export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: CrudFactoryOptions<TCreate, TUpdate, TList>) {
@@ -175,6 +304,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
     : defaultIdentifierResolver
 
+  const resourceKind = opts.events
+    ? [opts.events.module, opts.events.entity].filter(Boolean).join('.')
+    : (typeof ormCfg.entity?.name === 'string' && ormCfg.entity.name.length > 0 ? ormCfg.entity.name : 'resource')
+
   async function ensureAuth() {
     const auth = await getAuthFromCookies()
     if (!auth) return null
@@ -197,7 +330,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     }
     selectedOrganizationId = scope?.selectedId ?? auth?.orgId ?? null
     organizationIds = scope ? scope.filterIds : (selectedOrganizationId ? [selectedOrganizationId] : null)
-    return { container, auth, organizationScope: scope, selectedOrganizationId, organizationIds }
+    return { container, auth, organizationScope: scope, selectedOrganizationId, organizationIds, request }
   }
 
   async function GET(request: Request) {
@@ -246,6 +379,18 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const res = await qe.query(opts.list.entityId as any, queryOpts)
         const items = (res.items || []).map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
 
+        await logCrudAccess({
+          container: ctx.container,
+          auth: ctx.auth,
+          request,
+          items,
+          idField: ormCfg.idField!,
+          resourceKind,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          tenantId: ctx.auth.tenantId ?? null,
+          query: validated,
+        })
+
         // CSV
         const format = (queryParams as any).format
         if (opts.list.allowCsv && format === 'csv' && opts.list.csv) {
@@ -284,6 +429,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
       )
       const list = await repo.find(where)
+      await logCrudAccess({
+        container: ctx.container,
+        auth: ctx.auth,
+        request,
+        items: list,
+        idField: ormCfg.idField!,
+        resourceKind,
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+        tenantId: ctx.auth.tenantId ?? null,
+        query: validated,
+      })
       await opts.hooks?.afterList?.({ items: list, total: list.length }, { ...ctx, query: validated as any })
       return json({ items: list, total: list.length })
     } catch (e) {
@@ -293,11 +449,26 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   async function POST(request: Request) {
     try {
-      if (!opts.create) return json({ error: 'Not implemented' }, { status: 501 })
+      const useCommand = !!opts.actions?.create
+      if (!opts.create && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
       const body = await request.json().catch(() => ({}))
+
+      if (useCommand) {
+        const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+        const action = opts.actions!.create!
+        const parsed = action.schema ? action.schema.parse(body) : body
+        const input = action.mapInput ? await action.mapInput({ parsed, raw: body, ctx }) : parsed
+        const metadata = action.metadata ? await action.metadata({ input, parsed, raw: body, ctx }) : null
+        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata })
+        const payload = action.response ? action.response({ result, logEntry, ctx }) : result
+        const resolvedPayload = await Promise.resolve(payload)
+        const status = action.status ?? 201
+        return json(resolvedPayload, { status })
+      }
+
       let input = opts.create.schema.parse(body)
       const modified = await opts.hooks?.beforeCreate?.(input as any, ctx)
       if (modified) input = modified
@@ -353,11 +524,26 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   async function PUT(request: Request) {
     try {
-      if (!opts.update) return json({ error: 'Not implemented' }, { status: 501 })
+      const useCommand = !!opts.actions?.update
+      if (!opts.update && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
       const body = await request.json().catch(() => ({}))
+
+      if (useCommand) {
+        const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+        const action = opts.actions!.update!
+        const parsed = action.schema ? action.schema.parse(body) : body
+        const input = action.mapInput ? await action.mapInput({ parsed, raw: body, ctx }) : parsed
+        const metadata = action.metadata ? await action.metadata({ input, parsed, raw: body, ctx }) : null
+        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata })
+        const payload = action.response ? action.response({ result, logEntry, ctx }) : result
+        const resolvedPayload = await Promise.resolve(payload)
+        const status = action.status ?? 200
+        return json(resolvedPayload, { status })
+      }
+
       let input = opts.update.schema.parse(body)
       const modified = await opts.hooks?.beforeUpdate?.(input as any, ctx)
       if (modified) input = modified
@@ -422,9 +608,27 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
+      const useCommand = !!opts.actions?.delete
+      const url = new URL(request.url)
+
+      if (useCommand) {
+        const action = opts.actions!.delete!
+        const body = await request.json().catch(() => ({}))
+        const raw = { body, query: Object.fromEntries(url.searchParams.entries()) }
+        const parsed = action.schema ? action.schema.parse(raw) : raw
+        const input = action.mapInput ? await action.mapInput({ parsed, raw, ctx }) : parsed
+        const metadata = action.metadata ? await action.metadata({ input, parsed, raw, ctx }) : null
+        const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata })
+        const payload = action.response ? action.response({ result, logEntry, ctx }) : result
+        const resolvedPayload = await Promise.resolve(payload)
+        const status = action.status ?? 200
+        return json(resolvedPayload, { status })
+      }
+
       const idFrom = opts.del?.idFrom || 'query'
       const id = idFrom === 'query'
-        ? new URL(request.url).searchParams.get('id')
+        ? url.searchParams.get('id')
         : (await request.json().catch(() => ({}))).id
       if (!isUuid(id)) return json({ error: 'ID is required' }, { status: 400 })
 

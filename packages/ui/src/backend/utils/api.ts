@@ -41,16 +41,18 @@ export function setAuthRedirectConfig(cfg: { defaultForbiddenRoles?: readonly st
   }
 }
 
-export function redirectToForbiddenLogin(
-  requiredRoles?: string[] | null
-) {
+export function redirectToForbiddenLogin(options?: { requiredRoles?: string[] | null; requiredFeatures?: string[] | null }) {
   if (typeof window === 'undefined') return
   // We don't know required roles from the API response; use a generic hint.
   if (window.location.pathname.startsWith('/login')) return
   try {
     const current = window.location.pathname + window.location.search
-    const roles = requiredRoles && requiredRoles.length ? requiredRoles : DEFAULT_FORBIDDEN_ROLES
-    const url = `/login?requireRole=${encodeURIComponent(roles.join(','))}&redirect=${encodeURIComponent(current)}`
+    const features = options?.requiredFeatures?.filter(Boolean) ?? []
+    const roles = options?.requiredRoles?.filter(Boolean) ?? []
+    const query = features.length
+      ? `requireFeature=${encodeURIComponent(features.join(','))}`
+      : `requireRole=${encodeURIComponent((roles.length ? roles : DEFAULT_FORBIDDEN_ROLES).map(String).join(','))}`
+    const url = `/login?${query}&redirect=${encodeURIComponent(current)}`
     flash('Insufficient permissions. Redirecting to login…', 'warning')
     setTimeout(() => { window.location.href = url }, 60)
   } catch {
@@ -77,14 +79,16 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   if (res.status === 403) {
     // Try to read requiredRoles from JSON body; ignore if not JSON
     let roles: string[] | null = null
+    let features: string[] | null = null
     try {
       const clone = res.clone()
       const data = await clone.json()
       if (Array.isArray(data?.requiredRoles)) roles = data.requiredRoles.map((r: any) => String(r))
+      if (Array.isArray(data?.requiredFeatures)) features = data.requiredFeatures.map((f: any) => String(f))
     } catch {}
     // Only redirect if not already on login page
     if (!onLoginPage) {
-      redirectToForbiddenLogin(roles)
+      redirectToForbiddenLogin({ requiredRoles: roles, requiredFeatures: features })
       const msg = await res.text().catch(() => 'Forbidden')
       throw new ForbiddenError(msg)
     }
