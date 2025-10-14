@@ -118,7 +118,7 @@ export default function ApiKeysListPage() {
     {
       accessorKey: 'organizationName',
       header: t('api_keys.list.columns.organization'),
-      cell: ({ row }) => row.original.organizationName || '—',
+      cell: ({ row }) => row.original.organizationName || t('api_keys.list.noDate'),
     },
     {
       accessorKey: 'roles',

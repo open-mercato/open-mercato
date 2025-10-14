@@ -46,7 +46,7 @@ export default function CreateApiKeyPage() {
     { id: 'expiresAt', label: t('api_keys.form.expiresAt'), type: 'date', description: t('api_keys.form.expiresHint') },
   ], [t])
 
-  const groups: CrudFormGroup[] = React.useMemo(() => ([
+  const groups = React.useMemo<CrudFormGroup[]>(() => ([
     { id: 'details', title: t('api_keys.form.details'), column: 1, fields: ['name', 'description', 'organizationId', 'roles', 'expiresAt'] },
   ]), [t])
 
@@ -84,45 +84,45 @@ export default function CreateApiKeyPage() {
   }
 
   return (
-      <Page>
-        <PageBody className="space-y-6">
-          <CrudForm<FormValues>
-            title={t('api_keys.form.title')}
-            backHref="/backend/api-keys"
-            fields={fields}
-            groups={groups}
-            initialValues={{ name: '', description: null, organizationId: null, roles: [], expiresAt: null }}
-            submitLabel={t('common.create')}
-            cancelHref="/backend/api-keys"
-            onSubmit={async (values) => {
-              const payload = {
-                name: values.name,
-                description: values.description || null,
-                organizationId: values.organizationId || null,
-                roles: Array.isArray(values.roles) ? values.roles : [],
-                expiresAt: values.expiresAt || null,
-              }
-              const res = await apiFetch('/api/api_keys/keys', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(payload),
-              })
-              if (!res.ok) {
-                let message = t('api_keys.form.error.createFailed')
-                try {
-                  const data = await res.clone().json()
-                  if (data && typeof data.error === 'string') message = data.error
-                } catch {}
-                throw new Error(message)
+    <Page>
+      <PageBody className="space-y-6">
+        <CrudForm<FormValues>
+          title={t('api_keys.form.title')}
+          backHref="/backend/api-keys"
+          fields={fields}
+          groups={groups}
+          initialValues={{ name: '', description: null, organizationId: null, roles: [], expiresAt: null }}
+          submitLabel={t('common.create')}
+          cancelHref="/backend/api-keys"
+          onSubmit={async (values) => {
+            const payload = {
+              name: values.name,
+              description: values.description || null,
+              organizationId: values.organizationId || null,
+              roles: Array.isArray(values.roles) ? values.roles : [],
+              expiresAt: values.expiresAt || null,
+            }
+            const res = await apiFetch('/api/api_keys/keys', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+            if (!res.ok) {
+              let message = t('api_keys.form.error.createFailed')
+              try {
+                const data = await res.clone().json()
+                if (data && typeof data.error === 'string') message = data.error
+              } catch {}
+              throw new Error(message)
             }
             const created = await res.json().catch(() => null)
-              if (!created || typeof created.secret !== 'string') {
-                throw new Error('API key created but secret was not returned')
-              }
-              setCreatedSecret({ secret: created.secret, keyPrefix: created.keyPrefix })
-              flash(t('api_keys.form.success'), 'success')
-            }}
-          />
+            if (!created || typeof created.secret !== 'string') {
+              throw new Error(t('api_keys.form.error.secretMissing'))
+            }
+            setCreatedSecret({ secret: created.secret, keyPrefix: created.keyPrefix })
+            flash(t('api_keys.form.success'), 'success')
+          }}
+        />
       </PageBody>
     </Page>
   )
