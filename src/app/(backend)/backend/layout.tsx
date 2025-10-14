@@ -5,6 +5,7 @@ import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
 import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export default async function BackendLayout({ children, params }: { children: React.ReactNode; params?: { slug?: string[] } }) {
   const auth = await getAuthFromCookies()
@@ -37,7 +38,13 @@ export default async function BackendLayout({ children, params }: { children: Re
   const ctx = { auth: ctxAuth, path }
   
   // Build initial nav (SSR) using module metadata to preserve icons
-  const entries = await buildAdminNav(modules as any[], ctx)
+  const { translate } = await resolveTranslations()
+  const entries = await buildAdminNav(
+    modules as any[],
+    ctx,
+    undefined,
+    (key, fallback) => (key ? translate(key, fallback) : fallback),
+  )
   const groupMap = new Map<string, {
     name: string,
     items: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode; children?: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode }[] }[],

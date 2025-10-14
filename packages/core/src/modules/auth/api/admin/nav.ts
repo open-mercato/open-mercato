@@ -113,11 +113,18 @@ export async function GET(req: Request) {
       href: `/backend/entities/user/${encodeURIComponent(e.entityId)}/records`
     }))
     if (items.length) {
-      const dd = roots.find((it: any) => it.group === 'Data designer' && it.title === 'User Entities')
+      const dd = roots.find((it: Entry) => it.groupKey === 'entities.nav.group' && it.titleKey === 'entities.nav.userEntities')
       if (dd) {
         const existing = dd.children || []
-        const dynamic = items.map((it) => ({ group: 'Data designer', title: it.label, href: it.href, enabled: true, order: 1000 }))
-        const byHref = new Map<string, any>()
+        const dynamic = items.map((it) => ({
+          group: dd.group,
+          groupKey: dd.groupKey,
+          title: it.label,
+          href: it.href,
+          enabled: true,
+          order: 1000,
+        }))
+        const byHref = new Map<string, Entry>()
         for (const c of existing) if (!byHref.has(c.href)) byHref.set(c.href, c)
         for (const c of dynamic) if (!byHref.has(c.href)) byHref.set(c.href, c)
         dd.children = Array.from(byHref.values())
