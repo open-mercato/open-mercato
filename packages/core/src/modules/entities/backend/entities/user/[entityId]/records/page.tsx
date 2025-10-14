@@ -272,83 +272,94 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     <Page>
       <PageBody>
         <ContextHelp bulb title="API: Manage Records via cURL" className="mb-4">
-          <p className="mb-2">Interact with this custom entity via the backend API using cURL. Authenticate first, then call the endpoints below.</p>
+          <p className="mb-2">
+            Interact with this custom entity via the backend API using cURL. Use API keys for machine-to-machine access—mint one from the{' '}
+            <a className="underline" target="_blank" rel="noreferrer" href="https://docs.openmercato.com/user-guide/api-keys">
+              Managing API keys guide
+            </a>{' '}
+            or the{' '}
+            <a className="underline" target="_blank" rel="noreferrer" href="https://docs.openmercato.com/cli/api-keys">
+              API keys CLI documentation
+            </a>{' '}
+            before running these calls.
+          </p>
           <div className="space-y-2">
             <div>
-              <div className="font-medium mb-1">1) Authenticate and get a JWT</div>
-              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`# Replace with a valid user
-BASE="http://localhost:3000"
-EMAIL="admin@example.com"
-PASSWORD="secret"
-
-# Get a token (requires the user to have admin role for these endpoints)
-TOKEN=$(curl -s -X POST "$BASE/api/auth/login" \
-  -d email=$EMAIL -d password=$PASSWORD | jq -r '.token')
-
-echo "Token: $TOKEN"`}</code></pre>
-              <p className="text-muted-foreground mt-1">Alternatively, if you already have an <code>auth_token</code> cookie, you can copy its value and use it as the Bearer token.</p>
+              <div className="font-medium mb-1">1) Configure environment variables</div>
+              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`export BASE_URL="http://localhost:3000/api"
+export API_KEY="<paste API key secret here>"           # scoped with entities.features
+export ENTITY_ID="${entityId}"
+export RECORD_ID="<record uuid>"`}</code></pre>
+              <p className="text-muted-foreground mt-1">
+                Need a new key? Follow the{' '}
+                <a className="underline" target="_blank" rel="noreferrer" href="https://docs.openmercato.com/user-guide/api-keys">
+                  Managing API keys
+                </a>{' '}
+                walkthrough or mint one via{' '}
+                <a className="underline" target="_blank" rel="noreferrer" href="https://docs.openmercato.com/cli/api-keys">
+                  mercato api_keys add
+                </a>
+                .
+              </p>
             </div>
 
             <div>
               <div className="font-medium mb-1">2) List records</div>
-              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -H "Authorization: Bearer $TOKEN" \
-  "$BASE/api/entities/records?entityId=${entityId}" | jq`}</code></pre>
+              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -H "X-Api-Key: $API_KEY" \
+  "$BASE_URL/entities/records?entityId=$ENTITY_ID" | jq`}</code></pre>
             </div>
 
             <div>
               <div className="font-medium mb-1">3) Read a single record (by id)</div>
-              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`RECORD_ID="<record-uuid>"
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "$BASE/api/entities/records?entityId=${entityId}&id=$RECORD_ID" | jq`}</code></pre>
+              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -H "X-Api-Key: $API_KEY" \
+  "$BASE_URL/entities/records?entityId=$ENTITY_ID&id=$RECORD_ID" | jq`}</code></pre>
               <p className="text-muted-foreground mt-1">Note: Response is a list; filter by <code>id</code> to get a single item.</p>
             </div>
 
             <div>
               <div className="font-medium mb-1">4) Create a record</div>
               <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -X POST \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "entityId": "${entityId}",
-    "values": {
-      "field_one": "Example",
-      "field_two": 123
+  -d "{
+    \\"entityId\\": \\"$ENTITY_ID\\",
+    \\"values\\": {
+      \\"field_one\\": \\"Example\\",
+      \\"field_two\\": 123
     }
-  }' \
-  "$BASE/api/entities/records" | jq`}</code></pre>
+  }" \
+  "$BASE_URL/entities/records" | jq`}</code></pre>
               <p className="text-muted-foreground mt-1">For custom entities, send field keys without the <code>cf_</code> prefix. The API normalizes this server-side.</p>
             </div>
 
             <div>
               <div className="font-medium mb-1">5) Update a record</div>
-              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`RECORD_ID="<record-uuid>"
-curl -s -X PUT \
-  -H "Authorization: Bearer $TOKEN" \
+              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -X PUT \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "entityId": "${entityId}",
-    "recordId": "'$RECORD_ID'",
-    "values": {
-      "field_one": "Updated"
+  -d "{
+    \\"entityId\\": \\"$ENTITY_ID\\",
+    \\"recordId\\": \\"$RECORD_ID\\",
+    \\"values\\": {
+      \\"field_one\\": \\"Updated\\"
     }
-  }' \
-  "$BASE/api/entities/records" | jq`}</code></pre>
+  }" \
+  "$BASE_URL/entities/records" | jq`}</code></pre>
             </div>
 
             <div>
               <div className="font-medium mb-1">6) Delete a record</div>
-              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`RECORD_ID="<record-uuid>"
-curl -s -X DELETE \
-  -H "Authorization: Bearer $TOKEN" \
-  "$BASE/api/entities/records?entityId=${entityId}&recordId=$RECORD_ID" | jq`}</code></pre>
+              <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -X DELETE \
+  -H "X-Api-Key: $API_KEY" \
+  "$BASE_URL/entities/records?entityId=$ENTITY_ID&recordId=$RECORD_ID" | jq`}</code></pre>
             </div>
 
             <div className="text-muted-foreground">
               Security notes:
               <ul className="list-disc pl-5 mt-1 space-y-1">
-                <li>All endpoints require a valid Bearer token. The token encodes tenant and organization; cross-tenant access is blocked.</li>
-                <li>Only users with the <code>admin</code> role can access these endpoints.</li>
-                <li>Never log or share tokens. Rotate if exposed.</li>
+                <li>All endpoints require a valid API key. Keys inherit tenant, organization, and feature scope.</li>
+                <li>Rotate keys regularly and delete unused ones in the admin UI.</li>
+                <li>Store the secret in a secure vault; anyone with the header can act within the key&apos;s permissions.</li>
               </ul>
             </div>
           </div>
