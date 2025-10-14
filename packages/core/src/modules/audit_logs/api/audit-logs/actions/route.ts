@@ -4,6 +4,8 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { loadAuditLogDisplayMaps } from '../display'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -32,6 +34,7 @@ export async function GET(req: Request) {
 
   const rbac = container.resolve<RbacService>('rbacService')
   const actionLogs = container.resolve<ActionLogService>('actionLogService')
+  const em = container.resolve<EntityManager>('em')
 
   const canViewTenant = await rbac.userHasAllFeatures(
     auth.sub,
@@ -69,18 +72,27 @@ export async function GET(req: Request) {
     after,
   })
 
+  const displayMaps = await loadAuditLogDisplayMaps(em, {
+    userIds: list.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
+    tenantIds: list.map((entry) => entry.tenantId).filter((value): value is string => !!value),
+    organizationIds: list.map((entry) => entry.organizationId).filter((value): value is string => !!value),
+  })
+
   const items = list.map((entry) => ({
     id: entry.id,
     commandId: entry.commandId,
     actionLabel: entry.actionLabel,
     executionState: entry.executionState,
     actorUserId: entry.actorUserId,
+    actorUserName: entry.actorUserId ? displayMaps.users[entry.actorUserId] ?? null : null,
     tenantId: entry.tenantId,
+    tenantName: entry.tenantId ? displayMaps.tenants[entry.tenantId] ?? null : null,
     organizationId: entry.organizationId,
+    organizationName: entry.organizationId ? displayMaps.organizations[entry.organizationId] ?? null : null,
     resourceKind: entry.resourceKind,
     resourceId: entry.resourceId,
     undoToken: entry.undoToken,
-    createdAt: entry.createdAt,
+    createdAt: entry.createdAt?.toISOString?.() ?? entry.createdAt,
     snapshotBefore: entry.snapshotBefore,
     snapshotAfter: entry.snapshotAfter,
     changes: entry.changesJson,

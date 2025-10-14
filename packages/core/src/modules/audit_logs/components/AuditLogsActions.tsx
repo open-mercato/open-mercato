@@ -5,6 +5,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type ActionLogItem = {
   id: string
@@ -12,18 +13,35 @@ export type ActionLogItem = {
   actionLabel: string | null
   executionState: string
   actorUserId: string | null
+  actorUserName: string | null
   tenantId: string | null
+  tenantName: string | null
   organizationId: string | null
+  organizationName: string | null
   resourceKind: string | null
   resourceId: string | null
   undoToken: string | null
   createdAt: string
 }
 
-export function AuditLogsActions({ items, onRefresh, headerExtras }: { items: ActionLogItem[] | undefined; onRefresh: () => Promise<void>; headerExtras?: React.ReactNode }) {
+export function AuditLogsActions({
+  items,
+  onRefresh,
+  isLoading,
+  headerExtras,
+  onUndoError,
+}: {
+  items: ActionLogItem[] | undefined
+  onRefresh: () => Promise<void>
+  isLoading?: boolean
+  headerExtras?: React.ReactNode
+  onUndoError?: () => void
+}) {
+  const t = useT()
   const [undoing, setUndoing] = React.useState(false)
   const actionItems = Array.isArray(items) ? items : []
   const latestUndoable = React.useMemo(() => actionItems.find((item) => !!item.undoToken), [actionItems])
+  const noneLabel = t('audit_logs.common.none')
 
   const handleUndo = async () => {
     if (!latestUndoable?.undoToken) return
@@ -36,6 +54,7 @@ export function AuditLogsActions({ items, onRefresh, headerExtras }: { items: Ac
       await onRefresh()
     } catch (err) {
       console.error('Undo failed', err)
+      onUndoError?.()
     } finally {
       setUndoing(false)
     }
@@ -44,69 +63,66 @@ export function AuditLogsActions({ items, onRefresh, headerExtras }: { items: Ac
   const columns = React.useMemo<ColumnDef<ActionLogItem, any>[]>(() => [
     {
       accessorKey: 'actionLabel',
-      header: 'Action',
+      header: t('audit_logs.actions.columns.action'),
       cell: (info) => info.row.original.actionLabel || info.row.original.commandId,
     },
     {
       accessorKey: 'resourceKind',
-      header: 'Resource',
-      cell: (info) => formatResource(info.row.original),
+      header: t('audit_logs.actions.columns.resource'),
+      cell: (info) => formatResource(info.row.original, noneLabel),
     },
     {
       accessorKey: 'actorUserId',
-      header: 'User',
-      cell: (info) => info.getValue() || '—',
+      header: t('audit_logs.actions.columns.user'),
+      cell: (info) => info.row.original.actorUserName || info.getValue() || noneLabel,
       meta: { priority: 3 },
     },
     {
       accessorKey: 'tenantId',
-      header: 'Tenant',
-      cell: (info) => info.getValue() || '—',
+      header: t('audit_logs.actions.columns.tenant'),
+      cell: (info) => info.row.original.tenantName || info.getValue() || noneLabel,
       meta: { priority: 4 },
     },
     {
       accessorKey: 'organizationId',
-      header: 'Organization',
-      cell: (info) => info.getValue() || '—',
+      header: t('audit_logs.actions.columns.organization'),
+      cell: (info) => info.row.original.organizationName || info.getValue() || noneLabel,
       meta: { priority: 4 },
     },
     {
       accessorKey: 'createdAt',
-      header: 'When',
+      header: t('audit_logs.actions.columns.when'),
       cell: (info) => formatDate(info.getValue() as string),
     },
     {
       accessorKey: 'executionState',
-      header: 'Status',
+      header: t('audit_logs.actions.columns.status'),
     },
-  ], [])
+  ], [t, noneLabel])
 
   const undoButton = latestUndoable?.undoToken ? (
     <Button variant="secondary" size="sm" onClick={handleUndo} disabled={undoing}>
-      {undoing ? 'Undoing…' : 'Undo last action'}
+      {undoing ? t('audit_logs.actions.undoing') : t('audit_logs.actions.undo')}
     </Button>
   ) : null
 
-  const headerActions = headerExtras || undoButton ? (
-    <div className="flex items-center gap-2">
-      {headerExtras}
-      {undoButton}
-    </div>
-  ) : undefined
+  const combinedActions = undoButton || headerExtras
+    ? <div className="flex items-center gap-2">{headerExtras}{undoButton}</div>
+    : undefined
 
   return (
     <DataTable<ActionLogItem>
-      title="Action Log"
+      title={t('audit_logs.actions.title')}
       data={actionItems}
       columns={columns}
-      actions={headerActions}
-      isLoading={undoing}
+      actions={combinedActions}
+      isLoading={Boolean(isLoading) || undoing}
     />
   )
 }
 
-function formatResource(item: { resourceKind?: string | null; resourceId?: string | null }) {
-  if (!item.resourceKind && !item.resourceId) return '—'
+function formatResource(item: { resourceKind?: string | null; resourceId?: string | null }, fallback: string) {
+  if (!item.resourceKind && !item.resourceId) return fallback
   return [item.resourceKind, item.resourceId].filter(Boolean).join(' · ')
 }
 

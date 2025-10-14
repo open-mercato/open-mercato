@@ -4,6 +4,8 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { AccessLogService } from '@open-mercato/core/modules/audit_logs/services/accessLogService'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { loadAuditLogDisplayMaps } from '../display'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -32,6 +34,7 @@ export async function GET(req: Request) {
 
   const rbac = container.resolve<RbacService>('rbacService')
   const accessLogs = container.resolve<AccessLogService>('accessLogService')
+  const em = container.resolve<EntityManager>('em')
 
   const canViewTenant = await rbac.userHasAllFeatures(
     auth.sub,
@@ -71,17 +74,26 @@ export async function GET(req: Request) {
     after,
   })
 
+  const displayMaps = await loadAuditLogDisplayMaps(em, {
+    userIds: list.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
+    tenantIds: list.map((entry) => entry.tenantId).filter((value): value is string => !!value),
+    organizationIds: list.map((entry) => entry.organizationId).filter((value): value is string => !!value),
+  })
+
   const items = list.map((entry) => ({
     id: entry.id,
     resourceKind: entry.resourceKind,
     resourceId: entry.resourceId,
     accessType: entry.accessType,
     actorUserId: entry.actorUserId,
+    actorUserName: entry.actorUserId ? displayMaps.users[entry.actorUserId] ?? null : null,
     tenantId: entry.tenantId,
+    tenantName: entry.tenantId ? displayMaps.tenants[entry.tenantId] ?? null : null,
     organizationId: entry.organizationId,
+    organizationName: entry.organizationId ? displayMaps.organizations[entry.organizationId] ?? null : null,
     fields: entry.fieldsJson ?? [],
     context: entry.contextJson,
-    createdAt: entry.createdAt,
+    createdAt: entry.createdAt?.toISOString?.() ?? entry.createdAt,
   }))
 
   return NextResponse.json({ items, canViewTenant })

@@ -198,6 +198,94 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
     : defaultIdentifierResolver
 
+  type AccessLogServiceLike = { log: (input: any) => Promise<unknown> | unknown }
+
+  function resolveAccessLogService(ctx: CrudCtx): AccessLogServiceLike | null {
+    const containerAny = ctx.container as any
+    try {
+      if (typeof containerAny?.hasRegistration === 'function' && !containerAny.hasRegistration('accessLogService')) {
+        return null
+      }
+    } catch {
+      // ignore registration lookup errors
+    }
+    try {
+      const service = ctx.container.resolve?.('accessLogService') as AccessLogServiceLike | undefined
+      if (service && typeof service.log === 'function') return service
+    } catch {
+      return null
+    }
+    return null
+  }
+
+  function collectFieldNames(items: any[]): string[] {
+    const set = new Set<string>()
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue
+      for (const key of Object.keys(item)) {
+        if (typeof key === 'string' && key.length > 0) set.add(key)
+      }
+    }
+    return Array.from(set)
+  }
+
+  function determineAccessType(query: unknown, total: number): string {
+    if (query && typeof query === 'object' && query !== null && 'id' in query) {
+      const value = (query as Record<string, unknown>).id
+      if (value !== undefined && value !== null && String(value).length > 0) return 'read:item'
+    }
+    return total > 1 ? 'read:list' : 'read'
+  }
+
+  async function recordAccessLogs(ctx: CrudCtx, items: any[], params: { query: unknown; accessType?: string }) {
+    if (!items?.length) return
+    if (!ctx.auth) return
+    const service = resolveAccessLogService(ctx)
+    if (!service) return
+    const tenantId = ctx.auth.tenantId ?? null
+    const organizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+    const actorUserId = ctx.auth.sub ?? null
+    const fields = collectFieldNames(items)
+    const accessType = params.accessType ?? determineAccessType(params.query, items.length)
+    const context: Record<string, unknown> = {}
+    try {
+      if (ctx.request) {
+        const url = new URL(ctx.request.url)
+        context.path = url.pathname
+      }
+    } catch {
+      // ignore url parsing issues
+    }
+    if (params.query && typeof params.query === 'object' && params.query !== null) {
+      context.queryKeys = Object.keys(params.query as Record<string, unknown>)
+    }
+    context.resultCount = items.length
+    context.accessType = accessType
+    const resourceKind = opts.events
+      ? [opts.events.module, opts.events.entity].filter(Boolean).join('.')
+      : (typeof ormCfg.entity?.name === 'string' && ormCfg.entity.name.length > 0 ? ormCfg.entity.name : 'resource')
+    const uniqueIds = new Set<string>()
+    const tasks: Promise<unknown>[] = []
+    for (const item of items) {
+      const rawId = item ? (item as any)[ormCfg.idField!] : undefined
+      const resourceId = normalizeIdentifierValue(rawId)
+      if (!resourceId || uniqueIds.has(resourceId)) continue
+      uniqueIds.add(resourceId)
+      const payload: Record<string, unknown> = {
+        tenantId,
+        organizationId,
+        actorUserId,
+        resourceKind,
+        resourceId,
+        accessType,
+      }
+      if (fields.length > 0) payload.fields = fields
+      if (Object.keys(context).length > 0) payload.context = context
+      tasks.push(Promise.resolve(service.log(payload)).catch(() => undefined))
+    }
+    if (tasks.length > 0) await Promise.all(tasks)
+  }
+
   async function ensureAuth() {
     const auth = await getAuthFromCookies()
     if (!auth) return null
@@ -269,6 +357,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const res = await qe.query(opts.list.entityId as any, queryOpts)
         const items = (res.items || []).map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
 
+        await recordAccessLogs(ctx, items, { query: validated })
+
         // CSV
         const format = (queryParams as any).format
         if (opts.list.allowCsv && format === 'csv' && opts.list.csv) {
@@ -307,6 +397,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
       )
       const list = await repo.find(where)
+      await recordAccessLogs(ctx, list, { query: validated })
       await opts.hooks?.afterList?.({ items: list, total: list.length }, { ...ctx, query: validated as any })
       return json({ items: list, total: list.length })
     } catch (e) {

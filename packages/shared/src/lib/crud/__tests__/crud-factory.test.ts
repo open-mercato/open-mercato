@@ -68,6 +68,10 @@ const mockDataEngine = {
   emitOrmEntityEvent: jest.fn(async () => {}),
 }
 
+const accessLogService = {
+  log: jest.fn(async () => {}),
+}
+
 jest.mock('@/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (name: string) => ({
@@ -75,6 +79,7 @@ jest.mock('@/lib/di/container', () => ({
       queryEngine,
       eventBus: mockEventBus,
       dataEngine: mockDataEngine,
+      accessLogService,
     } as any)[name],
   })
 }))
@@ -96,6 +101,7 @@ describe('CRUD Factory', () => {
     db = {}
     idSeq = 1
     jest.clearAllMocks()
+    accessLogService.log.mockClear()
   })
 
   const querySchema = z.object({ page: z.coerce.number().default(1), pageSize: z.coerce.number().default(50), sortField: z.string().default('id'), sortDir: z.enum(['asc','desc']).default('asc'), format: z.enum(['json','csv']).optional() })
@@ -137,6 +143,21 @@ describe('CRUD Factory', () => {
     expect(body.items.length).toBe(1)
     expect(body.total).toBe(1)
     expect(body.items[0]).toEqual({ id: 'id-1', title: 'A', is_done: false })
+    expect(accessLogService.log).toHaveBeenCalledTimes(1)
+    expect(accessLogService.log).toHaveBeenCalledWith(expect.objectContaining({
+      resourceKind: 'example.todo',
+      resourceId: 'id-1',
+      accessType: 'read',
+      tenantId: '123e4567-e89b-12d3-a456-426614174000',
+      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      actorUserId: 'u1',
+      fields: expect.arrayContaining(['id', 'title', 'is_done']),
+      context: expect.objectContaining({
+        resultCount: 1,
+        accessType: 'read',
+        queryKeys: expect.arrayContaining(['page', 'pageSize', 'sortField', 'sortDir']),
+      }),
+    }))
   })
 
   it('GET returns CSV when format=csv', async () => {
@@ -145,6 +166,7 @@ describe('CRUD Factory', () => {
     expect(res.headers.get('content-disposition')).toContain('todos.csv')
     const text = await res.text()
     expect(text.split('\n')[0]).toBe('id,title,is_done')
+    expect(accessLogService.log).toHaveBeenCalledTimes(1)
   })
 
   it('POST creates entity, saves custom fields, emits created event', async () => {

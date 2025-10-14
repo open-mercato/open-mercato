@@ -30,6 +30,7 @@ const sidebars: SidebarsConfig = {
         'user-guide/user-custom-fields',
         'user-guide/user-entities',
         'user-guide/organizations',
+        'user-guide/audit-logs',
       ],
     },
     {
