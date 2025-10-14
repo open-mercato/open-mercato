@@ -3,5 +3,11 @@
   "directory.nav.organizations": "Organisationen",
   "directory.nav.organizations.create": "Organisation erstellen",
   "directory.nav.tenants": "Mandanten",
-  "directory.nav.tenants.create": "Mandanten erstellen"
+  "directory.nav.tenants.create": "Mandanten erstellen",
+  "directory.audit.tenants.create": "Mandanten anlegen",
+  "directory.audit.tenants.update": "Mandanten aktualisieren",
+  "directory.audit.tenants.delete": "Mandanten löschen",
+  "directory.audit.organizations.create": "Organisation anlegen",
+  "directory.audit.organizations.update": "Organisation aktualisieren",
+  "directory.audit.organizations.delete": "Organisation löschen"
 }

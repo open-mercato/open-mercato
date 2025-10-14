@@ -16,6 +16,7 @@ import {
   requireId,
   buildChanges,
 } from '@open-mercato/shared/lib/commands/helpers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const organizationCrudEvents: CrudEventsConfig<Organization> = {
   module: 'directory',
@@ -44,23 +45,32 @@ export const organizationCrudIndexer: CrudIndexerConfig<Organization> = {
   }),
 }
 
+type OrganizationTenantShape = {
+  __tenantId?: unknown
+  tenant?: string | { id?: unknown; getEntity?: () => { id?: unknown } }
+  tenantId?: unknown
+  tenant_id?: unknown
+}
+
+type SerializedOrganization = ReturnType<typeof serializeOrganization>
+
 export function resolveTenantIdFromEntity(entity: Organization): string | null {
-  const cached = (entity as any).__tenantId
-  if (cached) return String(cached)
-  const tenantRef = (entity as any)?.tenant
-  if (tenantRef) {
-    if (typeof tenantRef === 'string') return tenantRef
-    if (typeof tenantRef === 'object') {
-      if (typeof tenantRef.id === 'string') return tenantRef.id
-      if (tenantRef.id !== undefined && tenantRef.id !== null) return String(tenantRef.id)
-      if (typeof tenantRef.getEntity === 'function') {
-        const nested = tenantRef.getEntity()
-        if (nested && nested.id) return String(nested.id)
-      }
+  const shape = entity as unknown as OrganizationTenantShape
+  const cached = toOptionalString(shape.__tenantId)
+  if (cached) return cached
+  const tenantRef = shape.tenant
+  if (typeof tenantRef === 'string') return tenantRef
+  if (tenantRef && typeof tenantRef === 'object') {
+    const direct = toOptionalString(tenantRef.id)
+    if (direct) return direct
+    if (typeof tenantRef.getEntity === 'function') {
+      const nested = tenantRef.getEntity()
+      const nestedId = nested ? toOptionalString(nested.id) : null
+      if (nestedId) return nestedId
     }
   }
-  const fallback = (entity as any)?.tenantId ?? (entity as any)?.tenant_id ?? null
-  return fallback ? String(fallback) : null
+  const fallback = toOptionalString(shape.tenantId) || toOptionalString(shape.tenant_id)
+  return fallback
 }
 
 function serializeOrganization(entity: Organization) {
@@ -155,7 +165,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
         parentId,
       },
     })
-    ;(organization as any).__tenantId = tenantId
+    setInternalTenantId(organization, tenantId)
     const recordId = String(organization.id)
 
     if (childIds.length) {
@@ -179,19 +189,22 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       action: 'created',
       entity: organization,
       identifiers,
-      events: organizationCrudEvents as any,
-      indexer: organizationCrudIndexer as any,
+      events: organizationCrudEvents,
+      indexer: organizationCrudIndexer,
     })
 
     return organization
   },
   captureAfter: (_input, result) => serializeOrganization(result),
-  buildLog: ({ result, ctx }) => ({
-    actionLabel: 'Create organization',
-    resourceKind: 'directory.organization',
-    resourceId: String(result.id),
-    tenantId: ctx.auth?.tenantId ?? resolveTenantIdFromEntity(result),
-  }),
+  buildLog: async ({ result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('directory.audit.organizations.create', 'Create organization'),
+      resourceKind: 'directory.organization',
+      resourceId: String(result.id),
+      tenantId: ctx.auth?.tenantId ?? resolveTenantIdFromEntity(result),
+    }
+  },
 }
 
 const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organization> = {
@@ -229,7 +242,12 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 
     if (normalizedChildIds.length) {
       await ensureChildrenValid(em, tenantId, normalizedChildIds)
-      const children = await em.find(Organization, { id: { $in: normalizedChildIds }, tenant: tenantId, deletedAt: null } as any)
+      const childFilter = {
+        tenant: tenantId,
+        deletedAt: null,
+        id: { $in: normalizedChildIds },
+      } as unknown as FilterQuery<Organization>
+      const children = await em.find(Organization, childFilter)
       for (const child of children) {
         if (Array.isArray(child.descendantIds) && child.descendantIds.includes(parsed.id)) {
           throw new CrudHttpError(400, { error: 'Cannot assign descendant cycle' })
@@ -240,7 +258,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     const organization = await de.updateOrmEntity({
       entity: Organization,
-      where: { id: parsed.id, deletedAt: null } as any,
+      where: { id: parsed.id, deletedAt: null } as FilterQuery<Organization>,
       apply: (entity) => {
         if (parsed.name !== undefined) entity.name = parsed.name
         if (parsed.isActive !== undefined) entity.isActive = parsed.isActive
@@ -248,7 +266,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       },
     })
     if (!organization) throw new CrudHttpError(404, { error: 'Not found' })
-    ;(organization as any).__tenantId = tenantId
+    setInternalTenantId(organization, tenantId)
 
     const recordId = String(organization.id)
     const desiredChildIds = new Set(normalizedChildIds.filter((id) => id !== recordId))
@@ -272,19 +290,20 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       action: 'updated',
       entity: organization,
       identifiers,
-      events: organizationCrudEvents as any,
-      indexer: organizationCrudIndexer as any,
+      events: organizationCrudEvents,
+      indexer: organizationCrudIndexer,
     })
 
     return organization
   },
   captureAfter: (_input, result) => serializeOrganization(result),
-  buildLog: ({ snapshots, result, ctx }) => {
-    const before = (snapshots.before ?? null) as Record<string, unknown> | null
+  buildLog: async ({ snapshots, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    const beforeRecord = (snapshots.before ?? null) as Record<string, unknown> | null
     const after = serializeOrganization(result)
-    const changes = buildChanges(before, after, ['name', 'isActive', 'parentId'])
+    const changes = buildChanges(beforeRecord, after as Record<string, unknown>, ['name', 'isActive', 'parentId'])
     return {
-      actionLabel: 'Update organization',
+      actionLabel: translate('directory.audit.organizations.update', 'Update organization'),
       resourceKind: 'directory.organization',
       resourceId: String(result.id),
       changes,
@@ -315,12 +334,12 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     const deleted = await de.deleteOrmEntity({
       entity: Organization,
-      where: { id, deletedAt: null } as any,
+      where: { id, deletedAt: null } as FilterQuery<Organization>,
       soft: true,
       softDeleteField: 'deletedAt',
     })
     if (!deleted) throw new CrudHttpError(404, { error: 'Not found' })
-    ;(deleted as any).__tenantId = tenantId
+    setInternalTenantId(deleted, tenantId)
     deleted.isActive = false
     deleted.parentId = null
 
@@ -342,21 +361,24 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
       action: 'deleted',
       entity: deleted,
       identifiers,
-      events: organizationCrudEvents as any,
-      indexer: organizationCrudIndexer as any,
+      events: organizationCrudEvents,
+      indexer: organizationCrudIndexer,
     })
 
     return deleted
   },
-  buildLog: ({ snapshots, input, ctx }) => {
-    const before = snapshots.before ?? null
+  buildLog: async ({ snapshots, input, ctx }) => {
+    const { translate } = await resolveTranslations()
+    const beforeSnapshot = (snapshots.before ?? null) as SerializedOrganization | null
     const id = String(input?.body?.id ?? input?.query?.id ?? '')
+    const fallbackId = beforeSnapshot?.id ?? null
+    const fallbackTenant = beforeSnapshot?.tenantId ?? null
     return {
-      actionLabel: 'Delete organization',
+      actionLabel: translate('directory.audit.organizations.delete', 'Delete organization'),
       resourceKind: 'directory.organization',
-      resourceId: id || (before && (before as any).id) || null,
-      snapshotBefore: before,
-      tenantId: ctx.auth?.tenantId ?? (before ? (before as any).tenantId ?? null : null),
+      resourceId: id || fallbackId || null,
+      snapshotBefore: beforeSnapshot ?? null,
+      tenantId: ctx.auth?.tenantId ?? fallbackTenant,
     }
   },
 }
@@ -364,3 +386,13 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
 registerCommand(createOrganizationCommand)
 registerCommand(updateOrganizationCommand)
 registerCommand(deleteOrganizationCommand)
+
+function toOptionalString(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value
+  if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+  return null
+}
+
+function setInternalTenantId(entity: Organization, tenantId: string) {
+  Reflect.set(entity, '__tenantId', tenantId)
+}

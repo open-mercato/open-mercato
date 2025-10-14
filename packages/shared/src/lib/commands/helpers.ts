@@ -86,17 +86,25 @@ export function requireTenantScope(authTenantId: string | null, requested?: stri
 
 export function requireId(value: unknown, message = 'ID is required'): string {
   if (typeof value === 'string' && value.trim()) return value
-  if (value && typeof value === 'object') {
-    const id =
-      (value as any).id ??
-      (value as any).recordId ??
-      (value as any).body?.id ??
-      (value as any).query?.id
-    if (typeof id === 'string' && id.trim()) return id
-    if (typeof id === 'number' || typeof id === 'bigint') return String(id)
-  }
   if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+  if (value && typeof value === 'object') {
+    const source = value as Record<string, unknown>
+    const candidates: unknown[] = [
+      source.id,
+      source.recordId,
+      isRecord(source.body) ? source.body.id : undefined,
+      isRecord(source.query) ? source.query.id : undefined,
+    ]
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) return candidate
+      if (typeof candidate === 'number' || typeof candidate === 'bigint') return String(candidate)
+    }
+  }
   throw new CrudHttpError(400, { error: message })
+}
+
+function isRecord(input: unknown): input is { [key: string]: unknown } {
+  return !!input && typeof input === 'object'
 }
 
 export type LogBuilderArgs<TInput, TResult> = {
