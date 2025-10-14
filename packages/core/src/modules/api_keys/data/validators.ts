@@ -13,7 +13,7 @@ export const createApiKeySchema = z.object({
   description: z.string().max(1000).optional().nullable(),
   tenantId: uuid.optional().nullable(),
   organizationId: uuid.optional().nullable(),
-  roles: z.array(uuid).optional().default([]),
+  roles: z.array(z.string().trim().min(1)).optional().default([]),
   expiresAt: expiresAtSchema.optional(),
 })
 

@@ -42,7 +42,7 @@ const crud = makeCrudRoute<
     mapToEntity: (input, ctx) => {
       const secretData = (ctx as any).__apiKeySecret as { secret: string; prefix: string } | undefined
       if (!secretData) throw new Error('API key secret not prepared')
-      const roles = Array.isArray(input.roles) ? input.roles : []
+      const roleIds = Array.isArray((ctx as any).__apiKeyRoleIds) ? (ctx as any).__apiKeyRoleIds as string[] : []
       const organizationId = (ctx as any).__apiKeyOrganizationId as string | null
       return {
         name: input.name,
@@ -50,7 +50,7 @@ const crud = makeCrudRoute<
         organizationId,
         keyHash: hashApiKey(secretData.secret),
         keyPrefix: secretData.prefix,
-        rolesJson: roles,
+        rolesJson: roleIds,
         createdBy: ctx.auth?.sub ?? null,
         expiresAt: input.expiresAt ?? null,
       }
@@ -157,18 +157,29 @@ const crud = makeCrudRoute<
       ;(ctx as any).__apiKeySecret = secretData
 
       const em = ctx.container.resolve<EntityManager>('em')
-      const roleIds = Array.isArray(input.roles) ? input.roles : []
-      const roleEntities = roleIds.length
-        ? await em.find(Role, { id: { $in: roleIds as any } } as any)
-        : []
-      if (roleEntities.length !== roleIds.length) {
-        throw json({ error: 'One or more roles not found' }, { status: 400 })
-      }
-      const invalidTenant = roleEntities.find((role) => role.tenantId && role.tenantId !== auth.tenantId)
-      if (invalidTenant) {
-        throw json({ error: `Role ${invalidTenant.name} belongs to another tenant` }, { status: 400 })
+      const roleTokens = Array.isArray(input.roles) ? input.roles.filter((value) => typeof value === 'string' && value.trim().length > 0) : []
+      const roleEntities: Role[] = []
+      const roleIds: string[] = []
+      for (const token of roleTokens) {
+        const value = token.trim()
+        let role: Role | null = null
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+          role = await em.findOne(Role, { id: value })
+        }
+        if (!role) {
+          role = await em.findOne(Role, { name: value })
+        }
+        if (!role) {
+          throw json({ error: `Role ${value} not found` }, { status: 400 })
+        }
+        if (role.tenantId && auth.tenantId && role.tenantId !== auth.tenantId) {
+          throw json({ error: `Role ${role.name} belongs to another tenant` }, { status: 400 })
+        }
+        roleEntities.push(role)
+        roleIds.push(String(role.id))
       }
       ;(ctx as any).__apiKeyRoles = roleEntities
+      ;(ctx as any).__apiKeyRoleIds = roleIds
 
       const allowedIds = ctx.organizationScope?.allowedIds ?? null
       const organizationId = input.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null

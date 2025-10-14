@@ -182,7 +182,7 @@ export async function GET(req: Request) {
   let isSuperAdmin = false
   try {
     if (auth.sub) {
-      const rbacService = container.resolve('rbacService') as any
+      const rbacService = resolve('rbacService') as any
       const acl = await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
       isSuperAdmin = !!acl?.isSuperAdmin
     }

@@ -6,6 +6,8 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { useRouter } from 'next/navigation'
 
 type FormValues = {
   name: string
@@ -17,6 +19,7 @@ type FormValues = {
 
 export default function CreateApiKeyPage() {
   const [createdSecret, setCreatedSecret] = React.useState<{ secret: string; keyPrefix: string } | null>(null)
+  const router = useRouter()
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: 'Name', type: 'text', required: true },
@@ -45,6 +48,39 @@ export default function CreateApiKeyPage() {
     { id: 'details', title: 'Details', column: 1, fields: ['name', 'description', 'organizationId', 'roles', 'expiresAt'] },
   ]
 
+  if (createdSecret) {
+    return (
+      <Page>
+        <PageBody className="flex items-center justify-center">
+          <div className="w-full max-w-2xl rounded-xl border bg-card shadow-sm">
+            <div className="border-b p-6">
+              <h1 className="text-lg font-semibold leading-7">Copy your API key</h1>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Store this secret securely. You will not be able to view it again after closing this screen.
+              </p>
+            </div>
+            <div className="space-y-4 p-6">
+              <div className="rounded-md border bg-muted/40 p-4 font-mono text-sm break-all">
+                {createdSecret.secret}
+              </div>
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span className="inline-flex items-center rounded-full border px-2 py-1 font-medium">
+                  Prefix: {createdSecret.keyPrefix}
+                </span>
+                <span>Keep this key safe — it cannot be retrieved later.</span>
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={() => router.push('/backend/api-keys')}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody className="space-y-6">
@@ -64,7 +100,7 @@ export default function CreateApiKeyPage() {
               roles: Array.isArray(values.roles) ? values.roles : [],
               expiresAt: values.expiresAt || null,
             }
-            const res = await apiFetch('/api/api-keys', {
+            const res = await apiFetch('/api/api_keys/keys', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(payload),
@@ -85,27 +121,6 @@ export default function CreateApiKeyPage() {
             flash('API key created. Copy the secret now — it will not be shown again.', 'success')
           }}
         />
-
-        {createdSecret && (
-          <div className="rounded-xl border bg-card shadow-sm">
-            <div className="border-b p-4">
-              <h2 className="text-base font-semibold leading-6">Copy your API key</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Store this secret securely. You will not be able to view it again once you leave this page.
-              </p>
-            </div>
-            <div className="space-y-3 p-4">
-              <div className="rounded-md border bg-muted/40 p-3 font-mono text-sm break-all">
-                {createdSecret.secret}
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="inline-flex items-center rounded-full border px-2 py-1 font-medium">
-                  Prefix: {createdSecret.keyPrefix}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
       </PageBody>
     </Page>
   )

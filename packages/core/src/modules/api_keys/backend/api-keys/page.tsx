@@ -62,7 +62,7 @@ export default function ApiKeysListPage() {
         params.set('page', String(page))
         params.set('pageSize', '20')
         if (search) params.set('search', search)
-        const res = await apiFetch(`/api/api-keys?${params.toString()}`)
+        const res = await apiFetch(`/api/api_keys/keys?${params.toString()}`)
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
           const message = typeof data?.error === 'string' ? data.error : 'Failed to load API keys'
@@ -91,7 +91,7 @@ export default function ApiKeysListPage() {
   const handleDelete = React.useCallback(async (row: Row) => {
     if (!window.confirm(`Delete API key "${row.name}"? This invalidates the secret immediately.`)) return
     try {
-      const res = await apiFetch(`/api/api-keys?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/api_keys/keys?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         const message = typeof data?.error === 'string' ? data.error : 'Failed to delete API key'
