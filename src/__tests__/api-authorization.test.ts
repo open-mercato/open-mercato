@@ -81,7 +81,7 @@ describe('API Route Authorization', () => {
 
   describe('GET /example/test', () => {
     it('should allow access with admin role', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -97,7 +97,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access without authentication', async () => {
-      mockGetAuthFromRequest.mockReturnValue(null)
+      mockGetAuthFromRequest.mockResolvedValue(null)
 
       const request = new NextRequest('http://localhost:3001/api/example/test')
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -107,7 +107,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access with insufficient role', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -123,7 +123,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access when required features are missing (rbac returns false)', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -142,7 +142,7 @@ describe('API Route Authorization', () => {
 
   describe('POST /example/test', () => {
     it('should allow access with admin role', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -158,7 +158,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should allow access with superuser role', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -178,7 +178,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access with insufficient role', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -194,7 +194,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access when required features are missing on POST', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -213,7 +213,7 @@ describe('API Route Authorization', () => {
 
   describe('PUT /example/test', () => {
     it('should allow access without authentication when requireAuth is false', async () => {
-      mockGetAuthFromRequest.mockReturnValue(null)
+      mockGetAuthFromRequest.mockResolvedValue(null)
 
       const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'PUT' })
       const response = await PUT(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -225,7 +225,7 @@ describe('API Route Authorization', () => {
 
   describe('PATCH /example/test', () => {
     it('should allow access with user role', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -243,7 +243,7 @@ describe('API Route Authorization', () => {
 
   describe('DELETE /example/test', () => {
     it('should allow access with superuser role', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -259,7 +259,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access with admin role (requires superuser)', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -287,7 +287,7 @@ describe('API Route Authorization', () => {
 
   describe('Edge cases', () => {
     it('should handle empty roles array', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -303,7 +303,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should handle undefined roles', async () => {
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',
@@ -320,7 +320,7 @@ describe('API Route Authorization', () => {
 
     it('should handle empty requireRoles array', async () => {
       // This would require a different mock setup, but tests the logic
-      mockGetAuthFromRequest.mockReturnValue({
+      mockGetAuthFromRequest.mockResolvedValue({
         sub: 'user1',
         tenantId: 'tenant1',
         orgId: 'org1',

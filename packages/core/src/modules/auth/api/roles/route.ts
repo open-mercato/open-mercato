@@ -167,7 +167,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
 })
 
 export async function GET(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const url = new URL(req.url)
   const parsed = querySchema.safeParse({
@@ -182,7 +182,7 @@ export async function GET(req: Request) {
   let isSuperAdmin = false
   try {
     if (auth.sub) {
-      const rbacService = container.resolve('rbacService') as any
+      const rbacService = resolve('rbacService') as any
       const acl = await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
       isSuperAdmin = !!acl?.isSuperAdmin
     }

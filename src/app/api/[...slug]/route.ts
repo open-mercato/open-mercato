@@ -45,7 +45,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
   const pathname = '/' + (p.slug?.join('/') ?? '')
   const api = findApi(modules, 'GET', pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
-  const auth = getAuthFromRequest(req as any as Request)
+  const auth = await getAuthFromRequest(req as any as Request)
   
   const authError = await checkAuthorization(api.metadata?.GET, auth, req)
   if (authError) return authError
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   const pathname = '/' + (p.slug?.join('/') ?? '')
   const api = findApi(modules, 'POST', pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
-  const auth = getAuthFromRequest(req as any as Request)
+  const auth = await getAuthFromRequest(req as any as Request)
   
   const authError = await checkAuthorization(api.metadata?.POST, auth, req)
   if (authError) return authError
@@ -71,7 +71,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug
   const pathname = '/' + (p.slug?.join('/') ?? '')
   const api = findApi(modules, 'PUT', pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
-  const auth = getAuthFromRequest(req as any as Request)
+  const auth = await getAuthFromRequest(req as any as Request)
   
   const authError = await checkAuthorization(api.metadata?.PUT, auth, req)
   if (authError) return authError
@@ -84,7 +84,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ sl
   const pathname = '/' + (p.slug?.join('/') ?? '')
   const api = findApi(modules, 'PATCH', pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
-  const auth = getAuthFromRequest(req as any as Request)
+  const auth = await getAuthFromRequest(req as any as Request)
   
   const authError = await checkAuthorization(api.metadata?.PATCH, auth, req)
   if (authError) return authError
@@ -97,7 +97,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ s
   const pathname = '/' + (p.slug?.join('/') ?? '')
   const api = findApi(modules, 'DELETE', pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
-  const auth = getAuthFromRequest(req as any as Request)
+  const auth = await getAuthFromRequest(req as any as Request)
   
   const authError = await checkAuthorization(api.metadata?.DELETE, auth, req)
   if (authError) return authError

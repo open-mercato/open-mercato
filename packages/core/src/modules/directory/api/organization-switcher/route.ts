@@ -78,7 +78,7 @@ export const metadata = {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || !auth.sub) {
     return NextResponse.json({ items: [], selectedId: null, canManage: false }, { status: auth ? 200 : 401 })
   }

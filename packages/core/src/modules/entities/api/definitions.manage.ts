@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const entityId = url.searchParams.get('entityId') || ''
   if (!entityId) return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { resolve } = await createRequestContainer()
