@@ -16,21 +16,19 @@ All paths shown below are relative to the `/api` base.
 
 ```bash
 export BASE_URL="http://localhost:3000/api"
-export AUTH_TOKEN="<paste your JWT here>"
+export API_KEY="<paste your API key secret here>"
 export ORG_ID="<optional active organization id>"
 ```
 
-`AUTH_TOKEN` is returned by `POST /login`. Many `curl` examples reuse these environment variables so you can copy, tweak, and run them immediately.
+`API_KEY` comes from the admin UI table (**Admin → Security → API keys**) or the [`mercato api_keys add`](../cli/api-keys) CLI command. All `curl` examples reuse these variables so you can copy, tweak, and run them immediately.
 
 ## Authentication Flow
 
-1. Call `POST /login` with form data (`email`, `password`, optional `remember`). A successful response returns a JSON payload with a signed JWT (`token`) and sets the `auth_token` HTTP-only cookie.
-2. For API clients, read the `token` value and send it as `Authorization: Bearer <token>` on every request. Cookies are accepted as a fallback when the header is absent.
-3. Tokens embed `sub` (user id), `tenantId`, `orgId`, `email`, and assigned role names. Requests lacking a valid token receive `401 Unauthorized`.
+1. Mint a key from the [Managing API keys guide](../user-guide/api-keys) or via [`mercato api_keys add`](../cli/api-keys). Keys inherit the roles (and therefore features) you assign.
+2. Send the secret on every request using either `X-Api-Key: <secret>` or `Authorization: ApiKey <secret>`. The prefix (`omk_live_…`) helps correlate requests with a specific key.
+3. Requests lacking a valid API key receive `401 Unauthorized`. Deleted or expired keys behave the same.
 
-Sessions created with `remember` also emit a `session_token` cookie that can refresh web sessions but is not meant for API clients.
-
-Learn more and explore endpoint walkthroughs in [Authentication & RBAC](./auth).
+Human users still sign in with email/password for the admin UI, but machine-to-machine integrations should rely on API keys for predictable scoping and auditability.
 
 ## Feature Gates & Access Control
 
@@ -42,8 +40,8 @@ Each HTTP method exports `metadata` declaring `requireAuth`, `requireRoles`, and
 
 ## Tenant and Organization Scoping
 
-- Tenants are encoded in the JWT (`tenantId`). Most entities require an active tenant; requests without one fail with `400` or `403`.
-- Organization context defaults to the JWT `orgId`. Users can change it through the backend UI, which stores the selection in the `om_selected_org` cookie consumed by the API layer.
+- For API keys, tenant and organization scope come from the key metadata. For browser sessions, they originate from the JWT payload (`tenantId`, `orgId`).
+- Most entities require an active tenant; requests without one fail with `400` or `403`.
 - When a module opts into organization scoping, create/update requests inject the active organization automatically; list requests are filtered to the allowed organizations resolved from RBAC + cookies.
 - The `GET /directory/organization-switcher` endpoint returns the organization tree the current user may access. Clients can persist a new selection by setting the `om_selected_org` cookie before subsequent API calls.
 

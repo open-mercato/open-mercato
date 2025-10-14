@@ -7,11 +7,13 @@ The directory module governs tenants, organizations, and the organization switch
 
 ```bash
 export BASE_URL="http://localhost:3000/api"
-export AUTH_TOKEN="<jwt from POST /login>"
+export API_KEY="<paste your API key secret here>"
 export TENANT_ID="<current tenant uuid>"
 export ORG_ID="<current organization uuid>"
 export ORGANIZATION_ID="<target organization uuid>"
 ```
+
+Use an API key scoped to the correct tenant/organization as described in [Managing API keys](../user-guide/api-keys).
 
 ## Organization Switcher — `GET /directory/organization-switcher`
 
@@ -19,7 +21,7 @@ export ORGANIZATION_ID="<target organization uuid>"
 
 ```bash
 curl -X GET "$BASE_URL/directory/organization-switcher" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -60,7 +62,7 @@ Supports multiple views (`view=options|manage|tree`), pagination, search, and te
 
 ```bash
 curl -X GET "$BASE_URL/directory/organizations?view=manage&page=1&pageSize=25&search=branch" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -70,7 +72,7 @@ curl -X GET "$BASE_URL/directory/organizations?view=manage&page=1&pageSize=25&se
 
 ```bash
 curl -X POST "$BASE_URL/directory/organizations" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"tenantId\": \"$TENANT_ID\",
@@ -95,7 +97,7 @@ Response:
 
 ```bash
 curl -X PUT "$BASE_URL/directory/organizations" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"id\": \"$ORGANIZATION_ID\",
@@ -118,7 +120,7 @@ Performs a soft delete and triggers hierarchy rebuild.
 
 ```bash
 curl -X DELETE "$BASE_URL/directory/organizations?id=$ORGANIZATION_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -136,7 +138,7 @@ Response:
 
 ```bash
 curl -X GET "$BASE_URL/directory/tenants?page=1&pageSize=25&search=north" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -146,7 +148,7 @@ curl -X GET "$BASE_URL/directory/tenants?page=1&pageSize=25&search=north" \
 
 ```bash
 curl -X POST "$BASE_URL/directory/tenants" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Northwind Subsidiary",
@@ -170,7 +172,7 @@ Response:
 
 ```bash
 curl -X PUT "$BASE_URL/directory/tenants" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"id\": \"$TENANT_ID\",
@@ -192,7 +194,7 @@ Soft deletes the tenant (marked inactive) before removing it from active listing
 
 ```bash
 curl -X DELETE "$BASE_URL/directory/tenants?id=$TENANT_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 

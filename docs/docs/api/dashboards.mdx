@@ -7,11 +7,13 @@ Dashboard endpoints let you hydrate the backend dashboard UI, customize layouts,
 
 ```bash
 export BASE_URL="http://localhost:3000/api"
-export AUTH_TOKEN="<jwt from POST /login>"
+export API_KEY="<paste your API key secret here>"
 export WIDGET_ID="<dashboard item uuid>"
 export ROLE_ID="<role uuid>"
 export USER_ID="<user uuid>"
 ```
+
+Mint an API key with dashboard features as described in [Managing API keys](../user-guide/api-keys) before running these requests.
 
 ## Fetch Layout — `GET /dashboards/layout`
 
@@ -19,7 +21,7 @@ export USER_ID="<user uuid>"
 
 ```bash
 curl -X GET "$BASE_URL/dashboards/layout" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -44,7 +46,7 @@ Response (trimmed):
 
 ```bash
 curl -X PUT "$BASE_URL/dashboards/layout" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "widgets": [
@@ -70,7 +72,7 @@ Response:
 
 ```bash
 curl -X GET "$BASE_URL/dashboards/layout/$WIDGET_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -91,7 +93,7 @@ Response:
 
 ```bash
 curl -X DELETE "$BASE_URL/dashboards/layout/$WIDGET_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -108,7 +110,7 @@ Use this endpoint to preview which widgets a role will expose.
 
 ```bash
 curl -X GET "$BASE_URL/dashboards/roles/widgets?roleId=$ROLE_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -132,7 +134,7 @@ Sample response:
 
 ```bash
 curl -X GET "$BASE_URL/dashboards/users/widgets?userId=$USER_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
