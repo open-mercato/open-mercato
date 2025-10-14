@@ -12,9 +12,13 @@ export type PageMetadata = {
   requireFeatures?: readonly string[]
   // Titles and grouping (aliases supported)
   title?: string
+  titleKey?: string
   pageTitle?: string
+  pageTitleKey?: string
   group?: string
+  groupKey?: string
   pageGroup?: string
+  pageGroupKey?: string
   // Ordering and visuals
   order?: number
   pageOrder?: number
@@ -24,7 +28,7 @@ export type PageMetadata = {
   visible?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
   enabled?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
   // Optional static breadcrumb trail for header
-  breadcrumb?: Array<{ label: string; href?: string }>
+  breadcrumb?: Array<{ label: string; labelKey?: string; href?: string }>
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -39,13 +43,15 @@ export type ModuleRoute = {
   // Optional fine-grained feature requirements
   requireFeatures?: string[]
   title?: string
+  titleKey?: string
   group?: string
+  groupKey?: string
   icon?: ReactNode
   order?: number
   navHidden?: boolean
   visible?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
   enabled?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
-  breadcrumb?: Array<{ label: string; href?: string }>
+  breadcrumb?: Array<{ label: string; labelKey?: string; href?: string }>
   Component: (props: any) => ReactNode | Promise<ReactNode>
 }
 

@@ -12,9 +12,10 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['query_index.status.view'],
   pageTitle: 'Query Indexes',
+  pageTitleKey: 'query_index.nav.queryIndexes',
   pageGroup: 'Data designer',
+  pageGroupKey: 'entities.nav.group',
   pageOrder: 13,
   icon: indexIcon,
 }
-
 

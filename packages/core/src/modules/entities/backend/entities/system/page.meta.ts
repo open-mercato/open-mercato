@@ -11,7 +11,9 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['entities.definitions.view'],
   pageTitle: 'System Entities',
+  pageTitleKey: 'entities.nav.systemEntities',
   pageGroup: 'Data designer',
+  pageGroupKey: 'entities.nav.group',
   pageOrder: 11,
   icon: systemIcon,
 }

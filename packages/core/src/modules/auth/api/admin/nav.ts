@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
+import { createRequestContainer } from '@/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 
 export const metadata = {
@@ -12,6 +13,8 @@ export const metadata = {
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { translate } = await resolveTranslations()
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
@@ -31,7 +34,17 @@ export async function GET(req: Request) {
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
 
   // Build nav entries from discovered backend routes
-  type Entry = { group: string; title: string; href: string; enabled: boolean; order?: number; priority?: number }
+  type Entry = {
+    group: string
+    groupKey?: string
+    title: string
+    titleKey?: string
+    href: string
+    enabled: boolean
+    order?: number
+    priority?: number
+    children?: Entry[]
+  }
   const entries: Entry[] = []
 
   function capitalize(s: string) { return s.charAt(0).toUpperCase() + s.slice(1) }
@@ -48,7 +61,9 @@ export async function GET(req: Request) {
       if (!href || href.includes('[')) continue
       if ((r as any).navHidden) continue
       const title = (r.title as string) || deriveTitleFromPath(href)
+      const titleKey = (r as any).pageTitleKey ?? (r as any).titleKey
       const group = (r.group as string) || groupDefault
+      const groupKey = (r as any).pageGroupKey ?? (r as any).groupKey
       const visible = r.visible ? await Promise.resolve(r.visible(ctx)) : true
       if (!visible) continue
       const enabled = r.enabled ? await Promise.resolve(r.enabled(ctx)) : true
@@ -62,7 +77,7 @@ export async function GET(req: Request) {
       if (!acl.isSuperAdmin && !hasAllFeatures(acl.features, features)) continue
       const order = (r as any).order as number | undefined
       const priority = ((r as any).priority as number | undefined) ?? order
-      entries.push({ group, title, href, enabled, order, priority })
+      entries.push({ group, groupKey, title, titleKey, href, enabled, order, priority })
     }
   }
 
@@ -126,17 +141,57 @@ export async function GET(req: Request) {
   sortItems(roots)
 
   // Group into sidebar groups
-  const groupMap = new Map<string, { name: string; items: any[]; weight: number }>()
+  const groupMap = new Map<string, {
+    name: string
+    key?: string
+    items: Array<{
+      href: string
+      title: string
+      titleKey?: string
+      enabled: boolean
+      children?: Array<{ href: string; title: string; titleKey?: string; enabled: boolean }>
+    }>
+    weight: number
+  }>()
   for (const e of roots) {
     const w = (e.priority ?? e.order ?? 10000)
-    if (!groupMap.has(e.group)) groupMap.set(e.group, { name: e.group, items: [], weight: w })
-    else { const g = groupMap.get(e.group)!; if (w < g.weight) g.weight = w }
+    if (!groupMap.has(e.group)) groupMap.set(e.group, { name: e.group, key: e.groupKey as string | undefined, items: [], weight: w })
+    else {
+      const g = groupMap.get(e.group)!
+      if (!g.key && e.groupKey) g.key = e.groupKey as string
+      if (w < g.weight) g.weight = w
+    }
     const g = groupMap.get(e.group)!
-    g.items.push({ href: e.href, title: e.title, enabled: e.enabled, children: (e.children || []).map((c: any) => ({ href: c.href, title: c.title, enabled: c.enabled })) })
+    g.items.push({
+      href: e.href,
+      title: e.title,
+      titleKey: e.titleKey as string | undefined,
+      enabled: e.enabled,
+      children: (e.children || []).map((c: Entry) => ({
+        href: c.href,
+        title: c.title,
+        titleKey: c.titleKey as string | undefined,
+        enabled: c.enabled,
+      })),
+    })
   }
   const groups = Array.from(groupMap.values()).sort((a, b) => a.weight - b.weight)
 
-  const payload = { groups }
+  const payload = {
+    groups: groups.map((group) => ({
+      name: group.key ? translate(group.key, group.name) : group.name,
+      items: group.items.map((item) => ({
+        href: item.href,
+        title: item.titleKey ? translate(item.titleKey, item.title) : item.title,
+        enabled: item.enabled,
+        children: item.children?.map((child) => ({
+          href: child.href,
+          title: child.titleKey ? translate(child.titleKey, child.title) : child.title,
+          enabled: child.enabled,
+        })),
+      })),
+    })),
+  }
 
   try {
     if (cache) {
@@ -147,4 +202,3 @@ export async function GET(req: Request) {
 
   return NextResponse.json(payload)
 }
-

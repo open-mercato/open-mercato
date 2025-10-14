@@ -11,8 +11,10 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['api_keys.view'],
   pageTitle: 'API Keys',
+  pageTitleKey: 'api_keys.nav.apiKeys',
   pageGroup: 'Auth',
+  pageGroupKey: 'auth.nav.group',
   pageOrder: 110,
   icon: keyIcon,
-  breadcrumb: [{ label: 'API Keys' }],
+  breadcrumb: [{ label: 'API Keys', labelKey: 'api_keys.nav.apiKeys' }],
 }

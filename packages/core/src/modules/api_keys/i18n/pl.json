@@ -36,5 +36,7 @@
   "api_keys.errors.roleNotFound": "Nie znaleziono roli {identifier}",
   "api_keys.errors.roleWrongTenant": "Rola {role} należy do innego najemcy",
   "api_keys.errors.notFound": "Nie znaleziono",
-  "api_keys.errors.forbidden": "Brak uprawnień"
+  "api_keys.errors.forbidden": "Brak uprawnień",
+  "api_keys.nav.apiKeys": "Klucze API",
+  "api_keys.nav.apiKeys.create": "Utwórz klucz API"
 }

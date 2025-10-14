@@ -9,10 +9,11 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['auth.users.list'],
   pageTitle: 'Users',
+  pageTitleKey: 'auth.nav.users',
   pageGroup: 'Auth',
+  pageGroupKey: 'auth.nav.group',
   pageOrder: 100,
   icon: userIcon,
-  breadcrumb: [ { label: 'Users' } ],
+  breadcrumb: [ { label: 'Users', labelKey: 'auth.nav.users' } ],
 }
-
 

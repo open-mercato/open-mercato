@@ -12,9 +12,13 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['auth.users.create'],
   pageTitle: 'Create User',
+  pageTitleKey: 'auth.nav.users.create',
   pageGroup: 'Auth',
+  pageGroupKey: 'auth.nav.group',
   icon: filePlusIcon,
-  breadcrumb: [ { label: 'Users', href: '/backend/users' }, { label: 'Create' } ],
+  breadcrumb: [
+    { label: 'Users', labelKey: 'auth.nav.users', href: '/backend/users' },
+    { label: 'Create', labelKey: 'common.create' },
+  ],
 }
-
 

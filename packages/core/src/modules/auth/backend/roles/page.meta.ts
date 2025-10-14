@@ -8,10 +8,11 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['auth.roles.list'],
   pageTitle: 'Roles',
+  pageTitleKey: 'auth.nav.roles',
   pageGroup: 'Auth',
+  pageGroupKey: 'auth.nav.group',
   pageOrder: 110,
   icon: shieldIcon,
-  breadcrumb: [ { label: 'Roles' } ],
+  breadcrumb: [ { label: 'Roles', labelKey: 'auth.nav.roles' } ],
 }
-
 

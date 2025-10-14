@@ -12,11 +12,13 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['entities.definitions.manage'],
   pageTitle: 'Create Entity',
+  pageTitleKey: 'entities.nav.userEntities.create',
   pageGroup: 'Data designer',
+  pageGroupKey: 'entities.nav.group',
   pageOrder: 11,
   icon: filePlusIcon,
   breadcrumb: [
-    { label: 'User Entities', href: '/backend/entities/user' },
-    { label: 'Create' },
+    { label: 'User Entities', labelKey: 'entities.nav.userEntities', href: '/backend/entities/user' },
+    { label: 'Create', labelKey: 'common.create' },
   ],
 }

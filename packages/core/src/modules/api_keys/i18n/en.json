@@ -36,5 +36,7 @@
   "api_keys.errors.roleNotFound": "Role {identifier} not found",
   "api_keys.errors.roleWrongTenant": "Role {role} belongs to another tenant",
   "api_keys.errors.notFound": "Not found",
-  "api_keys.errors.forbidden": "Forbidden"
+  "api_keys.errors.forbidden": "Forbidden",
+  "api_keys.nav.apiKeys": "API Keys",
+  "api_keys.nav.apiKeys.create": "Create API Key"
 }
