@@ -1,12 +1,18 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { tenantCreateSchema, tenantUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import {
+  parseWithCustomFields,
+  setCustomFieldsIfAny,
+  emitCrudSideEffects,
+  buildChanges,
+  requireId,
+} from '@open-mercato/shared/lib/commands/helpers'
 
 export const tenantCrudEvents = {
   module: 'directory',
@@ -34,8 +40,7 @@ type TenantPayload = Record<string, unknown>
 const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
   id: 'directory.tenants.create',
   async execute(rawInput, ctx) {
-    const { base, custom } = splitCustomFieldPayload(rawInput)
-    const parsed = tenantCreateSchema.parse(base)
+    const { parsed, custom } = parseWithCustomFields(tenantCreateSchema, rawInput)
     const de = ctx.container.resolve<DataEngine>('dataEngine')
 
     const tenant = await de.createOrmEntity({
@@ -46,16 +51,14 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
       },
     })
 
-    if (custom && Object.keys(custom).length > 0) {
-      await de.setCustomFields({
-        entityId: E.directory.tenant,
-        recordId: String(tenant.id),
-        organizationId: null,
-        tenantId: ctx.auth?.tenantId ?? null,
-        values: custom,
-        notify: false,
-      })
-    }
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: E.directory.tenant,
+      recordId: String(tenant.id),
+      organizationId: null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      values: custom,
+    })
 
     const identifiers = {
       id: String(tenant.id),
@@ -63,7 +66,8 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
       tenantId: String(tenant.id),
     }
 
-    await de.emitOrmEntityEvent({
+    await emitCrudSideEffects({
+      dataEngine: de,
       action: 'created',
       entity: tenant,
       identifiers,
@@ -85,16 +89,14 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
 const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
   id: 'directory.tenants.update',
   async prepare(rawInput, ctx) {
-    const { base } = splitCustomFieldPayload(rawInput)
-    const parsed = tenantUpdateSchema.parse(base)
+    const { parsed } = parseWithCustomFields(tenantUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em')
     const current = await em.findOne(Tenant, { id: parsed.id, deletedAt: null })
     if (!current) throw new CrudHttpError(404, { error: 'Tenant not found' })
     return { before: serializeTenant(current) }
   },
   async execute(rawInput, ctx) {
-    const { base, custom } = splitCustomFieldPayload(rawInput)
-    const parsed = tenantUpdateSchema.parse(base)
+    const { parsed, custom } = parseWithCustomFields(tenantUpdateSchema, rawInput)
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     const tenant = await de.updateOrmEntity({
       entity: Tenant,
@@ -107,16 +109,14 @@ const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
     })
     if (!tenant) throw new CrudHttpError(404, { error: 'Tenant not found' })
 
-    if (custom && Object.keys(custom).length) {
-      await de.setCustomFields({
-        entityId: E.directory.tenant,
-        recordId: String(tenant.id),
-        organizationId: null,
-        tenantId: ctx.auth?.tenantId ?? null,
-        values: custom,
-        notify: false,
-      })
-    }
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: E.directory.tenant,
+      recordId: String(tenant.id),
+      organizationId: null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      values: custom,
+    })
 
     const identifiers = {
       id: String(tenant.id),
@@ -124,7 +124,8 @@ const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
       tenantId: String(tenant.id),
     }
 
-    await de.emitOrmEntityEvent({
+    await emitCrudSideEffects({
+      dataEngine: de,
       action: 'updated',
       entity: tenant,
       identifiers,
@@ -138,14 +139,7 @@ const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
   buildLog: ({ result, snapshots, ctx }) => {
     const before = (snapshots.before ?? null) as Record<string, unknown> | null
     const after = serializeTenant(result)
-    const changes: Record<string, { from: unknown; to: unknown }> = {}
-    if (before) {
-      for (const key of ['name', 'isActive']) {
-        if (before[key] !== (after as any)[key]) {
-          changes[key] = { from: before[key], to: (after as any)[key] }
-        }
-      }
-    }
+    const changes = buildChanges(before, after, ['name', 'isActive'])
     return {
       actionLabel: 'Update tenant',
       resourceKind: 'directory.tenant',
@@ -159,15 +153,13 @@ const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
 const deleteTenantCommand: CommandHandler<{ body: any; query: Record<string, string> }, Tenant> = {
   id: 'directory.tenants.delete',
   async prepare(input, ctx) {
-    const id = String(input?.body?.id ?? input?.query?.id ?? '')
-    if (!id) return {}
+    const id = requireId(input, 'Tenant id required')
     const em = ctx.container.resolve<EntityManager>('em')
     const existing = await em.findOne(Tenant, { id, deletedAt: null })
     return existing ? { before: serializeTenant(existing) } : {}
   },
   async execute(rawInput, ctx) {
-    const id = String(rawInput?.body?.id ?? rawInput?.query?.id ?? '')
-    if (!id) throw new CrudHttpError(400, { error: 'Tenant id required' })
+    const id = requireId(rawInput, 'Tenant id required')
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     const tenant = await de.deleteOrmEntity({
       entity: Tenant,
@@ -183,7 +175,8 @@ const deleteTenantCommand: CommandHandler<{ body: any; query: Record<string, str
       tenantId: String(id),
     }
 
-    await de.emitOrmEntityEvent({
+    await emitCrudSideEffects({
+      dataEngine: de,
       action: 'deleted',
       entity: tenant,
       identifiers,

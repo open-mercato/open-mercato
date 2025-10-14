@@ -1,6 +1,5 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -9,6 +8,14 @@ import { organizationCreateSchema, organizationUpdateSchema } from '@open-mercat
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { CrudEmitContext, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import {
+  parseWithCustomFields,
+  setCustomFieldsIfAny,
+  emitCrudSideEffects,
+  requireTenantScope,
+  requireId,
+  buildChanges,
+} from '@open-mercato/shared/lib/commands/helpers'
 
 export const organizationCrudEvents: CrudEventsConfig<Organization> = {
   module: 'directory',
@@ -123,15 +130,10 @@ async function clearRemovedChildren(em: EntityManager, tenantId: string, recordI
 const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organization> = {
   id: 'directory.organizations.create',
   async execute(rawInput, ctx) {
-    const { base, custom } = splitCustomFieldPayload(rawInput)
-    const parsed = organizationCreateSchema.parse(base)
+    const { parsed, custom } = parseWithCustomFields(organizationCreateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em')
     const authTenantId = ctx.auth?.tenantId ?? null
-    const tenantId = authTenantId ?? parsed.tenantId ?? null
-    if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
-    if (authTenantId && parsed.tenantId && parsed.tenantId !== authTenantId) {
-      throw new CrudHttpError(403, { error: 'Forbidden' })
-    }
+    const tenantId = requireTenantScope(authTenantId, parsed.tenantId ?? null)
 
     const parentId = parsed.parentId ?? null
     if (parentId) {
@@ -160,21 +162,20 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       await assignChildren(em, tenantId, recordId, childIds)
     }
 
-    if (custom && Object.keys(custom).length) {
-      await de.setCustomFields({
-        entityId: E.directory.organization,
-        recordId,
-        tenantId,
-        organizationId: recordId,
-        values: custom,
-        notify: false,
-      })
-    }
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: E.directory.organization,
+      recordId,
+      tenantId,
+      organizationId: recordId,
+      values: custom,
+    })
 
     await rebuildHierarchyForTenant(em, tenantId)
 
     const identifiers = { id: recordId, organizationId: recordId, tenantId }
-    await de.emitOrmEntityEvent({
+    await emitCrudSideEffects({
+      dataEngine: de,
       action: 'created',
       entity: organization,
       identifiers,
@@ -196,24 +197,20 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organization> = {
   id: 'directory.organizations.update',
   async prepare(rawInput, ctx) {
-    const { base } = splitCustomFieldPayload(rawInput)
-    const parsed = organizationUpdateSchema.parse(base)
+    const { parsed } = parseWithCustomFields(organizationUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em')
     const current = await em.findOne(Organization, { id: parsed.id, deletedAt: null })
     if (!current) throw new CrudHttpError(404, { error: 'Not found' })
     return { before: serializeOrganization(current) }
   },
   async execute(rawInput, ctx) {
-    const { base, custom } = splitCustomFieldPayload(rawInput)
-    const parsed = organizationUpdateSchema.parse(base)
+    const { parsed, custom } = parseWithCustomFields(organizationUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em')
     const existing = await em.findOne(Organization, { id: parsed.id, deletedAt: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Not found' })
 
     const authTenantId = ctx.auth?.tenantId ?? null
-    const tenantId = authTenantId ?? parsed.tenantId ?? resolveTenantIdFromEntity(existing)
-    if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
-    if (authTenantId && tenantId !== authTenantId) throw new CrudHttpError(403, { error: 'Forbidden' })
+    const tenantId = requireTenantScope(authTenantId, parsed.tenantId ?? resolveTenantIdFromEntity(existing))
 
     const parentId = parsed.parentId ?? null
     if (parentId) {
@@ -258,21 +255,20 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     await clearRemovedChildren(em, tenantId, recordId, desiredChildIds)
     await assignChildren(em, tenantId, recordId, desiredChildIds)
 
-    if (custom && Object.keys(custom).length) {
-      await de.setCustomFields({
-        entityId: E.directory.organization,
-        recordId,
-        tenantId,
-        organizationId: recordId,
-        values: custom,
-        notify: false,
-      })
-    }
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: E.directory.organization,
+      recordId,
+      tenantId,
+      organizationId: recordId,
+      values: custom,
+    })
 
     await rebuildHierarchyForTenant(em, tenantId)
 
     const identifiers = { id: recordId, organizationId: recordId, tenantId }
-    await de.emitOrmEntityEvent({
+    await emitCrudSideEffects({
+      dataEngine: de,
       action: 'updated',
       entity: organization,
       identifiers,
@@ -286,14 +282,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   buildLog: ({ snapshots, result, ctx }) => {
     const before = (snapshots.before ?? null) as Record<string, unknown> | null
     const after = serializeOrganization(result)
-    const changes: Record<string, { from: unknown; to: unknown }> = {}
-    if (before) {
-      for (const key of ['name', 'isActive', 'parentId']) {
-        if (before[key] !== (after as any)[key]) {
-          changes[key] = { from: before[key], to: (after as any)[key] }
-        }
-      }
-    }
+    const changes = buildChanges(before, after, ['name', 'isActive', 'parentId'])
     return {
       actionLabel: 'Update organization',
       resourceKind: 'directory.organization',
@@ -307,23 +296,19 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<string, string> }, Organization> = {
   id: 'directory.organizations.delete',
   async prepare(input, ctx) {
-    const id = String(input?.body?.id ?? input?.query?.id ?? '')
-    if (!id) return {}
+    const id = requireId(input, 'Organization id required')
     const em = ctx.container.resolve<EntityManager>('em')
     const existing = await em.findOne(Organization, { id, deletedAt: null })
     return existing ? { before: serializeOrganization(existing) } : {}
   },
   async execute(input, ctx) {
-    const id = String(input?.body?.id ?? input?.query?.id ?? '')
-    if (!id) throw new CrudHttpError(400, { error: 'Organization id required' })
+    const id = requireId(input, 'Organization id required')
     const em = ctx.container.resolve<EntityManager>('em')
     const existing = await em.findOne(Organization, { id, deletedAt: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Not found' })
 
     const authTenantId = ctx.auth?.tenantId ?? null
-    const tenantId = authTenantId ?? resolveTenantIdFromEntity(existing)
-    if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
-    if (authTenantId && tenantId !== authTenantId) throw new CrudHttpError(403, { error: 'Forbidden' })
+    const tenantId = requireTenantScope(authTenantId, resolveTenantIdFromEntity(existing))
 
     const parentId = existing.parentId ?? null
 
@@ -352,7 +337,8 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     await rebuildHierarchyForTenant(em, tenantId)
 
     const identifiers = { id, organizationId: id, tenantId }
-    await de.emitOrmEntityEvent({
+    await emitCrudSideEffects({
+      dataEngine: de,
       action: 'deleted',
       entity: deleted,
       identifiers,
