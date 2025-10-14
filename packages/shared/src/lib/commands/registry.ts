@@ -11,6 +11,10 @@ class CommandRegistry {
     this.handlers.set(handler.id, handler)
   }
 
+  unregister(id: string) {
+    this.handlers.delete(id)
+  }
+
   get<TInput = unknown, TResult = unknown>(id: string): CommandHandler<TInput, TResult> | null {
     return (this.handlers.get(id) as CommandHandler<TInput, TResult> | undefined) ?? null
   }
@@ -28,4 +32,8 @@ export const commandRegistry = new CommandRegistry()
 
 export function registerCommand(handler: CommandHandler) {
   commandRegistry.register(handler)
+}
+
+export function unregisterCommand(id: string) {
+  commandRegistry.unregister(id)
 }

@@ -1,13 +1,9 @@
 import { createContainer, asValue, InjectionMode } from 'awilix'
-import { commandRegistry, registerCommand, CommandBus } from '@open-mercato/shared/lib/commands'
+import { unregisterCommand, registerCommand, CommandBus } from '@open-mercato/shared/lib/commands'
 
 describe('CommandBus', () => {
-  beforeEach(() => {
-    commandRegistry.clear()
-  })
-
   afterEach(() => {
-    commandRegistry.clear()
+    unregisterCommand('test.command')
   })
 
   it('executes registered command and logs action metadata', async () => {
