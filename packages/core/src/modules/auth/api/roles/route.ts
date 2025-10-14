@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
@@ -73,12 +73,12 @@ export async function GET(req: Request) {
     search: url.searchParams.get('search') || undefined,
   })
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
   let isSuperAdmin = false
   try {
     if (auth.sub) {
-      const rbacService = resolve('rbacService') as any
+      const rbacService = container.resolve('rbacService') as any
       const acl = await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
       isSuperAdmin = !!acl?.isSuperAdmin
     }
@@ -151,6 +151,18 @@ export async function GET(req: Request) {
     }
   })
   const totalPages = Math.max(1, Math.ceil(count / pageSize))
+  await logCrudAccess({
+    container,
+    auth,
+    request: req,
+    items,
+    idField: 'id',
+    resourceKind: 'auth.role',
+    organizationId: null,
+    tenantId: auth.tenantId ?? null,
+    query: parsed.data,
+    accessType: id ? 'read:item' : undefined,
+  })
   return NextResponse.json({ items, total: count, totalPages, isSuperAdmin })
 }
 

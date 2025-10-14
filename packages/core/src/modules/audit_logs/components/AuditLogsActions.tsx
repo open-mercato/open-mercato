@@ -49,7 +49,8 @@ export function AuditLogsActions({
     try {
       await apiFetch('/api/audit_logs/audit-logs/actions/undo', {
         method: 'POST',
-        body: { undoToken: latestUndoable.undoToken },
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ undoToken: latestUndoable.undoToken }),
       })
       await onRefresh()
     } catch (err) {
