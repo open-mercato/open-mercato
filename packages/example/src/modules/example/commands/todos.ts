@@ -29,6 +29,7 @@ export const todoUpdateSchema = z.object({
 })
 
 type SerializedTodo = {
+  id: string
   title: string
   is_done: boolean
   tenantId: string | null
@@ -64,6 +65,7 @@ export const todoCrudIndexer: CrudIndexerConfig<Todo> = {
 
 const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   id: 'example.todos.create',
+  isUndoable: true,
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(todoCreateSchema, rawInput)
     const scope = ensureScope(ctx)
@@ -115,10 +117,28 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       snapshotAfter: serializeTodo(result),
     }
   },
+  async undo({ logEntry, ctx }) {
+    const snapshot = logEntry.snapshotAfter as SerializedTodo | undefined
+    const id = snapshot?.id ?? logEntry.resourceId
+    if (!id) throw new Error('Missing todo id for undo')
+    const scope = ensureScope(ctx)
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    await de.deleteOrmEntity({
+      entity: Todo,
+      where: {
+        id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      } as FilterQuery<Todo>,
+      soft: true,
+      softDeleteField: 'deletedAt',
+    })
+  },
 }
 
 const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   id: 'example.todos.update',
+  isUndoable: true,
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(todoUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em')
@@ -187,10 +207,32 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       snapshotAfter: after,
     }
   },
+  async undo({ logEntry, ctx }) {
+    const before = logEntry.snapshotBefore as SerializedTodo | undefined
+    if (!before?.id) throw new Error('Missing previous snapshot for undo')
+    const scope = ensureScope(ctx)
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    await de.updateOrmEntity({
+      entity: Todo,
+      where: {
+        id: before.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      } as FilterQuery<Todo>,
+      apply: (entity) => {
+        entity.title = before.title
+        entity.isDone = before.is_done
+        entity.tenantId = before.tenantId
+        entity.organizationId = before.organizationId
+      },
+    })
+  },
 }
 
 const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, Todo> = {
   id: 'example.todos.delete',
+  isUndoable: true,
   async prepare(input, ctx) {
     const id = requireId(input, 'Todo id required')
     const em = ctx.container.resolve<EntityManager>('em')
@@ -243,6 +285,37 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       snapshotBefore: before ?? null,
     }
   },
+  async undo({ logEntry, ctx }) {
+    const before = logEntry.snapshotBefore as SerializedTodo | undefined
+    if (!before?.id) throw new Error('Missing snapshot for undo')
+    const scope = ensureScope(ctx)
+    const em = ctx.container.resolve<EntityManager>('em')
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const existing = await em.findOne(Todo, {
+      id: before.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    } as FilterQuery<Todo>)
+    if (existing) {
+      existing.deletedAt = null
+      existing.title = before.title
+      existing.isDone = before.is_done
+      existing.tenantId = before.tenantId
+      existing.organizationId = before.organizationId
+      await em.persistAndFlush(existing)
+      return
+    }
+    await de.createOrmEntity({
+      entity: Todo,
+      data: {
+        id: before.id,
+        title: before.title,
+        isDone: before.is_done,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      },
+    })
+  },
 }
 
 registerCommand(createTodoCommand)
@@ -251,6 +324,7 @@ registerCommand(deleteTodoCommand)
 
 function serializeTodo(todo: Todo): SerializedTodo {
   return {
+    id: String(todo.id),
     title: String(todo.title),
     is_done: !!todo.isDone,
     tenantId: todo.tenantId ? String(todo.tenantId) : null,

@@ -140,7 +140,14 @@ function handleError(err: unknown): Response {
   if (err instanceof Response) return err
   if (err instanceof CrudHttpError) return json(err.body, { status: err.status })
   if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
-  return json({ error: 'Internal server error' }, { status: 500 })
+
+  const message = err instanceof Error ? err.message : undefined
+  const stack = err instanceof Error ? err.stack : undefined
+  // eslint-disable-next-line no-console
+  console.error('[crud] unexpected error', { message, stack, err })
+  const body: Record<string, unknown> = { error: 'Internal server error' }
+  if (message) body.message = message
+  return json(body, { status: 500 })
 }
 
 function isUuid(v: any): v is string {

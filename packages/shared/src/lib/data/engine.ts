@@ -317,11 +317,9 @@ export class DefaultDataEngine implements DataEngine {
       if (typeof current === 'object' && current !== null) {
         ;(current as Record<string, unknown>)[field] = new Date()
         await this.em.persistAndFlush(current)
-      } else {
-        await repo.removeAndFlush(current)
       }
     } else {
-      await repo.removeAndFlush(current)
+      await this.em.removeAndFlush(current)
     }
     return current
   }

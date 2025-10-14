@@ -79,4 +79,8 @@ export class ActionLogService {
     await this.em.flush()
     return log
   }
+
+  async findByUndoToken(undoToken: string) {
+    return await this.em.findOne(ActionLog, { undoToken, deletedAt: null })
+  }
 }

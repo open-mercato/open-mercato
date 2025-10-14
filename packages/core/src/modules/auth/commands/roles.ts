@@ -188,7 +188,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
     if (activeAssignments > 0) throw new CrudHttpError(400, { error: 'Role has assigned users' })
 
-    await em.nativeDelete(RoleAcl, { role: id as unknown as Role })
+    await em.nativeDelete(RoleAcl, { role: id })
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     const deleted = await de.deleteOrmEntity({

@@ -13,7 +13,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
-import { User, UserRole, Role, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { User, UserRole, Role, UserAcl, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { z } from 'zod'
@@ -254,8 +254,10 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const id = requireId(input, 'User id required')
     const em = ctx.container.resolve<EntityManager>('em')
 
-    await em.nativeDelete(UserAcl, { user: id as unknown as User })
-    await em.nativeDelete(UserRole, { user: id as unknown as User })
+    await em.nativeDelete(UserAcl, { user: id })
+    await em.nativeDelete(UserRole, { user: id })
+    await em.nativeDelete(Session, { user: id })
+    await em.nativeDelete(PasswordReset, { user: id })
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     const user = await de.deleteOrmEntity({

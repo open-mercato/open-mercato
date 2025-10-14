@@ -6,6 +6,7 @@ import type {
   CommandHandler,
   CommandLogBuilderArgs,
   CommandLogMetadata,
+  CommandRuntimeContext,
 } from './types'
 import { defaultUndoToken } from './types'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
@@ -21,6 +22,12 @@ export class CommandBus {
     const afterSnapshot = await this.captureAfter(handler, options, result)
     const logMeta = await this.buildLog(handler, options, result, snapshots)
     let mergedMeta = this.mergeMetadata(options.metadata, logMeta)
+    const undoable = this.isUndoable(handler)
+    if (undoable) {
+      mergedMeta = mergedMeta ?? {}
+      if (!mergedMeta.undoToken) mergedMeta.undoToken = defaultUndoToken()
+      if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = options.ctx.auth?.sub ?? null
+    }
     if (afterSnapshot !== undefined && afterSnapshot !== null) {
       if (!mergedMeta) {
         mergedMeta = { snapshotAfter: afterSnapshot }
@@ -37,6 +44,18 @@ export class CommandBus {
     }
     const logEntry = await this.persistLog(commandId, options, mergedMeta)
     return { result, logEntry }
+  }
+
+  async undo(undoToken: string, ctx: CommandRuntimeContext): Promise<void> {
+    const service = ctx.container.resolve<ActionLogService>('actionLogService')
+    const log = await service.findByUndoToken(undoToken)
+    if (!log) throw new Error('Undo token expired or not found')
+    const handler = this.resolveHandler(log.commandId)
+    if (!handler.undo || this.isUndoable(handler) === false) {
+      throw new Error(`Command ${log.commandId} is not undoable`)
+    }
+    await handler.undo({ input: log.commandPayload as any, ctx, logEntry: log })
+    await service.markUndone(log.id)
   }
 
   private resolveHandler<TInput, TResult>(commandId: string): CommandHandler<TInput, TResult> {
@@ -144,5 +163,9 @@ export class CommandBus {
     }
 
     return await service.log(payload as any)
+  }
+
+  private isUndoable(handler: CommandHandler<any, any>): boolean {
+    return handler.isUndoable !== false && typeof handler.undo === 'function'
   }
 }
