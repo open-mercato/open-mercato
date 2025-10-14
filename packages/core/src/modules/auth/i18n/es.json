@@ -25,5 +25,11 @@
   "auth.nav.users": "Usuarios",
   "auth.nav.users.create": "Crear usuario",
   "auth.nav.roles": "Roles",
-  "auth.nav.roles.create": "Crear rol"
+  "auth.nav.roles.create": "Crear rol",
+  "auth.audit.users.create": "Crear usuario",
+  "auth.audit.users.update": "Actualizar usuario",
+  "auth.audit.users.delete": "Eliminar usuario",
+  "auth.audit.roles.create": "Crear rol",
+  "auth.audit.roles.update": "Actualizar rol",
+  "auth.audit.roles.delete": "Eliminar rol"
 }

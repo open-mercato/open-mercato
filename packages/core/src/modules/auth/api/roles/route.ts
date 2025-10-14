@@ -2,15 +2,14 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { roleCrudEvents, roleCrudIndexer } from '@open-mercato/core/modules/auth/commands/roles'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -18,16 +17,6 @@ const querySchema = z.object({
   pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
 }).passthrough()
-
-const createSchema = z.object({
-  name: z.string().min(2).max(100),
-  tenantId: z.string().uuid().nullable().optional(),
-})
-const updateSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string().min(2).max(100).optional(),
-  tenantId: z.string().uuid().nullable().optional(),
-})
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.roles.list'] },
@@ -41,20 +30,6 @@ export const metadata = routeMetadata
 const rawBodySchema = z.object({}).passthrough()
 type CrudInput = Record<string, unknown>
 
-type CreateState = {
-  input: z.infer<typeof createSchema>
-  custom: Record<string, unknown>
-  resolvedTenantId: string | null
-}
-
-type UpdateState = {
-  input: z.infer<typeof updateSchema>
-  custom: Record<string, unknown>
-}
-
-const createStateStore = new WeakMap<object, CreateState>()
-const updateStateStore = new WeakMap<object, UpdateState>()
-
 const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
   metadata: routeMetadata,
   orm: {
@@ -64,104 +39,25 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     tenantField: null,
     softDeleteField: 'deletedAt',
   },
-  events: { module: 'auth', entity: 'role', persistent: true },
-  indexer: { entityType: E.auth.role },
-  resolveIdentifiers: (entity) => ({
-    id: String((entity as any).id),
-    organizationId: null,
-    tenantId: (entity as any).tenantId ? String((entity as any).tenantId) : null,
-  }),
-  create: {
-    schema: rawBodySchema,
-    mapToEntity: (input) => {
-      const state = createStateStore.get(input as object)
-      if (!state) throw new CrudHttpError(400, { error: 'Invalid input' })
-      return {
-        name: state.input.name,
-        tenantId: state.resolvedTenantId ?? null,
-      }
+  events: roleCrudEvents,
+  indexer: roleCrudIndexer,
+  actions: {
+    create: {
+      commandId: 'auth.roles.create',
+      schema: rawBodySchema,
+      mapInput: ({ parsed }) => parsed,
+      response: ({ result }) => ({ id: String(result.id) }),
+      status: 201,
     },
-    response: (entity: Role) => ({ id: String(entity.id) }),
-  },
-  update: {
-    schema: rawBodySchema,
-    applyToEntity: (entity: Role, input) => {
-      const state = updateStateStore.get(input as object)
-      if (!state) throw new CrudHttpError(400, { error: 'Invalid input' })
-      if (state.input.name !== undefined) entity.name = state.input.name
-      if (state.input.tenantId !== undefined) entity.tenantId = state.input.tenantId ?? null
+    update: {
+      commandId: 'auth.roles.update',
+      schema: rawBodySchema,
+      mapInput: ({ parsed }) => parsed,
+      response: () => ({ ok: true }),
     },
-    response: () => ({ ok: true }),
-  },
-  del: {
-    idFrom: 'query',
-    softDelete: false,
-    response: () => ({ ok: true }),
-  },
-  hooks: {
-    beforeCreate: async (raw, ctx) => {
-      const { base, custom } = splitCustomFieldPayload(raw)
-      const parsed = createSchema.safeParse(base)
-      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
-      const resolvedTenantId = parsed.data.tenantId === undefined ? ctx.auth?.tenantId ?? null : parsed.data.tenantId ?? null
-      const token = parsed.data as unknown as object
-      createStateStore.set(token, {
-        input: parsed.data,
-        custom,
-        resolvedTenantId,
-      })
-      return token as CrudInput
-    },
-    afterCreate: async (entity, ctx) => {
-      const state = createStateStore.get(ctx.input as object)
-      if (!state) return
-      if (Object.keys(state.custom).length) {
-        const de = ctx.container.resolve<DataEngine>('dataEngine')
-        await de.setCustomFields({
-          entityId: E.auth.role,
-          recordId: String(entity.id),
-          organizationId: null,
-          tenantId: state.resolvedTenantId,
-          values: state.custom,
-          notify: false,
-        })
-      }
-      createStateStore.delete(ctx.input as object)
-    },
-    beforeUpdate: async (raw) => {
-      const { base, custom } = splitCustomFieldPayload(raw)
-      const parsed = updateSchema.safeParse(base)
-      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
-      const token = parsed.data as unknown as object
-      updateStateStore.set(token, {
-        input: parsed.data,
-        custom,
-      })
-      return token as CrudInput
-    },
-    afterUpdate: async (entity, ctx) => {
-      const state = updateStateStore.get(ctx.input as object)
-      if (!state) return
-      if (Object.keys(state.custom).length) {
-        const de = ctx.container.resolve<DataEngine>('dataEngine')
-        await de.setCustomFields({
-          entityId: E.auth.role,
-          recordId: String(entity.id),
-          organizationId: null,
-          tenantId: entity.tenantId ? String(entity.tenantId) : null,
-          values: state.custom,
-          notify: false,
-        })
-      }
-      updateStateStore.delete(ctx.input as object)
-    },
-    beforeDelete: async (id, ctx) => {
-      const em = ctx.container.resolve<EntityManager>('em')
-      const role = await em.findOne(Role, { id })
-      if (!role || (role as any).deletedAt) throw new CrudHttpError(404, { error: 'Not found' })
-      const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
-      if (activeAssignments > 0) throw new CrudHttpError(400, { error: 'Role has assigned users' })
-      await em.nativeDelete(RoleAcl, { role: id as any })
+    delete: {
+      commandId: 'auth.roles.delete',
+      response: () => ({ ok: true }),
     },
   },
 })
