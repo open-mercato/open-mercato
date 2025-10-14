@@ -3,10 +3,11 @@
 import React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import type { ActionLogItem } from './AuditLogsActions'
-import { AuditLogsActions } from './AuditLogsActions'
-import type { AccessLogItem } from './AccessLogsTable'
-import { AccessLogsTable } from './AccessLogsTable'
+import { Button } from '@open-mercato/ui/primitives/button'
+import type { ActionLogItem } from '../../components/AuditLogsActions'
+import { AuditLogsActions } from '../../components/AuditLogsActions'
+import type { AccessLogItem } from '../../components/AccessLogsTable'
+import { AccessLogsTable } from '../../components/AccessLogsTable'
 
 type ActionLogResponse = {
   items: ActionLogItem[]
@@ -34,8 +35,14 @@ export default function AuditLogsPage() {
     try {
       const query = undoableOnly ? '?undoableOnly=true' : ''
       const [actionsRes, accessRes] = await Promise.all([
-        apiFetch<ActionLogResponse>(`/api/audit-logs/actions${query}`),
-        apiFetch<AccessLogResponse>('/api/audit-logs/access'),
+        apiFetch(`/api/audit_logs/audit-logs/actions${query}`).then(async (res) => {
+          if (!res.ok) throw new Error(await res.text())
+          return res.json() as Promise<ActionLogResponse>
+        }),
+        apiFetch('/api/audit_logs/audit-logs/access').then(async (res) => {
+          if (!res.ok) throw new Error(await res.text())
+          return res.json() as Promise<AccessLogResponse>
+        }),
       ])
       setActions(actionsRes.items)
       setAccessLogs(accessRes.items)
@@ -50,51 +57,76 @@ export default function AuditLogsPage() {
     void loadData()
   }, [loadData])
 
+  const buildRefreshButton = React.useCallback(() => (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => void loadData()}
+      disabled={loading}
+    >
+      {loading ? 'Refreshing…' : 'Refresh'}
+    </Button>
+  ), [loadData, loading])
+
   return (
     <Page>
       <PageBody>
-        <div className="mb-6 flex flex-wrap items-center gap-3">
-          <div className="flex gap-2">
+        <div className="mb-6 border-b border-border">
+          <nav className="flex items-center gap-6 text-sm" role="tablist" aria-label="Audit log views">
             <button
               type="button"
+              role="tab"
+              aria-selected={tab === 'actions'}
+              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'actions' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               onClick={() => setTab('actions')}
-              className={`rounded-md px-3 py-1 text-sm ${tab === 'actions' ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-700'}`}
             >
               Action Log
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={tab === 'access'}
+              className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${tab === 'access' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
               onClick={() => setTab('access')}
-              className={`rounded-md px-3 py-1 text-sm ${tab === 'access' ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-700'}`}
             >
               Access Log
             </button>
-          </div>
-          <button
-            type="button"
-            className="rounded-md border border-gray-300 px-3 py-1 text-sm"
-            onClick={() => void loadData()}
-            disabled={loading}
-          >
-            Refresh
-          </button>
-          <label className="flex items-center gap-2 text-sm text-gray-600">
-            <span>Undoable only</span>
-            <input
-              type="checkbox"
-              checked={undoableOnly}
-              onChange={(e) => setUndoableOnly(e.target.checked)}
-            />
-          </label>
+          </nav>
         </div>
 
         {error && <div className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
         {tab === 'actions' && (
-          loading ? <p className="text-sm text-gray-500">Loading…</p> : <AuditLogsActions items={actions} onRefresh={loadData} />
+          loading ? <p className="text-sm text-muted-foreground">Loading…</p> : (
+            <AuditLogsActions
+              items={actions}
+              onRefresh={loadData}
+              headerExtras={(
+                <>
+                  {buildRefreshButton()}
+                  <label className="flex items-center gap-2 rounded border border-transparent px-2 py-1 text-sm text-muted-foreground">
+                    <span>Undoable only</span>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border border-input"
+                      checked={undoableOnly}
+                      onChange={(e) => setUndoableOnly(e.target.checked)}
+                    />
+                  </label>
+                </>
+              )}
+            />
+          )
         )}
 
-        {tab === 'access' && (loading ? <p className="text-sm text-gray-500">Loading…</p> : <AccessLogsTable items={accessLogs} />)}
+        {tab === 'access' && (
+          loading ? <p className="text-sm text-muted-foreground">Loading…</p> : (
+            <AccessLogsTable
+              items={accessLogs}
+              actions={buildRefreshButton()}
+            />
+          )
+        )}
       </PageBody>
     </Page>
   )

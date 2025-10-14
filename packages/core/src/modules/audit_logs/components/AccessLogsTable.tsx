@@ -17,7 +17,7 @@ export type AccessLogItem = {
   createdAt: string
 }
 
-export function AccessLogsTable({ items }: { items: AccessLogItem[] }) {
+export function AccessLogsTable({ items, actions }: { items: AccessLogItem[]; actions?: React.ReactNode }) {
   const columns = React.useMemo<ColumnDef<AccessLogItem, any>[]>(() => [
     {
       accessorKey: 'resourceKind',
@@ -66,6 +66,7 @@ export function AccessLogsTable({ items }: { items: AccessLogItem[] }) {
       title="Access Log"
       data={items}
       columns={columns}
+      actions={actions}
     />
   )
 }

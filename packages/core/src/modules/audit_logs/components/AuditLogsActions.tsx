@@ -20,7 +20,7 @@ export type ActionLogItem = {
   createdAt: string
 }
 
-export function AuditLogsActions({ items, onRefresh }: { items: ActionLogItem[] | undefined; onRefresh: () => Promise<void> }) {
+export function AuditLogsActions({ items, onRefresh, headerExtras }: { items: ActionLogItem[] | undefined; onRefresh: () => Promise<void>; headerExtras?: React.ReactNode }) {
   const [undoing, setUndoing] = React.useState(false)
   const actionItems = Array.isArray(items) ? items : []
   const latestUndoable = React.useMemo(() => actionItems.find((item) => !!item.undoToken), [actionItems])
@@ -29,7 +29,7 @@ export function AuditLogsActions({ items, onRefresh }: { items: ActionLogItem[] 
     if (!latestUndoable?.undoToken) return
     setUndoing(true)
     try {
-      await apiFetch('/api/audit-logs/actions/undo', {
+      await apiFetch('/api/audit_logs/audit-logs/actions/undo', {
         method: 'POST',
         body: { undoToken: latestUndoable.undoToken },
       })
@@ -81,18 +81,25 @@ export function AuditLogsActions({ items, onRefresh }: { items: ActionLogItem[] 
     },
   ], [])
 
+  const undoButton = latestUndoable?.undoToken ? (
+    <Button variant="secondary" size="sm" onClick={handleUndo} disabled={undoing}>
+      {undoing ? 'Undoing…' : 'Undo last action'}
+    </Button>
+  ) : null
+
+  const headerActions = headerExtras || undoButton ? (
+    <div className="flex items-center gap-2">
+      {headerExtras}
+      {undoButton}
+    </div>
+  ) : undefined
+
   return (
     <DataTable<ActionLogItem>
       title="Action Log"
       data={actionItems}
       columns={columns}
-      actions={
-        latestUndoable?.undoToken ? (
-          <Button variant="secondary" size="sm" onClick={handleUndo} disabled={undoing}>
-            {undoing ? 'Undoing…' : 'Undo last action'}
-          </Button>
-        ) : undefined
-      }
+      actions={headerActions}
       isLoading={undoing}
     />
   )
