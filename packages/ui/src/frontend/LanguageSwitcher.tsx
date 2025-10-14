@@ -28,6 +28,11 @@ export function LanguageSwitcher() {
       })
       if (!res.ok) return
       startTransition(() => router.refresh())
+      try {
+        window.dispatchEvent(new Event('om:refresh-sidebar'))
+      } catch {
+        // Ignore if window is unavailable
+      }
     } catch {
       // Ignore network errors; UX fallback keeps previous locale
     }

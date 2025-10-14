@@ -1,21 +1,15 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
-import {
-  tenantCreateSchema,
-  tenantUpdateSchema,
-  type TenantCreateInput,
-  type TenantUpdateInput,
-} from '@open-mercato/core/modules/directory/data/validators'
-import { splitCustomFieldPayload, loadCustomFieldValues, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
+import { loadCustomFieldValues, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
+import { tenantCrudEvents, tenantCrudIndexer } from '@open-mercato/core/modules/directory/commands/tenants'
 
 const listQuerySchema = z.object({
   id: z.string().uuid().optional(),
@@ -47,19 +41,6 @@ export const metadata = routeMetadata
 const rawBodySchema = z.object({}).passthrough()
 type CrudInput = Record<string, unknown>
 
-type CreateState = {
-  data: TenantCreateInput
-  custom: Record<string, unknown>
-}
-
-type UpdateState = {
-  data: TenantUpdateInput
-  custom: Record<string, unknown>
-}
-
-const createStateStore = new WeakMap<object, CreateState>()
-const updateStateStore = new WeakMap<object, UpdateState>()
-
 const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
   metadata: routeMetadata,
   orm: {
@@ -69,93 +50,25 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     tenantField: null,
     softDeleteField: 'deletedAt',
   },
-  events: { module: 'directory', entity: 'tenant', persistent: true },
-  indexer: { entityType: E.directory.tenant },
-  create: {
-    schema: rawBodySchema,
-    mapToEntity: (input) => {
-      const state = createStateStore.get(input as object)
-      if (!state) throw new CrudHttpError(400, { error: 'Invalid input' })
-      return {
-        name: state.data.name,
-        isActive: state.data.isActive ?? true,
-      }
+  events: tenantCrudEvents,
+  indexer: tenantCrudIndexer,
+  actions: {
+    create: {
+      commandId: 'directory.tenants.create',
+      schema: rawBodySchema,
+      mapInput: ({ parsed }) => parsed,
+      response: ({ result }) => ({ id: String(result.id) }),
+      status: 201,
     },
-    response: (entity: Tenant) => ({ id: String(entity.id) }),
-  },
-  update: {
-    schema: rawBodySchema,
-    applyToEntity: (entity: Tenant, input) => {
-      const state = updateStateStore.get(input as object)
-      if (!state) throw new CrudHttpError(400, { error: 'Invalid input' })
-      if (state.data.name !== undefined) entity.name = state.data.name
-      if (state.data.isActive !== undefined) entity.isActive = state.data.isActive
-      entity.updatedAt = new Date()
+    update: {
+      commandId: 'directory.tenants.update',
+      schema: rawBodySchema,
+      mapInput: ({ parsed }) => parsed,
+      response: () => ({ ok: true }),
     },
-    response: () => ({ ok: true }),
-  },
-  del: {
-    idFrom: 'query',
-    softDelete: true,
-    response: () => ({ ok: true }),
-  },
-  hooks: {
-    beforeCreate: async (raw) => {
-      const { base, custom } = splitCustomFieldPayload(raw)
-      const parsed = tenantCreateSchema.safeParse(base)
-      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
-      const token = parsed.data as unknown as object
-      createStateStore.set(token, { data: parsed.data, custom })
-      return token as CrudInput
-    },
-    afterCreate: async (entity, ctx) => {
-      const state = createStateStore.get(ctx.input as object)
-      if (!state) return
-      if (Object.keys(state.custom).length) {
-        const de = ctx.container.resolve<DataEngine>('dataEngine')
-        await de.setCustomFields({
-          entityId: E.directory.tenant,
-          recordId: String(entity.id),
-          organizationId: null,
-          tenantId: ctx.auth?.tenantId ?? null,
-          values: state.custom,
-          notify: false,
-        })
-      }
-      createStateStore.delete(ctx.input as object)
-    },
-    beforeUpdate: async (raw) => {
-      const { base, custom } = splitCustomFieldPayload(raw)
-      const parsed = tenantUpdateSchema.safeParse(base)
-      if (!parsed.success) throw new CrudHttpError(400, { error: 'Invalid input' })
-      const token = parsed.data as unknown as object
-      updateStateStore.set(token, { data: parsed.data, custom })
-      return token as CrudInput
-    },
-    afterUpdate: async (entity, ctx) => {
-      const state = updateStateStore.get(ctx.input as object)
-      if (!state) return
-      if (Object.keys(state.custom).length) {
-        const de = ctx.container.resolve<DataEngine>('dataEngine')
-        await de.setCustomFields({
-          entityId: E.directory.tenant,
-          recordId: String(entity.id),
-          organizationId: null,
-          tenantId: ctx.auth?.tenantId ?? null,
-          values: state.custom,
-          notify: false,
-        })
-      }
-      updateStateStore.delete(ctx.input as object)
-    },
-    beforeDelete: async (id, ctx) => {
-      const em = ctx.container.resolve<EntityManager>('em')
-      const tenant = await em.findOne(Tenant, { id })
-      if (!tenant || tenant.deletedAt) throw new CrudHttpError(404, { error: 'Not found' })
-      if (tenant.isActive) {
-        tenant.isActive = false
-        await em.persistAndFlush(tenant)
-      }
+    delete: {
+      commandId: 'directory.tenants.delete',
+      response: () => ({ ok: true }),
     },
   },
 })
