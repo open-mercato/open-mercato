@@ -8,7 +8,6 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
 type RoleSummary = { id: string; name: string | null }
@@ -126,9 +125,12 @@ export default function ApiKeysListPage() {
         <div className="flex flex-wrap gap-1">
           {row.original.roles.length === 0 && <span className="text-muted-foreground text-xs">None</span>}
           {row.original.roles.map((role) => (
-            <Badge key={role.id} variant="outline" className="text-xs">
+            <span
+              key={role.id}
+              className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium"
+            >
               {role.name || role.id}
-            </Badge>
+            </span>
           ))}
         </div>
       ),

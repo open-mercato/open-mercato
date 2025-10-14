@@ -5,8 +5,6 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 type FormValues = {
@@ -89,22 +87,24 @@ export default function CreateApiKeyPage() {
         />
 
         {createdSecret && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Copy your API key</CardTitle>
-              <CardDescription>
+          <div className="rounded-xl border bg-card shadow-sm">
+            <div className="border-b p-4">
+              <h2 className="text-base font-semibold leading-6">Copy your API key</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
                 Store this secret securely. You will not be able to view it again once you leave this page.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
+              </p>
+            </div>
+            <div className="space-y-3 p-4">
               <div className="rounded-md border bg-muted/40 p-3 font-mono text-sm break-all">
                 {createdSecret.secret}
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Badge variant="outline">Prefix: {createdSecret.keyPrefix}</Badge>
+                <span className="inline-flex items-center rounded-full border px-2 py-1 font-medium">
+                  Prefix: {createdSecret.keyPrefix}
+                </span>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
       </PageBody>
     </Page>

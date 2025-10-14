@@ -40,7 +40,8 @@ const crud = makeCrudRoute<
   create: {
     schema: createApiKeySchema,
     mapToEntity: (input, ctx) => {
-      const secretData = (ctx as any).__apiKeySecret as { secret: string; prefix: string }
+      const secretData = (ctx as any).__apiKeySecret as { secret: string; prefix: string } | undefined
+      if (!secretData) throw new Error('API key secret not prepared')
       const roles = Array.isArray(input.roles) ? input.roles : []
       const organizationId = (ctx as any).__apiKeyOrganizationId as string | null
       return {
@@ -169,9 +170,10 @@ const crud = makeCrudRoute<
       }
       ;(ctx as any).__apiKeyRoles = roleEntities
 
+      const allowedIds = ctx.organizationScope?.allowedIds ?? null
       const organizationId = input.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
-      if (organizationId && Array.isArray(ctx.organizationScope?.allowedIds) && ctx.organizationScope!.allowedIds!.length > 0) {
-        if (!ctx.organizationScope!.allowedIds!.includes(organizationId)) {
+      if (organizationId && Array.isArray(allowedIds) && allowedIds.length > 0) {
+        if (!allowedIds.includes(organizationId)) {
           throw json({ error: 'Organization out of scope' }, { status: 403 })
         }
       }
@@ -198,8 +200,9 @@ const crud = makeCrudRoute<
       if (record.tenantId && record.tenantId !== auth.tenantId) {
         throw json({ error: 'Forbidden' }, { status: 403 })
       }
-      if (record.organizationId && Array.isArray(ctx.organizationScope?.allowedIds) && ctx.organizationScope!.allowedIds!.length > 0) {
-        if (!ctx.organizationScope!.allowedIds!.includes(record.organizationId)) {
+      const allowedIds = ctx.organizationScope?.allowedIds ?? null
+      if (record.organizationId && Array.isArray(allowedIds) && allowedIds.length > 0) {
+        if (!allowedIds.includes(record.organizationId)) {
           throw json({ error: 'Organization out of scope' }, { status: 403 })
         }
       }
