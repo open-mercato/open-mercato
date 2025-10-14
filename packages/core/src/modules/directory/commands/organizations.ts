@@ -24,7 +24,7 @@ export const organizationCrudEvents: CrudEventsConfig<Organization> = {
   persistent: true,
   buildPayload: (ctx: CrudEmitContext<Organization>) => ({
     id: ctx.identifiers.id,
-    tenantId: resolveTenantIdFromEntity(ctx.entity),
+    tenantId: tenantIdFromContext(ctx),
     organizationId: ctx.identifiers.id,
   }),
 }
@@ -35,13 +35,13 @@ export const organizationCrudIndexer: CrudIndexerConfig<Organization> = {
     entityType: E.directory.organization,
     recordId: ctx.identifiers.id,
     organizationId: ctx.identifiers.id,
-    tenantId: resolveTenantIdFromEntity(ctx.entity),
+    tenantId: tenantIdFromContext(ctx),
   }),
   buildDeletePayload: (ctx: CrudEmitContext<Organization>) => ({
     entityType: E.directory.organization,
     recordId: ctx.identifiers.id,
     organizationId: ctx.identifiers.id,
-    tenantId: resolveTenantIdFromEntity(ctx.entity),
+    tenantId: tenantIdFromContext(ctx),
   }),
 }
 
@@ -395,4 +395,8 @@ function toOptionalString(value: unknown): string | null {
 
 function setInternalTenantId(entity: Organization, tenantId: string) {
   Reflect.set(entity, '__tenantId', tenantId)
+}
+
+function tenantIdFromContext(ctx: CrudEmitContext<Organization>): string | null {
+  return resolveTenantIdFromEntity(ctx.entity) ?? ctx.identifiers.tenantId ?? null
 }
