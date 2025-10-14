@@ -7,6 +7,7 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { ApiKey } from '../../data/entities'
 import { createApiKeySchema } from '../../data/validators'
 import { generateApiKeySecret, hashApiKey } from '../../services/apiKeyService'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const listQuerySchema = z.object({
   page: z.string().optional(),
@@ -75,7 +76,8 @@ const crud = makeCrudRoute<
   hooks: {
     beforeList: async (query, ctx) => {
       const auth = ctx.auth
-      if (!auth?.tenantId) throw json({ error: 'Tenant context required' }, { status: 400 })
+      const { translate } = await resolveTranslations()
+      if (!auth?.tenantId) throw json({ error: translate('api_keys.errors.tenantRequired', 'Tenant context required') }, { status: 400 })
       const page = Math.max(parseInt(query.page ?? '1', 10) || 1, 1)
       const pageSize = Math.min(Math.max(parseInt(query.pageSize ?? '20', 10) || 20, 1), 200)
       const search = (query.search ?? '').trim().toLowerCase()
@@ -151,7 +153,8 @@ const crud = makeCrudRoute<
     },
     beforeCreate: async (input, ctx) => {
       const auth = ctx.auth
-      if (!auth?.tenantId) throw json({ error: 'Tenant context required' }, { status: 400 })
+      const { translate } = await resolveTranslations()
+      if (!auth?.tenantId) throw json({ error: translate('api_keys.errors.tenantRequired', 'Tenant context required') }, { status: 400 })
 
       const secretData = generateApiKeySecret()
       ;(ctx as any).__apiKeySecret = secretData
@@ -170,10 +173,10 @@ const crud = makeCrudRoute<
           role = await em.findOne(Role, { name: value })
         }
         if (!role) {
-          throw json({ error: `Role ${value} not found` }, { status: 400 })
+          throw json({ error: translate('api_keys.errors.roleNotFound', `Role ${value} not found`, { identifier: value }) }, { status: 400 })
         }
         if (role.tenantId && auth.tenantId && role.tenantId !== auth.tenantId) {
-          throw json({ error: `Role ${role.name} belongs to another tenant` }, { status: 400 })
+          throw json({ error: translate('api_keys.errors.roleWrongTenant', `Role ${role.name} belongs to another tenant`, { role: role.name ?? value }) }, { status: 400 })
         }
         roleEntities.push(role)
         roleIds.push(String(role.id))
@@ -185,7 +188,7 @@ const crud = makeCrudRoute<
       const organizationId = input.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
       if (organizationId && Array.isArray(allowedIds) && allowedIds.length > 0) {
         if (!allowedIds.includes(organizationId)) {
-          throw json({ error: 'Organization out of scope' }, { status: 403 })
+          throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
         }
       }
       ;(ctx as any).__apiKeyOrganizationId = organizationId ?? null
@@ -204,17 +207,18 @@ const crud = makeCrudRoute<
     },
     beforeDelete: async (id, ctx) => {
       const auth = ctx.auth
-      if (!auth?.tenantId) throw json({ error: 'Tenant context required' }, { status: 400 })
+      const { translate } = await resolveTranslations()
+      if (!auth?.tenantId) throw json({ error: translate('api_keys.errors.tenantRequired', 'Tenant context required') }, { status: 400 })
       const em = ctx.container.resolve<EntityManager>('em')
       const record = await em.findOne(ApiKey, { id, deletedAt: null })
-      if (!record) throw json({ error: 'Not found' }, { status: 404 })
+      if (!record) throw json({ error: translate('api_keys.errors.notFound', 'Not found') }, { status: 404 })
       if (record.tenantId && record.tenantId !== auth.tenantId) {
-        throw json({ error: 'Forbidden' }, { status: 403 })
+        throw json({ error: translate('api_keys.errors.forbidden', 'Forbidden') }, { status: 403 })
       }
       const allowedIds = ctx.organizationScope?.allowedIds ?? null
       if (record.organizationId && Array.isArray(allowedIds) && allowedIds.length > 0) {
         if (!allowedIds.includes(record.organizationId)) {
-          throw json({ error: 'Organization out of scope' }, { status: 403 })
+          throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
         }
       }
       ;(ctx as any).__apiKeyOrganizationId = record.organizationId ?? null

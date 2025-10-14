@@ -9,6 +9,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@/lib/i18n/context'
 
 type RoleSummary = { id: string; name: string | null }
 
@@ -32,14 +33,14 @@ type ResponsePayload = {
   totalPages: number
 }
 
-function formatDate(value: string | null) {
-  if (!value) return '—'
+function formatDate(value: string | null, t: (key: string, params?: Record<string, string | number>) => string) {
+  if (!value) return t('api_keys.list.noDate')
   try {
     const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return '—'
+    if (Number.isNaN(date.getTime())) return t('api_keys.list.noDate')
     return date.toLocaleString()
   } catch {
-    return '—'
+    return t('api_keys.list.noDate')
   }
 }
 
@@ -52,6 +53,7 @@ export default function ApiKeysListPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
+  const t = useT()
 
   React.useEffect(() => {
     let cancelled = false
@@ -65,7 +67,7 @@ export default function ApiKeysListPage() {
         const res = await apiFetch(`/api/api_keys/keys?${params.toString()}`)
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
-          const message = typeof data?.error === 'string' ? data.error : 'Failed to load API keys'
+          const message = typeof data?.error === 'string' ? data.error : t('api_keys.list.error.loadFailed')
           flash(message, 'error')
           return
         }
@@ -77,7 +79,7 @@ export default function ApiKeysListPage() {
         }
       } catch (error) {
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : 'Failed to load API keys'
+          const message = error instanceof Error ? error.message : t('api_keys.list.error.loadFailed')
           flash(message, 'error')
         }
       } finally {
@@ -86,44 +88,44 @@ export default function ApiKeysListPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, search, reloadToken, scopeVersion])
+  }, [page, search, reloadToken, scopeVersion, t])
 
   const handleDelete = React.useCallback(async (row: Row) => {
-    if (!window.confirm(`Delete API key "${row.name}"? This invalidates the secret immediately.`)) return
+    if (!window.confirm(t('api_keys.list.confirmDelete', { name: row.name }))) return
     try {
       const res = await apiFetch(`/api/api_keys/keys?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        const message = typeof data?.error === 'string' ? data.error : 'Failed to delete API key'
+        const message = typeof data?.error === 'string' ? data.error : t('api_keys.list.error.deleteFailed')
         flash(message, 'error')
         return
       }
-      flash('API key deleted', 'success')
+      flash(t('api_keys.list.success.deleted'), 'success')
       setReloadToken((token) => token + 1)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete API key'
+      const message = error instanceof Error ? error.message : t('api_keys.list.error.deleteFailed')
       flash(message, 'error')
     }
-  }, [])
+  }, [t])
 
   const columns = React.useMemo<ColumnDef<Row>[]>(() => [
-    { accessorKey: 'name', header: 'Name' },
+    { accessorKey: 'name', header: t('api_keys.list.columns.name') },
     {
       accessorKey: 'keyPrefix',
-      header: 'Key',
+      header: t('api_keys.list.columns.key'),
       cell: ({ row }) => <code className="text-xs">{row.original.keyPrefix}…</code>,
     },
     {
       accessorKey: 'organizationName',
-      header: 'Organization',
-      cell: ({ row }) => row.original.organizationName || '—',
+      header: t('api_keys.list.columns.organization'),
+      cell: ({ row }) => row.original.organizationName || t('api_keys.list.noDate'),
     },
     {
       accessorKey: 'roles',
-      header: 'Roles',
+      header: t('api_keys.list.columns.roles'),
       cell: ({ row }) => (
         <div className="flex flex-wrap gap-1">
-          {row.original.roles.length === 0 && <span className="text-muted-foreground text-xs">None</span>}
+          {row.original.roles.length === 0 && <span className="text-muted-foreground text-xs">{t('api_keys.list.noRoles')}</span>}
           {row.original.roles.map((role) => (
             <span
               key={role.id}
@@ -137,24 +139,24 @@ export default function ApiKeysListPage() {
     },
     {
       accessorKey: 'lastUsedAt',
-      header: 'Last Used',
-      cell: ({ row }) => formatDate(row.original.lastUsedAt),
+      header: t('api_keys.list.columns.lastUsed'),
+      cell: ({ row }) => formatDate(row.original.lastUsedAt, t),
     },
     {
       accessorKey: 'expiresAt',
-      header: 'Expires',
-      cell: ({ row }) => formatDate(row.original.expiresAt),
+      header: t('api_keys.list.columns.expires'),
+      cell: ({ row }) => formatDate(row.original.expiresAt, t),
     },
-  ], [])
+  ], [t])
 
   return (
     <Page>
       <PageBody>
         <DataTable
-          title="API Keys"
+          title={t('api_keys.list.title')}
           actions={(
             <Button asChild>
-              <Link href="/backend/api-keys/create">Create</Link>
+              <Link href="/backend/api-keys/create">{t('api_keys.list.actions.create')}</Link>
             </Button>
           )}
           columns={columns}
@@ -163,7 +165,7 @@ export default function ApiKeysListPage() {
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           rowActions={(row) => (
             <RowActions items={[
-              { label: 'Delete', destructive: true, onSelect: () => { void handleDelete(row) } },
+              { label: t('common.delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
           pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}

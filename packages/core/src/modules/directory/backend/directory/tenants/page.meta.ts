@@ -11,9 +11,10 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['directory.tenants.view'],
   pageTitle: 'Tenants',
+  pageTitleKey: 'directory.nav.tenants',
   pageGroup: 'Directory',
+  pageGroupKey: 'directory.nav.group',
   pageOrder: 20,
   icon: tenantsIcon,
-  breadcrumb: [{ label: 'Tenants' }],
+  breadcrumb: [{ label: 'Tenants', labelKey: 'directory.nav.tenants' }],
 }
-

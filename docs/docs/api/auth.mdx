@@ -7,12 +7,12 @@ All examples assume the environment variables defined in [REST API Overview](./o
 
 ```bash
 export BASE_URL="http://localhost:3000/api"
-export AUTH_TOKEN="<jwt from POST /login>"
+export API_KEY="<paste your API key secret here>"
 export USER_ID="<target user uuid>"
 export ROLE_ID="<target role uuid>"
 ```
 
-In every authenticated example replace the placeholders with real values from your environment.
+Mint an API key following the [Managing API keys guide](../user-guide/api-keys) and replace the placeholders with real values before running any request.
 
 ## Login
 
@@ -46,7 +46,7 @@ Successful responses include a JWT (`token`) and set the `auth_token` cookie:
 }
 ```
 
-The `token` should be stored securely and reused as `Authorization: Bearer <token>` for subsequent calls.
+Store the `token` securely if you need to keep a browser session alive, but use API keys for server-to-server calls.
 
 ## Users
 
@@ -62,7 +62,7 @@ The `token` should be stored securely and reused as `Authorization: Bearer <toke
 
 ```bash
 curl -X GET "$BASE_URL/auth/users?page=1&pageSize=20&search=admin" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -95,7 +95,7 @@ Sample response (truncated):
 
 ```bash
 curl -X POST "$BASE_URL/auth/users" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"email\": \"new.user@example.com\",
@@ -122,7 +122,7 @@ Response:
 
 ```bash
 curl -X PUT "$BASE_URL/auth/users" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"id\": \"$USER_ID\",
@@ -147,7 +147,7 @@ Response:
 
 ```bash
 curl -X DELETE "$BASE_URL/auth/users?id=$USER_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -163,7 +163,7 @@ Response:
 
 ```bash
 curl -X GET "$BASE_URL/auth/users/acl?userId=$USER_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -184,7 +184,7 @@ Example response:
 
 ```bash
 curl -X PUT "$BASE_URL/auth/users/acl" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"userId\": \"$USER_ID\",
@@ -208,7 +208,7 @@ Response:
 
 ```bash
 curl -X GET "$BASE_URL/auth/roles?page=1&pageSize=50&search=admin" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -218,7 +218,7 @@ curl -X GET "$BASE_URL/auth/roles?page=1&pageSize=50&search=admin" \
 
 ```bash
 curl -X POST "$BASE_URL/auth/roles" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "support-specialist",
@@ -238,7 +238,7 @@ Response:
 
 ```bash
 curl -X PUT "$BASE_URL/auth/roles" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"id\": \"$ROLE_ID\",
@@ -254,7 +254,7 @@ Deletion fails with `400` if users are still assigned.
 
 ```bash
 curl -X DELETE "$BASE_URL/auth/roles?id=$ROLE_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -264,7 +264,7 @@ curl -X DELETE "$BASE_URL/auth/roles?id=$ROLE_ID" \
 
 ```bash
 curl -X GET "$BASE_URL/auth/roles/acl?roleId=$ROLE_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -286,7 +286,7 @@ Sample response:
 
 ```bash
 curl -X PUT "$BASE_URL/auth/roles/acl" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"roleId\": \"$ROLE_ID\",
@@ -311,7 +311,7 @@ Returns the backend sidebar groups for the current user, factoring tenant/organi
 
 ```bash
 curl -X GET "$BASE_URL/auth/admin/nav" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 

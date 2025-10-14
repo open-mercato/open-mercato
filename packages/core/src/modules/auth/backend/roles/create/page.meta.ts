@@ -12,9 +12,13 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['auth.roles.manage'],
   pageTitle: 'Create Role',
+  pageTitleKey: 'auth.nav.roles.create',
   pageGroup: 'Auth',
+  pageGroupKey: 'auth.nav.group',
   icon: filePlusIcon,
-  breadcrumb: [ { label: 'Roles', href: '/backend/roles' }, { label: 'Create' } ],
+  breadcrumb: [
+    { label: 'Roles', labelKey: 'auth.nav.roles', href: '/backend/roles' },
+    { label: 'Create', labelKey: 'common.create' },
+  ],
 }
-
 

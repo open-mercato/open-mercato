@@ -26,6 +26,7 @@ const sidebars: SidebarsConfig = {
         'user-guide/overview',
         'user-guide/login',
         'user-guide/users-and-roles',
+        'user-guide/api-keys',
         'user-guide/user-custom-fields',
         'user-guide/user-entities',
         'user-guide/organizations',
@@ -60,6 +61,7 @@ const sidebars: SidebarsConfig = {
       label: 'CLI',
       items: [
         'cli/overview',
+        'cli/api-keys',
         {
           type: 'category',
           label: 'Bootstrap & Database',

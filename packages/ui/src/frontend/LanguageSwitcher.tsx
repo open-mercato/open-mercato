@@ -1,41 +1,61 @@
 "use client"
-import { useTransition } from 'react'
-import { useLocale } from '@/lib/i18n/context'
+import { useId, useTransition } from 'react'
+import { useLocale, useT } from '@/lib/i18n/context'
 import { useRouter } from 'next/navigation'
+import { locales, type Locale } from '@/lib/i18n/config'
+
+const languageLabels: Record<Locale, string> = {
+  en: 'English',
+  pl: 'Polski',
+  es: 'Español',
+  de: 'Deutsch',
+}
 
 export function LanguageSwitcher() {
   const current = useLocale()
+  const t = useT()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
+  const selectId = useId()
 
-  async function setLocale(locale: 'en' | 'pl') {
+  async function setLocale(locale: Locale) {
     if (locale === current) return
-    await fetch('/api/locale', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ locale })
-    })
-    startTransition(() => router.refresh())
+    try {
+      const res = await fetch('/api/locale', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ locale }),
+      })
+      if (!res.ok) return
+      startTransition(() => router.refresh())
+    } catch {
+      // Ignore network errors; UX fallback keeps previous locale
+    }
   }
-
-  const mkBtn = (loc: 'en'|'pl') => (
-    <button
-      key={loc}
-      disabled={pending}
-      onClick={() => setLocale(loc)}
-      className={`px-2 py-1 rounded-md border text-xs ${current===loc ? 'bg-foreground text-background' : 'hover:bg-accent'}`}
-      aria-current={current===loc}
-    >
-      {loc.toUpperCase()}
-    </button>
-  )
 
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <span>Language:</span>
-      {mkBtn('en')}
-      {mkBtn('pl')}
+      <label htmlFor={selectId}>{t('common.language')}</label>
+      <div className="relative">
+        <select
+          id={selectId}
+          className="appearance-none rounded-md border bg-background px-3 py-1 pr-8 text-xs focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-60"
+          value={current}
+          onChange={(event) => setLocale(event.target.value as Locale)}
+          disabled={pending}
+        >
+          {locales.map((locale) => (
+            <option key={locale} value={locale}>
+              {languageLabels[locale]}
+            </option>
+          ))}
+        </select>
+        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </span>
+      </div>
     </div>
   )
 }
-

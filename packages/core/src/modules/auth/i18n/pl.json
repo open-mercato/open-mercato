@@ -20,5 +20,10 @@
   "auth.login.forgotPassword": "Nie pamiętasz hasła?",
   "auth.roles.superadmin": "Superadministrator",
   "auth.roles.admin": "Administrator",
-  "auth.roles.employee": "Pracownik"
+  "auth.roles.employee": "Pracownik",
+  "auth.nav.group": "Uwierzytelnianie",
+  "auth.nav.users": "Użytkownicy",
+  "auth.nav.users.create": "Utwórz użytkownika",
+  "auth.nav.roles": "Role",
+  "auth.nav.roles.create": "Utwórz rolę"
 }

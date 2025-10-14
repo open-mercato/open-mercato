@@ -1,0 +1,7 @@
+{
+  "directory.nav.group": "Directory",
+  "directory.nav.organizations": "Organizations",
+  "directory.nav.organizations.create": "Create Organization",
+  "directory.nav.tenants": "Tenants",
+  "directory.nav.tenants.create": "Create Tenant"
+}

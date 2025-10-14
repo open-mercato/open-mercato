@@ -7,11 +7,13 @@ Entity extensibility is central to Open Mercato. These endpoints let you inspect
 
 ```bash
 export BASE_URL="http://localhost:3000/api"
-export AUTH_TOKEN="<jwt from POST /login>"
+export API_KEY="<paste your API key secret here>"
 export ENTITY_ID="example.todo"        # generated or custom entity id
 export CUSTOM_ENTITY_ID="<custom entity uuid>"  # returned by POST /entities
 export RECORD_ID="<record uuid>"
 ```
+
+Provision an API key with the appropriate `entities.*` features as noted in [Managing API keys](../user-guide/api-keys).
 
 ## Entity Catalog — `GET /entities`
 
@@ -19,7 +21,7 @@ export RECORD_ID="<record uuid>"
 
 ```bash
 curl -X GET "$BASE_URL/entities" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -52,7 +54,7 @@ Response snippet:
 
 ```bash
 curl -X POST "$BASE_URL/entities" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "entityId": "custom.ticket",
@@ -85,7 +87,7 @@ Response:
 
 ```bash
 curl -X DELETE "$BASE_URL/entities" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "entityId": "custom.ticket"
@@ -104,7 +106,7 @@ Response:
 
 ```bash
 curl -X GET "$BASE_URL/entities/sidebar-entities" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -119,7 +121,7 @@ Requires `entityId` query parameter.
 
 ```bash
 curl -X GET "$BASE_URL/entities/definitions?entityId=$ENTITY_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -129,7 +131,7 @@ curl -X GET "$BASE_URL/entities/definitions?entityId=$ENTITY_ID" \
 
 ```bash
 curl -X POST "$BASE_URL/entities/definitions" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"entityId\": \"$ENTITY_ID\",
@@ -150,7 +152,7 @@ curl -X POST "$BASE_URL/entities/definitions" \
 
 ```bash
 curl -X DELETE "$BASE_URL/entities/definitions" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"entityId\": \"$ENTITY_ID\",
@@ -165,7 +167,7 @@ Returns active + tombstoned entries to help build administration UI.
 
 ```bash
 curl -X GET "$BASE_URL/entities/definitions/manage?entityId=$ENTITY_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -175,7 +177,7 @@ curl -X GET "$BASE_URL/entities/definitions/manage?entityId=$ENTITY_ID" \
 
 ```bash
 curl -X POST "$BASE_URL/entities/definitions/batch" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"entityId\": \"$ENTITY_ID\",
@@ -209,7 +211,7 @@ curl -X POST "$BASE_URL/entities/definitions/batch" \
 
 ```bash
 curl -X POST "$BASE_URL/entities/definitions/restore" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"entityId\": \"$ENTITY_ID\",
@@ -230,7 +232,7 @@ Use to power select inputs that reference another entity.
 
 ```bash
 curl -X GET "$BASE_URL/entities/relations/options?entityId=$ENTITY_ID&labelField=title&q=demo" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -253,7 +255,7 @@ Requires `entityId`; supports pagination, filtering (including `cf_` custom fiel
 
 ```bash
 curl -X GET "$BASE_URL/entities/records?entityId=$ENTITY_ID&page=1&pageSize=25&search=demo" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
@@ -263,7 +265,7 @@ curl -X GET "$BASE_URL/entities/records?entityId=$ENTITY_ID&page=1&pageSize=25&s
 
 ```bash
 curl -X POST "$BASE_URL/entities/records" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"entityId\": \"$ENTITY_ID\",
@@ -287,7 +289,7 @@ Response:
 
 ```bash
 curl -X PUT "$BASE_URL/entities/records" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"entityId\": \"$ENTITY_ID\",
@@ -312,7 +314,7 @@ Performs a soft delete (respects tenant/org scope).
 
 ```bash
 curl -X DELETE "$BASE_URL/entities/records?id=$RECORD_ID&entityId=$ENTITY_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 

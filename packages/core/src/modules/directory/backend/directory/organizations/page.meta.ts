@@ -11,9 +11,10 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['directory.organizations.view'],
   pageTitle: 'Organizations',
+  pageTitleKey: 'directory.nav.organizations',
   pageGroup: 'Directory',
+  pageGroupKey: 'directory.nav.group',
   pageOrder: 30,
   icon: orgIcon,
-  breadcrumb: [{ label: 'Organizations' }],
+  breadcrumb: [{ label: 'Organizations', labelKey: 'directory.nav.organizations' }],
 }
-
