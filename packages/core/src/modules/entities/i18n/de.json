@@ -1,0 +1,7 @@
+{
+  "entities.nav.group": "Daten-Designer",
+  "entities.nav.systemEntities": "Systementitäten",
+  "entities.nav.userEntities": "Benutzerentitäten",
+  "entities.nav.userEntities.create": "Entität erstellen",
+  "entities.nav.entityRecords": "Entitätsdatensätze"
+}

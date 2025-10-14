@@ -36,5 +36,7 @@
   "api_keys.errors.roleNotFound": "Rolle {identifier} nicht gefunden",
   "api_keys.errors.roleWrongTenant": "Rolle {role} gehört zu einem anderen Mandanten",
   "api_keys.errors.notFound": "Nicht gefunden",
-  "api_keys.errors.forbidden": "Verboten"
+  "api_keys.errors.forbidden": "Verboten",
+  "api_keys.nav.apiKeys": "API-Schlüssel",
+  "api_keys.nav.apiKeys.create": "API-Schlüssel erstellen"
 }

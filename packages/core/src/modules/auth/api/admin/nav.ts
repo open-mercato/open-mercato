@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { translate } = await resolveTranslations()
+  const { translate, locale } = await resolveTranslations()
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const cache = resolve('cache') as any
 
   // Cache key is user + tenant + organization scoped
-  const cacheKey = `nav:sidebar:${auth.sub}:${auth.tenantId || 'null'}:${auth.orgId || 'null'}`
+  const cacheKey = `nav:sidebar:${locale}:${auth.sub}:${auth.tenantId || 'null'}:${auth.orgId || 'null'}`
   // try {
   //   if (cache) {
   //     const cached = await cache.get(cacheKey)
@@ -195,7 +195,12 @@ export async function GET(req: Request) {
 
   try {
     if (cache) {
-      const tags = [ `rbac:user:${auth.sub}`, auth.tenantId ? `rbac:tenant:${auth.tenantId}` : undefined, `nav:entities:${auth.tenantId || 'null'}` ].filter(Boolean) as string[]
+      const tags = [
+        `rbac:user:${auth.sub}`,
+        auth.tenantId ? `rbac:tenant:${auth.tenantId}` : undefined,
+        `nav:entities:${auth.tenantId || 'null'}`,
+        `nav:locale:${locale}`,
+      ].filter(Boolean) as string[]
       await cache.set(cacheKey, payload, { tags })
     }
   } catch {}
