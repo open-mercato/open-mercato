@@ -60,7 +60,7 @@ function normalizeLayoutItems(items: any[]) {
 }
 
 export async function GET(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { resolve } = await createRequestContainer()
@@ -168,7 +168,7 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let body: unknown

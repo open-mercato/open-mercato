@@ -240,6 +240,7 @@ const setupApp: ModuleCli = {
         'example.*',
         'dashboards.*',
         'dashboards.admin.assign-widgets',
+        'api_keys.*',
       ]
       await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: seedTenantId, featuresJson: adminFeatures }))
     }

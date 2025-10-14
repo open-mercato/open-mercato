@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 
 interface AclData {
   isSuperAdmin: boolean
@@ -175,6 +176,41 @@ export class RbacService {
     const cached = await this.getFromCache(cacheKey)
     if (cached) return cached
 
+    if (userId.startsWith('api_key:')) {
+      const apiKeyId = userId.slice('api_key:'.length)
+      const em = this.em.fork()
+      const key = await em.findOne(ApiKey, { id: apiKeyId, deletedAt: null })
+      if (!key || (key.expiresAt && key.expiresAt.getTime() < Date.now())) {
+        const result = { isSuperAdmin: false, features: [], organizations: null }
+        await this.setCache(cacheKey, result, userId, scope)
+        return result
+      }
+      const tenantId = scope.tenantId || key.tenantId || null
+      const roleIds = Array.isArray(key.rolesJson) ? key.rolesJson.filter(Boolean) : []
+      let isSuper = false
+      const features: string[] = []
+      let organizations: string[] | null = key.organizationId ? [key.organizationId] : null
+      if (tenantId && roleIds.length) {
+        const racls = await em.find(RoleAcl, { tenantId, role: { $in: roleIds as any } } as any)
+        for (const acl of racls) {
+          isSuper = isSuper || !!acl.isSuperAdmin
+          if (Array.isArray(acl.featuresJson)) {
+            for (const f of acl.featuresJson) if (!features.includes(f)) features.push(f)
+          }
+          if (organizations !== null) {
+            if (acl.organizationsJson == null) {
+              organizations = null
+            } else {
+              organizations = Array.from(new Set([...(organizations || []), ...acl.organizationsJson]))
+            }
+          }
+        }
+      }
+      const result = { isSuperAdmin: isSuper, features, organizations }
+      await this.setCache(cacheKey, result, userId, scope)
+      return result
+    }
+
     // Use a forked EntityManager to avoid inheriting an aborted transaction from callers
     const em = this.em.fork()
     const user = await em.findOne(User, { id: userId })
@@ -266,5 +302,4 @@ export class RbacService {
     return this.hasAllFeatures(required, acl.features)
   }
 }
-
 

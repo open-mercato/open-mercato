@@ -12,7 +12,7 @@ export const metadata = {
 }
 
 export async function PATCH(req: Request, ctx: { params?: { itemId?: string } }) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const layoutItemId = ctx.params?.itemId
   if (!layoutItemId) return NextResponse.json({ error: 'Missing layout item id' }, { status: 400 })

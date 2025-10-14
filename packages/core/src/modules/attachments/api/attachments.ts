@@ -10,7 +10,7 @@ export const metadata = {
 }
 
 export async function GET(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
   const entityId = url.searchParams.get('entityId') || ''
@@ -29,7 +29,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const contentType = req.headers.get('content-type') || ''

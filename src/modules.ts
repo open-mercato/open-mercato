@@ -11,4 +11,5 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'query_index', from: '@open-mercato/core' },
   { id: 'attachments', from: '@open-mercato/core' },
   { id: 'example', from: '@open-mercato/example' },
+  { id: 'api_keys', from: '@open-mercato/core' }
 ]

@@ -175,7 +175,7 @@ const matchesValue = (current: unknown, expected: unknown): boolean => {
 }
 
 export async function GET(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 401 })
   }

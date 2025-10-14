@@ -394,7 +394,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
 export const metadata = crud.metadata
 
 export async function GET(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ items: [] }, { status: 401 })
 
   const url = new URL(req.url)

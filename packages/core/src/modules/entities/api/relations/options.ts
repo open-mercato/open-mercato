@@ -15,7 +15,7 @@ export async function GET(req: Request) {
   const entityId = url.searchParams.get('entityId') || ''
   let labelField = url.searchParams.get('labelField') || ''
   const q = url.searchParams.get('q') || ''
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!entityId) return NextResponse.json({ items: [] })
 

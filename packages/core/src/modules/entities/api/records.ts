@@ -26,7 +26,7 @@ export async function GET(req: Request) {
   const entityId = url.searchParams.get('entityId') || ''
   if (!entityId) return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
 
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const format = (url.searchParams.get('format') || '').toLowerCase()
@@ -197,7 +197,7 @@ const postBodySchema = z.object({
 })
 
 export async function POST(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let json: unknown
@@ -259,7 +259,7 @@ function parsePutBody(json: any): { ok: true; data: { entityId: string; recordId
 }
 
 export async function PUT(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let json: any
@@ -322,7 +322,7 @@ const deleteBodySchema = z.object({
 })
 
 export async function DELETE(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const url = new URL(req.url)

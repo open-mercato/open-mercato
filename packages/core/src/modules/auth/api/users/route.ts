@@ -272,7 +272,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
 })
 
 export async function GET(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const url = new URL(req.url)
   const rawRoleIds = url.searchParams.getAll('roleId').filter((id): id is string => typeof id === 'string' && id.trim().length > 0)

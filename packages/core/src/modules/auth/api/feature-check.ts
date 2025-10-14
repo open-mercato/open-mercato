@@ -7,7 +7,7 @@ export const metadata = {
 }
 
 export async function POST(req: Request) {
-  const auth = getAuthFromRequest(req)
+  const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   let body: any = {}
   try { body = await req.json() } catch {}
