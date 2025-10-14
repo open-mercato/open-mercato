@@ -12,6 +12,7 @@ import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/l
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User, UserRole, Role, UserAcl, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
@@ -76,21 +77,30 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const organization = await em.findOne(Organization, { id: parsed.organizationId }, { populate: ['tenant'] })
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
 
+    const duplicate = await em.findOne(User, { email: parsed.email, deletedAt: null })
+    if (duplicate) await throwDuplicateEmailError()
+
     const { hash } = await import('bcryptjs')
     const passwordHash = await hash(parsed.password, 10)
     const tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
-    const user = await de.createOrmEntity({
-      entity: User,
-      data: {
-        email: parsed.email,
-        passwordHash,
-        isConfirmed: true,
-        organizationId: parsed.organizationId,
-        tenantId,
-      },
-    })
+    let user: User
+    try {
+      user = await de.createOrmEntity({
+        entity: User,
+        data: {
+          email: parsed.email,
+          passwordHash,
+          isConfirmed: true,
+          organizationId: parsed.organizationId,
+          tenantId,
+        },
+      })
+    } catch (error) {
+      if (isUniqueViolation(error)) await throwDuplicateEmailError()
+      throw error
+    }
 
     if (Array.isArray(parsed.roles) && parsed.roles.length) {
       await syncUserRoles(em, user, parsed.roles, tenantId)
@@ -139,6 +149,15 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
   },
 }
 
+function isUniqueViolation(error: unknown): boolean {
+  if (error instanceof UniqueConstraintViolationException) return true
+  if (!error || typeof error !== 'object') return false
+  const code = (error as { code?: string }).code
+  if (code === '23505') return true
+  const message = typeof (error as { message?: string }).message === 'string' ? (error as { message?: string }).message : ''
+  return message.toLowerCase().includes('duplicate key')
+}
+
 const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   id: 'auth.users.update',
   async prepare(rawInput, ctx) {
@@ -152,6 +171,18 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em')
+
+    if (parsed.email !== undefined) {
+      const duplicate = await em.findOne(
+        User,
+        {
+          email: parsed.email,
+          deletedAt: null,
+          id: { $ne: parsed.id } as any,
+        } as FilterQuery<User>,
+      )
+      if (duplicate) await throwDuplicateEmailError()
+    }
 
     let hashed: string | null = null
     if (parsed.password) {
@@ -167,18 +198,24 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     }
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
-    const user = await de.updateOrmEntity({
-      entity: User,
-      where: { id: parsed.id, deletedAt: null } as FilterQuery<User>,
-      apply: (entity) => {
-        if (parsed.email !== undefined) entity.email = parsed.email
-        if (parsed.organizationId !== undefined) {
-          entity.organizationId = parsed.organizationId
-          entity.tenantId = tenantId ?? null
-        }
-        if (hashed) entity.passwordHash = hashed
-      },
-    })
+    let user: User | null
+    try {
+      user = await de.updateOrmEntity({
+        entity: User,
+        where: { id: parsed.id, deletedAt: null } as FilterQuery<User>,
+        apply: (entity) => {
+          if (parsed.email !== undefined) entity.email = parsed.email
+          if (parsed.organizationId !== undefined) {
+            entity.organizationId = parsed.organizationId
+            entity.tenantId = tenantId ?? null
+          }
+          if (hashed) entity.passwordHash = hashed
+        },
+      })
+    } catch (error) {
+      if (isUniqueViolation(error)) await throwDuplicateEmailError()
+      throw error
+    }
     if (!user) throw new CrudHttpError(404, { error: 'User not found' })
 
     if (Array.isArray(parsed.roles)) {
@@ -370,4 +407,9 @@ function arrayEquals(left: string[] | undefined, right: string[]): boolean {
   if (!left) return false
   if (left.length !== right.length) return false
   return left.every((value, idx) => value === right[idx])
+}
+
+async function throwDuplicateEmailError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(400, { error: translate('auth.users.errors.emailExists', 'Email already in use') })
 }

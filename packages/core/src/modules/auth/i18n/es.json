@@ -31,5 +31,6 @@
   "auth.audit.users.delete": "Eliminar usuario",
   "auth.audit.roles.create": "Crear rol",
   "auth.audit.roles.update": "Actualizar rol",
-  "auth.audit.roles.delete": "Eliminar rol"
+  "auth.audit.roles.delete": "Eliminar rol",
+  "auth.users.errors.emailExists": "El correo ya está en uso"
 }

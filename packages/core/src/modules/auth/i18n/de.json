@@ -31,5 +31,6 @@
   "auth.audit.users.delete": "Benutzer löschen",
   "auth.audit.roles.create": "Rolle anlegen",
   "auth.audit.roles.update": "Rolle aktualisieren",
-  "auth.audit.roles.delete": "Rolle löschen"
+  "auth.audit.roles.delete": "Rolle löschen",
+  "auth.users.errors.emailExists": "E-Mail-Adresse wird bereits verwendet"
 }
