@@ -15,6 +15,11 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import {
+  loadCustomFieldSnapshot,
+  buildCustomFieldResetMap,
+  diffCustomFieldChanges,
+} from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 
 type SerializedRole = {
@@ -119,21 +124,21 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   },
   captureAfter: async (_input, result, ctx) => {
     const em = ctx.container.resolve<EntityManager>('em')
-    const custom = await loadRoleCustomSnapshot(
-      em,
-      String(result.id),
-      result.tenantId ? String(result.tenantId) : null
-    )
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.auth.role,
+      recordId: String(result.id),
+      tenantId: result.tenantId ? String(result.tenantId) : null,
+    })
     return serializeRole(result, custom)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
     const em = ctx.container.resolve<EntityManager>('em')
-    const custom = await loadRoleCustomSnapshot(
-      em,
-      String(result.id),
-      result.tenantId ? String(result.tenantId) : null
-    )
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.auth.role,
+      recordId: String(result.id),
+      tenantId: result.tenantId ? String(result.tenantId) : null,
+    })
     const snapshot = captureRoleSnapshots(result, [], custom)
     return {
       actionLabel: translate('auth.audit.roles.create', 'Create role'),
@@ -183,11 +188,11 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const existing = await em.findOne(Role, { id: parsed.id, deletedAt: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Role not found' })
     const acls = await loadRoleAclSnapshots(em, parsed.id)
-    const custom = await loadRoleCustomSnapshot(
-      em,
-      parsed.id,
-      existing.tenantId ? String(existing.tenantId) : null
-    )
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.auth.role,
+      recordId: parsed.id,
+      tenantId: existing.tenantId ? String(existing.tenantId) : null,
+    })
     return { before: captureRoleSnapshots(existing, acls, custom) }
   },
   async execute(rawInput, ctx) {
@@ -229,11 +234,11 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   },
   captureAfter: async (_input, result, ctx) => {
     const em = ctx.container.resolve<EntityManager>('em')
-    const custom = await loadRoleCustomSnapshot(
-      em,
-      String(result.id),
-      result.tenantId ? String(result.tenantId) : null
-    )
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.auth.role,
+      recordId: String(result.id),
+      tenantId: result.tenantId ? String(result.tenantId) : null,
+    })
     return serializeRole(result, custom)
   },
   buildLog: async ({ result, snapshots, ctx }) => {
@@ -243,15 +248,15 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const beforeUndo = beforeSnapshots?.undo ?? null
     const em = ctx.container.resolve<EntityManager>('em')
     const afterAcls = await loadRoleAclSnapshots(em, String(result.id))
-    const custom = await loadRoleCustomSnapshot(
-      em,
-      String(result.id),
-      result.tenantId ? String(result.tenantId) : null
-    )
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.auth.role,
+      recordId: String(result.id),
+      tenantId: result.tenantId ? String(result.tenantId) : null,
+    })
     const afterSnapshots = captureRoleSnapshots(result, afterAcls, custom)
     const after = afterSnapshots.view
     const changes = buildChanges(before ?? null, after as Record<string, unknown>, ['name', 'tenantId'])
-    const customDiff = diffCustomFields(before?.custom, custom)
+    const customDiff = diffCustomFieldChanges(before?.custom, custom)
     for (const [key, diff] of Object.entries(customDiff)) {
       changes[`custom.${key}`] = diff
     }
@@ -311,11 +316,11 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const existing = await em.findOne(Role, { id, deletedAt: null })
     if (!existing) return {}
     const acls = await loadRoleAclSnapshots(em, id)
-    const custom = await loadRoleCustomSnapshot(
-      em,
-      id,
-      existing.tenantId ? String(existing.tenantId) : null
-    )
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.auth.role,
+      recordId: id,
+      tenantId: existing.tenantId ? String(existing.tenantId) : null,
+    })
     return { before: captureRoleSnapshots(existing, acls, custom) }
   },
   async execute(input, ctx) {
@@ -466,66 +471,6 @@ async function restoreRoleAcls(em: EntityManager, roleId: string, acls: RoleAclS
     em.persist(entity)
   }
   await em.flush()
-}
-
-async function loadRoleCustomSnapshot(em: EntityManager, id: string, tenantId: string | null): Promise<Record<string, unknown>> {
-  const records = await loadCustomFieldValues({
-    em,
-    entityId: E.auth.role as any,
-    recordIds: [id],
-    tenantIdByRecord: { [id]: tenantId ?? null },
-    tenantFallbacks: [tenantId ?? null],
-  })
-  const raw = records[id] ?? {}
-  const custom: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(raw)) {
-    if (key.startsWith('cf_')) custom[key.slice(3)] = value
-  }
-  return custom
-}
-
-function buildCustomFieldResetMap(
-  before: Record<string, unknown> | undefined,
-  after: Record<string, unknown> | undefined
-): Record<string, unknown> {
-  const values: Record<string, unknown> = {}
-  const keys = new Set<string>()
-  if (before) for (const key of Object.keys(before)) keys.add(key)
-  if (after) for (const key of Object.keys(after)) keys.add(key)
-  for (const key of keys) {
-    if (before && Object.prototype.hasOwnProperty.call(before, key)) {
-      values[key] = before[key]
-    } else {
-      values[key] = null
-    }
-  }
-  return values
-}
-
-function diffCustomFields(
-  before: Record<string, unknown> | undefined,
-  after: Record<string, unknown> | undefined
-): Record<string, { from: unknown; to: unknown }> {
-  const out: Record<string, { from: unknown; to: unknown }> = {}
-  const keys = new Set<string>()
-  if (before) for (const key of Object.keys(before)) keys.add(key)
-  if (after) for (const key of Object.keys(after)) keys.add(key)
-  for (const key of keys) {
-    const prev = before ? before[key] : undefined
-    const next = after ? after[key] : undefined
-    if (!customFieldValuesEqual(prev, next)) {
-      out[key] = { from: prev ?? null, to: next ?? null }
-    }
-  }
-  return out
-}
-
-function customFieldValuesEqual(a: unknown, b: unknown): boolean {
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false
-    return a.every((value, idx) => customFieldValuesEqual(value, b[idx]))
-  }
-  return a === b
 }
 
 type RoleUndoPayload = { undo?: { before?: RoleUndoSnapshot | null; after?: RoleUndoSnapshot | null } }

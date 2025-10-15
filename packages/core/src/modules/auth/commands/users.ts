@@ -18,7 +18,11 @@ import { User, UserRole, Role, UserAcl, Session, PasswordReset } from '@open-mer
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { z } from 'zod'
-import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import {
+  loadCustomFieldSnapshot,
+  buildCustomFieldResetMap,
+  diffCustomFieldChanges,
+} from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 
 type SerializedUser = {
   email: string
@@ -366,7 +370,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     if (before && !arrayEquals(before.roles, afterRoles)) {
       changes.roles = { from: before.roles, to: afterRoles }
     }
-    const customDiff = diffCustomFields(before?.custom, afterCustom)
+    const customDiff = diffCustomFieldChanges(before?.custom, afterCustom)
     for (const [key, diff] of Object.entries(customDiff)) {
       changes[`custom.${key}`] = diff
     }
@@ -673,64 +677,12 @@ async function loadUserCustomSnapshot(
   tenantId: string | null,
   organizationId: string | null
 ): Promise<Record<string, unknown>> {
-  const records = await loadCustomFieldValues({
-    em,
-    entityId: E.auth.user as any,
-    recordIds: [id],
-    tenantIdByRecord: { [id]: tenantId ?? null },
-    organizationIdByRecord: { [id]: organizationId ?? null },
-    tenantFallbacks: [tenantId ?? null],
+  return await loadCustomFieldSnapshot(em, {
+    entityId: E.auth.user,
+    recordId: id,
+    tenantId,
+    organizationId,
   })
-  const raw = records[id] ?? {}
-  const custom: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(raw)) {
-    if (key.startsWith('cf_')) custom[key.slice(3)] = value
-  }
-  return custom
-}
-
-function buildCustomFieldResetMap(
-  before: Record<string, unknown> | undefined,
-  after: Record<string, unknown> | undefined
-): Record<string, unknown> {
-  const values: Record<string, unknown> = {}
-  const keys = new Set<string>()
-  if (before) for (const key of Object.keys(before)) keys.add(key)
-  if (after) for (const key of Object.keys(after)) keys.add(key)
-  for (const key of keys) {
-    if (before && Object.prototype.hasOwnProperty.call(before, key)) {
-      values[key] = before[key]
-    } else {
-      values[key] = null
-    }
-  }
-  return values
-}
-
-function diffCustomFields(
-  before: Record<string, unknown> | undefined,
-  after: Record<string, unknown> | undefined
-): Record<string, { from: unknown; to: unknown }> {
-  const out: Record<string, { from: unknown; to: unknown }> = {}
-  const keys = new Set<string>()
-  if (before) for (const key of Object.keys(before)) keys.add(key)
-  if (after) for (const key of Object.keys(after)) keys.add(key)
-  for (const key of keys) {
-    const prev = before ? before[key] : undefined
-    const next = after ? after[key] : undefined
-    if (!customFieldValuesEqual(prev, next)) {
-      out[key] = { from: prev ?? null, to: next ?? null }
-    }
-  }
-  return out
-}
-
-function customFieldValuesEqual(a: unknown, b: unknown): boolean {
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false
-    return a.every((value, idx) => customFieldValuesEqual(value, b[idx]))
-  }
-  return a === b
 }
 
 async function invalidateUserCache(ctx: CommandRuntimeContext, userId: string) {

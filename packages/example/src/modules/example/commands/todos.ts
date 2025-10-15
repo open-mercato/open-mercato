@@ -16,7 +16,11 @@ import { z } from 'zod'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { E } from '@open-mercato/example/datamodel/entities'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import {
+  loadCustomFieldSnapshot,
+  buildCustomFieldResetMap,
+  diffCustomFieldChanges,
+} from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 
 export const todoCreateSchema = z.object({
   title: z.string().min(1),
@@ -218,7 +222,16 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
 
     return todo
   },
-  captureAfter: () => undefined,
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve<EntityManager>('em')
+    const custom = await loadTodoCustomSnapshot(
+      em,
+      String(result.id),
+      result.tenantId ? String(result.tenantId) : null,
+      result.organizationId ? String(result.organizationId) : null
+    )
+    return serializeTodo(result, custom)
+  },
   buildLog: async ({ result, snapshots, ctx }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as SerializedTodo | undefined
@@ -231,6 +244,10 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     )
     const after = serializeTodo(result, afterCustom)
     const changes = buildChanges(before ?? null, after as unknown as Record<string, unknown>, ['title', 'is_done'])
+    const customDiff = diffCustomFieldChanges(before?.custom, afterCustom)
+    for (const [key, diff] of Object.entries(customDiff)) {
+      changes[`custom.${key}`] = diff
+    }
     return {
       actionLabel: translate('example.audit.todos.update', 'Update todo'),
       resourceKind: 'example.todo',
@@ -431,36 +448,10 @@ async function loadTodoCustomSnapshot(
   tenantId: string | null,
   organizationId: string | null
 ): Promise<Record<string, unknown>> {
-  const records = await loadCustomFieldValues({
-    em,
-    entityId: E.example.todo as any,
-    recordIds: [id],
-    tenantIdByRecord: { [id]: tenantId ?? null },
-    organizationIdByRecord: { [id]: organizationId ?? null },
-    tenantFallbacks: [tenantId ?? null],
+  return await loadCustomFieldSnapshot(em, {
+    entityId: E.example.todo,
+    recordId: id,
+    tenantId,
+    organizationId,
   })
-  const raw = records[id] ?? {}
-  const custom: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(raw)) {
-    if (key.startsWith('cf_')) custom[key.slice(3)] = value
-  }
-  return custom
-}
-
-function buildCustomFieldResetMap(
-  before: Record<string, unknown> | undefined,
-  after: Record<string, unknown> | undefined
-): Record<string, unknown> {
-  const values: Record<string, unknown> = {}
-  const keys = new Set<string>()
-  if (before) for (const key of Object.keys(before)) keys.add(key)
-  if (after) for (const key of Object.keys(after)) keys.add(key)
-  for (const key of keys) {
-    if (before && Object.prototype.hasOwnProperty.call(before, key)) {
-      values[key] = before[key]
-    } else {
-      values[key] = null
-    }
-  }
-  return values
 }

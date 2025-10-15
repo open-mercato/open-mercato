@@ -8,7 +8,11 @@ import { organizationCreateSchema, organizationUpdateSchema } from '@open-mercat
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { CrudEmitContext, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import {
+  loadCustomFieldSnapshot,
+  buildCustomFieldResetMap,
+  diffCustomFieldChanges,
+} from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
@@ -295,12 +299,12 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   captureAfter: async (_input, result, ctx) => {
     const em = ctx.container.resolve<EntityManager>('em')
     const tenantId = resolveTenantIdFromEntity(result)
-    const custom = await loadOrganizationCustomSnapshot(
-      em,
-      String(result.id),
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.directory.organization,
+      recordId: String(result.id),
       tenantId,
-      String(result.id)
-    )
+      organizationId: String(result.id),
+    })
     return serializeOrganization(result, custom)
   },
   buildLog: async ({ result, ctx }) => {
@@ -308,12 +312,12 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const meta = getUndoMeta(result)
     const em = ctx.container.resolve<EntityManager>('em')
     const tenantId = resolveTenantIdFromEntity(result)
-    const custom = await loadOrganizationCustomSnapshot(
-      em,
-      String(result.id),
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.directory.organization,
+      recordId: String(result.id),
       tenantId,
-      String(result.id)
-    )
+      organizationId: String(result.id),
+    })
     const afterSnapshots = captureOrganizationSnapshots(result, meta.childParentsAfter ?? [], custom)
     return {
       actionLabel: translate('directory.audit.organizations.create', 'Create organization'),
@@ -375,12 +379,12 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const childParentsBefore = tenantId
       ? await loadChildParentSnapshots(em, tenantId, combinedChildIds)
       : []
-    const custom = await loadOrganizationCustomSnapshot(
-      em,
-      String(current.id),
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.directory.organization,
+      recordId: String(current.id),
       tenantId,
-      String(current.id)
-    )
+      organizationId: String(current.id),
+    })
     return { before: captureOrganizationSnapshots(current, childParentsBefore, custom) }
   },
   async execute(rawInput, ctx) {
@@ -474,12 +478,12 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   captureAfter: async (_input, result, ctx) => {
     const em = ctx.container.resolve<EntityManager>('em')
     const tenantId = resolveTenantIdFromEntity(result)
-    const custom = await loadOrganizationCustomSnapshot(
-      em,
-      String(result.id),
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.directory.organization,
+      recordId: String(result.id),
       tenantId,
-      String(result.id)
-    )
+      organizationId: String(result.id),
+    })
     return serializeOrganization(result, custom)
   },
   buildLog: async ({ snapshots, result, ctx }) => {
@@ -489,15 +493,15 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const beforeRecord = beforeSnapshots?.view ?? null
     const em = ctx.container.resolve<EntityManager>('em')
     const tenantId = resolveTenantIdFromEntity(result)
-    const custom = await loadOrganizationCustomSnapshot(
-      em,
-      String(result.id),
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.directory.organization,
+      recordId: String(result.id),
       tenantId,
-      String(result.id)
-    )
+      organizationId: String(result.id),
+    })
     const after = serializeOrganization(result, custom)
     const changes = buildChanges(beforeRecord, after as Record<string, unknown>, ['name', 'isActive', 'parentId'])
-    const customDiff = diffCustomFields(beforeRecord?.custom, custom)
+    const customDiff = diffCustomFieldChanges(beforeRecord?.custom, custom)
     for (const [key, diff] of Object.entries(customDiff)) {
       changes[`custom.${key}`] = diff
     }
@@ -564,12 +568,12 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     const childParentsBefore = tenantId
       ? await loadChildParentSnapshots(em, tenantId, Array.isArray(existing.childIds) ? existing.childIds : [])
       : []
-    const custom = await loadOrganizationCustomSnapshot(
-      em,
-      String(existing.id),
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.directory.organization,
+      recordId: String(existing.id),
       tenantId,
-      String(existing.id)
-    )
+      organizationId: String(existing.id),
+    })
     return { before: captureOrganizationSnapshots(existing, childParentsBefore, custom) }
   },
   async execute(input, ctx) {
@@ -731,72 +735,6 @@ function extractOrganizationUndoPayload(logEntry: { commandPayload?: unknown }):
 registerCommand(createOrganizationCommand)
 registerCommand(updateOrganizationCommand)
 registerCommand(deleteOrganizationCommand)
-
-async function loadOrganizationCustomSnapshot(
-  em: EntityManager,
-  id: string,
-  tenantId: string | null,
-  organizationId: string | null
-): Promise<Record<string, unknown>> {
-  const records = await loadCustomFieldValues({
-    em,
-    entityId: E.directory.organization as any,
-    recordIds: [id],
-    tenantIdByRecord: { [id]: tenantId ?? null },
-    organizationIdByRecord: { [id]: organizationId ?? null },
-    tenantFallbacks: [tenantId ?? null],
-  })
-  const raw = records[id] ?? {}
-  const custom: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(raw)) {
-    if (key.startsWith('cf_')) custom[key.slice(3)] = value
-  }
-  return custom
-}
-
-function buildCustomFieldResetMap(
-  before: Record<string, unknown> | undefined,
-  after: Record<string, unknown> | undefined
-): Record<string, unknown> {
-  const values: Record<string, unknown> = {}
-  const keys = new Set<string>()
-  if (before) for (const key of Object.keys(before)) keys.add(key)
-  if (after) for (const key of Object.keys(after)) keys.add(key)
-  for (const key of keys) {
-    if (before && Object.prototype.hasOwnProperty.call(before, key)) {
-      values[key] = before[key]
-    } else {
-      values[key] = null
-    }
-  }
-  return values
-}
-
-function diffCustomFields(
-  before: Record<string, unknown> | undefined,
-  after: Record<string, unknown> | undefined
-): Record<string, { from: unknown; to: unknown }> {
-  const out: Record<string, { from: unknown; to: unknown }> = {}
-  const keys = new Set<string>()
-  if (before) for (const key of Object.keys(before)) keys.add(key)
-  if (after) for (const key of Object.keys(after)) keys.add(key)
-  for (const key of keys) {
-    const prev = before ? before[key] : undefined
-    const next = after ? after[key] : undefined
-    if (!customFieldValuesEqual(prev, next)) {
-      out[key] = { from: prev ?? null, to: next ?? null }
-    }
-  }
-  return out
-}
-
-function customFieldValuesEqual(a: unknown, b: unknown): boolean {
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false
-    return a.every((value, idx) => customFieldValuesEqual(value, b[idx]))
-  }
-  return a === b
-}
 
 function toOptionalString(value: unknown): string | null {
   if (typeof value === 'string' && value.trim()) return value
