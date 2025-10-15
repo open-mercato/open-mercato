@@ -7,6 +7,7 @@ import type { QueryEngine, Where, Sort, Page } from '@open-mercato/shared/lib/qu
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type {
   CrudEventAction,
   CrudEventsConfig,
@@ -134,6 +135,36 @@ function json(data: any, init?: ResponseInit) {
     ...(init || {}),
     headers: { 'content-type': 'application/json', ...(init?.headers || {}) },
   })
+}
+
+function attachOperationHeader(res: Response, logEntry: any) {
+  if (!res || !(res instanceof Response)) return res
+  if (!logEntry || typeof logEntry !== 'object') return res
+  const undoToken = typeof logEntry.undoToken === 'string' ? logEntry.undoToken : null
+  const id = typeof logEntry.id === 'string' ? logEntry.id : null
+  const commandId = typeof logEntry.commandId === 'string' ? logEntry.commandId : null
+  if (!undoToken || !id || !commandId) return res
+  const actionLabel = typeof logEntry.actionLabel === 'string' ? logEntry.actionLabel : null
+  const resourceKind = typeof logEntry.resourceKind === 'string' ? logEntry.resourceKind : null
+  const resourceId = typeof logEntry.resourceId === 'string' ? logEntry.resourceId : null
+  const createdAt = logEntry.createdAt instanceof Date
+    ? logEntry.createdAt.toISOString()
+    : (typeof logEntry.createdAt === 'string' ? logEntry.createdAt : new Date().toISOString())
+  const headerValue = serializeOperationMetadata({
+    id,
+    undoToken,
+    commandId,
+    actionLabel,
+    resourceKind,
+    resourceId,
+    executedAt: createdAt,
+  })
+  try {
+    res.headers.set('x-om-operation', headerValue)
+  } catch {
+    // no-op if headers already sent
+  }
+  return res
 }
 
 function handleError(err: unknown): Response {
@@ -467,7 +498,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         const resolvedPayload = await Promise.resolve(payload)
         const status = action.status ?? 201
-        return json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status })
+        attachOperationHeader(response, logEntry)
+        return response
       }
 
       let input = opts.create.schema.parse(body)
@@ -542,7 +575,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         const resolvedPayload = await Promise.resolve(payload)
         const status = action.status ?? 200
-        return json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status })
+        attachOperationHeader(response, logEntry)
+        return response
       }
 
       let input = opts.update.schema.parse(body)
@@ -624,7 +659,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         const resolvedPayload = await Promise.resolve(payload)
         const status = action.status ?? 200
-        return json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status })
+        attachOperationHeader(response, logEntry)
+        return response
       }
 
       const idFrom = opts.del?.idFrom || 'query'

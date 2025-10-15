@@ -34,8 +34,8 @@ function getCommand(id: string): CommandHandler<any, any> {
 
 function createCtx(
   overrides: Partial<CommandRuntimeContext> = {}
-): { ctx: CommandRuntimeContext; dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields'> } {
-  const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields'> = {
+): { ctx: CommandRuntimeContext; dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent'> } {
+  const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent'> = {
     updateOrmEntity: jest.fn(async ({ apply }) => {
       const entity = {
         id: 'todo-1',
@@ -50,6 +50,7 @@ function createCtx(
     }),
     deleteOrmEntity: jest.fn(async () => null),
     setCustomFields: jest.fn(async () => {}),
+    emitOrmEntityEvent: jest.fn(async () => {}),
   }
 
   const container = {

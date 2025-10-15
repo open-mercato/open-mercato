@@ -11,7 +11,17 @@ The **Security → Audit Logs** page surfaces every command executed through the
 - Use the toggle to filter for undoable entries and the refresh button to pull the latest records without leaving the page.
 - The Access Log is paginated (50 records per page by default) so you can page through longer histories without exporting data.
 
+![Audit log timeline showing undoable entries](/screenshots/open-mercato-action-logs.png)
+
 Undo support is currently available for directory tenants/organizations, auth users/roles, and example todos. Additional modules can opt-in by implementing command handlers with `undo` snapshots.
+
+## Undo and Diffs
+
+- Clicking **Undo last action** triggers the command bus with the stored `undoToken`. The UI only enables this button for the most recent, undoable entry to guarantee replay order.
+- After a successful undo the entry is marked as **undone** and its token is cleared, preventing accidental double-undos. To "redo" the operation, simply run the original action again (for example, resubmit the edit form); it will generate a fresh command entry with a new undo token.
+- Selecting any row opens the operation drawer, which renders before/after snapshots and a diff of the changed fields. These values come from the command’s `snapshotBefore`, `snapshotAfter`, and `changes` metadata.
+
+![Operation drawer highlighting changed fields and snapshots](/screenshots/open-mercato-operation-details.png)
 
 ## Retention
 

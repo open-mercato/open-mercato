@@ -137,7 +137,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     if (!id) throw new Error('Missing todo id for undo')
     const scope = resolveUndoScope(ctx, snapshot)
     const de = ctx.container.resolve<DataEngine>('dataEngine')
-    await de.deleteOrmEntity({
+    const removed = await de.deleteOrmEntity({
       entity: Todo,
       where: {
         id,
@@ -159,6 +159,20 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
           notify: false,
         })
       }
+    }
+    if (removed) {
+      await emitCrudSideEffects({
+        dataEngine: de,
+        action: 'deleted',
+        entity: removed,
+        identifiers: {
+          id,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+        },
+        events: todoCrudEvents,
+        indexer: todoCrudIndexer,
+      })
     }
   },
 }
@@ -267,7 +281,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const scope = resolveUndoScope(ctx, before)
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     const after = (logEntry.snapshotAfter as SerializedTodo | undefined) ?? payload?.after
-    await de.updateOrmEntity({
+    const updated = await de.updateOrmEntity({
       entity: Todo,
       where: {
         id: before.id,
@@ -291,6 +305,20 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         organizationId: scope.organizationId,
         values: customValues,
         notify: false,
+      })
+    }
+    if (updated) {
+      await emitCrudSideEffects({
+        dataEngine: de,
+        action: 'updated',
+        entity: updated,
+        identifiers: {
+          id: before.id,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+        },
+        events: todoCrudEvents,
+        indexer: todoCrudIndexer,
       })
     }
   },
@@ -395,6 +423,20 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         organizationId: scope.organizationId,
         values: before.custom,
         notify: false,
+      })
+    }
+    if (restored) {
+      await emitCrudSideEffects({
+        dataEngine: de,
+        action: 'updated',
+        entity: restored,
+        identifiers: {
+          id: before.id,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+        },
+        events: todoCrudEvents,
+        indexer: todoCrudIndexer,
       })
     }
   },
