@@ -372,7 +372,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     }
     const customDiff = diffCustomFieldChanges(before?.custom, afterCustom)
     for (const [key, diff] of Object.entries(customDiff)) {
-      changes[`custom.${key}`] = diff
+      changes[`cf_${key}`] = diff
     }
     return {
       actionLabel: translate('auth.audit.users.update', 'Update user'),

@@ -20,7 +20,6 @@ import {
   buildCustomFieldResetMap,
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 
 type SerializedRole = {
   name: string
@@ -258,7 +257,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const changes = buildChanges(before ?? null, after as Record<string, unknown>, ['name', 'tenantId'])
     const customDiff = diffCustomFieldChanges(before?.custom, custom)
     for (const [key, diff] of Object.entries(customDiff)) {
-      changes[`custom.${key}`] = diff
+      changes[`cf_${key}`] = diff
     }
     return {
       actionLabel: translate('auth.audit.roles.update', 'Update role'),

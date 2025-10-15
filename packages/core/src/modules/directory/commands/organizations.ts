@@ -503,7 +503,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const changes = buildChanges(beforeRecord, after as Record<string, unknown>, ['name', 'isActive', 'parentId'])
     const customDiff = diffCustomFieldChanges(beforeRecord?.custom, custom)
     for (const [key, diff] of Object.entries(customDiff)) {
-      changes[`custom.${key}`] = diff
+      changes[`cf_${key}`] = diff
     }
     return {
       actionLabel: translate('directory.audit.organizations.update', 'Update organization'),

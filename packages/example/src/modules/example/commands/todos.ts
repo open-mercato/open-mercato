@@ -131,7 +131,8 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     }
   },
   async undo({ logEntry, ctx }) {
-    const snapshot = logEntry.snapshotAfter as SerializedTodo | undefined
+    const payload = (logEntry?.commandPayload as { undo?: { after?: SerializedTodo } } | undefined)?.undo
+    const snapshot = (logEntry.snapshotAfter as SerializedTodo | undefined) ?? payload?.after
     const id = snapshot?.id ?? logEntry.resourceId
     if (!id) throw new Error('Missing todo id for undo')
     const scope = resolveUndoScope(ctx, snapshot)
@@ -246,7 +247,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const changes = buildChanges(before ?? null, after as unknown as Record<string, unknown>, ['title', 'is_done'])
     const customDiff = diffCustomFieldChanges(before?.custom, afterCustom)
     for (const [key, diff] of Object.entries(customDiff)) {
-      changes[`custom.${key}`] = diff
+      changes[`cf_${key}`] = diff
     }
     return {
       actionLabel: translate('example.audit.todos.update', 'Update todo'),
@@ -260,11 +261,12 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     }
   },
   async undo({ logEntry, ctx }) {
-    const before = logEntry.snapshotBefore as SerializedTodo | undefined
+    const payload = (logEntry?.commandPayload as { undo?: { before?: SerializedTodo; after?: SerializedTodo } } | undefined)?.undo
+    const before = (logEntry.snapshotBefore as SerializedTodo | undefined) ?? payload?.before
     if (!before?.id) throw new Error('Missing previous snapshot for undo')
     const scope = resolveUndoScope(ctx, before)
     const de = ctx.container.resolve<DataEngine>('dataEngine')
-    const after = logEntry.snapshotAfter as SerializedTodo | undefined
+    const after = (logEntry.snapshotAfter as SerializedTodo | undefined) ?? payload?.after
     await de.updateOrmEntity({
       entity: Todo,
       where: {
