@@ -12,7 +12,19 @@ export class AccessLogService {
   constructor(private readonly em: EntityManager) {}
 
   async log(input: AccessLogCreateInput) {
-    const data = accessLogCreateSchema.parse(input)
+    let data: AccessLogCreateInput
+    const canValidate = accessLogCreateSchema && typeof (accessLogCreateSchema as any).parse === 'function'
+    if (canValidate) {
+      try {
+        data = accessLogCreateSchema.parse(input)
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[audit_logs] failed to validate access log payload, using fallback', err)
+        data = this.normalizeInput(input)
+      }
+    } else {
+      data = this.normalizeInput(input)
+    }
     const fork = this.em.fork()
     const entry = fork.create(AccessLog, {
       tenantId: data.tenantId ?? null,
@@ -26,6 +38,37 @@ export class AccessLogService {
     })
     await fork.persistAndFlush(entry)
     return entry
+  }
+
+  private normalizeInput(input: Partial<AccessLogCreateInput> | null | undefined): AccessLogCreateInput {
+    if (!input) {
+      return {
+        tenantId: null,
+        organizationId: null,
+        actorUserId: null,
+        resourceKind: 'unknown',
+        resourceId: 'unknown',
+        accessType: 'unknown',
+        fields: undefined,
+        context: undefined,
+      }
+    }
+    const fields = Array.isArray(input.fields)
+      ? input.fields.filter((f): f is string => typeof f === 'string' && f.length > 0)
+      : undefined
+    const context = typeof input.context === 'object' && input.context !== null
+      ? input.context as Record<string, unknown>
+      : undefined
+    return {
+      tenantId: input.tenantId ?? null,
+      organizationId: input.organizationId ?? null,
+      actorUserId: input.actorUserId ?? null,
+      resourceKind: String(input.resourceKind || 'unknown'),
+      resourceId: String(input.resourceId || 'unknown'),
+      accessType: String(input.accessType || 'unknown'),
+      fields,
+      context,
+    }
   }
 
   async list(query: Partial<AccessLogListQuery>) {

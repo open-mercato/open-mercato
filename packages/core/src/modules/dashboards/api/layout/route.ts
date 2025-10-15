@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
+import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/entities'
 import { dashboardLayoutSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
@@ -63,9 +64,10 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const rbac = resolve('rbacService') as any
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as any
+  const rbac = container.resolve('rbacService') as any
+  const url = new URL(req.url)
 
   const scope: LayoutScope = {
     userId: String(auth.sub),
@@ -142,7 +144,7 @@ export async function GET(req: Request) {
     userLabel = scope.userId
   }
 
-  return NextResponse.json({
+  const response = {
     layout: { items },
     allowedWidgetIds: allowedIds,
     canConfigure,
@@ -164,7 +166,28 @@ export async function GET(req: Request) {
       icon: widget.metadata.icon ?? null,
       loaderKey: widget.key,
     })),
+  }
+
+  await logCrudAccess({
+    container,
+    auth,
+    request: req,
+    items: [{
+      id: scope.userId,
+      userId: scope.userId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      widgetCount: response.layout.items.length,
+    }],
+    idField: 'id',
+    resourceKind: 'dashboards.layout',
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    query: Object.fromEntries(url.searchParams.entries()),
+    accessType: 'read:item',
   })
+
+  return NextResponse.json(response)
 }
 
 export async function PUT(req: Request) {

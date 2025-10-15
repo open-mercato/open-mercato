@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
+import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { computeHierarchyForOrganizations, type ComputedHierarchy } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -83,10 +84,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ items: [], selectedId: null, canManage: false }, { status: auth ? 200 : 401 })
   }
 
+  const url = new URL(req.url)
+
   try {
-    const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
-    const rbac = resolve('rbacService') as any
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as any
+    const rbac = container.resolve('rbacService') as any
 
     const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId, organizationId: auth.orgId ?? null })
     const hasManageFeature =
@@ -120,11 +123,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ items: [], selectedId: null, canManage: false })
     }
 
-    return NextResponse.json({
+    const response = {
       items: menuData.nodes,
       selectedId,
       canManage: !!hasManageFeature,
+    }
+
+    await logCrudAccess({
+      container,
+      auth,
+      request: req,
+      items: response.items,
+      idField: 'id',
+      resourceKind: 'directory.organization_switcher',
+      organizationId: auth.orgId ?? null,
+      tenantId: auth.tenantId ?? null,
+      query: Object.fromEntries(url.searchParams.entries()),
     })
+
+    return NextResponse.json(response)
   } catch (err) {
     console.error('Failed to build organization switcher payload', err)
     return NextResponse.json({ items: [], selectedId: null, canManage: false }, { status: 500 })

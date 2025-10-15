@@ -8,6 +8,12 @@ export const baseScopeSchema = z.object({
   actorUserId: uuid.nullish(),
 })
 
+const recordLike = z.union([
+  z.record(z.unknown()),
+  z.array(z.unknown()),
+  z.null(),
+]).optional()
+
 export const actionLogCreateSchema = baseScopeSchema.extend({
   commandId: z.string().min(1),
   actionLabel: z.string().min(1).optional(),
@@ -18,8 +24,8 @@ export const actionLogCreateSchema = baseScopeSchema.extend({
   commandPayload: z.unknown().optional(),
   snapshotBefore: z.unknown().optional(),
   snapshotAfter: z.unknown().optional(),
-  changes: z.record(z.unknown()).optional(),
-  context: z.record(z.unknown()).optional(),
+  changes: recordLike,
+  context: recordLike,
 })
 
 export const actionLogListSchema = z.object({

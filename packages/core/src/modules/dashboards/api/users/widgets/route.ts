@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
+import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { DashboardUserWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
 import { userWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
@@ -24,9 +25,9 @@ export async function GET(req: Request) {
   const tenantId = url.searchParams.get('tenantId') || auth.tenantId || null
   const organizationId = url.searchParams.get('organizationId') || auth.orgId || null
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const rbac = resolve('rbacService') as any
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as any
+  const rbac = container.resolve('rbacService') as any
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
   if (!acl.isSuperAdmin && !hasFeature(acl.features, FEATURE)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -53,13 +54,28 @@ export async function GET(req: Request) {
     deletedAt: null,
   })
 
-  return NextResponse.json({
+  const response = {
     mode: record ? record.mode : 'inherit',
     widgetIds: record && record.mode === 'override' ? record.widgetIdsJson : [],
     hasCustom: !!record && record.mode === 'override',
     effectiveWidgetIds: allowed,
     scope: { tenantId, organizationId },
+  }
+
+  await logCrudAccess({
+    container,
+    auth,
+    request: req,
+    items: [{ id: userId, ...response }],
+    idField: 'id',
+    resourceKind: 'dashboards.user_widgets',
+    organizationId,
+    tenantId,
+    query: Object.fromEntries(url.searchParams.entries()),
+    accessType: 'read:item',
   })
+
+  return NextResponse.json(response)
 }
 
 export async function PUT(req: Request) {

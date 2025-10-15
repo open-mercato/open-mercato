@@ -167,6 +167,18 @@ function normalizeIdentifierValue(value: any): string | null {
 
 type AccessLogServiceLike = { log: (input: any) => Promise<unknown> | unknown }
 
+function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
+  try {
+    const service = container.resolve?.('accessLogService') as AccessLogServiceLike | undefined
+    if (service && typeof service.log === 'function') return service
+  } catch (err) {
+    try {
+      console.warn('[crud] accessLogService not available in container', err)
+    } catch {}
+  }
+  return null
+}
+
 function collectFieldNames(items: any[]): string[] {
   const set = new Set<string>()
   for (const item of items) {
@@ -184,24 +196,6 @@ function determineAccessType(query: unknown, total: number, idField: string): st
     if (value !== undefined && value !== null && String(value).length > 0) return 'read:item'
   }
   return total > 1 ? 'read:list' : 'read'
-}
-
-function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
-  const containerAny = container as any
-  try {
-    if (typeof containerAny?.hasRegistration === 'function' && !containerAny.hasRegistration('accessLogService')) {
-      return null
-    }
-  } catch {
-    // ignore registration lookup errors
-  }
-  try {
-    const service = container.resolve?.('accessLogService') as AccessLogServiceLike | undefined
-    if (service && typeof service.log === 'function') return service
-  } catch {
-    return null
-  }
-  return null
 }
 
 export type LogCrudAccessOptions = {
@@ -266,7 +260,14 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
     }
     if (fields.length > 0) payload.fields = fields
     if (Object.keys(context).length > 0) payload.context = context
-    tasks.push(Promise.resolve(service.log(payload)).catch(() => undefined))
+      tasks.push(
+        Promise.resolve(service.log(payload)).catch((err) => {
+          try {
+            console.error('[crud] failed to record access log', { err, payload })
+          } catch {}
+          return undefined
+        })
+      )
   }
   if (tasks.length > 0) await Promise.all(tasks)
 }
