@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type AccessLogItem = {
@@ -21,7 +21,7 @@ export type AccessLogItem = {
   createdAt: string
 }
 
-export function AccessLogsTable({ items, isLoading, actions }: { items: AccessLogItem[] | undefined; isLoading?: boolean; actions?: React.ReactNode }) {
+export function AccessLogsTable({ items, isLoading, actions, pagination }: { items: AccessLogItem[] | undefined; isLoading?: boolean; actions?: React.ReactNode; pagination?: PaginationProps }) {
   const t = useT()
   const accessItems = Array.isArray(items) ? items : []
   const noneLabel = t('audit_logs.common.none')
@@ -76,6 +76,7 @@ export function AccessLogsTable({ items, isLoading, actions }: { items: AccessLo
       columns={columns}
       isLoading={Boolean(isLoading)}
       actions={actions}
+      pagination={pagination}
     />
   )
 }

@@ -8,18 +8,39 @@ import {
   type AccessLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
 
+const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
+
+function toPositiveNumber(value: string | undefined, fallback: number): number {
+  if (!value) return fallback
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return parsed
+}
+
+const CORE_RETENTION_DAYS = toPositiveNumber(process.env.AUDIT_LOGS_CORE_RETENTION_DAYS, 7)
+const NON_CORE_RETENTION_HOURS = toPositiveNumber(process.env.AUDIT_LOGS_NON_CORE_RETENTION_HOURS, 8)
+const CORE_RETENTION_MS = CORE_RETENTION_DAYS * 24 * 60 * 60 * 1000
+const NON_CORE_RETENTION_MS = NON_CORE_RETENTION_HOURS * 60 * 60 * 1000
+
+let validationWarningLogged = false
+
 export class AccessLogService {
   constructor(private readonly em: EntityManager) {}
 
   async log(input: AccessLogCreateInput) {
     let data: AccessLogCreateInput
-    const canValidate = accessLogCreateSchema && typeof (accessLogCreateSchema as any).parse === 'function'
+    const schema = accessLogCreateSchema as typeof accessLogCreateSchema & { _zod?: unknown }
+    // Zod v4 exports lose their internals when transpiled without ESM support, so ensure the runtime artefacts exist before parsing.
+    const canValidate = Boolean(schema && typeof schema.parse === 'function' && typeof schema._zod !== 'undefined')
     if (canValidate) {
       try {
-        data = accessLogCreateSchema.parse(input)
+        data = schema.parse(input)
       } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('[audit_logs] failed to validate access log payload, using fallback', err)
+        if (!validationWarningLogged) {
+          validationWarningLogged = true
+          // eslint-disable-next-line no-console
+          console.warn('[audit_logs] falling back to permissive access log payload parser', err)
+        }
         data = this.normalizeInput(input)
       }
     } else {
@@ -37,6 +58,7 @@ export class AccessLogService {
       contextJson: data.context ?? null,
     })
     await fork.persistAndFlush(entry)
+    await this.rotate(fork)
     return entry
   }
 
@@ -74,7 +96,6 @@ export class AccessLogService {
   async list(query: Partial<AccessLogListQuery>) {
     const parsed = accessLogListSchema.parse({
       ...query,
-      limit: query.limit ?? 50,
     })
 
     const where: FilterQuery<AccessLog> = { deletedAt: null }
@@ -86,13 +107,42 @@ export class AccessLogService {
     if (parsed.before) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $lt: parsed.before } as any
     if (parsed.after) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $gt: parsed.after } as any
 
-    return await this.em.find(
+    const pageSize = parsed.pageSize ?? parsed.limit ?? 50
+    const page = parsed.page ?? 1
+    const offset = (page - 1) * pageSize
+
+    const [items, total] = await this.em.findAndCount(
       AccessLog,
       where,
       {
         orderBy: { createdAt: 'desc' },
-        limit: parsed.limit,
+        limit: pageSize,
+        offset,
       },
     )
+
+    const totalPages = Math.max(1, Math.ceil((total || 0) / (pageSize || 1)))
+    return { items, total, page, pageSize, totalPages }
+  }
+
+  private async rotate(fork: EntityManager) {
+    const now = Date.now()
+    const coreCutoff = new Date(now - CORE_RETENTION_MS)
+    const nonCoreCutoff = new Date(now - NON_CORE_RETENTION_MS)
+    try {
+      if (CORE_RESOURCE_KINDS.size > 0) {
+        await fork.nativeDelete(AccessLog, {
+          resourceKind: { $in: Array.from(CORE_RESOURCE_KINDS) },
+          createdAt: { $lt: coreCutoff },
+        })
+      }
+      await fork.nativeDelete(AccessLog, {
+        resourceKind: { $nin: Array.from(CORE_RESOURCE_KINDS) },
+        createdAt: { $lt: nonCoreCutoff },
+      })
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[audit_logs] failed to rotate access logs', err)
+    }
   }
 }
