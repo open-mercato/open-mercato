@@ -23,6 +23,7 @@ type SerializedTodo = {
   is_done: boolean
   tenantId: string | null
   organizationId: string | null
+  custom?: Record<string, unknown>
 }
 
 function getCommand(id: string): CommandHandler<any, any> {
@@ -33,8 +34,8 @@ function getCommand(id: string): CommandHandler<any, any> {
 
 function createCtx(
   overrides: Partial<CommandRuntimeContext> = {}
-): { ctx: CommandRuntimeContext; dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity'> } {
-  const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity'> = {
+): { ctx: CommandRuntimeContext; dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields'> } {
+  const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields'> = {
     updateOrmEntity: jest.fn(async ({ apply }) => {
       const entity = {
         id: 'todo-1',
@@ -48,6 +49,7 @@ function createCtx(
       return entity
     }),
     deleteOrmEntity: jest.fn(async () => null),
+    setCustomFields: jest.fn(async () => {}),
   }
 
   const container = {
@@ -93,6 +95,25 @@ describe('example todos undo', () => {
         id: baseSnapshot.id,
         tenantId: baseSnapshot.tenantId,
         organizationId: baseSnapshot.organizationId,
+      })
+    )
+  })
+
+  it('restores custom fields diff when undoing update', async () => {
+    const { ctx, dataEngine } = createCtx()
+    const handler = getCommand('example.todos.update')
+    const logEntry = {
+      snapshotBefore: { ...baseSnapshot, custom: { priority: 3 } },
+      snapshotAfter: { ...baseSnapshot, custom: { priority: 5, severity: 'critical' } },
+    }
+
+    await handler.undo!({ logEntry, ctx, input: {} })
+
+    expect(dataEngine.setCustomFields).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityId: 'example:todo',
+        recordId: baseSnapshot.id,
+        values: { priority: 3, severity: null },
       })
     )
   })
