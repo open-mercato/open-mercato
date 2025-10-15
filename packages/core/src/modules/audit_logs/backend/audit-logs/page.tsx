@@ -18,9 +18,15 @@ type ActionLogResponse = {
 type AccessLogResponse = {
   items: AccessLogItem[]
   canViewTenant: boolean
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
 }
 
 type TabOption = 'actions' | 'access'
+
+const ACCESS_PAGE_SIZE = 50
 
 export default function AuditLogsPage() {
   const t = useT()
@@ -30,50 +36,93 @@ export default function AuditLogsPage() {
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [undoableOnly, setUndoableOnly] = React.useState(false)
+  const [accessPage, setAccessPage] = React.useState(1)
+  const [accessPageSize, setAccessPageSize] = React.useState(ACCESS_PAGE_SIZE)
+  const [accessTotal, setAccessTotal] = React.useState(0)
+  const [accessTotalPages, setAccessTotalPages] = React.useState(1)
+  const accessPageSizeRef = React.useRef(ACCESS_PAGE_SIZE)
 
-  const loadData = React.useCallback(async () => {
+  const fetchActions = React.useCallback(async () => {
+    const query = undoableOnly ? '?undoableOnly=true' : ''
+    const res = await apiFetch(`/api/audit_logs/audit-logs/actions${query}`)
+    if (!res.ok) throw new Error(await res.text().catch(() => ''))
+    return res.json() as Promise<ActionLogResponse>
+  }, [undoableOnly])
+
+  const fetchAccess = React.useCallback(async (page: number, pageSize: number) => {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('pageSize', String(pageSize))
+    const res = await apiFetch(`/api/audit_logs/audit-logs/access?${params.toString()}`)
+    if (!res.ok) throw new Error(await res.text().catch(() => ''))
+    return res.json() as Promise<AccessLogResponse>
+  }, [])
+
+  const loadAll = React.useCallback(async (page: number, pageSize: number) => {
+    const [actionsRes, accessRes] = await Promise.all([
+      fetchActions(),
+      fetchAccess(page, pageSize),
+    ])
+    setActions(actionsRes.items ?? [])
+    setAccessLogs(accessRes.items ?? [])
+    const resolvedPage = accessRes.page ?? page
+    const resolvedPageSize = accessRes.pageSize ?? pageSize
+    const resolvedTotal = accessRes.total ?? (accessRes.items?.length ?? 0)
+    const resolvedTotalPages = accessRes.totalPages ?? Math.max(1, Math.ceil((resolvedTotal || 0) / (resolvedPageSize || 1)))
+    setAccessPage(resolvedPage)
+    setAccessPageSize((prev) => {
+      if (resolvedPageSize === prev) {
+        accessPageSizeRef.current = prev
+        return prev
+      }
+      accessPageSizeRef.current = resolvedPageSize
+      return resolvedPageSize
+    })
+    setAccessTotal(resolvedTotal)
+    setAccessTotalPages(resolvedTotalPages)
+  }, [fetchActions, fetchAccess])
+
+  const loadWithState = React.useCallback(async (page: number, pageSize: number) => {
     setLoading(true)
     setError(null)
     try {
-      const query = undoableOnly ? '?undoableOnly=true' : ''
-      const [actionsRes, accessRes] = await Promise.all([
-        apiFetch(`/api/audit_logs/audit-logs/actions${query}`).then(async (res) => {
-          if (!res.ok) throw new Error(await res.text().catch(() => ''))
-          return res.json() as Promise<ActionLogResponse>
-        }),
-        apiFetch('/api/audit_logs/audit-logs/access').then(async (res) => {
-          if (!res.ok) throw new Error(await res.text().catch(() => ''))
-          return res.json() as Promise<AccessLogResponse>
-        }),
-      ])
-      setActions(actionsRes.items ?? [])
-      setAccessLogs(accessRes.items ?? [])
+      await loadAll(page, pageSize)
     } catch (err) {
       console.error('Failed to load audit logs', err)
       setError(t('audit_logs.error.load'))
     } finally {
       setLoading(false)
     }
-  }, [undoableOnly, t])
+  }, [loadAll, t])
 
   React.useEffect(() => {
-    void loadData()
-  }, [loadData])
+    setAccessPage(1)
+    void loadWithState(1, accessPageSizeRef.current)
+  }, [loadWithState, undoableOnly])
 
   const renderRefreshButton = React.useCallback(() => (
     <Button
       variant="outline"
       size="sm"
-      onClick={() => void loadData()}
+      onClick={() => void loadWithState(accessPage, accessPageSize)}
       disabled={loading}
     >
       {loading ? t('audit_logs.common.refreshing') : t('audit_logs.common.refresh')}
     </Button>
-  ), [loadData, loading, t])
+  ), [loadWithState, accessPage, accessPageSize, loading, t])
 
   const handleUndoError = React.useCallback(() => {
     setError(t('audit_logs.error.undo'))
   }, [t])
+  const handleRedoError = React.useCallback(() => {
+    setError(t('audit_logs.error.redo'))
+  }, [t])
+
+  const handleAccessPageChange = React.useCallback((nextPage: number) => {
+    const totalPages = accessTotalPages || 1
+    const normalized = Math.max(1, Math.min(nextPage, totalPages))
+    void loadWithState(normalized, accessPageSizeRef.current)
+  }, [accessTotalPages, loadWithState])
 
   const headerExtras = (
     <>
@@ -121,10 +170,11 @@ export default function AuditLogsPage() {
         {tab === 'actions' && (
           <AuditLogsActions
             items={actions}
-            onRefresh={loadData}
+            onRefresh={() => loadWithState(accessPage, accessPageSize)}
             isLoading={loading}
             headerExtras={headerExtras}
             onUndoError={handleUndoError}
+            onRedoError={handleRedoError}
           />
         )}
 
@@ -133,6 +183,13 @@ export default function AuditLogsPage() {
             items={accessLogs}
             isLoading={loading}
             actions={renderRefreshButton()}
+            pagination={{
+              page: accessPage,
+              pageSize: accessPageSize,
+              total: accessTotal,
+              totalPages: accessTotalPages,
+              onPageChange: handleAccessPageChange,
+            }}
           />
         )}
       </PageBody>

@@ -7,6 +7,7 @@ import type { QueryEngine, Where, Sort, Page } from '@open-mercato/shared/lib/qu
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type {
   CrudEventAction,
   CrudEventsConfig,
@@ -136,6 +137,36 @@ function json(data: any, init?: ResponseInit) {
   })
 }
 
+function attachOperationHeader(res: Response, logEntry: any) {
+  if (!res || !(res instanceof Response)) return res
+  if (!logEntry || typeof logEntry !== 'object') return res
+  const undoToken = typeof logEntry.undoToken === 'string' ? logEntry.undoToken : null
+  const id = typeof logEntry.id === 'string' ? logEntry.id : null
+  const commandId = typeof logEntry.commandId === 'string' ? logEntry.commandId : null
+  if (!undoToken || !id || !commandId) return res
+  const actionLabel = typeof logEntry.actionLabel === 'string' ? logEntry.actionLabel : null
+  const resourceKind = typeof logEntry.resourceKind === 'string' ? logEntry.resourceKind : null
+  const resourceId = typeof logEntry.resourceId === 'string' ? logEntry.resourceId : null
+  const createdAt = logEntry.createdAt instanceof Date
+    ? logEntry.createdAt.toISOString()
+    : (typeof logEntry.createdAt === 'string' ? logEntry.createdAt : new Date().toISOString())
+  const headerValue = serializeOperationMetadata({
+    id,
+    undoToken,
+    commandId,
+    actionLabel,
+    resourceKind,
+    resourceId,
+    executedAt: createdAt,
+  })
+  try {
+    res.headers.set('x-om-operation', headerValue)
+  } catch {
+    // no-op if headers already sent
+  }
+  return res
+}
+
 function handleError(err: unknown): Response {
   if (err instanceof Response) return err
   if (err instanceof CrudHttpError) return json(err.body, { status: err.status })
@@ -167,6 +198,18 @@ function normalizeIdentifierValue(value: any): string | null {
 
 type AccessLogServiceLike = { log: (input: any) => Promise<unknown> | unknown }
 
+function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
+  try {
+    const service = container.resolve?.('accessLogService') as AccessLogServiceLike | undefined
+    if (service && typeof service.log === 'function') return service
+  } catch (err) {
+    try {
+      console.warn('[crud] accessLogService not available in container', err)
+    } catch {}
+  }
+  return null
+}
+
 function collectFieldNames(items: any[]): string[] {
   const set = new Set<string>()
   for (const item of items) {
@@ -184,24 +227,6 @@ function determineAccessType(query: unknown, total: number, idField: string): st
     if (value !== undefined && value !== null && String(value).length > 0) return 'read:item'
   }
   return total > 1 ? 'read:list' : 'read'
-}
-
-function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
-  const containerAny = container as any
-  try {
-    if (typeof containerAny?.hasRegistration === 'function' && !containerAny.hasRegistration('accessLogService')) {
-      return null
-    }
-  } catch {
-    // ignore registration lookup errors
-  }
-  try {
-    const service = container.resolve?.('accessLogService') as AccessLogServiceLike | undefined
-    if (service && typeof service.log === 'function') return service
-  } catch {
-    return null
-  }
-  return null
 }
 
 export type LogCrudAccessOptions = {
@@ -266,7 +291,14 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
     }
     if (fields.length > 0) payload.fields = fields
     if (Object.keys(context).length > 0) payload.context = context
-    tasks.push(Promise.resolve(service.log(payload)).catch(() => undefined))
+      tasks.push(
+        Promise.resolve(service.log(payload)).catch((err) => {
+          try {
+            console.error('[crud] failed to record access log', { err, payload })
+          } catch {}
+          return undefined
+        })
+      )
   }
   if (tasks.length > 0) await Promise.all(tasks)
 }
@@ -466,7 +498,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         const resolvedPayload = await Promise.resolve(payload)
         const status = action.status ?? 201
-        return json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status })
+        attachOperationHeader(response, logEntry)
+        return response
       }
 
       let input = opts.create.schema.parse(body)
@@ -541,7 +575,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         const resolvedPayload = await Promise.resolve(payload)
         const status = action.status ?? 200
-        return json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status })
+        attachOperationHeader(response, logEntry)
+        return response
       }
 
       let input = opts.update.schema.parse(body)
@@ -623,7 +659,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         const resolvedPayload = await Promise.resolve(payload)
         const status = action.status ?? 200
-        return json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status })
+        attachOperationHeader(response, logEntry)
+        return response
       }
 
       const idFrom = opts.del?.idFrom || 'query'

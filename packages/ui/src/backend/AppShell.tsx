@@ -7,6 +7,7 @@ import { FlashMessages } from './FlashMessages'
 import { usePathname } from 'next/navigation'
 import { apiFetch } from './utils/api'
 import { LanguageSwitcher } from '../frontend/LanguageSwitcher'
+import { LastOperationBanner } from './operations/LastOperationBanner'
 
 export type AppShellProps = {
   productName?: string
@@ -383,6 +384,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
         </header>
         <main className="flex-1 p-4 lg:p-6">
           <FlashMessages />
+          <LastOperationBanner />
           {children}
         </main>
         <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex justify-end">

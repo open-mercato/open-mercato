@@ -2,6 +2,8 @@
 // Simple fetch wrapper that redirects to session refresh on 401 (Unauthorized)
 // Used across UI data utilities to avoid duplication.
 import { flash } from '../FlashMessages'
+import { deserializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { pushOperation } from '../operations/store'
 export class UnauthorizedError extends Error {
   readonly status = 401
   constructor(message = 'Unauthorized') {
@@ -93,6 +95,13 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       throw new ForbiddenError(msg)
     }
     // If already on login, just return the response for the caller to handle
+  }
+  try {
+    const header = res.headers.get('x-om-operation')
+    const metadata = deserializeOperationMetadata(header)
+    if (metadata) pushOperation(metadata)
+  } catch {
+    // ignore malformed headers
   }
   return res
 }

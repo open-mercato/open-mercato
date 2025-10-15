@@ -63,9 +63,10 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const rbac = resolve('rbacService') as any
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as any
+  const rbac = container.resolve('rbacService') as any
+  const url = new URL(req.url)
 
   const scope: LayoutScope = {
     userId: String(auth.sub),
@@ -142,7 +143,7 @@ export async function GET(req: Request) {
     userLabel = scope.userId
   }
 
-  return NextResponse.json({
+  const response = {
     layout: { items },
     allowedWidgetIds: allowedIds,
     canConfigure,
@@ -164,7 +165,9 @@ export async function GET(req: Request) {
       icon: widget.metadata.icon ?? null,
       loaderKey: widget.key,
     })),
-  })
+  }
+
+  return NextResponse.json(response)
 }
 
 export async function PUT(req: Request) {

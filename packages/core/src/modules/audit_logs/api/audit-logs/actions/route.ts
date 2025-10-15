@@ -93,6 +93,7 @@ export async function GET(req: Request) {
     resourceId: entry.resourceId,
     undoToken: entry.undoToken,
     createdAt: entry.createdAt?.toISOString?.() ?? entry.createdAt,
+    updatedAt: entry.updatedAt?.toISOString?.() ?? entry.updatedAt,
     snapshotBefore: entry.snapshotBefore,
     snapshotAfter: entry.snapshotAfter,
     changes: entry.changesJson,

@@ -129,6 +129,7 @@ const sidebars: SidebarsConfig = {
             'framework/modules/routes-and-pages',
           ],
         },
+        'framework/commands/overview',
         {
           type: 'category',
           label: 'Database & Entities',

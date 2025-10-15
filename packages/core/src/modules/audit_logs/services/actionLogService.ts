@@ -8,11 +8,35 @@ import {
   type ActionLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
 
+let validationWarningLogged = false
+let runtimeValidationAvailable: boolean | null = null
+
+const isZodRuntimeMissing = (err: unknown) => err instanceof TypeError && typeof err.message === 'string' && err.message.includes('_zod')
+
 export class ActionLogService {
   constructor(private readonly em: EntityManager) {}
 
-  async log(input: ActionLogCreateInput) {
-    const data = actionLogCreateSchema.parse(input)
+  async log(input: ActionLogCreateInput): Promise<ActionLog | null> {
+    let data: ActionLogCreateInput
+    const schema = actionLogCreateSchema as typeof actionLogCreateSchema & { _zod?: unknown }
+    const canValidate = Boolean(schema && typeof schema.parse === 'function')
+    const shouldValidate = canValidate && runtimeValidationAvailable !== false
+    if (shouldValidate) {
+      try {
+        data = schema.parse(input)
+        runtimeValidationAvailable = true
+      } catch (err) {
+        if (!isZodRuntimeMissing(err) && !validationWarningLogged) {
+          validationWarningLogged = true
+          // eslint-disable-next-line no-console
+          console.warn('[audit_logs] falling back to permissive action log payload parser', err)
+        }
+        if (isZodRuntimeMissing(err)) runtimeValidationAvailable = false
+        data = this.normalizeInput(input)
+      }
+    } else {
+      data = this.normalizeInput(input)
+    }
     const fork = this.em.fork()
     const log = fork.create(ActionLog, {
       tenantId: data.tenantId ?? null,
@@ -32,6 +56,56 @@ export class ActionLogService {
     })
     await fork.persistAndFlush(log)
     return log
+  }
+
+  private normalizeInput(input: Partial<ActionLogCreateInput> | null | undefined): ActionLogCreateInput {
+    if (!input) {
+      return {
+        tenantId: null,
+        organizationId: null,
+        actorUserId: null,
+        commandId: 'unknown',
+        actionLabel: undefined,
+        resourceKind: undefined,
+        resourceId: undefined,
+        executionState: 'done',
+        undoToken: undefined,
+        commandPayload: undefined,
+        snapshotBefore: undefined,
+        snapshotAfter: undefined,
+        changes: undefined,
+        context: undefined,
+      }
+    }
+    const toNullableUuid = (value: unknown) => (typeof value === 'string' && value.length > 0 ? value : null)
+    const toOptionalString = (value: unknown) => (typeof value === 'string' && value.length > 0 ? value : undefined)
+
+    const normalizeRecordLike = (value: unknown): ActionLogCreateInput['changes'] => {
+      if (value === null) return null
+      if (Array.isArray(value)) return value
+      if (typeof value === 'object') return value as Record<string, unknown>
+      return undefined
+    }
+    const normalizeContext = (value: unknown) => (typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : undefined)
+
+    return {
+      tenantId: toNullableUuid(input.tenantId),
+      organizationId: toNullableUuid(input.organizationId),
+      actorUserId: toNullableUuid(input.actorUserId),
+      commandId: typeof input.commandId === 'string' && input.commandId.length > 0 ? input.commandId : 'unknown',
+      actionLabel: toOptionalString(input.actionLabel),
+      resourceKind: toOptionalString(input.resourceKind),
+      resourceId: toOptionalString(input.resourceId),
+      executionState: input.executionState === 'undone' || input.executionState === 'failed' ? input.executionState : 'done',
+      undoToken: toOptionalString(input.undoToken),
+      commandPayload: input.commandPayload,
+      snapshotBefore: input.snapshotBefore,
+      snapshotAfter: input.snapshotAfter,
+      changes: normalizeRecordLike(input.changes),
+      context: normalizeContext(input.context),
+    }
   }
 
   async list(query: Partial<ActionLogListQuery>) {
@@ -82,5 +156,49 @@ export class ActionLogService {
 
   async findByUndoToken(undoToken: string) {
     return await this.em.findOne(ActionLog, { undoToken, deletedAt: null })
+  }
+
+  async findById(id: string) {
+    return await this.em.findOne(ActionLog, { id, deletedAt: null })
+  }
+
+  async latestUndoableForResource(params: {
+    actorUserId: string
+    tenantId?: string | null
+    organizationId?: string | null
+    resourceKind?: string | null
+    resourceId?: string | null
+  }) {
+    const where: FilterQuery<ActionLog> = {
+      actorUserId: params.actorUserId,
+      undoToken: { $ne: null } as any,
+      executionState: 'done',
+      deletedAt: null,
+    }
+    if (params.tenantId) where.tenantId = params.tenantId
+    if (params.organizationId) where.organizationId = params.organizationId
+    if (params.resourceKind) where.resourceKind = params.resourceKind
+    if (params.resourceId) where.resourceId = params.resourceId
+    return await this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+  }
+
+  async latestUndoneForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
+    const where: FilterQuery<ActionLog> = {
+      actorUserId,
+      executionState: 'undone',
+      deletedAt: null,
+    }
+    if (scope.tenantId) where.tenantId = scope.tenantId
+    if (scope.organizationId) where.organizationId = scope.organizationId
+    return await this.em.findOne(ActionLog, where, { orderBy: { updatedAt: 'desc' } })
+  }
+
+  async markRedone(id: string) {
+    const log = await this.em.findOne(ActionLog, { id, deletedAt: null })
+    if (!log) return null
+    log.executionState = 'redone'
+    log.undoToken = null
+    await this.em.flush()
+    return log
   }
 }

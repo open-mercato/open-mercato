@@ -9,5 +9,25 @@ The **Security → Audit Logs** page surfaces every command executed through the
 - **Action Log** lists create, update, and delete events with the actor, scoped tenant/organization, and when the change happened. If the last action is undoable the banner exposes an **Undo last action** button that replays the command’s `undo` handler.
 - **Access Log** records read events (for example when a user opens a detail view) so administrators can inspect who looked at sensitive resources.
 - Use the toggle to filter for undoable entries and the refresh button to pull the latest records without leaving the page.
+- The Access Log is paginated (50 records per page by default) so you can page through longer histories without exporting data.
+
+![Audit log timeline showing undoable entries](/screenshots/open-mercato-action-logs.png)
 
 Undo support is currently available for directory tenants/organizations, auth users/roles, and example todos. Additional modules can opt-in by implementing command handlers with `undo` snapshots.
+
+## Undo and Diffs
+
+- Clicking **Undo last action** triggers the command bus with the stored `undoToken`. The UI only enables this button for the most recent, undoable entry to guarantee replay order.
+- After a successful undo the entry is marked as **undone** and its token is cleared, preventing accidental double-undos. To "redo" the operation, simply run the original action again (for example, resubmit the edit form); it will generate a fresh command entry with a new undo token.
+- Selecting any row opens the operation drawer, which renders before/after snapshots and a diff of the changed fields. These values come from the command’s `snapshotBefore`, `snapshotAfter`, and `changes` metadata.
+
+![Operation drawer highlighting changed fields and snapshots](/screenshots/open-mercato-operation-details.png)
+
+## Retention
+
+Access log retention is automatic and environment-configurable:
+
+- **Core resources** (`auth.user`, `auth.role`) are retained for **7 days** by default. Override with `AUDIT_LOGS_CORE_RETENTION_DAYS`.
+- **All other resources** rotate after **8 hours** by default. Override with `AUDIT_LOGS_NON_CORE_RETENTION_HOURS`.
+
+Configure these in your `.env` file to keep the volume of access logs under control while preserving critical trails for longer investigations.

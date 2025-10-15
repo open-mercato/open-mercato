@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
@@ -107,8 +107,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 400 })
   }
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as EntityManager
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
 
   const { id, page, pageSize, search, sortField, sortDir, isActive } = parsed.data
   const where: FilterQuery<Tenant> = { deletedAt: null }
@@ -193,6 +193,19 @@ export async function GET(req: Request) {
     return toRow(tenant, cf)
   })
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  await logCrudAccess({
+    container,
+    auth,
+    request: req,
+    items,
+    idField: 'id',
+    resourceKind: 'directory.tenant',
+    organizationId: null,
+    tenantId: auth.tenantId ?? null,
+    query: rawQuery,
+    accessType: id ? 'read:item' : undefined,
+  })
 
   return NextResponse.json({ items, total, page, pageSize, totalPages })
 }

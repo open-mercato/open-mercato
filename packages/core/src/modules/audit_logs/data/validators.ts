@@ -8,6 +8,12 @@ export const baseScopeSchema = z.object({
   actorUserId: uuid.nullish(),
 })
 
+const recordLike = z.union([
+  z.record(z.unknown()),
+  z.array(z.unknown()),
+  z.null(),
+]).optional()
+
 export const actionLogCreateSchema = baseScopeSchema.extend({
   commandId: z.string().min(1),
   actionLabel: z.string().min(1).optional(),
@@ -18,8 +24,8 @@ export const actionLogCreateSchema = baseScopeSchema.extend({
   commandPayload: z.unknown().optional(),
   snapshotBefore: z.unknown().optional(),
   snapshotAfter: z.unknown().optional(),
-  changes: z.record(z.unknown()).optional(),
-  context: z.record(z.unknown()).optional(),
+  changes: recordLike,
+  context: recordLike,
 })
 
 export const actionLogListSchema = z.object({
@@ -46,7 +52,9 @@ export const accessLogListSchema = z.object({
   actorUserId: uuid.optional(),
   resourceKind: z.string().optional(),
   accessType: z.string().optional(),
-  limit: z.number().int().positive().max(200).default(50),
+  limit: z.number().int().positive().max(200).optional(),
+  page: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().max(200).default(50),
   before: z.date().optional(),
   after: z.date().optional(),
 })

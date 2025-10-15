@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
@@ -130,8 +130,8 @@ export async function GET(req: Request) {
   const status = query.status ?? 'all'
   const includeInactive = query.includeInactive === 'true' || status !== 'active'
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve<EntityManager>('em')
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
 
   if (!tenantId && !authTenantId && ids?.length) {
     const scopedOrgs: Organization[] = await em.find(
@@ -207,6 +207,18 @@ export async function GET(req: Request) {
       depth: org.depth ?? 0,
       treePath: org.treePath ?? stringId(org.id),
     }))
+    await logCrudAccess({
+      container,
+      auth,
+      request: req,
+      items,
+      idField: 'id',
+      resourceKind: 'directory.organization',
+      organizationId: null,
+      tenantId,
+      query,
+      accessType: ids && ids.length === 1 ? 'read:item' : undefined,
+    })
     return NextResponse.json({ items })
   }
 
@@ -240,6 +252,17 @@ export async function GET(req: Request) {
         roots.push(treeNode)
       }
     }
+    await logCrudAccess({
+      container,
+      auth,
+      request: req,
+      items: roots,
+      idField: 'id',
+      resourceKind: 'directory.organization',
+      organizationId: null,
+      tenantId,
+      query,
+    })
     return NextResponse.json({ items: roots })
   }
 
@@ -311,6 +334,18 @@ export async function GET(req: Request) {
     }
   })
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  await logCrudAccess({
+    container,
+    auth,
+    request: req,
+    items,
+    idField: 'id',
+    resourceKind: 'directory.organization',
+    organizationId: null,
+    tenantId,
+    query,
+    accessType: ids && ids.length === 1 ? 'read:item' : undefined,
+  })
   return NextResponse.json({ items, total, page, pageSize, totalPages })
 }
 

@@ -4,6 +4,7 @@ import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
   emitCrudSideEffects,
+  emitCrudUndoSideEffects,
   buildChanges,
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
@@ -18,12 +19,45 @@ import { User, UserRole, Role, UserAcl, Session, PasswordReset } from '@open-mer
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { z } from 'zod'
+import {
+  loadCustomFieldSnapshot,
+  buildCustomFieldResetMap,
+  diffCustomFieldChanges,
+} from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 
 type SerializedUser = {
   email: string
   organizationId: string | null
   tenantId: string | null
   roles: string[]
+  name: string | null
+  isConfirmed: boolean
+  custom?: Record<string, unknown>
+}
+
+type UserAclSnapshot = {
+  tenantId: string
+  features: string[] | null
+  isSuperAdmin: boolean
+  organizations: string[] | null
+}
+
+type UserUndoSnapshot = {
+  id: string
+  email: string
+  organizationId: string | null
+  tenantId: string | null
+  passwordHash: string | null
+  name: string | null
+  isConfirmed: boolean
+  roles: string[]
+  acls: UserAclSnapshot[]
+  custom?: Record<string, unknown>
+}
+
+type UserSnapshots = {
+  view: SerializedUser
+  undo: UserUndoSnapshot
 }
 
 const createSchema = z.object({
@@ -133,19 +167,82 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
   captureAfter: async (_input, result, ctx) => {
     const em = ctx.container.resolve<EntityManager>('em')
     const roles = await loadUserRoleNames(em, String(result.id))
-    return serializeUser(result, roles)
+    const custom = await loadUserCustomSnapshot(
+      em,
+      String(result.id),
+      result.tenantId ? String(result.tenantId) : null,
+      result.organizationId ? String(result.organizationId) : null
+    )
+    return serializeUser(result, roles, custom)
   },
-  buildLog: async ({ result, ctx, snapshots }) => {
+  buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const current = snapshots.before as SerializedUser | undefined
-    const roles = current?.roles ?? (await loadUserRoleNames(ctx.container.resolve<EntityManager>('em'), String(result.id)))
+    const em = ctx.container.resolve<EntityManager>('em')
+    const roles = await loadUserRoleNames(em, String(result.id))
+    const custom = await loadUserCustomSnapshot(
+      em,
+      String(result.id),
+      result.tenantId ? String(result.tenantId) : null,
+      result.organizationId ? String(result.organizationId) : null
+    )
+    const snapshot = captureUserSnapshots(result, roles, undefined, custom)
     return {
       actionLabel: translate('auth.audit.users.create', 'Create user'),
       resourceKind: 'auth.user',
       resourceId: String(result.id),
       tenantId: result.tenantId ? String(result.tenantId) : null,
-      snapshotAfter: serializeUser(result, roles),
+      snapshotAfter: snapshot.view,
+      payload: {
+        undo: {
+          after: snapshot.undo,
+        },
+      },
     }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const userId = typeof logEntry?.resourceId === 'string' ? logEntry.resourceId : null
+    if (!userId) return
+    const snapshot = logEntry?.snapshotAfter as SerializedUser | undefined
+    const em = ctx.container.resolve<EntityManager>('em')
+    await em.nativeDelete(UserAcl, { user: userId })
+    await em.nativeDelete(UserRole, { user: userId })
+    await em.nativeDelete(Session, { user: userId })
+    await em.nativeDelete(PasswordReset, { user: userId })
+
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
+      const reset = buildCustomFieldResetMap(undefined, snapshot.custom)
+      if (Object.keys(reset).length) {
+        await de.setCustomFields({
+          entityId: E.auth.user,
+          recordId: userId,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: reset,
+          notify: false,
+        })
+      }
+    }
+    const removed = await de.deleteOrmEntity({
+      entity: User,
+      where: { id: userId, deletedAt: null } as FilterQuery<User>,
+      soft: false,
+    })
+
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: removed,
+      identifiers: {
+        id: userId,
+        organizationId: snapshot?.organizationId ?? null,
+        tenantId: snapshot?.tenantId ?? null,
+      },
+      events: userCrudEvents,
+      indexer: userCrudIndexer,
+    })
+
+    await invalidateUserCache(ctx, userId)
   },
 }
 
@@ -166,7 +263,14 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const existing = await em.findOne(User, { id: parsed.id, deletedAt: null })
     if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
     const roles = await loadUserRoleNames(em, parsed.id)
-    return { before: serializeUser(existing, roles) }
+    const acls = await loadUserAclSnapshots(em, parsed.id)
+    const custom = await loadUserCustomSnapshot(
+      em,
+      parsed.id,
+      existing.tenantId ? String(existing.tenantId) : null,
+      existing.organizationId ? String(existing.organizationId) : null
+    )
+    return { before: captureUserSnapshots(existing, roles, acls, custom) }
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
@@ -253,17 +357,36 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   captureAfter: async (_input, result, ctx) => {
     const em = ctx.container.resolve<EntityManager>('em')
     const roles = await loadUserRoleNames(em, String(result.id))
-    return serializeUser(result, roles)
+    const custom = await loadUserCustomSnapshot(
+      em,
+      String(result.id),
+      result.tenantId ? String(result.tenantId) : null,
+      result.organizationId ? String(result.organizationId) : null
+    )
+    return serializeUser(result, roles, custom)
   },
   buildLog: async ({ result, snapshots, ctx }) => {
     const { translate } = await resolveTranslations()
-    const before = snapshots.before as SerializedUser | undefined
+    const beforeSnapshots = snapshots.before as UserSnapshots | undefined
+    const before = beforeSnapshots?.view
+    const beforeUndo = beforeSnapshots?.undo ?? null
     const em = ctx.container.resolve<EntityManager>('em')
     const afterRoles = await loadUserRoleNames(em, String(result.id))
-    const after = serializeUser(result, afterRoles)
-    const changes = buildChanges(before ?? null, after as Record<string, unknown>, ['email', 'organizationId', 'tenantId'])
+    const afterCustom = await loadUserCustomSnapshot(
+      em,
+      String(result.id),
+      result.tenantId ? String(result.tenantId) : null,
+      result.organizationId ? String(result.organizationId) : null
+    )
+    const afterSnapshots = captureUserSnapshots(result, afterRoles, undefined, afterCustom)
+    const after = afterSnapshots.view
+    const changes = buildChanges(before ?? null, after as Record<string, unknown>, ['email', 'organizationId', 'tenantId', 'name', 'isConfirmed'])
     if (before && !arrayEquals(before.roles, afterRoles)) {
       changes.roles = { from: before.roles, to: afterRoles }
+    }
+    const customDiff = diffCustomFieldChanges(before?.custom, afterCustom)
+    for (const [key, diff] of Object.entries(customDiff)) {
+      changes[`cf_${key}`] = diff
     }
     return {
       actionLabel: translate('auth.audit.users.update', 'Update user'),
@@ -273,7 +396,66 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       changes,
       snapshotBefore: before ?? null,
       snapshotAfter: after,
+      payload: {
+        undo: {
+          before: beforeUndo,
+          after: afterSnapshots.undo,
+        },
+      },
     }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload(logEntry)
+    const before = payload?.before
+    const after = payload?.after
+    if (!before) return
+    const userId = before.id
+    const em = ctx.container.resolve<EntityManager>('em')
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const updated = await de.updateOrmEntity({
+      entity: User,
+      where: { id: userId, deletedAt: null } as FilterQuery<User>,
+      apply: (entity) => {
+        entity.email = before.email
+        entity.organizationId = before.organizationId ?? null
+        entity.tenantId = before.tenantId ?? null
+        entity.passwordHash = before.passwordHash ?? null
+        entity.name = before.name ?? null
+        entity.isConfirmed = before.isConfirmed
+      },
+    })
+
+    if (updated) {
+      await syncUserRoles(em, updated, before.roles, before.tenantId)
+      await em.flush()
+    }
+
+    const reset = buildCustomFieldResetMap(before.custom, after?.custom)
+    if (Object.keys(reset).length) {
+      await de.setCustomFields({
+        entityId: E.auth.user,
+        recordId: before.id,
+        organizationId: before.organizationId ?? null,
+        tenantId: before.tenantId ?? null,
+        values: reset,
+        notify: false,
+      })
+    }
+
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: updated,
+      identifiers: {
+        id: before.id,
+        organizationId: before.organizationId ?? null,
+        tenantId: before.tenantId ?? null,
+      },
+      events: userCrudEvents,
+      indexer: userCrudIndexer,
+    })
+
+    await invalidateUserCache(ctx, userId)
   },
 }
 
@@ -285,7 +467,14 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const existing = await em.findOne(User, { id, deletedAt: null })
     if (!existing) return {}
     const roles = await loadUserRoleNames(em, id)
-    return { before: serializeUser(existing, roles) }
+    const acls = await loadUserAclSnapshots(em, id)
+    const custom = await loadUserCustomSnapshot(
+      em,
+      id,
+      existing.tenantId ? String(existing.tenantId) : null,
+      existing.organizationId ? String(existing.organizationId) : null
+    )
+    return { before: captureUserSnapshots(existing, roles, acls, custom) }
   },
   async execute(input, ctx) {
     const id = requireId(input, 'User id required')
@@ -323,7 +512,9 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   },
   buildLog: async ({ snapshots, input, ctx }) => {
     const { translate } = await resolveTranslations()
-    const before = snapshots.before as SerializedUser | undefined
+    const beforeSnapshots = snapshots.before as UserSnapshots | undefined
+    const before = beforeSnapshots?.view
+    const beforeUndo = beforeSnapshots?.undo ?? null
     const id = requireId(input, 'User id required')
     return {
       actionLabel: translate('auth.audit.users.delete', 'Delete user'),
@@ -331,7 +522,67 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       resourceId: id,
       snapshotBefore: before ?? null,
       tenantId: before?.tenantId ?? null,
+      payload: {
+        undo: {
+          before: beforeUndo,
+        },
+      },
     }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = ctx.container.resolve<EntityManager>('em')
+    let user = await em.findOne(User, { id: before.id })
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+
+    if (user) {
+      if (user.deletedAt) {
+        user.deletedAt = null
+      }
+      user.email = before.email
+      user.organizationId = before.organizationId ?? null
+      user.tenantId = before.tenantId ?? null
+      user.passwordHash = before.passwordHash ?? null
+      user.name = before.name ?? null
+      user.isConfirmed = before.isConfirmed
+      await em.flush()
+    } else {
+      user = await de.createOrmEntity({
+        entity: User,
+        data: {
+          id: before.id,
+          email: before.email,
+          organizationId: before.organizationId ?? null,
+          tenantId: before.tenantId ?? null,
+          passwordHash: before.passwordHash ?? null,
+          name: before.name ?? null,
+          isConfirmed: before.isConfirmed,
+        },
+      })
+    }
+
+    if (!user) return
+
+    await em.nativeDelete(UserRole, { user: before.id })
+    await syncUserRoles(em, user, before.roles, before.tenantId)
+
+    await restoreUserAcls(em, user, before.acls)
+
+    const reset = buildCustomFieldResetMap(before.custom, undefined)
+    if (Object.keys(reset).length) {
+      await de.setCustomFields({
+        entityId: E.auth.user,
+        recordId: before.id,
+        organizationId: before.organizationId ?? null,
+        tenantId: before.tenantId ?? null,
+        values: reset,
+        notify: false,
+      })
+    }
+
+    await invalidateUserCache(ctx, before.id)
   },
 }
 
@@ -378,13 +629,87 @@ async function loadUserRoleNames(em: EntityManager, userId: string): Promise<str
   return Array.from(new Set(names)).sort()
 }
 
-function serializeUser(user: User, roles: string[]): SerializedUser {
-  return {
+function serializeUser(user: User, roles: string[], custom?: Record<string, unknown> | null): SerializedUser {
+  const payload: SerializedUser = {
     email: String(user.email ?? ''),
     organizationId: user.organizationId ? String(user.organizationId) : null,
     tenantId: user.tenantId ? String(user.tenantId) : null,
     roles,
+    name: user.name ? String(user.name) : null,
+    isConfirmed: Boolean(user.isConfirmed),
   }
+  if (custom && Object.keys(custom).length) payload.custom = custom
+  return payload
+}
+
+function captureUserSnapshots(
+  user: User,
+  roles: string[],
+  acls: UserAclSnapshot[] = [],
+  custom?: Record<string, unknown> | null
+): UserSnapshots {
+  return {
+    view: serializeUser(user, roles, custom),
+    undo: {
+      id: String(user.id),
+      email: String(user.email ?? ''),
+      organizationId: user.organizationId ? String(user.organizationId) : null,
+      tenantId: user.tenantId ? String(user.tenantId) : null,
+      passwordHash: user.passwordHash ? String(user.passwordHash) : null,
+      name: user.name ? String(user.name) : null,
+      isConfirmed: Boolean(user.isConfirmed),
+      roles: [...roles],
+      acls,
+      ...(custom && Object.keys(custom).length ? { custom } : {}),
+    },
+  }
+}
+
+async function loadUserAclSnapshots(em: EntityManager, userId: string): Promise<UserAclSnapshot[]> {
+  const list = await em.find(UserAcl, { user: userId as unknown as User })
+  return list.map((acl) => ({
+    tenantId: String(acl.tenantId),
+    features: Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : null,
+    isSuperAdmin: Boolean(acl.isSuperAdmin),
+    organizations: Array.isArray(acl.organizationsJson) ? [...acl.organizationsJson] : null,
+  }))
+}
+
+async function restoreUserAcls(em: EntityManager, user: User, acls: UserAclSnapshot[]) {
+  await em.nativeDelete(UserAcl, { user: String(user.id) })
+  for (const acl of acls) {
+    const entity = em.create(UserAcl, {
+      user,
+      tenantId: acl.tenantId,
+      featuresJson: acl.features ?? null,
+      isSuperAdmin: acl.isSuperAdmin,
+      organizationsJson: acl.organizations ?? null,
+    })
+    em.persist(entity)
+  }
+  await em.flush()
+}
+
+type UndoPayload = { undo?: { before?: UserUndoSnapshot | null; after?: UserUndoSnapshot | null } }
+
+function extractUndoPayload(logEntry: { commandPayload?: unknown }): { before?: UserUndoSnapshot | null; after?: UserUndoSnapshot | null } | null {
+  const payload = logEntry?.commandPayload as UndoPayload | undefined
+  if (!payload || typeof payload !== 'object') return null
+  return payload.undo ?? null
+}
+
+async function loadUserCustomSnapshot(
+  em: EntityManager,
+  id: string,
+  tenantId: string | null,
+  organizationId: string | null
+): Promise<Record<string, unknown>> {
+  return await loadCustomFieldSnapshot(em, {
+    entityId: E.auth.user,
+    recordId: id,
+    tenantId,
+    organizationId,
+  })
 }
 
 async function invalidateUserCache(ctx: CommandRuntimeContext, userId: string) {

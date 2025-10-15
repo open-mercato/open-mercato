@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
+import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 
 const getSchema = z.object({ userId: z.string().uuid() })
@@ -23,11 +24,32 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const parsed = getSchema.safeParse({ userId: url.searchParams.get('userId') })
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as any
   const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
-  if (!acl) return NextResponse.json({ hasCustomAcl: false, isSuperAdmin: false, features: [], organizations: null })
-  return NextResponse.json({ hasCustomAcl: true, isSuperAdmin: !!acl.isSuperAdmin, features: Array.isArray(acl.featuresJson) ? acl.featuresJson : [], organizations: Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null })
+  const response = acl
+    ? {
+        hasCustomAcl: true,
+        isSuperAdmin: !!acl.isSuperAdmin,
+        features: Array.isArray(acl.featuresJson) ? acl.featuresJson : [],
+        organizations: Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null,
+      }
+    : { hasCustomAcl: false, isSuperAdmin: false, features: [], organizations: null }
+
+  await logCrudAccess({
+    container,
+    auth,
+    request: req,
+    items: [{ id: parsed.data.userId, ...response }],
+    idField: 'id',
+    resourceKind: 'auth.user_acl',
+    organizationId: auth.orgId ?? null,
+    tenantId: auth.tenantId ?? null,
+    query: { userId: parsed.data.userId },
+    accessType: 'read:item',
+  })
+
+  return NextResponse.json(response)
 }
 
 export async function PUT(req: Request) {
@@ -77,5 +99,4 @@ export async function PUT(req: Request) {
   
   return NextResponse.json({ ok: true })
 }
-
 

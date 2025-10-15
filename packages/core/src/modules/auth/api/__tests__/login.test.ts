@@ -5,6 +5,12 @@ import { randomUUID } from 'crypto'
 const tenantId = randomUUID()
 const orgId = randomUUID()
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (_key: string, fallback?: string) => fallback ?? '',
+  }),
+}))
+
 jest.mock('@/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (_: string) => ({

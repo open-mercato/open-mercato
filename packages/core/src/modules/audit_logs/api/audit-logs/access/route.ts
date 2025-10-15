@@ -18,11 +18,13 @@ function parseDate(value: string | null): Date | undefined {
   return new Date(ts)
 }
 
-function parseLimit(param: string | null): number {
-  if (!param) return 50
+function parseNumber(param: string | null, { min, max, fallback }: { min: number; max: number; fallback: number }) {
+  if (!param) return fallback
   const value = Number(param)
-  if (!Number.isFinite(value)) return 50
-  return Math.min(Math.max(Math.trunc(value), 1), 200)
+  if (!Number.isFinite(value)) return fallback
+  const normalized = Math.trunc(value)
+  if (Number.isNaN(normalized)) return fallback
+  return Math.min(Math.max(normalized, min), max)
 }
 
 export async function GET(req: Request) {
@@ -47,7 +49,8 @@ export async function GET(req: Request) {
   const actorQuery = url.searchParams.get('actorUserId')
   const resourceKind = url.searchParams.get('resourceKind')
   const accessType = url.searchParams.get('accessType')
-  const limit = parseLimit(url.searchParams.get('limit'))
+  const page = parseNumber(url.searchParams.get('page'), { min: 1, max: 1000000, fallback: 1 })
+  const pageSize = parseNumber(url.searchParams.get('pageSize'), { min: 1, max: 200, fallback: 50 })
   const before = parseDate(url.searchParams.get('before'))
   const after = parseDate(url.searchParams.get('after'))
 
@@ -69,18 +72,20 @@ export async function GET(req: Request) {
     actorUserId,
     resourceKind: resourceKind ?? undefined,
     accessType: accessType ?? undefined,
-    limit,
+    page,
+    pageSize,
+    limit: url.searchParams.get('limit') ? parseNumber(url.searchParams.get('limit'), { min: 1, max: 200, fallback: pageSize }) : undefined,
     before,
     after,
   })
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: list.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
-    tenantIds: list.map((entry) => entry.tenantId).filter((value): value is string => !!value),
-    organizationIds: list.map((entry) => entry.organizationId).filter((value): value is string => !!value),
+    userIds: list.items.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
+    tenantIds: list.items.map((entry) => entry.tenantId).filter((value): value is string => !!value),
+    organizationIds: list.items.map((entry) => entry.organizationId).filter((value): value is string => !!value),
   })
 
-  const items = list.map((entry) => ({
+  const items = list.items.map((entry) => ({
     id: entry.id,
     resourceKind: entry.resourceKind,
     resourceId: entry.resourceId,
@@ -96,5 +101,12 @@ export async function GET(req: Request) {
     createdAt: entry.createdAt?.toISOString?.() ?? entry.createdAt,
   }))
 
-  return NextResponse.json({ items, canViewTenant })
+  return NextResponse.json({
+    items,
+    canViewTenant,
+    page: list.page,
+    pageSize: list.pageSize,
+    total: list.total,
+    totalPages: list.totalPages,
+  })
 }

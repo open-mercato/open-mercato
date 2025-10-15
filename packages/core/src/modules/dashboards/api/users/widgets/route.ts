@@ -24,9 +24,9 @@ export async function GET(req: Request) {
   const tenantId = url.searchParams.get('tenantId') || auth.tenantId || null
   const organizationId = url.searchParams.get('organizationId') || auth.orgId || null
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const rbac = resolve('rbacService') as any
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as any
+  const rbac = container.resolve('rbacService') as any
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
   if (!acl.isSuperAdmin && !hasFeature(acl.features, FEATURE)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -53,13 +53,15 @@ export async function GET(req: Request) {
     deletedAt: null,
   })
 
-  return NextResponse.json({
+  const response = {
     mode: record ? record.mode : 'inherit',
     widgetIds: record && record.mode === 'override' ? record.widgetIdsJson : [],
     hasCustom: !!record && record.mode === 'override',
     effectiveWidgetIds: allowed,
     scope: { tenantId, organizationId },
-  })
+  }
+
+  return NextResponse.json(response)
 }
 
 export async function PUT(req: Request) {

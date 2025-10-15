@@ -41,9 +41,9 @@ export async function GET(req: Request) {
   const tenantId = url.searchParams.get('tenantId') || auth.tenantId || null
   const organizationId = url.searchParams.get('organizationId') || null
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const rbac = resolve('rbacService') as any
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as any
+  const rbac = container.resolve('rbacService') as any
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
   if (!acl.isSuperAdmin && !hasFeature(acl.features, FEATURE)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -52,14 +52,16 @@ export async function GET(req: Request) {
   const records = await em.find(DashboardRoleWidgets, { roleId, deletedAt: null })
   const best = pickBestRecord(records, tenantId, organizationId)
 
-  return NextResponse.json({
+  const response = {
     widgetIds: best ? best.widgetIdsJson : [],
     hasCustom: !!best,
     scope: {
       tenantId,
       organizationId,
     },
-  })
+  }
+
+  return NextResponse.json(response)
 }
 
 export async function PUT(req: Request) {
