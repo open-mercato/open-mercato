@@ -6,6 +6,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ActionLogDetailsDialog } from './ActionLogDetailsDialog'
 
 export type ActionLogItem = {
   id: string
@@ -22,6 +23,10 @@ export type ActionLogItem = {
   resourceId: string | null
   undoToken: string | null
   createdAt: string
+  snapshotBefore?: unknown | null
+  snapshotAfter?: unknown | null
+  changes?: Record<string, unknown> | null
+  context?: Record<string, unknown> | null
 }
 
 export function AuditLogsActions({
@@ -39,6 +44,7 @@ export function AuditLogsActions({
 }) {
   const t = useT()
   const [undoing, setUndoing] = React.useState(false)
+  const [selected, setSelected] = React.useState<ActionLogItem | null>(null)
   const actionItems = Array.isArray(items) ? items : []
   const latestUndoable = React.useMemo(() => actionItems.find((item) => !!item.undoToken), [actionItems])
   const noneLabel = t('audit_logs.common.none')
@@ -112,13 +118,22 @@ export function AuditLogsActions({
     : undefined
 
   return (
-    <DataTable<ActionLogItem>
-      title={t('audit_logs.actions.title')}
-      data={actionItems}
-      columns={columns}
-      actions={combinedActions}
-      isLoading={Boolean(isLoading) || undoing}
-    />
+    <>
+      <DataTable<ActionLogItem>
+        title={t('audit_logs.actions.title')}
+        data={actionItems}
+        columns={columns}
+        actions={combinedActions}
+        isLoading={Boolean(isLoading) || undoing}
+        onRowClick={(item) => setSelected(item)}
+      />
+      {selected ? (
+        <ActionLogDetailsDialog
+          item={selected}
+          onClose={() => setSelected(null)}
+        />
+      ) : null}
+    </>
   )
 }
 

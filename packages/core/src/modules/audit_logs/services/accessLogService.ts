@@ -7,6 +7,7 @@ import {
   type AccessLogCreateInput,
   type AccessLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
+import { AUDIT_LOG_SKIP_RESOURCE_KINDS } from './constants'
 
 const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
 
@@ -23,24 +24,33 @@ const CORE_RETENTION_MS = CORE_RETENTION_DAYS * 24 * 60 * 60 * 1000
 const NON_CORE_RETENTION_MS = NON_CORE_RETENTION_HOURS * 60 * 60 * 1000
 
 let validationWarningLogged = false
+let runtimeValidationAvailable: boolean | null = null
+
+const isZodRuntimeMissing = (err: unknown) => err instanceof TypeError && typeof err.message === 'string' && err.message.includes('_zod')
 
 export class AccessLogService {
   constructor(private readonly em: EntityManager) {}
 
-  async log(input: AccessLogCreateInput) {
+  async log(input: AccessLogCreateInput): Promise<AccessLog | null> {
+    const requestedKind = typeof input?.resourceKind === 'string' ? input.resourceKind : undefined
+    if (requestedKind && AUDIT_LOG_SKIP_RESOURCE_KINDS.has(requestedKind)) {
+      return null
+    }
     let data: AccessLogCreateInput
     const schema = accessLogCreateSchema as typeof accessLogCreateSchema & { _zod?: unknown }
-    // Zod v4 exports lose their internals when transpiled without ESM support, so ensure the runtime artefacts exist before parsing.
-    const canValidate = Boolean(schema && typeof schema.parse === 'function' && typeof schema._zod !== 'undefined')
-    if (canValidate) {
+    const canValidate = Boolean(schema && typeof schema.parse === 'function')
+    const shouldValidate = canValidate && runtimeValidationAvailable !== false
+    if (shouldValidate) {
       try {
         data = schema.parse(input)
+        runtimeValidationAvailable = true
       } catch (err) {
-        if (!validationWarningLogged) {
+        if (!isZodRuntimeMissing(err) && !validationWarningLogged) {
           validationWarningLogged = true
           // eslint-disable-next-line no-console
           console.warn('[audit_logs] falling back to permissive access log payload parser', err)
         }
+        if (isZodRuntimeMissing(err)) runtimeValidationAvailable = false
         data = this.normalizeInput(input)
       }
     } else {
@@ -75,6 +85,7 @@ export class AccessLogService {
         context: undefined,
       }
     }
+    const toNullableUuid = (value: unknown) => (typeof value === 'string' && value.length > 0 ? value : null)
     const fields = Array.isArray(input.fields)
       ? input.fields.filter((f): f is string => typeof f === 'string' && f.length > 0)
       : undefined
@@ -82,9 +93,9 @@ export class AccessLogService {
       ? input.context as Record<string, unknown>
       : undefined
     return {
-      tenantId: input.tenantId ?? null,
-      organizationId: input.organizationId ?? null,
-      actorUserId: input.actorUserId ?? null,
+      tenantId: toNullableUuid(input.tenantId),
+      organizationId: toNullableUuid(input.organizationId),
+      actorUserId: toNullableUuid(input.actorUserId),
       resourceKind: String(input.resourceKind || 'unknown'),
       resourceId: String(input.resourceId || 'unknown'),
       accessType: String(input.accessType || 'unknown'),

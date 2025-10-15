@@ -167,6 +167,14 @@ function normalizeIdentifierValue(value: any): string | null {
 
 type AccessLogServiceLike = { log: (input: any) => Promise<unknown> | unknown }
 
+const SKIPPED_ACCESS_LOG_RESOURCE_KINDS = new Set<string>([
+  'audit_logs.access',
+  'audit_logs.action',
+  'dashboards.layout',
+  'dashboards.user_widgets',
+  'dashboards.role_widgets',
+])
+
 function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
   try {
     const service = container.resolve?.('accessLogService') as AccessLogServiceLike | undefined
@@ -215,6 +223,7 @@ export type LogCrudAccessOptions = {
 export async function logCrudAccess(options: LogCrudAccessOptions) {
   const { container, auth, request, items, resourceKind } = options
   if (!auth) return
+  if (SKIPPED_ACCESS_LOG_RESOURCE_KINDS.has(resourceKind)) return
   if (!Array.isArray(items) || items.length === 0) return
   const service = resolveAccessLogService(container)
   if (!service) return
