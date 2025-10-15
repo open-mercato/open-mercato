@@ -121,7 +121,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const snapshot = logEntry.snapshotAfter as SerializedTodo | undefined
     const id = snapshot?.id ?? logEntry.resourceId
     if (!id) throw new Error('Missing todo id for undo')
-    const scope = ensureScope(ctx)
+    const scope = resolveUndoScope(ctx, snapshot)
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await de.deleteOrmEntity({
       entity: Todo,
@@ -210,7 +210,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   async undo({ logEntry, ctx }) {
     const before = logEntry.snapshotBefore as SerializedTodo | undefined
     if (!before?.id) throw new Error('Missing previous snapshot for undo')
-    const scope = ensureScope(ctx)
+    const scope = resolveUndoScope(ctx, before)
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await de.updateOrmEntity({
       entity: Todo,
@@ -223,8 +223,8 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       apply: (entity) => {
         entity.title = before.title
         entity.isDone = before.is_done
-        entity.tenantId = before.tenantId
-        entity.organizationId = before.organizationId
+        entity.tenantId = before.tenantId ?? scope.tenantId
+        entity.organizationId = before.organizationId ?? scope.organizationId
       },
     })
   },
@@ -288,7 +288,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   async undo({ logEntry, ctx }) {
     const before = logEntry.snapshotBefore as SerializedTodo | undefined
     if (!before?.id) throw new Error('Missing snapshot for undo')
-    const scope = ensureScope(ctx)
+    const scope = resolveUndoScope(ctx, before)
     const em = ctx.container.resolve<EntityManager>('em')
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     const existing = await em.findOne(Todo, {
@@ -300,8 +300,8 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       existing.deletedAt = null
       existing.title = before.title
       existing.isDone = before.is_done
-      existing.tenantId = before.tenantId
-      existing.organizationId = before.organizationId
+      existing.tenantId = before.tenantId ?? scope.tenantId
+      existing.organizationId = before.organizationId ?? scope.organizationId
       await em.persistAndFlush(existing)
       return
     }
@@ -311,8 +311,8 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         id: before.id,
         title: before.title,
         isDone: before.is_done,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
+        tenantId: before.tenantId ?? scope.tenantId,
+        organizationId: before.organizationId ?? scope.organizationId,
       },
     })
   },
@@ -321,6 +321,26 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
 registerCommand(createTodoCommand)
 registerCommand(updateTodoCommand)
 registerCommand(deleteTodoCommand)
+
+function resolveUndoScope(
+  ctx: CommandRuntimeContext,
+  snapshot?: { tenantId: string | null; organizationId: string | null }
+): { tenantId: string; organizationId: string } {
+  const scope = ensureScope(ctx)
+  const tenantId = snapshot?.tenantId ?? scope.tenantId
+  if (tenantId !== scope.tenantId) {
+    throw new CrudHttpError(403, { error: 'Undo scope does not match tenant' })
+  }
+  let organizationId = scope.organizationId
+  if (snapshot?.organizationId) {
+    const allowed = Array.isArray(ctx.organizationIds) ? ctx.organizationIds : null
+    if (allowed && allowed.length > 0 && !allowed.includes(snapshot.organizationId)) {
+      throw new CrudHttpError(403, { error: 'Undo scope is not permitted for this organization' })
+    }
+    organizationId = snapshot.organizationId
+  }
+  return { tenantId, organizationId }
+}
 
 function serializeTodo(todo: Todo): SerializedTodo {
   return {

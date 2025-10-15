@@ -21,6 +21,26 @@ type SerializedRole = {
   tenantId: string | null
 }
 
+type RoleAclSnapshot = {
+  id: string | null
+  tenantId: string
+  features: string[] | null
+  isSuperAdmin: boolean
+  organizations: string[] | null
+}
+
+type RoleUndoSnapshot = {
+  id: string
+  name: string
+  tenantId: string | null
+  acls: RoleAclSnapshot[]
+}
+
+type RoleSnapshots = {
+  view: SerializedRole
+  undo: RoleUndoSnapshot
+}
+
 const createSchema = z.object({
   name: z.string().min(2).max(100),
   tenantId: z.string().uuid().nullable().optional(),
@@ -95,15 +115,33 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     return role
   },
   captureAfter: (_input, result) => serializeRole(result),
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result }) => {
     const { translate } = await resolveTranslations()
+    const snapshot = captureRoleSnapshots(result)
     return {
       actionLabel: translate('auth.audit.roles.create', 'Create role'),
       resourceKind: 'auth.role',
       resourceId: String(result.id),
       tenantId: result.tenantId ? String(result.tenantId) : null,
-      snapshotAfter: serializeRole(result),
+      snapshotAfter: snapshot.view,
+      payload: {
+        undo: {
+          after: snapshot.undo,
+        },
+      },
     }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const undo = extractRoleUndoPayload(logEntry)?.after
+    if (!undo) return
+    const em = ctx.container.resolve<EntityManager>('em')
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    await em.nativeDelete(RoleAcl, { role: undo.id as unknown as Role })
+    await de.deleteOrmEntity({
+      entity: Role,
+      where: { id: undo.id, deletedAt: null } as FilterQuery<Role>,
+      soft: false,
+    })
   },
 }
 
@@ -114,7 +152,8 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const em = ctx.container.resolve<EntityManager>('em')
     const existing = await em.findOne(Role, { id: parsed.id, deletedAt: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Role not found' })
-    return { before: serializeRole(existing) }
+    const acls = await loadRoleAclSnapshots(em, parsed.id)
+    return { before: captureRoleSnapshots(existing, acls) }
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
@@ -154,10 +193,15 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     return role
   },
   captureAfter: (_input, result) => serializeRole(result),
-  buildLog: async ({ result, snapshots }) => {
+  buildLog: async ({ result, snapshots, ctx }) => {
     const { translate } = await resolveTranslations()
-    const before = snapshots.before as SerializedRole | undefined
-    const after = serializeRole(result)
+    const beforeSnapshots = snapshots.before as RoleSnapshots | undefined
+    const before = beforeSnapshots?.view
+    const beforeUndo = beforeSnapshots?.undo ?? null
+    const em = ctx.container.resolve<EntityManager>('em')
+    const afterAcls = await loadRoleAclSnapshots(em, String(result.id))
+    const afterSnapshots = captureRoleSnapshots(result, afterAcls)
+    const after = afterSnapshots.view
     const changes = buildChanges(before ?? null, after as Record<string, unknown>, ['name', 'tenantId'])
     return {
       actionLabel: translate('auth.audit.roles.update', 'Update role'),
@@ -167,6 +211,30 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       changes,
       snapshotBefore: before ?? null,
       snapshotAfter: after,
+      payload: {
+        undo: {
+          before: beforeUndo,
+          after: afterSnapshots.undo,
+        },
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const undo = extractRoleUndoPayload(logEntry)
+    const before = undo?.before
+    if (!before) return
+    const em = ctx.container.resolve<EntityManager>('em')
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const updated = await de.updateOrmEntity({
+      entity: Role,
+      where: { id: before.id, deletedAt: null } as FilterQuery<Role>,
+      apply: (entity) => {
+        entity.name = before.name
+        entity.tenantId = before.tenantId ?? null
+      },
+    })
+    if (updated) {
+      await restoreRoleAcls(em, before.id, before.acls)
     }
   },
 }
@@ -178,7 +246,8 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const em = ctx.container.resolve<EntityManager>('em')
     const existing = await em.findOne(Role, { id, deletedAt: null })
     if (!existing) return {}
-    return { before: serializeRole(existing) }
+    const acls = await loadRoleAclSnapshots(em, id)
+    return { before: captureRoleSnapshots(existing, acls) }
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Role id required')
@@ -215,7 +284,9 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   },
   buildLog: async ({ snapshots, input }) => {
     const { translate } = await resolveTranslations()
-    const before = snapshots.before as SerializedRole | undefined
+    const beforeSnapshots = snapshots.before as RoleSnapshots | undefined
+    const before = beforeSnapshots?.view
+    const beforeUndo = beforeSnapshots?.undo ?? null
     const id = requireId(input, 'Role id required')
     return {
       actionLabel: translate('auth.audit.roles.delete', 'Delete role'),
@@ -223,7 +294,35 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       resourceId: id,
       tenantId: before?.tenantId ?? null,
       snapshotBefore: before ?? null,
+      payload: {
+        undo: {
+          before: beforeUndo,
+        },
+      },
     }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const before = extractRoleUndoPayload(logEntry)?.before
+    if (!before) return
+    const em = ctx.container.resolve<EntityManager>('em')
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    let role = await em.findOne(Role, { id: before.id })
+    if (role) {
+      role.deletedAt = null
+      role.name = before.name
+      role.tenantId = before.tenantId ?? null
+      await em.flush()
+    } else {
+      role = await de.createOrmEntity({
+        entity: Role,
+        data: {
+          id: before.id,
+          name: before.name,
+          tenantId: before.tenantId ?? null,
+        },
+      })
+    }
+    await restoreRoleAcls(em, before.id, before.acls)
   },
 }
 
@@ -236,4 +335,56 @@ function serializeRole(role: Role): SerializedRole {
     name: String(role.name ?? ''),
     tenantId: role.tenantId ? String(role.tenantId) : null,
   }
+}
+
+function captureRoleSnapshots(role: Role, acls: RoleAclSnapshot[] = []): RoleSnapshots {
+  return {
+    view: serializeRole(role),
+    undo: {
+      id: String(role.id),
+      name: String(role.name ?? ''),
+      tenantId: role.tenantId ? String(role.tenantId) : null,
+      acls,
+    },
+  }
+}
+
+async function loadRoleAclSnapshots(em: EntityManager, roleId: string): Promise<RoleAclSnapshot[]> {
+  const entries = await em.find(RoleAcl, { role: roleId as unknown as Role })
+  return entries.map((entry) => ({
+    id: entry.id ? String(entry.id) : null,
+    tenantId: String(entry.tenantId),
+    features: Array.isArray(entry.featuresJson) ? [...entry.featuresJson] : null,
+    isSuperAdmin: Boolean(entry.isSuperAdmin),
+    organizations: Array.isArray(entry.organizationsJson) ? [...entry.organizationsJson] : null,
+  }))
+}
+
+async function restoreRoleAcls(em: EntityManager, roleId: string, acls: RoleAclSnapshot[]) {
+  await em.nativeDelete(RoleAcl, { role: roleId as unknown as Role })
+  if (!acls.length) {
+    await em.flush()
+    return
+  }
+  const roleRef = em.getReference(Role, roleId)
+  for (const acl of acls) {
+    const entity = em.create(RoleAcl, {
+      id: acl.id ?? undefined,
+      role: roleRef,
+      tenantId: acl.tenantId,
+      featuresJson: acl.features ?? null,
+      isSuperAdmin: acl.isSuperAdmin,
+      organizationsJson: acl.organizations ?? null,
+    })
+    em.persist(entity)
+  }
+  await em.flush()
+}
+
+type RoleUndoPayload = { undo?: { before?: RoleUndoSnapshot | null; after?: RoleUndoSnapshot | null } }
+
+function extractRoleUndoPayload(logEntry: { commandPayload?: unknown }): { before?: RoleUndoSnapshot | null; after?: RoleUndoSnapshot | null } | null {
+  const payload = logEntry?.commandPayload as RoleUndoPayload | undefined
+  if (!payload || typeof payload !== 'object') return null
+  return payload.undo ?? null
 }
