@@ -157,4 +157,48 @@ export class ActionLogService {
   async findByUndoToken(undoToken: string) {
     return await this.em.findOne(ActionLog, { undoToken, deletedAt: null })
   }
+
+  async findById(id: string) {
+    return await this.em.findOne(ActionLog, { id, deletedAt: null })
+  }
+
+  async latestUndoableForResource(params: {
+    actorUserId: string
+    tenantId?: string | null
+    organizationId?: string | null
+    resourceKind?: string | null
+    resourceId?: string | null
+  }) {
+    const where: FilterQuery<ActionLog> = {
+      actorUserId: params.actorUserId,
+      undoToken: { $ne: null } as any,
+      executionState: 'done',
+      deletedAt: null,
+    }
+    if (params.tenantId) where.tenantId = params.tenantId
+    if (params.organizationId) where.organizationId = params.organizationId
+    if (params.resourceKind) where.resourceKind = params.resourceKind
+    if (params.resourceId) where.resourceId = params.resourceId
+    return await this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+  }
+
+  async latestUndoneForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
+    const where: FilterQuery<ActionLog> = {
+      actorUserId,
+      executionState: 'undone',
+      deletedAt: null,
+    }
+    if (scope.tenantId) where.tenantId = scope.tenantId
+    if (scope.organizationId) where.organizationId = scope.organizationId
+    return await this.em.findOne(ActionLog, where, { orderBy: { updatedAt: 'desc' } })
+  }
+
+  async markRedone(id: string) {
+    const log = await this.em.findOne(ActionLog, { id, deletedAt: null })
+    if (!log) return null
+    log.executionState = 'redone'
+    log.undoToken = null
+    await this.em.flush()
+    return log
+  }
 }

@@ -53,7 +53,7 @@ function loadState(): OperationStoreState {
   }
 }
 
-function isValidEntry(entry: any): entry is OperationEntry {
+function isValidEntry(entry: unknown): entry is OperationEntry {
   return entry
     && typeof entry === 'object'
     && typeof entry.id === 'string'
@@ -63,16 +63,17 @@ function isValidEntry(entry: any): entry is OperationEntry {
     && typeof entry.executedAt === 'string'
 }
 
-function hydrateEntry(entry: any): OperationEntry {
+function hydrateEntry(entry: unknown): OperationEntry {
+  const source = entry as Partial<OperationEntry> & Record<string, unknown>
   return {
-    id: String(entry.id),
-    undoToken: String(entry.undoToken),
-    commandId: String(entry.commandId),
-    actionLabel: typeof entry.actionLabel === 'string' ? entry.actionLabel : entry.actionLabel === null ? null : null,
-    resourceKind: typeof entry.resourceKind === 'string' ? entry.resourceKind : null,
-    resourceId: typeof entry.resourceId === 'string' ? entry.resourceId : null,
-    executedAt: typeof entry.executedAt === 'string' ? entry.executedAt : new Date(entry.receivedAt || now()).toISOString(),
-    receivedAt: typeof entry.receivedAt === 'number' ? entry.receivedAt : now(),
+    id: String(source.id),
+    undoToken: String(source.undoToken),
+    commandId: String(source.commandId),
+    actionLabel: typeof source.actionLabel === 'string' ? source.actionLabel : source.actionLabel === null ? null : null,
+    resourceKind: typeof source.resourceKind === 'string' ? source.resourceKind : null,
+    resourceId: typeof source.resourceId === 'string' ? source.resourceId : null,
+    executedAt: typeof source.executedAt === 'string' ? source.executedAt : new Date((source.receivedAt as number | undefined) || now()).toISOString(),
+    receivedAt: typeof source.receivedAt === 'number' ? source.receivedAt : now(),
   }
 }
 

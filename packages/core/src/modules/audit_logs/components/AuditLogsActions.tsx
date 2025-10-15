@@ -7,6 +7,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ActionLogDetailsDialog } from './ActionLogDetailsDialog'
+import { Undo2, RotateCcw } from 'lucide-react'
+import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
 
 export type ActionLogItem = {
   id: string
@@ -23,6 +25,7 @@ export type ActionLogItem = {
   resourceId: string | null
   undoToken: string | null
   createdAt: string
+  updatedAt: string
   snapshotBefore?: unknown | null
   snapshotAfter?: unknown | null
   changes?: Record<string, unknown> | null
@@ -35,37 +38,100 @@ export function AuditLogsActions({
   isLoading,
   headerExtras,
   onUndoError,
+  onRedoError,
 }: {
   items: ActionLogItem[] | undefined
   onRefresh: () => Promise<void>
   isLoading?: boolean
   headerExtras?: React.ReactNode
   onUndoError?: () => void
+  onRedoError?: () => void
 }) {
   const t = useT()
-  const [undoing, setUndoing] = React.useState(false)
+  const [undoingToken, setUndoingToken] = React.useState<string | null>(null)
+  const [redoingId, setRedoingId] = React.useState<string | null>(null)
   const [selected, setSelected] = React.useState<ActionLogItem | null>(null)
   const actionItems = Array.isArray(items) ? items : []
-  const latestUndoable = React.useMemo(() => actionItems.find((item) => !!item.undoToken), [actionItems])
+  const latestUndoable = React.useMemo(() => actionItems.find((item) => !!item.undoToken && item.executionState === 'done'), [actionItems])
   const noneLabel = t('audit_logs.common.none')
+  const latestPerResource = React.useMemo(() => {
+    const map = new Map<string, string>()
+    let fallback: string | null = null
+    for (const item of actionItems) {
+      if (!item.undoToken || item.executionState !== 'done') continue
+      const key = buildResourceKey(item)
+      if (key) {
+        if (!map.has(key)) map.set(key, item.id)
+      } else if (!fallback) {
+        fallback = item.id
+      }
+    }
+    return { map, fallback }
+  }, [actionItems])
+  const latestUndoneId = React.useMemo(() => {
+    const undone = actionItems.filter((item) => item.executionState === 'undone')
+    if (!undone.length) return null
+    const sorted = [...undone].sort((a, b) => {
+      const aTs = Date.parse(a.updatedAt)
+      const bTs = Date.parse(b.updatedAt)
+      return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0)
+    })
+    return sorted[0]?.id ?? null
+  }, [actionItems])
 
-  const handleUndo = async () => {
-    if (!latestUndoable?.undoToken) return
-    setUndoing(true)
+  const isLatestUndoableForItem = React.useCallback((item: ActionLogItem) => {
+    const key = buildResourceKey(item)
+    if (key) return latestPerResource.map.get(key) === item.id
+    return latestPerResource.fallback === item.id
+  }, [latestPerResource])
+
+  const isRedoCandidate = React.useCallback((item: ActionLogItem) => item.executionState === 'undone' && latestUndoneId === item.id, [latestUndoneId])
+
+  const handleUndo = React.useCallback(async (token: string | null) => {
+    if (!token) return
+    setUndoingToken(token)
     try {
-      await apiFetch('/api/audit_logs/audit-logs/actions/undo', {
+      const res = await apiFetch('/api/audit_logs/audit-logs/actions/undo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ undoToken: latestUndoable.undoToken }),
+        body: JSON.stringify({ undoToken: token }),
       })
+      if (!res.ok) {
+        const message = await res.text().catch(() => null)
+        throw new Error(message || 'Undo failed')
+      }
+      markUndoSuccess(token)
       await onRefresh()
     } catch (err) {
       console.error('Undo failed', err)
       onUndoError?.()
     } finally {
-      setUndoing(false)
+      setUndoingToken(null)
     }
-  }
+  }, [onRefresh, onUndoError])
+
+  const handleRedo = React.useCallback(async (logId: string | null) => {
+    if (!logId) return
+    setRedoingId(logId)
+    try {
+      const res = await apiFetch('/api/audit_logs/audit-logs/actions/redo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ logId }),
+      })
+      if (!res.ok) {
+        const message = await res.text().catch(() => null)
+        throw new Error(message || 'Redo failed')
+      }
+      markRedoConsumed(logId)
+      await onRefresh()
+    } catch (err) {
+      console.error('Redo failed', err)
+      onRedoError?.()
+    } finally {
+      setRedoingId(null)
+    }
+  }, [onRefresh, onRedoError])
 
   const columns = React.useMemo<ColumnDef<ActionLogItem, any>[]>(() => [
     {
@@ -105,11 +171,55 @@ export function AuditLogsActions({
       accessorKey: 'executionState',
       header: t('audit_logs.actions.columns.status'),
     },
-  ], [t, noneLabel])
+    {
+      id: 'controls',
+      header: t('audit_logs.actions.columns.controls'),
+      enableSorting: false,
+      cell: (info) => {
+        const item = info.row.original
+        const canUndo = Boolean(item.undoToken) && item.executionState === 'done' && isLatestUndoableForItem(item)
+        const showRedo = item.executionState === 'undone'
+        const canRedo = showRedo && isRedoCandidate(item)
+        if (!canUndo && !showRedo) return null
+        return (
+          <div className="flex justify-end gap-1">
+            {canUndo ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t('audit_logs.actions.undo')}
+                onClick={() => { void handleUndo(item.undoToken) }}
+                disabled={undoingToken === item.undoToken || Boolean(redoingId)}
+              >
+                <Undo2 className="size-4" aria-hidden="true" />
+              </Button>
+            ) : null}
+            {showRedo ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t('audit_logs.actions.redo')}
+                onClick={() => { void handleRedo(item.id) }}
+                disabled={!canRedo || redoingId === item.id || Boolean(undoingToken)}
+              >
+                <RotateCcw className="size-4" aria-hidden="true" />
+              </Button>
+            ) : null}
+          </div>
+        )
+      },
+      meta: { align: 'right' },
+    },
+  ], [t, noneLabel, handleUndo, handleRedo, isLatestUndoableForItem, isRedoCandidate, undoingToken, redoingId])
 
   const undoButton = latestUndoable?.undoToken ? (
-    <Button variant="secondary" size="sm" onClick={handleUndo} disabled={undoing}>
-      {undoing ? t('audit_logs.actions.undoing') : t('audit_logs.actions.undo')}
+    <Button
+      variant="secondary"
+      size="sm"
+      onClick={() => { void handleUndo(latestUndoable.undoToken) }}
+      disabled={Boolean(undoingToken) || Boolean(redoingId)}
+    >
+      {undoingToken ? t('audit_logs.actions.undoing') : t('audit_logs.actions.undo')}
     </Button>
   ) : null
 
@@ -124,7 +234,7 @@ export function AuditLogsActions({
         data={actionItems}
         columns={columns}
         actions={combinedActions}
-        isLoading={Boolean(isLoading) || undoing}
+        isLoading={Boolean(isLoading) || Boolean(undoingToken) || Boolean(redoingId)}
         onRowClick={(item) => setSelected(item)}
       />
       {selected ? (
@@ -140,6 +250,13 @@ export function AuditLogsActions({
 function formatResource(item: { resourceKind?: string | null; resourceId?: string | null }, fallback: string) {
   if (!item.resourceKind && !item.resourceId) return fallback
   return [item.resourceKind, item.resourceId].filter(Boolean).join(' · ')
+}
+
+function buildResourceKey(item: { resourceKind?: string | null; resourceId?: string | null }) {
+  const kind = typeof item.resourceKind === 'string' ? item.resourceKind.trim() : ''
+  const id = typeof item.resourceId === 'string' ? item.resourceId.trim() : ''
+  if (!kind && !id) return null
+  return `${kind}::${id}`
 }
 
 function formatDate(value: string) {

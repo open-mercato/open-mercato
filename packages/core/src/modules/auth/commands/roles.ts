@@ -4,6 +4,7 @@ import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
   emitCrudSideEffects,
+  emitCrudUndoSideEffects,
   buildChanges,
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
@@ -304,6 +305,18 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
         notify: false,
       })
     }
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: updated,
+      identifiers: {
+        id: before.id,
+        organizationId: null,
+        tenantId: before.tenantId ?? null,
+      },
+      events: roleCrudEvents,
+      indexer: roleCrudIndexer,
+    })
   },
 }
 
@@ -407,6 +420,18 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         notify: false,
       })
     }
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: role,
+      identifiers: {
+        id: before.id,
+        organizationId: null,
+        tenantId: before.tenantId ?? null,
+      },
+      events: roleCrudEvents,
+      indexer: roleCrudIndexer,
+    })
   },
 }
 

@@ -17,6 +17,7 @@ import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
   emitCrudSideEffects,
+  emitCrudUndoSideEffects,
   requireTenantScope,
   requireId,
   buildChanges,
@@ -554,6 +555,18 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const childSnapshots = before.childParents
     await restoreChildParents(em, tenantId, childSnapshots)
     await rebuildHierarchyForTenant(em, tenantId)
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: updated,
+      identifiers: {
+        id: before.id,
+        tenantId,
+        organizationId: before.id,
+      },
+      events: organizationCrudEvents,
+      indexer: organizationCrudIndexer,
+    })
   },
 }
 
@@ -694,6 +707,18 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     }
     await restoreChildParents(em, tenantId, before.childParents)
     await rebuildHierarchyForTenant(em, tenantId)
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: organization,
+      identifiers: {
+        id: before.id,
+        tenantId,
+        organizationId: before.id,
+      },
+      events: organizationCrudEvents,
+      indexer: organizationCrudIndexer,
+    })
   },
 }
 

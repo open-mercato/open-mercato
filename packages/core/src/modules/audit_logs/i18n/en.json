@@ -7,8 +7,10 @@
   "audit_logs.actions.columns.organization": "Organization",
   "audit_logs.actions.columns.when": "When",
   "audit_logs.actions.columns.status": "Status",
+  "audit_logs.actions.columns.controls": "Controls",
   "audit_logs.actions.undo": "Undo last action",
   "audit_logs.actions.undoing": "Undoing…",
+  "audit_logs.actions.redo": "Redo last action",
   "audit_logs.actions.details.title": "Action details",
   "audit_logs.actions.details.changed_fields": "Changed fields",
   "audit_logs.actions.details.field": "Field",
@@ -34,5 +36,10 @@
   "audit_logs.filters.undoable_only": "Undoable only",
   "audit_logs.error.load": "Failed to load audit logs",
   "audit_logs.error.undo": "Unable to undo action",
+  "audit_logs.error.redo": "Unable to redo action",
+  "audit_logs.banner.last_operation": "Last operation:",
+  "audit_logs.banner.undo": "Undo",
+  "audit_logs.banner.undo_success": "Operation undone",
+  "audit_logs.banner.undo_error": "Undo failed",
   "audit_logs.tabs.label": "Audit log views"
 }

@@ -42,9 +42,10 @@ describe('auth.users.update undo custom fields', () => {
       return entity
     })
 
-    const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'setCustomFields'> = {
+    const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent'> = {
       updateOrmEntity,
       setCustomFields,
+      emitOrmEntityEvent: jest.fn(async () => {}),
     }
 
     const em: Partial<EntityManager> = {

@@ -60,6 +60,19 @@ export async function emitCrudSideEffects<TEntity>(opts: {
   })
 }
 
+export async function emitCrudUndoSideEffects<TEntity>(opts: {
+  dataEngine: DataEngine
+  action: 'created' | 'updated' | 'deleted'
+  entity: TEntity | null | undefined
+  identifiers: CrudEmitContext<TEntity>['identifiers']
+  events?: CrudEventsConfig<TEntity>
+  indexer?: CrudIndexerConfig<TEntity>
+}) {
+  const { dataEngine, action, entity, identifiers, events, indexer } = opts
+  if (!entity) return
+  await emitCrudSideEffects({ dataEngine, action, entity, identifiers, events, indexer })
+}
+
 export function buildChanges(
   before: Record<string, unknown> | null | undefined,
   after: Record<string, unknown>,

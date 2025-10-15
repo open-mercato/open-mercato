@@ -4,6 +4,7 @@ import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
   emitCrudSideEffects,
+  emitCrudUndoSideEffects,
   buildChanges,
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
@@ -160,20 +161,18 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         })
       }
     }
-    if (removed) {
-      await emitCrudSideEffects({
-        dataEngine: de,
-        action: 'deleted',
-        entity: removed,
-        identifiers: {
-          id,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-        },
-        events: todoCrudEvents,
-        indexer: todoCrudIndexer,
-      })
-    }
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: removed,
+      identifiers: {
+        id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      },
+      events: todoCrudEvents,
+      indexer: todoCrudIndexer,
+    })
   },
 }
 
@@ -307,20 +306,18 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         notify: false,
       })
     }
-    if (updated) {
-      await emitCrudSideEffects({
-        dataEngine: de,
-        action: 'updated',
-        entity: updated,
-        identifiers: {
-          id: before.id,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-        },
-        events: todoCrudEvents,
-        indexer: todoCrudIndexer,
-      })
-    }
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: updated,
+      identifiers: {
+        id: before.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      },
+      events: todoCrudEvents,
+      indexer: todoCrudIndexer,
+    })
   },
 }
 
@@ -425,20 +422,18 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         notify: false,
       })
     }
-    if (restored) {
-      await emitCrudSideEffects({
-        dataEngine: de,
-        action: 'updated',
-        entity: restored,
-        identifiers: {
-          id: before.id,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-        },
-        events: todoCrudEvents,
-        indexer: todoCrudIndexer,
-      })
-    }
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: restored,
+      identifiers: {
+        id: before.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      },
+      events: todoCrudEvents,
+      indexer: todoCrudIndexer,
+    })
   },
 }
 

@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { Undo2 } from 'lucide-react'
-import { Button } from '../primitives/button'
+import { Button } from '../../primitives/button'
 import { apiFetch } from '../utils/api'
 import { flash } from '../FlashMessages'
 import { useLastOperation, markUndoSuccess } from './store'
@@ -41,12 +41,12 @@ export function LastOperationBanner() {
   }
 
   return (
-    <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+    <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
       <div className="min-w-0 truncate">
-        <span className="font-medium text-foreground">
+        <span className="font-medium text-amber-950">
           {t('audit_logs.banner.last_operation')}
         </span>
-        <span className="ml-2 truncate text-foreground">
+        <span className="ml-2 truncate text-amber-900">
           {label}
         </span>
       </div>
@@ -55,6 +55,7 @@ export function LastOperationBanner() {
         size="sm"
         onClick={() => { void handleUndo() }}
         disabled={isPending}
+        className="border-amber-300 text-amber-900 hover:bg-amber-100"
       >
         <Undo2 className="mr-1 size-4" aria-hidden="true" />
         {isPending ? t('audit_logs.actions.undoing') : t('audit_logs.banner.undo')}

@@ -7,8 +7,10 @@
   "audit_logs.actions.columns.organization": "Organizacja",
   "audit_logs.actions.columns.when": "Czas",
   "audit_logs.actions.columns.status": "Status",
+  "audit_logs.actions.columns.controls": "Akcje",
   "audit_logs.actions.undo": "Cofnij ostatnie działanie",
   "audit_logs.actions.undoing": "Cofanie…",
+  "audit_logs.actions.redo": "Przywróć ostatnie działanie",
   "audit_logs.actions.details.title": "Szczegóły działania",
   "audit_logs.actions.details.changed_fields": "Zmienione pola",
   "audit_logs.actions.details.field": "Pole",
@@ -34,5 +36,10 @@
   "audit_logs.filters.undoable_only": "Tylko do cofnięcia",
   "audit_logs.error.load": "Nie udało się załadować logów",
   "audit_logs.error.undo": "Nie udało się cofnąć działania",
+  "audit_logs.error.redo": "Nie udało się przywrócić działania",
+  "audit_logs.banner.last_operation": "Ostatnia operacja:",
+  "audit_logs.banner.undo": "Cofnij",
+  "audit_logs.banner.undo_success": "Operacja cofnięta",
+  "audit_logs.banner.undo_error": "Nie udało się cofnąć",
   "audit_logs.tabs.label": "Widoki dziennika audytu"
 }

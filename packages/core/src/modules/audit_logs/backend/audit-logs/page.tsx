@@ -114,6 +114,9 @@ export default function AuditLogsPage() {
   const handleUndoError = React.useCallback(() => {
     setError(t('audit_logs.error.undo'))
   }, [t])
+  const handleRedoError = React.useCallback(() => {
+    setError(t('audit_logs.error.redo'))
+  }, [t])
 
   const handleAccessPageChange = React.useCallback((nextPage: number) => {
     const totalPages = accessTotalPages || 1
@@ -171,6 +174,7 @@ export default function AuditLogsPage() {
             isLoading={loading}
             headerExtras={headerExtras}
             onUndoError={handleUndoError}
+            onRedoError={handleRedoError}
           />
         )}
 

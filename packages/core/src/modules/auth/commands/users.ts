@@ -4,6 +4,7 @@ import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
   emitCrudSideEffects,
+  emitCrudUndoSideEffects,
   buildChanges,
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
@@ -222,10 +223,23 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
         })
       }
     }
-    await de.deleteOrmEntity({
+    const removed = await de.deleteOrmEntity({
       entity: User,
       where: { id: userId, deletedAt: null } as FilterQuery<User>,
       soft: false,
+    })
+
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: removed,
+      identifiers: {
+        id: userId,
+        organizationId: snapshot?.organizationId ?? null,
+        tenantId: snapshot?.tenantId ?? null,
+      },
+      events: userCrudEvents,
+      indexer: userCrudIndexer,
     })
 
     await invalidateUserCache(ctx, userId)
@@ -427,6 +441,19 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         notify: false,
       })
     }
+
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: updated,
+      identifiers: {
+        id: before.id,
+        organizationId: before.organizationId ?? null,
+        tenantId: before.tenantId ?? null,
+      },
+      events: userCrudEvents,
+      indexer: userCrudIndexer,
+    })
 
     await invalidateUserCache(ctx, userId)
   },
