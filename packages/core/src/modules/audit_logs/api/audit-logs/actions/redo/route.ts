@@ -79,7 +79,11 @@ export async function POST(req: Request) {
       resourceKind: log.resourceKind,
       resourceId: log.resourceId,
     }
-    const commandInput = log.commandPayload ?? {}
+    const resolvedInput = resolveRedoInput(log.commandPayload, log)
+    if (!resolvedInput) {
+      return NextResponse.json({ error: 'Redo data unavailable for this action' }, { status: 400 })
+    }
+    const commandInput = resolvedInput
     const { logEntry } = await commandBus.execute(log.commandId, {
       input: commandInput,
       ctx,
@@ -129,4 +133,30 @@ function asActionLog(entry: unknown): ActionLog | null {
   if (!entry || typeof entry !== 'object') return null
   if (typeof (entry as { id?: unknown }).id !== 'string') return null
   return entry as ActionLog
+}
+
+function resolveRedoInput(payload: unknown, log: ActionLog): unknown | null {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload) && '__redoInput' in payload) {
+    const envelope = payload as { __redoInput?: unknown }
+    return envelope.__redoInput ?? {}
+  }
+  const updateFallback = deriveUpdateInput(log)
+  if (updateFallback) return updateFallback
+  return null
+}
+
+function deriveUpdateInput(log: ActionLog): Record<string, unknown> | null {
+  if (!log.commandId.endsWith('.update')) return null
+  if (!log.resourceId) return null
+  const changes = log.changesJson
+  if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return { id: log.resourceId }
+  const payload: Record<string, unknown> = { id: log.resourceId }
+  for (const [key, value] of Object.entries(changes)) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && 'to' in value) {
+      payload[key] = (value as Record<string, unknown>).to
+    } else {
+      payload[key] = value
+    }
+  }
+  return payload
 }

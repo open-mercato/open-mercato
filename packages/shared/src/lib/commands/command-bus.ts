@@ -1,4 +1,5 @@
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import type { ActionLogCreateInput } from '@open-mercato/core/modules/audit_logs/data/validators'
 import { commandRegistry } from './registry'
 import type {
   CommandExecutionOptions,
@@ -62,7 +63,11 @@ export class CommandBus {
     if (!handler.undo || this.isUndoable(handler) === false) {
       throw new Error(`Command ${log.commandId} is not undoable`)
     }
-    await handler.undo({ input: log.commandPayload as any, ctx, logEntry: log })
+    await handler.undo({
+      input: log.commandPayload as Parameters<NonNullable<typeof handler.undo>>[0]['input'],
+      ctx,
+      logEntry: log,
+    })
     await service.markUndone(log.id)
   }
 
@@ -150,8 +155,6 @@ export class CommandBus {
     const organizationId =
       metadata.organizationId ?? options.ctx.selectedOrganizationId ?? options.ctx.auth?.orgId ?? null
     const actorUserId = metadata.actorUserId ?? options.ctx.auth?.sub ?? null
-    const undoToken = metadata.undoToken ?? null
-
     const payload: Record<string, unknown> = {
       tenantId: tenantId ?? undefined,
       organizationId: organizationId ?? undefined,
@@ -171,14 +174,31 @@ export class CommandBus {
       if ('context' in metadata && metadata.context !== undefined && metadata.context !== null) payload.context = metadata.context
     }
 
-    if (!('commandPayload' in payload)) {
-      payload.commandPayload = options.input
-    }
+    const redoEnvelope = wrapRedoPayload('commandPayload' in payload ? (payload.commandPayload as unknown) : undefined, options.input)
+    payload.commandPayload = redoEnvelope
 
-    return await service.log(payload as any)
+    return await service.log(payload as ActionLogCreateInput)
   }
 
-  private isUndoable(handler: CommandHandler<any, any>): boolean {
+  private isUndoable(handler: CommandHandler<unknown, unknown>): boolean {
     return handler.isUndoable !== false && typeof handler.undo === 'function'
   }
+}
+
+type RedoEnvelope = {
+  __redoInput: unknown
+  [key: string]: unknown
+}
+
+function wrapRedoPayload(existing: unknown, input: unknown): RedoEnvelope {
+  if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+    const envelope: RedoEnvelope = { __redoInput: input }
+    if (existing !== undefined) envelope.value = existing
+    return envelope
+  }
+  const current = existing as Record<string, unknown>
+  if ('__redoInput' in current && current.__redoInput !== undefined) {
+    return current as RedoEnvelope
+  }
+  return { __redoInput: input, ...current }
 }
