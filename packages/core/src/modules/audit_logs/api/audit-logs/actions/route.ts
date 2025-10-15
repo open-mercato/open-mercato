@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -99,18 +98,6 @@ export async function GET(req: Request) {
     changes: entry.changesJson,
     context: entry.contextJson,
   }))
-
-  await logCrudAccess({
-    container,
-    auth,
-    request: req,
-    items,
-    idField: 'id',
-    resourceKind: 'audit_logs.action',
-    organizationId,
-    tenantId: auth.tenantId ?? null,
-    query: Object.fromEntries(url.searchParams.entries()),
-  })
 
   return NextResponse.json({ items, canViewTenant })
 }

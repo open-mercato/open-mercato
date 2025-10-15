@@ -7,7 +7,6 @@ import {
   type AccessLogCreateInput,
   type AccessLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
-import { AUDIT_LOG_SKIP_RESOURCE_KINDS } from './constants'
 
 const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
 
@@ -32,10 +31,6 @@ export class AccessLogService {
   constructor(private readonly em: EntityManager) {}
 
   async log(input: AccessLogCreateInput): Promise<AccessLog | null> {
-    const requestedKind = typeof input?.resourceKind === 'string' ? input.resourceKind : undefined
-    if (requestedKind && AUDIT_LOG_SKIP_RESOURCE_KINDS.has(requestedKind)) {
-      return null
-    }
     let data: AccessLogCreateInput
     const schema = accessLogCreateSchema as typeof accessLogCreateSchema & { _zod?: unknown }
     const canValidate = Boolean(schema && typeof schema.parse === 'function')

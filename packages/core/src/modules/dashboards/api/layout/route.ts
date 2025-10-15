@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/entities'
 import { dashboardLayoutSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
@@ -167,25 +166,6 @@ export async function GET(req: Request) {
       loaderKey: widget.key,
     })),
   }
-
-  await logCrudAccess({
-    container,
-    auth,
-    request: req,
-    items: [{
-      id: scope.userId,
-      userId: scope.userId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      widgetCount: response.layout.items.length,
-    }],
-    idField: 'id',
-    resourceKind: 'dashboards.layout',
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    query: Object.fromEntries(url.searchParams.entries()),
-    accessType: 'read:item',
-  })
 
   return NextResponse.json(response)
 }

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
 import { roleWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
@@ -61,19 +60,6 @@ export async function GET(req: Request) {
       organizationId,
     },
   }
-
-  await logCrudAccess({
-    container,
-    auth,
-    request: req,
-    items: [{ id: roleId, ...response }],
-    idField: 'id',
-    resourceKind: 'dashboards.role_widgets',
-    organizationId,
-    tenantId,
-    query: Object.fromEntries(url.searchParams.entries()),
-    accessType: 'read:item',
-  })
 
   return NextResponse.json(response)
 }

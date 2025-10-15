@@ -11,6 +11,14 @@ import type {
 import { defaultUndoToken } from './types'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 
+const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
+  'audit_logs.access',
+  'audit_logs.action',
+  'dashboards.layout',
+  'dashboards.user_widgets',
+  'dashboards.role_widgets',
+])
+
 export class CommandBus {
   async execute<TInput = unknown, TResult = unknown>(
     commandId: string,
@@ -125,6 +133,11 @@ export class CommandBus {
     metadata: CommandLogMetadata | null
   ): Promise<ActionLog | null> {
     if (!metadata) return null
+    const resourceKind =
+      typeof metadata.resourceKind === 'string' ? metadata.resourceKind : null
+    if (resourceKind && SKIPPED_ACTION_LOG_RESOURCE_KINDS.has(resourceKind)) {
+      return null
+    }
     let service: ActionLogService | null = null
     try {
       service = options.ctx.container.resolve<ActionLogService>('actionLogService')

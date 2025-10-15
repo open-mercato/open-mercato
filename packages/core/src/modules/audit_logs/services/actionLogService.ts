@@ -7,7 +7,6 @@ import {
   type ActionLogCreateInput,
   type ActionLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
-import { AUDIT_LOG_SKIP_RESOURCE_KINDS } from './constants'
 
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
@@ -18,10 +17,6 @@ export class ActionLogService {
   constructor(private readonly em: EntityManager) {}
 
   async log(input: ActionLogCreateInput): Promise<ActionLog | null> {
-    const requestedKind = typeof input?.resourceKind === 'string' ? input.resourceKind : undefined
-    if (requestedKind && AUDIT_LOG_SKIP_RESOURCE_KINDS.has(requestedKind)) {
-      return null
-    }
     let data: ActionLogCreateInput
     const schema = actionLogCreateSchema as typeof actionLogCreateSchema & { _zod?: unknown }
     const canValidate = Boolean(schema && typeof schema.parse === 'function')
