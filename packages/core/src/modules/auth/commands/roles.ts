@@ -15,10 +15,12 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 
 type SerializedRole = {
   name: string
   tenantId: string | null
+  custom?: Record<string, unknown>
 }
 
 type RoleAclSnapshot = {
@@ -34,6 +36,7 @@ type RoleUndoSnapshot = {
   name: string
   tenantId: string | null
   acls: RoleAclSnapshot[]
+  custom?: Record<string, unknown>
 }
 
 type RoleSnapshots = {
@@ -114,10 +117,24 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
 
     return role
   },
-  captureAfter: (_input, result) => serializeRole(result),
-  buildLog: async ({ result }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve<EntityManager>('em')
+    const custom = await loadRoleCustomSnapshot(
+      em,
+      String(result.id),
+      result.tenantId ? String(result.tenantId) : null
+    )
+    return serializeRole(result, custom)
+  },
+  buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const snapshot = captureRoleSnapshots(result)
+    const em = ctx.container.resolve<EntityManager>('em')
+    const custom = await loadRoleCustomSnapshot(
+      em,
+      String(result.id),
+      result.tenantId ? String(result.tenantId) : null
+    )
+    const snapshot = captureRoleSnapshots(result, [], custom)
     return {
       actionLabel: translate('auth.audit.roles.create', 'Create role'),
       resourceKind: 'auth.role',
@@ -137,6 +154,19 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const em = ctx.container.resolve<EntityManager>('em')
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await em.nativeDelete(RoleAcl, { role: undo.id as unknown as Role })
+    if (undo.custom && Object.keys(undo.custom).length) {
+      const reset = buildCustomFieldResetMap(undefined, undo.custom)
+      if (Object.keys(reset).length) {
+        await de.setCustomFields({
+          entityId: E.auth.role,
+          recordId: undo.id,
+          organizationId: null,
+          tenantId: undo.tenantId ?? null,
+          values: reset,
+          notify: false,
+        })
+      }
+    }
     await de.deleteOrmEntity({
       entity: Role,
       where: { id: undo.id, deletedAt: null } as FilterQuery<Role>,
@@ -153,7 +183,12 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const existing = await em.findOne(Role, { id: parsed.id, deletedAt: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Role not found' })
     const acls = await loadRoleAclSnapshots(em, parsed.id)
-    return { before: captureRoleSnapshots(existing, acls) }
+    const custom = await loadRoleCustomSnapshot(
+      em,
+      parsed.id,
+      existing.tenantId ? String(existing.tenantId) : null
+    )
+    return { before: captureRoleSnapshots(existing, acls, custom) }
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
@@ -192,7 +227,15 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
 
     return role
   },
-  captureAfter: (_input, result) => serializeRole(result),
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve<EntityManager>('em')
+    const custom = await loadRoleCustomSnapshot(
+      em,
+      String(result.id),
+      result.tenantId ? String(result.tenantId) : null
+    )
+    return serializeRole(result, custom)
+  },
   buildLog: async ({ result, snapshots, ctx }) => {
     const { translate } = await resolveTranslations()
     const beforeSnapshots = snapshots.before as RoleSnapshots | undefined
@@ -200,9 +243,18 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const beforeUndo = beforeSnapshots?.undo ?? null
     const em = ctx.container.resolve<EntityManager>('em')
     const afterAcls = await loadRoleAclSnapshots(em, String(result.id))
-    const afterSnapshots = captureRoleSnapshots(result, afterAcls)
+    const custom = await loadRoleCustomSnapshot(
+      em,
+      String(result.id),
+      result.tenantId ? String(result.tenantId) : null
+    )
+    const afterSnapshots = captureRoleSnapshots(result, afterAcls, custom)
     const after = afterSnapshots.view
     const changes = buildChanges(before ?? null, after as Record<string, unknown>, ['name', 'tenantId'])
+    const customDiff = diffCustomFields(before?.custom, custom)
+    for (const [key, diff] of Object.entries(customDiff)) {
+      changes[`custom.${key}`] = diff
+    }
     return {
       actionLabel: translate('auth.audit.roles.update', 'Update role'),
       resourceKind: 'auth.role',
@@ -222,6 +274,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   undo: async ({ logEntry, ctx }) => {
     const undo = extractRoleUndoPayload(logEntry)
     const before = undo?.before
+    const after = undo?.after
     if (!before) return
     const em = ctx.container.resolve<EntityManager>('em')
     const de = ctx.container.resolve<DataEngine>('dataEngine')
@@ -236,6 +289,17 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     if (updated) {
       await restoreRoleAcls(em, before.id, before.acls)
     }
+    const reset = buildCustomFieldResetMap(before.custom, after?.custom)
+    if (Object.keys(reset).length) {
+      await de.setCustomFields({
+        entityId: E.auth.role,
+        recordId: before.id,
+        organizationId: null,
+        tenantId: before.tenantId ?? null,
+        values: reset,
+        notify: false,
+      })
+    }
   },
 }
 
@@ -247,7 +311,12 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const existing = await em.findOne(Role, { id, deletedAt: null })
     if (!existing) return {}
     const acls = await loadRoleAclSnapshots(em, id)
-    return { before: captureRoleSnapshots(existing, acls) }
+    const custom = await loadRoleCustomSnapshot(
+      em,
+      id,
+      existing.tenantId ? String(existing.tenantId) : null
+    )
+    return { before: captureRoleSnapshots(existing, acls, custom) }
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Role id required')
@@ -323,6 +392,17 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       })
     }
     await restoreRoleAcls(em, before.id, before.acls)
+    const reset = buildCustomFieldResetMap(before.custom, undefined)
+    if (Object.keys(reset).length) {
+      await de.setCustomFields({
+        entityId: E.auth.role,
+        recordId: before.id,
+        organizationId: null,
+        tenantId: before.tenantId ?? null,
+        values: reset,
+        notify: false,
+      })
+    }
   },
 }
 
@@ -330,21 +410,28 @@ registerCommand(createRoleCommand)
 registerCommand(updateRoleCommand)
 registerCommand(deleteRoleCommand)
 
-function serializeRole(role: Role): SerializedRole {
-  return {
+function serializeRole(role: Role, custom?: Record<string, unknown> | null): SerializedRole {
+  const payload: SerializedRole = {
     name: String(role.name ?? ''),
     tenantId: role.tenantId ? String(role.tenantId) : null,
   }
+  if (custom && Object.keys(custom).length) payload.custom = custom
+  return payload
 }
 
-function captureRoleSnapshots(role: Role, acls: RoleAclSnapshot[] = []): RoleSnapshots {
+function captureRoleSnapshots(
+  role: Role,
+  acls: RoleAclSnapshot[] = [],
+  custom?: Record<string, unknown> | null
+): RoleSnapshots {
   return {
-    view: serializeRole(role),
+    view: serializeRole(role, custom),
     undo: {
       id: String(role.id),
       name: String(role.name ?? ''),
       tenantId: role.tenantId ? String(role.tenantId) : null,
       acls,
+      ...(custom && Object.keys(custom).length ? { custom } : {}),
     },
   }
 }
@@ -379,6 +466,66 @@ async function restoreRoleAcls(em: EntityManager, roleId: string, acls: RoleAclS
     em.persist(entity)
   }
   await em.flush()
+}
+
+async function loadRoleCustomSnapshot(em: EntityManager, id: string, tenantId: string | null): Promise<Record<string, unknown>> {
+  const records = await loadCustomFieldValues({
+    em,
+    entityId: E.auth.role as any,
+    recordIds: [id],
+    tenantIdByRecord: { [id]: tenantId ?? null },
+    tenantFallbacks: [tenantId ?? null],
+  })
+  const raw = records[id] ?? {}
+  const custom: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (key.startsWith('cf_')) custom[key.slice(3)] = value
+  }
+  return custom
+}
+
+function buildCustomFieldResetMap(
+  before: Record<string, unknown> | undefined,
+  after: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  const keys = new Set<string>()
+  if (before) for (const key of Object.keys(before)) keys.add(key)
+  if (after) for (const key of Object.keys(after)) keys.add(key)
+  for (const key of keys) {
+    if (before && Object.prototype.hasOwnProperty.call(before, key)) {
+      values[key] = before[key]
+    } else {
+      values[key] = null
+    }
+  }
+  return values
+}
+
+function diffCustomFields(
+  before: Record<string, unknown> | undefined,
+  after: Record<string, unknown> | undefined
+): Record<string, { from: unknown; to: unknown }> {
+  const out: Record<string, { from: unknown; to: unknown }> = {}
+  const keys = new Set<string>()
+  if (before) for (const key of Object.keys(before)) keys.add(key)
+  if (after) for (const key of Object.keys(after)) keys.add(key)
+  for (const key of keys) {
+    const prev = before ? before[key] : undefined
+    const next = after ? after[key] : undefined
+    if (!customFieldValuesEqual(prev, next)) {
+      out[key] = { from: prev ?? null, to: next ?? null }
+    }
+  }
+  return out
+}
+
+function customFieldValuesEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((value, idx) => customFieldValuesEqual(value, b[idx]))
+  }
+  return a === b
 }
 
 type RoleUndoPayload = { undo?: { before?: RoleUndoSnapshot | null; after?: RoleUndoSnapshot | null } }

@@ -8,6 +8,7 @@ import { organizationCreateSchema, organizationUpdateSchema } from '@open-mercat
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { CrudEmitContext, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
@@ -66,6 +67,7 @@ type OrganizationUndoSnapshot = {
   isActive: boolean
   parentId: string | null
   childParents: ChildParentSnapshot[]
+  custom?: Record<string, unknown>
 }
 
 type OrganizationSnapshots = {
@@ -92,7 +94,7 @@ export function resolveTenantIdFromEntity(entity: Organization): string | null {
   return fallback
 }
 
-function serializeOrganization(entity: Organization) {
+function serializeOrganization(entity: Organization, custom?: Record<string, unknown> | null) {
   return {
     id: String(entity.id),
     tenantId: resolveTenantIdFromEntity(entity),
@@ -104,13 +106,18 @@ function serializeOrganization(entity: Organization) {
     descendantIds: Array.isArray(entity.descendantIds) ? [...entity.descendantIds] : [],
     createdAt: entity.createdAt ? entity.createdAt.toISOString() : null,
     updatedAt: entity.updatedAt ? entity.updatedAt.toISOString() : null,
+    ...(custom && Object.keys(custom).length ? { custom } : {}),
   }
 }
 
-function captureOrganizationSnapshots(entity: Organization, childParents: ChildParentSnapshot[]): OrganizationSnapshots {
+function captureOrganizationSnapshots(
+  entity: Organization,
+  childParents: ChildParentSnapshot[],
+  custom?: Record<string, unknown> | null
+): OrganizationSnapshots {
   const tenantId = resolveTenantIdFromEntity(entity)
   return {
-    view: serializeOrganization(entity),
+    view: serializeOrganization(entity, custom),
     undo: {
       id: String(entity.id),
       tenantId,
@@ -121,6 +128,7 @@ function captureOrganizationSnapshots(entity: Organization, childParents: ChildP
         childId: String(entry.childId),
         parentId: entry.parentId,
       })),
+      ...(custom && Object.keys(custom).length ? { custom } : {}),
     },
   }
 }
@@ -284,16 +292,35 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 
     return organization
   },
-  captureAfter: (_input, result) => serializeOrganization(result),
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve<EntityManager>('em')
+    const tenantId = resolveTenantIdFromEntity(result)
+    const custom = await loadOrganizationCustomSnapshot(
+      em,
+      String(result.id),
+      tenantId,
+      String(result.id)
+    )
+    return serializeOrganization(result, custom)
+  },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
     const meta = getUndoMeta(result)
-    const afterSnapshots = captureOrganizationSnapshots(result, meta.childParentsAfter ?? [])
+    const em = ctx.container.resolve<EntityManager>('em')
+    const tenantId = resolveTenantIdFromEntity(result)
+    const custom = await loadOrganizationCustomSnapshot(
+      em,
+      String(result.id),
+      tenantId,
+      String(result.id)
+    )
+    const afterSnapshots = captureOrganizationSnapshots(result, meta.childParentsAfter ?? [], custom)
     return {
       actionLabel: translate('directory.audit.organizations.create', 'Create organization'),
       resourceKind: 'directory.organization',
       resourceId: String(result.id),
       tenantId: ctx.auth?.tenantId ?? resolveTenantIdFromEntity(result),
+      snapshotAfter: afterSnapshots.view,
       payload: {
         undo: {
           after: afterSnapshots.undo,
@@ -312,6 +339,19 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const em = ctx.container.resolve<EntityManager>('em')
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await restoreChildParents(em, tenantId, childrenBefore)
+    if (after.custom && Object.keys(after.custom).length) {
+      const reset = buildCustomFieldResetMap(undefined, after.custom)
+      if (Object.keys(reset).length) {
+        await de.setCustomFields({
+          entityId: E.directory.organization,
+          recordId: after.id,
+          tenantId,
+          organizationId: after.id,
+          values: reset,
+          notify: false,
+        })
+      }
+    }
     await de.deleteOrmEntity({
       entity: Organization,
       where: { id: after.id, deletedAt: null } as FilterQuery<Organization>,
@@ -335,7 +375,13 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const childParentsBefore = tenantId
       ? await loadChildParentSnapshots(em, tenantId, combinedChildIds)
       : []
-    return { before: captureOrganizationSnapshots(current, childParentsBefore) }
+    const custom = await loadOrganizationCustomSnapshot(
+      em,
+      String(current.id),
+      tenantId,
+      String(current.id)
+    )
+    return { before: captureOrganizationSnapshots(current, childParentsBefore, custom) }
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(organizationUpdateSchema, rawInput)
@@ -425,14 +471,36 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 
     return organization
   },
-  captureAfter: (_input, result) => serializeOrganization(result),
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve<EntityManager>('em')
+    const tenantId = resolveTenantIdFromEntity(result)
+    const custom = await loadOrganizationCustomSnapshot(
+      em,
+      String(result.id),
+      tenantId,
+      String(result.id)
+    )
+    return serializeOrganization(result, custom)
+  },
   buildLog: async ({ snapshots, result, ctx }) => {
     const { translate } = await resolveTranslations()
     const meta = getUndoMeta(result)
     const beforeSnapshots = snapshots.before as OrganizationSnapshots | undefined
     const beforeRecord = beforeSnapshots?.view ?? null
-    const after = serializeOrganization(result)
+    const em = ctx.container.resolve<EntityManager>('em')
+    const tenantId = resolveTenantIdFromEntity(result)
+    const custom = await loadOrganizationCustomSnapshot(
+      em,
+      String(result.id),
+      tenantId,
+      String(result.id)
+    )
+    const after = serializeOrganization(result, custom)
     const changes = buildChanges(beforeRecord, after as Record<string, unknown>, ['name', 'isActive', 'parentId'])
+    const customDiff = diffCustomFields(beforeRecord?.custom, custom)
+    for (const [key, diff] of Object.entries(customDiff)) {
+      changes[`custom.${key}`] = diff
+    }
     return {
       actionLabel: translate('directory.audit.organizations.update', 'Update organization'),
       resourceKind: 'directory.organization',
@@ -442,7 +510,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       payload: {
         undo: {
           before: beforeSnapshots?.undo ?? null,
-          after: captureOrganizationSnapshots(result, meta.childParentsAfter ?? []).undo,
+          after: captureOrganizationSnapshots(result, meta.childParentsAfter ?? [], custom).undo,
         },
       },
     }
@@ -450,6 +518,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   undo: async ({ logEntry, ctx }) => {
     const payload = extractOrganizationUndoPayload(logEntry)
     const before = payload?.before
+    const after = payload?.after
     if (!before) return
     const tenantId = before.tenantId
     if (!tenantId) return
@@ -466,6 +535,17 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     })
     if (updated && tenantId) {
       setInternalTenantId(updated, tenantId)
+    }
+    const reset = buildCustomFieldResetMap(before.custom, after?.custom)
+    if (Object.keys(reset).length) {
+      await de.setCustomFields({
+        entityId: E.directory.organization,
+        recordId: before.id,
+        tenantId,
+        organizationId: before.id,
+        values: reset,
+        notify: false,
+      })
     }
     const childSnapshots = before.childParents
     await restoreChildParents(em, tenantId, childSnapshots)
@@ -484,7 +564,13 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     const childParentsBefore = tenantId
       ? await loadChildParentSnapshots(em, tenantId, Array.isArray(existing.childIds) ? existing.childIds : [])
       : []
-    return { before: captureOrganizationSnapshots(existing, childParentsBefore) }
+    const custom = await loadOrganizationCustomSnapshot(
+      em,
+      String(existing.id),
+      tenantId,
+      String(existing.id)
+    )
+    return { before: captureOrganizationSnapshots(existing, childParentsBefore, custom) }
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Organization id required')
@@ -589,6 +675,19 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
       })
       if (tenantId) setInternalTenantId(organization, tenantId)
     }
+    if (tenantId) {
+      const customValues = buildCustomFieldResetMap(before.custom, undefined)
+      if (Object.keys(customValues).length) {
+        await de.setCustomFields({
+          entityId: E.directory.organization,
+          recordId: before.id,
+          tenantId,
+          organizationId: before.id,
+          values: customValues,
+          notify: false,
+        })
+      }
+    }
     await restoreChildParents(em, tenantId, before.childParents)
     await rebuildHierarchyForTenant(em, tenantId)
   },
@@ -632,6 +731,72 @@ function extractOrganizationUndoPayload(logEntry: { commandPayload?: unknown }):
 registerCommand(createOrganizationCommand)
 registerCommand(updateOrganizationCommand)
 registerCommand(deleteOrganizationCommand)
+
+async function loadOrganizationCustomSnapshot(
+  em: EntityManager,
+  id: string,
+  tenantId: string | null,
+  organizationId: string | null
+): Promise<Record<string, unknown>> {
+  const records = await loadCustomFieldValues({
+    em,
+    entityId: E.directory.organization as any,
+    recordIds: [id],
+    tenantIdByRecord: { [id]: tenantId ?? null },
+    organizationIdByRecord: { [id]: organizationId ?? null },
+    tenantFallbacks: [tenantId ?? null],
+  })
+  const raw = records[id] ?? {}
+  const custom: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (key.startsWith('cf_')) custom[key.slice(3)] = value
+  }
+  return custom
+}
+
+function buildCustomFieldResetMap(
+  before: Record<string, unknown> | undefined,
+  after: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  const keys = new Set<string>()
+  if (before) for (const key of Object.keys(before)) keys.add(key)
+  if (after) for (const key of Object.keys(after)) keys.add(key)
+  for (const key of keys) {
+    if (before && Object.prototype.hasOwnProperty.call(before, key)) {
+      values[key] = before[key]
+    } else {
+      values[key] = null
+    }
+  }
+  return values
+}
+
+function diffCustomFields(
+  before: Record<string, unknown> | undefined,
+  after: Record<string, unknown> | undefined
+): Record<string, { from: unknown; to: unknown }> {
+  const out: Record<string, { from: unknown; to: unknown }> = {}
+  const keys = new Set<string>()
+  if (before) for (const key of Object.keys(before)) keys.add(key)
+  if (after) for (const key of Object.keys(after)) keys.add(key)
+  for (const key of keys) {
+    const prev = before ? before[key] : undefined
+    const next = after ? after[key] : undefined
+    if (!customFieldValuesEqual(prev, next)) {
+      out[key] = { from: prev ?? null, to: next ?? null }
+    }
+  }
+  return out
+}
+
+function customFieldValuesEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((value, idx) => customFieldValuesEqual(value, b[idx]))
+  }
+  return a === b
+}
 
 function toOptionalString(value: unknown): string | null {
   if (typeof value === 'string' && value.trim()) return value
