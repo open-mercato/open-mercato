@@ -1,6 +1,6 @@
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerEntity, CustomerTag, CustomerTagAssignment } from '../data/entities'
+import { CustomerEntity, CustomerTag, CustomerTagAssignment, type CustomerEntityKind } from '../data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
@@ -43,6 +43,30 @@ export function extractUndoPayload<T>(logEntry: ActionLog | null | undefined): T
 export function assertRecordFound<T>(record: T | null | undefined, message: string): T {
   if (!record) throw new CrudHttpError(404, { error: message })
   return record
+}
+
+export async function requireCustomerEntity(
+  em: EntityManager,
+  id: string,
+  kind?: CustomerEntityKind,
+  message = 'Customer entity not found'
+): Promise<CustomerEntity> {
+  const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
+  if (!entity) throw new CrudHttpError(404, { error: message })
+  if (kind && entity.kind !== kind) {
+    throw new CrudHttpError(400, { error: 'Invalid entity type' })
+  }
+  return entity
+}
+
+export function ensureSameScope(
+  entity: Pick<CustomerEntity, 'organizationId' | 'tenantId'>,
+  organizationId: string,
+  tenantId: string
+): void {
+  if (entity.organizationId !== organizationId || entity.tenantId !== tenantId) {
+    throw new CrudHttpError(403, { error: 'Cross-tenant relation forbidden' })
+  }
 }
 
 export async function syncEntityTags(
