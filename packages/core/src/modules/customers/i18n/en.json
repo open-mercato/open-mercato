@@ -1,0 +1,9 @@
+{
+  "customers.nav.group": "Customers",
+  "customers.nav.people": "People",
+  "customers.nav.people.create": "New person",
+  "customers.nav.companies": "Companies",
+  "customers.nav.companies.create": "New company",
+  "customers.nav.deals": "Deals",
+  "customers.nav.activities": "Activities"
+}
