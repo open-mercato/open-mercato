@@ -24,6 +24,7 @@ import {
   requireCustomerEntity,
   ensureSameScope,
   extractUndoPayload,
+  requireDealInScope,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -80,19 +81,6 @@ async function loadActivitySnapshot(em: EntityManager, id: string): Promise<Acti
     },
     custom,
   }
-}
-
-async function requireDealInScope(
-  em: EntityManager,
-  dealId: string | null | undefined,
-  tenantId: string,
-  organizationId: string
-): Promise<CustomerDeal | null> {
-  if (!dealId) return null
-  const deal = await em.findOne(CustomerDeal, { id: dealId, deletedAt: null })
-  if (!deal) throw new CrudHttpError(400, { error: 'Deal not found' })
-  ensureSameScope(deal, organizationId, tenantId)
-  return deal
 }
 
 async function setActivityCustomFields(

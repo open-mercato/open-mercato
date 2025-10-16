@@ -15,9 +15,9 @@ Implementation phases:
 
 ### Phase 3 status
 
-- Added undoable command handlers for people & companies (create/update/delete) with custom-field integration and tag syncing.
+- Added undoable command handlers for people, companies, deals, activities, comments, addresses, tags, and todo links.
 - Command registrations are wired via module bootstrap so the command bus resolves them automatically.
-- Deals, activities, comments, addresses, tags, and todos will follow in the next iteration of this phase.
+- Next: expose CRUD APIs + UI surfaces leveraging these commands.
 
 ## Data Model Overview
 

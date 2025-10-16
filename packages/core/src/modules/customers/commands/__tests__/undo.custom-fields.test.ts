@@ -15,6 +15,11 @@ import {
   CustomerCompanyProfile,
   CustomerDeal,
   CustomerActivity,
+  CustomerComment,
+  CustomerAddress,
+  CustomerTag,
+  CustomerTagAssignment,
+  CustomerTodoLink,
 } from '../../data/entities'
 
 function createMockContext(deps: {
@@ -686,6 +691,352 @@ describe('customers commands undo custom fields', () => {
         values: { notes: 'important', outcome: null },
         notify: false,
       })
+    )
+  })
+
+  it('comments.delete undo recreates comment', async () => {
+    const handler = commandRegistry.get('customers.comments.delete') as CommandHandler
+    expect(handler).toBeDefined()
+
+    const entity: CustomerEntity = {
+      id: 'person-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      kind: 'person',
+      displayName: 'Person',
+      description: null,
+      ownerUserId: null,
+      primaryEmail: null,
+      primaryPhone: null,
+      status: null,
+      lifecycleStage: null,
+      source: null,
+      nextInteractionAt: null,
+      nextInteractionName: null,
+      nextInteractionRefId: null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      personProfile: undefined,
+      companyProfile: undefined,
+      addresses: [] as any,
+      activities: [] as any,
+      comments: [] as any,
+      tagAssignments: [] as any,
+      todoLinks: [] as any,
+      dealPersonLinks: [] as any,
+      dealCompanyLinks: [] as any,
+      companyMembers: [] as any,
+    }
+
+    const em: Partial<EntityManager> & { fork?: () => any } = {
+      fork: () => em,
+      findOne: jest.fn(async (ctor, where: any) => {
+        if (ctor === CustomerEntity && where.id === entity.id) return entity
+        if (ctor === CustomerComment && where.id === 'comment-1') return null
+        return null
+      }),
+      create: jest.fn((_ctor, data) => data),
+      persist: jest.fn(() => {}),
+      flush: jest.fn(async () => {}),
+    }
+
+    const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({ em, dataEngine })
+
+    const logEntry = {
+      commandPayload: {
+        undo: {
+          before: {
+            id: 'comment-1',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            entityId: 'person-1',
+            dealId: null,
+            body: 'Note body',
+            authorUserId: 'user-1',
+          },
+        },
+      },
+    }
+
+    await handler.undo!({ logEntry, ctx })
+
+    expect(em.create).toHaveBeenCalledWith(
+      CustomerComment,
+      expect.objectContaining({ id: 'comment-1', body: 'Note body' })
+    )
+  })
+
+  it('addresses.delete undo recreates address and clears other primaries', async () => {
+    const handler = commandRegistry.get('customers.addresses.delete') as CommandHandler
+    expect(handler).toBeDefined()
+
+    const entity: CustomerEntity = {
+      id: 'person-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      kind: 'person',
+      displayName: 'Person',
+      description: null,
+      ownerUserId: null,
+      primaryEmail: null,
+      primaryPhone: null,
+      status: null,
+      lifecycleStage: null,
+      source: null,
+      nextInteractionAt: null,
+      nextInteractionName: null,
+      nextInteractionRefId: null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      personProfile: undefined,
+      companyProfile: undefined,
+      addresses: [] as any,
+      activities: [] as any,
+      comments: [] as any,
+      tagAssignments: [] as any,
+      todoLinks: [] as any,
+      dealPersonLinks: [] as any,
+      dealCompanyLinks: [] as any,
+      companyMembers: [] as any,
+    }
+
+    const nativeUpdate = jest.fn(async () => {})
+    const em: Partial<EntityManager> & { fork?: () => any } = {
+      fork: () => em,
+      findOne: jest.fn(async (ctor, where: any) => {
+        if (ctor === CustomerEntity && where.id === entity.id) return entity
+        if (ctor === CustomerAddress && where.id === 'address-1') return null
+        return null
+      }),
+      create: jest.fn((_ctor, data) => data),
+      persist: jest.fn(() => {}),
+      flush: jest.fn(async () => {}),
+      nativeUpdate,
+    }
+
+    const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({ em, dataEngine })
+
+    const logEntry = {
+      commandPayload: {
+        undo: {
+          before: {
+            id: 'address-1',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            entityId: 'person-1',
+            name: 'HQ',
+            purpose: 'billing',
+            addressLine1: 'Street 1',
+            addressLine2: null,
+            city: 'City',
+            region: null,
+            postalCode: '00-001',
+            country: 'PL',
+            latitude: null,
+            longitude: null,
+            isPrimary: true,
+          },
+        },
+      },
+    }
+
+    await handler.undo!({ logEntry, ctx })
+
+    expect(em.create).toHaveBeenCalledWith(
+      CustomerAddress,
+      expect.objectContaining({ id: 'address-1', name: 'HQ', isPrimary: true })
+    )
+    expect(nativeUpdate).toHaveBeenCalled()
+  })
+
+  it('tags.unassign undo re-creates tag assignment', async () => {
+    const handler = commandRegistry.get('customers.tags.unassign') as CommandHandler
+    expect(handler).toBeDefined()
+
+    const tag: CustomerTag = {
+      id: 'tag-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      slug: 'vip',
+      label: 'VIP',
+      color: null,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      assignments: [] as any,
+    }
+
+    const entity: CustomerEntity = {
+      id: 'person-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      kind: 'person',
+      displayName: 'Person',
+      description: null,
+      ownerUserId: null,
+      primaryEmail: null,
+      primaryPhone: null,
+      status: null,
+      lifecycleStage: null,
+      source: null,
+      nextInteractionAt: null,
+      nextInteractionName: null,
+      nextInteractionRefId: null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      personProfile: undefined,
+      companyProfile: undefined,
+      addresses: [] as any,
+      activities: [] as any,
+      comments: [] as any,
+      tagAssignments: [] as any,
+      todoLinks: [] as any,
+      dealPersonLinks: [] as any,
+      dealCompanyLinks: [] as any,
+      companyMembers: [] as any,
+    }
+
+    const findOne = jest.fn(async (ctor, where: any) => {
+      if (ctor === CustomerTag && where.id === tag.id) return tag
+      if (ctor === CustomerEntity && where.id === entity.id) return entity
+      if (ctor === CustomerTagAssignment) return null
+      return null
+    })
+
+    const em: Partial<EntityManager> & { fork?: () => any } = {
+      fork: () => em,
+      findOne,
+      create: jest.fn((_ctor, data) => data),
+      persist: jest.fn(() => {}),
+      flush: jest.fn(async () => {}),
+    }
+
+    const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({ em, dataEngine })
+
+    const logEntry = {
+      commandPayload: {
+        undo: {
+          before: {
+            tagId: 'tag-1',
+            entityId: 'person-1',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+          },
+        },
+      },
+    }
+
+    await handler.undo!({ logEntry, ctx })
+
+    expect(em.create).toHaveBeenCalledWith(
+      CustomerTagAssignment,
+      expect.objectContaining({
+        tag,
+        entity,
+      })
+    )
+  })
+
+  it('todos.unlink undo re-creates todo link', async () => {
+    const handler = commandRegistry.get('customers.todos.unlink') as CommandHandler
+    expect(handler).toBeDefined()
+
+    const entity: CustomerEntity = {
+      id: 'person-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      kind: 'person',
+      displayName: 'Person',
+      description: null,
+      ownerUserId: null,
+      primaryEmail: null,
+      primaryPhone: null,
+      status: null,
+      lifecycleStage: null,
+      source: null,
+      nextInteractionAt: null,
+      nextInteractionName: null,
+      nextInteractionRefId: null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      personProfile: undefined,
+      companyProfile: undefined,
+      addresses: [] as any,
+      activities: [] as any,
+      comments: [] as any,
+      tagAssignments: [] as any,
+      todoLinks: [] as any,
+      dealPersonLinks: [] as any,
+      dealCompanyLinks: [] as any,
+      companyMembers: [] as any,
+    }
+
+    const findOne = jest.fn(async (ctor, where: any) => {
+      if (ctor === CustomerEntity && where.id === entity.id) return entity
+      if (ctor === CustomerTodoLink && where.id === 'link-1') return null
+      return null
+    })
+
+    const em: Partial<EntityManager> & { fork?: () => any } = {
+      fork: () => em,
+      findOne,
+      create: jest.fn((_ctor, data) => data),
+      persist: jest.fn(() => {}),
+      flush: jest.fn(async () => {}),
+      nativeDelete: jest.fn(async () => {}),
+    }
+
+    const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({ em, dataEngine })
+
+    const logEntry = {
+      commandPayload: {
+        undo: {
+          before: {
+            id: 'link-1',
+            entityId: 'person-1',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            todoId: 'todo-1',
+            todoSource: 'example:todo',
+            createdByUserId: 'user-1',
+          },
+        },
+      },
+    }
+
+    await handler.undo!({ logEntry, ctx })
+
+    expect(em.create).toHaveBeenCalledWith(
+      CustomerTodoLink,
+      expect.objectContaining({ id: 'link-1', todoId: 'todo-1' })
     )
   })
 })

@@ -1,6 +1,6 @@
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerEntity, CustomerTag, CustomerTagAssignment, type CustomerEntityKind } from '../data/entities'
+import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, type CustomerEntityKind } from '../data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
@@ -107,4 +107,17 @@ export async function loadEntityTagIds(em: EntityManager, entity: CustomerEntity
   return assignments.map((assignment) =>
     typeof assignment.tag === 'string' ? assignment.tag : assignment.tag.id
   )
+}
+
+export async function requireDealInScope(
+  em: EntityManager,
+  dealId: string | null | undefined,
+  tenantId: string,
+  organizationId: string
+): Promise<CustomerDeal | null> {
+  if (!dealId) return null
+  const deal = await em.findOne(CustomerDeal, { id: dealId, deletedAt: null })
+  if (!deal) throw new CrudHttpError(400, { error: 'Deal not found' })
+  ensureSameScope(deal, organizationId, tenantId)
+  return deal
 }

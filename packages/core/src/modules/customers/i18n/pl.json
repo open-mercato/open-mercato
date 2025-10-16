@@ -17,5 +17,18 @@
   "customers.audit.deals.delete": "Usuń szansę",
   "customers.audit.activities.create": "Utwórz aktywność",
   "customers.audit.activities.update": "Zaktualizuj aktywność",
-  "customers.audit.activities.delete": "Usuń aktywność"
+  "customers.audit.activities.delete": "Usuń aktywność",
+  "customers.audit.comments.create": "Dodaj notatkę",
+  "customers.audit.comments.update": "Zaktualizuj notatkę",
+  "customers.audit.comments.delete": "Usuń notatkę",
+  "customers.audit.addresses.create": "Dodaj adres",
+  "customers.audit.addresses.update": "Zaktualizuj adres",
+  "customers.audit.addresses.delete": "Usuń adres",
+  "customers.audit.tags.create": "Utwórz tag",
+  "customers.audit.tags.update": "Zaktualizuj tag",
+  "customers.audit.tags.delete": "Usuń tag",
+  "customers.audit.tags.assign": "Przypisz tag",
+  "customers.audit.tags.unassign": "Odepnij tag",
+  "customers.audit.todos.link": "Powiąż zadanie",
+  "customers.audit.todos.unlink": "Odepnij zadanie"
 }

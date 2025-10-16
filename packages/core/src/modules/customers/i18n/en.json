@@ -17,5 +17,18 @@
   "customers.audit.deals.delete": "Delete deal",
   "customers.audit.activities.create": "Create activity",
   "customers.audit.activities.update": "Update activity",
-  "customers.audit.activities.delete": "Delete activity"
+  "customers.audit.activities.delete": "Delete activity",
+  "customers.audit.comments.create": "Create note",
+  "customers.audit.comments.update": "Update note",
+  "customers.audit.comments.delete": "Delete note",
+  "customers.audit.addresses.create": "Create address",
+  "customers.audit.addresses.update": "Update address",
+  "customers.audit.addresses.delete": "Delete address",
+  "customers.audit.tags.create": "Create tag",
+  "customers.audit.tags.update": "Update tag",
+  "customers.audit.tags.delete": "Delete tag",
+  "customers.audit.tags.assign": "Assign tag",
+  "customers.audit.tags.unassign": "Unassign tag",
+  "customers.audit.todos.link": "Link todo",
+  "customers.audit.todos.unlink": "Unlink todo"
 }
