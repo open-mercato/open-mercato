@@ -15,7 +15,7 @@ Implementation phases:
 
 ### Phase 3 status
 
-- Added undoable command handlers for people, companies, deals, activities, comments, addresses, tags, and todo links.
+- Added undoable command handlers for people, companies, deals, activities, comments, addresses, tags, and todo links (including compound todo creation linked to example module todos).
 - Command registrations are wired via module bootstrap so the command bus resolves them automatically.
 - Next: expose CRUD APIs + UI surfaces leveraging these commands.
 

@@ -1,19 +1,37 @@
+import '@open-mercato/example/modules/example/commands/todos'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerTodoLink } from '../data/entities'
-import { todoLinkCreateSchema, type TodoLinkCreateInput } from '../data/validators'
+import {
+  todoLinkCreateSchema,
+  todoLinkWithTodoCreateSchema,
+  type TodoLinkCreateInput,
+  type TodoLinkWithTodoCreateInput,
+} from '../data/validators'
 import {
   ensureOrganizationScope,
   ensureTenantScope,
-  requireCustomerEntity,
   ensureSameScope,
   extractUndoPayload,
+  requireCustomerEntity,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CommandHandler as ExampleCommandHandler } from '@open-mercato/shared/lib/commands'
+import type { Todo } from '@open-mercato/example/modules/example/data/entities'
+
+type TodoSnapshot = {
+  id: string
+  title: string
+  is_done: boolean
+  tenantId: string | null
+  organizationId: string | null
+  custom?: Record<string, unknown>
+}
 
 type TodoLinkSnapshot = {
   id: string
@@ -25,9 +43,12 @@ type TodoLinkSnapshot = {
   createdByUserId: string | null
 }
 
-type TodoLinkUndoPayload = {
-  before?: TodoLinkSnapshot | null
+type LinkedTodoUndoPayload = {
+  todo?: TodoSnapshot | null
+  link?: TodoLinkSnapshot | null
 }
+
+const DEFAULT_TODO_SOURCE = 'example:todo'
 
 async function loadTodoLinkSnapshot(em: EntityManager, id: string): Promise<TodoLinkSnapshot | null> {
   const link = await em.findOne(CustomerTodoLink, { id })
@@ -43,7 +64,156 @@ async function loadTodoLinkSnapshot(em: EntityManager, id: string): Promise<Todo
   }
 }
 
-const linkTodoCommand: CommandHandler<TodoLinkCreateInput, { linkId: string }> = {
+function resolveExampleCreateHandler(): ExampleCommandHandler<Record<string, unknown>, Todo> {
+  const handler = commandRegistry.get<Record<string, unknown>, Todo>('example.todos.create') as ExampleCommandHandler<
+    Record<string, unknown>,
+    Todo
+  >
+  if (!handler) throw new Error('example.todos.create handler not registered')
+  return handler
+}
+
+function serializeTodoSnapshot(snapshot: unknown): TodoSnapshot | null {
+  if (!snapshot || typeof snapshot !== 'object') return null
+  const record = snapshot as Record<string, unknown>
+  return {
+    id: String(record.id ?? ''),
+    title: String(record.title ?? ''),
+    is_done: Boolean(record.is_done ?? record.isDone ?? false),
+    tenantId: record.tenantId ? String(record.tenantId) : null,
+    organizationId: record.organizationId ? String(record.organizationId) : null,
+    custom: (record.custom as Record<string, unknown> | undefined) ?? undefined,
+  }
+}
+
+const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { todoId: string; linkId: string; todoSnapshot: TodoSnapshot }> = {
+  id: 'customers.todos.create',
+  async execute(rawInput, ctx) {
+    const parsed = todoLinkWithTodoCreateSchema.parse(rawInput)
+    ensureTenantScope(ctx, parsed.tenantId)
+    ensureOrganizationScope(ctx, parsed.organizationId)
+
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
+    ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
+
+    const exampleCreate = resolveExampleCreateHandler()
+    const exampleInput: Record<string, unknown> = {
+      title: parsed.title,
+      is_done: parsed.isDone ?? false,
+    }
+    if (parsed.todoCustom && Object.keys(parsed.todoCustom).length) {
+      exampleInput.custom = parsed.todoCustom
+    }
+
+    const todo = await exampleCreate.execute(exampleInput, ctx)
+    const rawTodoSnapshot =
+      (await exampleCreate.captureAfter?.(exampleInput, todo, ctx)) ?? { id: todo.id, title: todo.title, is_done: todo.isDone }
+    let serializedTodo = serializeTodoSnapshot(rawTodoSnapshot)
+    if (!serializedTodo) {
+      serializedTodo = {
+        id: String(todo.id),
+        title: todo.title,
+        is_done: todo.isDone,
+        tenantId: parsed.tenantId ?? null,
+        organizationId: parsed.organizationId ?? null,
+        custom: parsed.todoCustom,
+      }
+    } else {
+      serializedTodo.tenantId = serializedTodo.tenantId ?? parsed.tenantId ?? null
+      serializedTodo.organizationId = serializedTodo.organizationId ?? parsed.organizationId ?? null
+      if (parsed.todoCustom && !serializedTodo.custom) serializedTodo.custom = parsed.todoCustom
+    }
+
+    const todoSource = parsed.todoSource ?? DEFAULT_TODO_SOURCE
+    const link = em.create(CustomerTodoLink, {
+      entity,
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+      todoId: String(todo.id),
+      todoSource,
+      createdByUserId: parsed.createdByUserId ?? null,
+    })
+    em.persist(link)
+    await em.flush()
+
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: link,
+      identifiers: {
+        id: link.id,
+        organizationId: link.organizationId,
+        tenantId: link.tenantId,
+      },
+    })
+
+    return { todoId: String(todo.id), linkId: link.id, todoSnapshot: serializedTodo }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve<EntityManager>('em')
+    return await loadTodoLinkSnapshot(em, result.linkId)
+  },
+  buildLog: async ({ result, ctx, input }) => {
+    const { translate } = await resolveTranslations()
+    const em = ctx.container.resolve<EntityManager>('em')
+    const linkSnapshot = await loadTodoLinkSnapshot(em, result.linkId)
+
+    return {
+      actionLabel: translate('customers.audit.todos.link', 'Link todo'),
+      resourceKind: 'customers.todoLink',
+      resourceId: result.linkId,
+      tenantId: linkSnapshot?.tenantId ?? null,
+      organizationId: linkSnapshot?.organizationId ?? null,
+      snapshotAfter: linkSnapshot ?? null,
+      payload: {
+        undo: {
+          link: linkSnapshot ?? null,
+          todo: result.todoSnapshot ?? null,
+        } satisfies LinkedTodoUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<LinkedTodoUndoPayload>(logEntry)
+    if (!payload) return
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+
+    if (payload.link) {
+      await em.nativeDelete(CustomerTodoLink, { id: payload.link.id })
+      await emitCrudUndoSideEffects({
+        dataEngine: de,
+        action: 'updated',
+        entity: null,
+        identifiers: {
+          id: payload.link.id,
+          organizationId: payload.link.organizationId,
+          tenantId: payload.link.tenantId,
+        },
+      })
+    }
+
+    if (payload.todo) {
+      const exampleCreate = resolveExampleCreateHandler()
+      if (typeof exampleCreate.undo === 'function') {
+        await exampleCreate.undo({
+          ctx,
+          logEntry: {
+            commandId: 'example.todos.create',
+            resourceId: payload.todo.id,
+            commandPayload: { undo: { after: { ...payload.todo } } },
+            snapshotAfter: { ...payload.todo },
+          } as any,
+        })
+      }
+    }
+  },
+}
+
+const linkExistingTodoCommand: CommandHandler<TodoLinkCreateInput, { linkId: string }> = {
   id: 'customers.todos.link',
   async execute(rawInput, ctx) {
     const parsed = todoLinkCreateSchema.parse(rawInput)
@@ -54,7 +224,7 @@ const linkTodoCommand: CommandHandler<TodoLinkCreateInput, { linkId: string }> =
     const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
 
-    const todoSource = parsed.todoSource ?? 'example:todo'
+    const todoSource = parsed.todoSource ?? DEFAULT_TODO_SOURCE
     const existing = await em.findOne(CustomerTodoLink, {
       entity,
       todoId: parsed.todoId,
@@ -104,17 +274,17 @@ const linkTodoCommand: CommandHandler<TodoLinkCreateInput, { linkId: string }> =
       snapshotAfter: snapshot ?? null,
       payload: {
         undo: {
-          before: snapshot ?? null,
-        } satisfies TodoLinkUndoPayload,
+          link: snapshot ?? null,
+        } satisfies LinkedTodoUndoPayload,
       },
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<TodoLinkUndoPayload>(logEntry)
-    const before = payload?.before
-    if (!before) return
+    const payload = extractUndoPayload<LinkedTodoUndoPayload>(logEntry)
+    const link = payload?.link
+    if (!link) return
     const em = ctx.container.resolve<EntityManager>('em').fork()
-    await em.nativeDelete(CustomerTodoLink, { id: before.id })
+    await em.nativeDelete(CustomerTodoLink, { id: link.id })
   },
 }
 
@@ -150,7 +320,7 @@ const unlinkTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       })
       return { linkId: link.id ?? null }
     },
-    buildLog: async ({ snapshots }) => {
+    buildLog: async ({ snapshots, ctx }) => {
       const before = snapshots.before as TodoLinkSnapshot | undefined
       if (!before) return null
       const { translate } = await resolveTranslations()
@@ -163,30 +333,30 @@ const unlinkTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         snapshotBefore: before,
         payload: {
           undo: {
-            before,
-          } satisfies TodoLinkUndoPayload,
+            link: before,
+          } satisfies LinkedTodoUndoPayload,
         },
       }
     },
     undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<TodoLinkUndoPayload>(logEntry)
-      const before = payload?.before
-      if (!before) return
+      const payload = extractUndoPayload<LinkedTodoUndoPayload>(logEntry)
+      const link = payload?.link
+      if (!link) return
       const em = ctx.container.resolve<EntityManager>('em').fork()
-      let link = await em.findOne(CustomerTodoLink, { id: before.id })
-      if (!link) {
-        const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
-        ensureSameScope(entity, before.organizationId, before.tenantId)
-        link = em.create(CustomerTodoLink, {
-          id: before.id,
+      let existing = await em.findOne(CustomerTodoLink, { id: link.id })
+      if (!existing) {
+        const entity = await requireCustomerEntity(em, link.entityId, undefined, 'Customer not found')
+        ensureSameScope(entity, link.organizationId, link.tenantId)
+        existing = em.create(CustomerTodoLink, {
+          id: link.id,
           entity,
-          organizationId: before.organizationId,
-          tenantId: before.tenantId,
-          todoId: before.todoId,
-          todoSource: before.todoSource,
-          createdByUserId: before.createdByUserId,
+          organizationId: link.organizationId,
+          tenantId: link.tenantId,
+          todoId: link.todoId,
+          todoSource: link.todoSource,
+          createdByUserId: link.createdByUserId,
         })
-        em.persist(link)
+        em.persist(existing)
         await em.flush()
       }
 
@@ -194,15 +364,16 @@ const unlinkTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       await emitCrudUndoSideEffects({
         dataEngine: de,
         action: 'updated',
-        entity: link,
+        entity: existing,
         identifiers: {
-          id: link.id,
-          organizationId: link.organizationId,
-          tenantId: link.tenantId,
+          id: existing.id,
+          organizationId: existing.organizationId,
+          tenantId: existing.tenantId,
         },
       })
     },
   }
 
-registerCommand(linkTodoCommand)
+registerCommand(createLinkedTodoCommand)
+registerCommand(linkExistingTodoCommand)
 registerCommand(unlinkTodoCommand)

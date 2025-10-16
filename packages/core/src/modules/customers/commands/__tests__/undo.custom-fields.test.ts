@@ -5,7 +5,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import '@open-mercato/core/modules/customers/commands'
-import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { commandRegistry, registerCommand } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -21,6 +21,7 @@ import {
   CustomerTagAssignment,
   CustomerTodoLink,
 } from '../../data/entities'
+import type { Todo } from '@open-mercato/example/modules/example/data/entities'
 
 function createMockContext(deps: {
   em: Partial<EntityManager>
@@ -1038,5 +1039,92 @@ describe('customers commands undo custom fields', () => {
       CustomerTodoLink,
       expect.objectContaining({ id: 'link-1', todoId: 'todo-1' })
     )
+  })
+
+  it('todos.create undo removes link and calls example undo', async () => {
+    const originalHandler = commandRegistry.get('example.todos.create') as CommandHandler | null
+    expect(originalHandler).toBeTruthy()
+    const fakeTodo = {
+      id: 'todo-created',
+      title: 'Follow up',
+      isDone: false,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    } as unknown as Todo
+
+    const executeMock = jest.fn(async () => fakeTodo)
+    const captureAfterMock = jest.fn(async () => ({
+      id: 'todo-created',
+      title: 'Follow up',
+      is_done: false,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }))
+    const undoMock = jest.fn(async () => {})
+
+    commandRegistry.unregister('example.todos.create')
+    registerCommand({
+      id: 'example.todos.create',
+      execute: executeMock,
+      captureAfter: captureAfterMock,
+      undo: undoMock,
+    } as CommandHandler)
+
+    const em: Partial<EntityManager> & { fork?: () => any } = {
+      fork: () => em,
+      findOne: jest.fn(async (ctor, where: any) => {
+        if (ctor === CustomerEntity && where.id === 'person-1') {
+          return {
+            id: 'person-1',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            kind: 'person',
+          } as CustomerEntity
+        }
+        if (ctor === CustomerTodoLink && where.id === 'link-1') return null
+        return null
+      }),
+      create: jest.fn((_ctor, data) => ({ id: data.id ?? 'link-1', ...data })),
+      persist: jest.fn(() => {}),
+      flush: jest.fn(async () => {}),
+      nativeDelete: jest.fn(async () => {}),
+    }
+
+    const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({ em, dataEngine })
+
+    const handler = commandRegistry.get('customers.todos.create') as CommandHandler
+    expect(handler).toBeDefined()
+
+    const input = {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      entityId: 'person-1',
+      title: 'Follow up',
+    }
+
+    const result = await handler.execute(input, ctx)
+    expect(executeMock).toHaveBeenCalled()
+    expect(em.persist).toHaveBeenCalled()
+
+    const log = await handler.buildLog?.({ input, result, ctx, snapshots: {} as any })
+    expect(log).toBeTruthy()
+
+    await handler.undo?.({
+      ctx,
+      logEntry: {
+        commandPayload: log?.payload ?? null,
+      } as any,
+    })
+
+    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerTodoLink, { id: result.linkId })
+    expect(undoMock).toHaveBeenCalled()
+
+    commandRegistry.unregister('example.todos.create')
+    if (originalHandler) registerCommand(originalHandler)
   })
 })

@@ -173,6 +173,15 @@ export const todoLinkCreateSchema = scopedSchema.extend({
   createdByUserId: uuid().optional(),
 })
 
+export const todoLinkWithTodoCreateSchema = scopedSchema.extend({
+  entityId: uuid(),
+  title: z.string().min(1).max(200),
+  isDone: z.boolean().optional(),
+  todoSource: z.string().min(1).max(120).default('example:todo'),
+  createdByUserId: uuid().optional(),
+  todoCustom: z.record(z.any()).optional(),
+})
+
 export type PersonCreateInput = z.infer<typeof personCreateSchema>
 export type PersonUpdateInput = z.infer<typeof personUpdateSchema>
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>
@@ -189,3 +198,4 @@ export type TagCreateInput = z.infer<typeof tagCreateSchema>
 export type TagUpdateInput = z.infer<typeof tagUpdateSchema>
 export type TagAssignmentInput = z.infer<typeof tagAssignmentSchema>
 export type TodoLinkCreateInput = z.infer<typeof todoLinkCreateSchema>
+export type TodoLinkWithTodoCreateInput = z.infer<typeof todoLinkWithTodoCreateSchema>
