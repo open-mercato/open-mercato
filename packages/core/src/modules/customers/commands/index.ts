@@ -1,0 +1,2 @@
+import './people'
+import './companies'

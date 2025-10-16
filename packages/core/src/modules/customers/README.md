@@ -8,10 +8,16 @@ This module provides CRM capabilities for managing people, companies, deals, and
 
 Implementation phases:
 1. Foundations and scaffolding ✅
-2. Data model and migrations (in progress)
-3. Command handlers and undo support
+2. Data model and migrations ✅
+3. Command handlers and undo support (in progress)
 4. CRUD APIs and UI surfaces
 5. Integrations, reporting, and polish
+
+### Phase 3 status
+
+- Added undoable command handlers for people & companies (create/update/delete) with custom-field integration and tag syncing.
+- Command registrations are wired via module bootstrap so the command bus resolves them automatically.
+- Deals, activities, comments, addresses, tags, and todos will follow in the next iteration of this phase.
 
 ## Data Model Overview
 

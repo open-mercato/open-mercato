@@ -5,5 +5,11 @@
   "customers.nav.companies": "Firmy",
   "customers.nav.companies.create": "Nowa firma",
   "customers.nav.deals": "Szanse sprzedaży",
-  "customers.nav.activities": "Aktywności"
+  "customers.nav.activities": "Aktywności",
+  "customers.audit.people.create": "Utwórz osobę",
+  "customers.audit.people.update": "Zaktualizuj osobę",
+  "customers.audit.people.delete": "Usuń osobę",
+  "customers.audit.companies.create": "Utwórz firmę",
+  "customers.audit.companies.update": "Zaktualizuj firmę",
+  "customers.audit.companies.delete": "Usuń firmę"
 }
