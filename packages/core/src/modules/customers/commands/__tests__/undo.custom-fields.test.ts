@@ -1105,10 +1105,16 @@ describe('customers commands undo custom fields', () => {
       organizationId: 'org-1',
       entityId: 'person-1',
       title: 'Follow up',
+      todoCustom: { priority: 'high' },
     }
 
     const result = await handler.execute(input, ctx)
     expect(executeMock).toHaveBeenCalled()
+    expect(executeMock.mock.calls[0][0]).toMatchObject({
+      title: 'Follow up',
+      is_done: false,
+      custom: { priority: 'high' },
+    })
     expect(em.persist).toHaveBeenCalled()
 
     const log = await handler.buildLog?.({ input, result, ctx, snapshots: {} as any })

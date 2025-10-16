@@ -177,9 +177,11 @@ export const todoLinkWithTodoCreateSchema = scopedSchema.extend({
   entityId: uuid(),
   title: z.string().min(1).max(200),
   isDone: z.boolean().optional(),
+  is_done: z.boolean().optional(),
   todoSource: z.string().min(1).max(120).default('example:todo'),
   createdByUserId: uuid().optional(),
   todoCustom: z.record(z.any()).optional(),
+  custom: z.record(z.any()).optional(),
 })
 
 export type PersonCreateInput = z.infer<typeof personCreateSchema>

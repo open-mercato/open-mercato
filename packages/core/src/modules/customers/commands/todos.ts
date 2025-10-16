@@ -98,12 +98,15 @@ const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { tod
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
 
     const exampleCreate = resolveExampleCreateHandler()
+    const isDone = parsed.isDone ?? parsed.is_done ?? false
+    const todoCustom = parsed.todoCustom ?? parsed.custom
+
     const exampleInput: Record<string, unknown> = {
       title: parsed.title,
-      is_done: parsed.isDone ?? false,
+      is_done: isDone,
     }
-    if (parsed.todoCustom && Object.keys(parsed.todoCustom).length) {
-      exampleInput.custom = parsed.todoCustom
+    if (todoCustom && Object.keys(todoCustom).length) {
+      exampleInput.custom = todoCustom
     }
 
     const todo = await exampleCreate.execute(exampleInput, ctx)
@@ -114,15 +117,15 @@ const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { tod
       serializedTodo = {
         id: String(todo.id),
         title: todo.title,
-        is_done: todo.isDone,
+        is_done: isDone,
         tenantId: parsed.tenantId ?? null,
         organizationId: parsed.organizationId ?? null,
-        custom: parsed.todoCustom,
+        custom: todoCustom ?? undefined,
       }
     } else {
       serializedTodo.tenantId = serializedTodo.tenantId ?? parsed.tenantId ?? null
       serializedTodo.organizationId = serializedTodo.organizationId ?? parsed.organizationId ?? null
-      if (parsed.todoCustom && !serializedTodo.custom) serializedTodo.custom = parsed.todoCustom
+      if (todoCustom && !serializedTodo.custom) serializedTodo.custom = todoCustom
     }
 
     const todoSource = parsed.todoSource ?? DEFAULT_TODO_SOURCE
