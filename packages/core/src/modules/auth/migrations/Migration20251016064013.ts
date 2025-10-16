@@ -1,9 +1,9 @@
 import { Migration } from '@mikro-orm/migrations';
 
-export class Migration20251008154648 extends Migration {
+export class Migration20251016064013 extends Migration {
 
   override async up(): Promise<void> {
-    this.addSql(`create table "roles" ("id" uuid not null default gen_random_uuid(), "name" text not null, "created_at" timestamptz not null, "deleted_at" timestamptz null, constraint "roles_pkey" primary key ("id"));`);
+    this.addSql(`create table "roles" ("id" uuid not null default gen_random_uuid(), "name" text not null, "tenant_id" uuid null, "created_at" timestamptz not null, "deleted_at" timestamptz null, constraint "roles_pkey" primary key ("id"));`);
     this.addSql(`alter table "roles" add constraint "roles_name_unique" unique ("name");`);
 
     this.addSql(`create table "role_acls" ("id" uuid not null default gen_random_uuid(), "role_id" uuid not null, "tenant_id" uuid not null, "features_json" jsonb null, "is_super_admin" boolean not null default false, "organizations_json" jsonb null, "created_at" timestamptz not null, "updated_at" timestamptz null, "deleted_at" timestamptz null, constraint "role_acls_pkey" primary key ("id"));`);
