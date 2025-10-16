@@ -11,5 +11,11 @@
   "customers.audit.people.delete": "Delete person",
   "customers.audit.companies.create": "Create company",
   "customers.audit.companies.update": "Update company",
-  "customers.audit.companies.delete": "Delete company"
+  "customers.audit.companies.delete": "Delete company",
+  "customers.audit.deals.create": "Create deal",
+  "customers.audit.deals.update": "Update deal",
+  "customers.audit.deals.delete": "Delete deal",
+  "customers.audit.activities.create": "Create activity",
+  "customers.audit.activities.update": "Update activity",
+  "customers.audit.activities.delete": "Delete activity"
 }

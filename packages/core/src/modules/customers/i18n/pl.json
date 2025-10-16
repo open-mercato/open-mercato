@@ -11,5 +11,11 @@
   "customers.audit.people.delete": "Usuń osobę",
   "customers.audit.companies.create": "Utwórz firmę",
   "customers.audit.companies.update": "Zaktualizuj firmę",
-  "customers.audit.companies.delete": "Usuń firmę"
+  "customers.audit.companies.delete": "Usuń firmę",
+  "customers.audit.deals.create": "Utwórz szansę",
+  "customers.audit.deals.update": "Zaktualizuj szansę",
+  "customers.audit.deals.delete": "Usuń szansę",
+  "customers.audit.activities.create": "Utwórz aktywność",
+  "customers.audit.activities.update": "Zaktualizuj aktywność",
+  "customers.audit.activities.delete": "Usuń aktywność"
 }
