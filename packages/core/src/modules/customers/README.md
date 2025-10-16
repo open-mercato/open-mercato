@@ -19,6 +19,12 @@ Implementation phases:
 - Command registrations are wired via module bootstrap so the command bus resolves them automatically.
 - Next: expose CRUD APIs + UI surfaces leveraging these commands.
 
+### Phase 3 deliverables
+
+- REST endpoints under `/api/customers/*` provide CRUD access for people, companies, deals, activities, comments, addresses, tags, and todo links.
+- Endpoints rely on the shared CRUD factory with module validators and enforce feature-based guards plus tenant/organization scoping.
+- Additional actions for tag assignment/unassignment and todo linking roll through the command bus, emitting undo metadata headers for clients.
+
 ## Data Model Overview
 
 - `customer_entities`: polymorphic root for people or companies (scoped by organization & tenant).
