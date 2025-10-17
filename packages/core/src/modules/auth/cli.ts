@@ -237,6 +237,7 @@ const setupApp: ModuleCli = {
         'attachments.*',
         'query_index.*',
         'directory.organizations.*',
+        'customers.*',
         'example.*',
         'dashboards.*',
         'dashboards.admin.assign-widgets',
@@ -249,6 +250,10 @@ const setupApp: ModuleCli = {
       tenantId: seedTenantId,
       featuresJson: [
         'example.*',
+        'customers.people.view',
+        'customers.companies.view',
+        'customers.deals.view',
+        'customers.activities.view',
         'dashboards.view',
         'dashboards.configure',
         'example.widgets.*',

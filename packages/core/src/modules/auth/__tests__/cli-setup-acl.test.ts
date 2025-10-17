@@ -60,11 +60,17 @@ describe('auth CLI setup seeds ACLs', () => {
       'attachments.*',
       'query_index.*',
       'directory.organizations.*',
+      'customers.*',
       'example.*',
     ]))
 
     const employeeAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('example.*'))
     expect(employeeAcl).toBeDefined()
+    expect(employeeAcl?.featuresJson).toEqual(expect.arrayContaining([
+      'customers.people.view',
+      'customers.companies.view',
+      'customers.deals.view',
+      'customers.activities.view',
+    ]))
   })
 })
-
