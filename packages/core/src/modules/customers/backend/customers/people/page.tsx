@@ -1,0 +1,400 @@
+"use client"
+
+import * as React from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import type { ColumnDef } from '@tanstack/react-table'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@/lib/i18n/context'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import {
+  DictionaryValue,
+  createDictionaryMap,
+  normalizeCustomerDictionaryEntries,
+  type CustomerDictionaryKind,
+  type CustomerDictionaryMap,
+} from '../../../components/dictionaryAppearance'
+
+type PersonRow = {
+  id: string
+  name: string
+  description?: string | null
+  email?: string | null
+  phone?: string | null
+  status?: string | null
+  lifecycleStage?: string | null
+  nextInteractionAt?: string | null
+  nextInteractionName?: string | null
+  organizationId?: string | null
+  source?: string | null
+} & Record<string, unknown>
+
+type PeopleResponse = {
+  items?: Array<Record<string, unknown>>
+  total?: number
+  page?: number
+  totalPages?: number
+}
+
+type DictionaryKindKey = CustomerDictionaryKind
+
+function formatDate(value: string | null | undefined, fallback: string): string {
+  if (!value) return fallback
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return fallback
+  return date.toLocaleDateString()
+}
+
+function mapApiItem(item: Record<string, unknown>): PersonRow | null {
+  const id = typeof item.id === 'string' ? item.id : null
+  if (!id) return null
+  const name = typeof item.display_name === 'string' ? item.display_name : ''
+  const description = typeof item.description === 'string' ? item.description : null
+  const email = typeof item.primary_email === 'string' ? item.primary_email : null
+  const phone = typeof item.primary_phone === 'string' ? item.primary_phone : null
+  const status = typeof item.status === 'string' ? item.status : null
+  const lifecycleStage = typeof item.lifecycle_stage === 'string' ? item.lifecycle_stage : null
+  const nextInteractionAt = typeof item.next_interaction_at === 'string' ? item.next_interaction_at : null
+  const nextInteractionName = typeof item.next_interaction_name === 'string' ? item.next_interaction_name : null
+  const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
+  const source = typeof item.source === 'string' ? item.source : null
+  const customFields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(item)) {
+    if (key.startsWith('cf_')) {
+      customFields[key] = value
+    }
+  }
+  return {
+    id,
+    name,
+    description,
+    email,
+    phone,
+    status,
+    lifecycleStage,
+    nextInteractionAt,
+    nextInteractionName,
+    organizationId,
+    source,
+    ...customFields,
+  }
+}
+
+export default function CustomersPeoplePage() {
+  const [rows, setRows] = React.useState<PersonRow[]>([])
+  const [page, setPage] = React.useState(1)
+  const [pageSize] = React.useState(20)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [search, setSearch] = React.useState('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [reloadToken, setReloadToken] = React.useState(0)
+  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>({
+    statuses: {},
+    sources: {},
+    'lifecycle-stages': {},
+    'address-types': {},
+  })
+  const scopeVersion = useOrganizationScopeVersion()
+  const t = useT()
+  const router = useRouter()
+  const fetchDictionaryEntries = React.useCallback(async (kind: DictionaryKindKey) => {
+    try {
+      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) return []
+      const normalized = normalizeCustomerDictionaryEntries(payload.items)
+      setDictionaryMaps((prev) => ({
+        ...prev,
+        [kind]: createDictionaryMap(normalized),
+      }))
+      return normalized
+    } catch {
+      return []
+    }
+  }, [])
+  const loadDictionaryOptions = React.useCallback(async (kind: 'statuses' | 'sources' | 'lifecycle-stages') => {
+    const entries = await fetchDictionaryEntries(kind)
+    return entries.map((entry) => ({ value: entry.value, label: entry.label }))
+  }, [fetchDictionaryEntries])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadAll() {
+      if (cancelled) return
+      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {} })
+      await Promise.all([
+        fetchDictionaryEntries('statuses'),
+        fetchDictionaryEntries('sources'),
+        fetchDictionaryEntries('lifecycle-stages'),
+      ])
+    }
+    loadAll().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [fetchDictionaryEntries, scopeVersion, reloadToken])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'status',
+      label: t('customers.people.list.filters.status'),
+      type: 'select',
+      loadOptions: () => loadDictionaryOptions('statuses'),
+    },
+    {
+      id: 'source',
+      label: t('customers.people.list.filters.source'),
+      type: 'select',
+      loadOptions: () => loadDictionaryOptions('sources'),
+    },
+    {
+      id: 'lifecycleStage',
+      label: t('customers.people.list.filters.lifecycleStage'),
+      type: 'select',
+      loadOptions: () => loadDictionaryOptions('lifecycle-stages'),
+    },
+    {
+      id: 'createdAt',
+      label: t('customers.people.list.filters.createdAt'),
+      type: 'dateRange',
+    },
+    {
+      id: 'hasEmail',
+      label: t('customers.people.list.filters.hasEmail'),
+      type: 'checkbox',
+    },
+    {
+      id: 'hasPhone',
+      label: t('customers.people.list.filters.hasPhone'),
+      type: 'checkbox',
+    },
+    {
+      id: 'hasNextInteraction',
+      label: t('customers.people.list.filters.hasNextInteraction'),
+      type: 'checkbox',
+    },
+  ], [loadDictionaryOptions, t])
+
+  const queryParams = React.useMemo(() => {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('pageSize', String(pageSize))
+    if (search.trim()) params.set('search', search.trim())
+    const status = filterValues.status
+    if (typeof status === 'string' && status.trim()) params.set('status', status)
+    const source = filterValues.source
+    if (typeof source === 'string' && source.trim()) params.set('source', source)
+    const lifecycleStage = filterValues.lifecycleStage
+    if (typeof lifecycleStage === 'string' && lifecycleStage.trim()) params.set('lifecycleStage', lifecycleStage)
+    const createdAt = filterValues.createdAt
+    if (createdAt && typeof createdAt === 'object') {
+      if (createdAt.from) params.set('createdFrom', createdAt.from)
+      if (createdAt.to) params.set('createdTo', createdAt.to)
+    }
+    const booleanFilters: Array<['hasEmail' | 'hasPhone' | 'hasNextInteraction', string]> = [
+      ['hasEmail', 'hasEmail'],
+      ['hasPhone', 'hasPhone'],
+      ['hasNextInteraction', 'hasNextInteraction'],
+    ]
+    for (const [key, queryKey] of booleanFilters) {
+      const value = filterValues[key]
+      if (value === true) params.set(queryKey, 'true')
+      if (value === false) params.set(queryKey, 'false')
+    }
+    Object.entries(filterValues).forEach(([key, value]) => {
+      if (!key.startsWith('cf_') || value == null) return
+      if (Array.isArray(value) && value.length) {
+        params.set(key, value.join(','))
+      } else if (typeof value === 'object') {
+        return
+      } else if (value !== '') {
+        params.set(key, String(value))
+      }
+    })
+    return params.toString()
+  }, [filterValues, page, pageSize, search])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      try {
+        const res = await apiFetch(`/api/customers/people?${queryParams}`)
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          const message = typeof data?.error === 'string' ? data.error : t('customers.people.list.error.load')
+          flash(message, 'error')
+          return
+        }
+        const payload: PeopleResponse = await res.json().catch(() => ({}))
+        if (cancelled) return
+        const items = Array.isArray(payload.items) ? payload.items : []
+        setRows(items.map((item) => mapApiItem(item as Record<string, unknown>)).filter((row): row is PersonRow => !!row))
+        setTotal(typeof payload.total === 'number' ? payload.total : items.length)
+        setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : t('customers.people.list.error.load')
+          flash(message, 'error')
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [queryParams, reloadToken, scopeVersion, t])
+
+  const handleRefresh = React.useCallback(() => {
+    setReloadToken((token) => token + 1)
+  }, [])
+
+  const handleDelete = React.useCallback(async (person: PersonRow) => {
+    if (!person?.id) return
+    const name = person.name || t('customers.people.list.deleteFallbackName')
+    const confirmed = window.confirm(t('customers.people.list.deleteConfirm', { name }))
+    if (!confirmed) return
+    try {
+      const res = await apiFetch(`/api/customers/people?id=${encodeURIComponent(person.id)}`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+      })
+      if (!res.ok) {
+        const details = await res.json().catch(() => ({}))
+        const message = typeof details?.error === 'string' ? details.error : t('customers.people.list.deleteError')
+        throw new Error(message)
+      }
+      setRows((prev) => prev.filter((row) => row.id !== person.id))
+      setTotal((prev) => Math.max(prev - 1, 0))
+      handleRefresh()
+      flash(t('customers.people.list.deleteSuccess'), 'success')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customers.people.list.deleteError')
+      flash(message, 'error')
+    }
+  }, [handleRefresh, t])
+
+  const columns = React.useMemo<ColumnDef<PersonRow>[]>(() => {
+    const noValue = <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>
+    const renderDictionaryCell = (kind: DictionaryKindKey, rawValue: string | null | undefined) => (
+      <DictionaryValue
+        value={rawValue}
+        map={dictionaryMaps[kind]}
+        fallback={rawValue ? <span>{rawValue}</span> : noValue}
+        className="text-sm"
+        iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
+        iconClassName="h-4 w-4"
+        colorClassName="h-3 w-3 rounded-full"
+      />
+    )
+
+    return [
+      {
+        accessorKey: 'name',
+        header: t('customers.people.list.columns.name'),
+        cell: ({ row }) => (
+          <Link href={`/backend/customers/people/${row.original.id}`} className="font-medium hover:underline">
+            {row.original.name}
+          </Link>
+        ),
+      },
+      {
+        accessorKey: 'email',
+        header: t('customers.people.list.columns.email'),
+        cell: ({ row }) => row.original.email || <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
+      },
+      {
+        accessorKey: 'status',
+        header: t('customers.people.list.columns.status'),
+        cell: ({ row }) => renderDictionaryCell('statuses', row.original.status),
+      },
+      {
+        accessorKey: 'lifecycleStage',
+        header: t('customers.people.list.columns.lifecycleStage'),
+        cell: ({ row }) => renderDictionaryCell('lifecycle-stages', row.original.lifecycleStage),
+      },
+      {
+        accessorKey: 'nextInteractionAt',
+        header: t('customers.people.list.columns.nextInteraction'),
+        cell: ({ row }) =>
+        row.original.nextInteractionAt
+          ? (
+            <span className="flex flex-col text-sm">
+              <span>{formatDate(row.original.nextInteractionAt, t('customers.people.list.noValue'))}</span>
+              {row.original.nextInteractionName && (
+                <span className="text-xs text-muted-foreground">{row.original.nextInteractionName}</span>
+              )}
+            </span>
+          )
+          : <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
+      },
+      {
+        accessorKey: 'source',
+        header: t('customers.people.list.columns.source'),
+        cell: ({ row }) => renderDictionaryCell('sources', row.original.source),
+      },
+    ]
+  }, [dictionaryMaps, t])
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable<PersonRow>
+          title={t('customers.people.list.title')}
+          actions={(
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={() => { setSearch(''); setPage(1); handleRefresh() }}>
+                {t('customers.people.list.actions.refresh')}
+              </Button>
+              <Button asChild>
+                <Link href="/backend/customers/people/create">
+                  {t('customers.people.list.actions.new')}
+                </Link>
+              </Button>
+            </div>
+          )}
+          columns={columns}
+          data={rows}
+          searchValue={search}
+          onSearchChange={(value) => { setSearch(value); setPage(1) }}
+          searchPlaceholder={t('customers.people.list.searchPlaceholder')}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
+          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
+          entityId="customers:customer_person_profile"
+          onRowClick={(row) => router.push(`/backend/customers/people/${row.id}`)}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                {
+                  label: t('customers.people.list.actions.view'),
+                  onSelect: () => { router.push(`/backend/customers/people/${row.id}`) },
+                },
+                {
+                  label: t('customers.people.list.actions.openInNewTab'),
+                  onSelect: () => window.open(`/backend/customers/people/${row.id}`, '_blank', 'noopener'),
+                },
+                {
+                  label: t('customers.people.list.actions.delete'),
+                  destructive: true,
+                  onSelect: () => handleDelete(row),
+                },
+              ]}
+            />
+          )}
+          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          isLoading={isLoading}
+        />
+      </PageBody>
+    </Page>
+  )
+}

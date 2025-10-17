@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { emitOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
 import { OrganizationSelect, type OrganizationTreeNode } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
+import { useT } from '@/lib/i18n/context'
 
 type OrganizationMenuNode = {
   id: string
@@ -40,6 +41,7 @@ function readSelectedOrganizationCookie(): string {
 
 export default function OrganizationSwitcher() {
   const router = useRouter()
+  const t = useT()
   const [state, setState] = React.useState<SwitcherState>({ status: 'loading' })
   const [value, setValue] = React.useState<string>(() => readSelectedOrganizationCookie())
 
@@ -115,11 +117,11 @@ export default function OrganizationSwitcher() {
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
-      <label className="hidden text-xs text-muted-foreground sm:inline" htmlFor="org-switcher">Organization</label>
+      <label className="hidden text-xs text-muted-foreground sm:inline" htmlFor="org-switcher">{t('organizationSwitcher.label')}</label>
       {state.status === 'loading' ? (
-        <span className="text-xs text-muted-foreground">Loading…</span>
+        <span className="text-xs text-muted-foreground">{t('organizationSwitcher.loading')}</span>
       ) : state.status === 'error' ? (
-        <span className="text-xs text-destructive">Failed to load</span>
+        <span className="text-xs text-destructive">{t('organizationSwitcher.error')}</span>
       ) : hasOptions ? (
         <OrganizationSelect
           id="org-switcher"
@@ -128,15 +130,15 @@ export default function OrganizationSwitcher() {
           nodes={nodes}
           fetchOnMount={false}
           includeAllOption
-          aria-label="Organization"
+          aria-label={t('organizationSwitcher.label')}
           className="h-9 rounded border px-2 text-sm"
         />
       ) : (
-        <span className="text-xs text-muted-foreground">No organizations</span>
+        <span className="text-xs text-muted-foreground">{t('organizationSwitcher.empty')}</span>
       )}
       {canManage ? (
         <Link href="/backend/directory/organizations" className="text-xs text-muted-foreground hover:text-foreground">
-          Manage
+          {t('organizationSwitcher.manage')}
         </Link>
       ) : null}
     </div>

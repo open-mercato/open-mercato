@@ -1,0 +1,194 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { z } from 'zod'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CustomerEntity } from '../../data/entities'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { personCreateSchema, personUpdateSchema } from '../../data/validators'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { withScopedPayload } from '../utils'
+import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
+
+const rawBodySchema = z.object({}).passthrough()
+
+const listSchema = z
+  .object({
+    page: z.coerce.number().min(1).default(1),
+    pageSize: z.coerce.number().min(1).max(100).default(50),
+    search: z.string().optional(),
+    email: z.string().optional(),
+    emailStartsWith: z.string().optional(),
+    status: z.string().optional(),
+    lifecycleStage: z.string().optional(),
+    source: z.string().optional(),
+    hasEmail: z.string().optional(),
+    hasPhone: z.string().optional(),
+    hasNextInteraction: z.string().optional(),
+    createdFrom: z.string().optional(),
+    createdTo: z.string().optional(),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+    id: z.string().uuid().optional(),
+  })
+  .passthrough()
+
+const routeMetadata = {
+  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.people.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['customers.people.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['customers.people.manage'] },
+}
+
+export const metadata = routeMetadata
+
+const crud = makeCrudRoute({
+  metadata: routeMetadata,
+  orm: {
+    entity: CustomerEntity,
+    idField: 'id',
+    orgField: 'organizationId',
+    tenantField: 'tenantId',
+    softDeleteField: 'deletedAt',
+  },
+  list: {
+    schema: listSchema,
+    entityId: E.customers.customer_entity,
+    fields: [
+      'id',
+      'display_name',
+      'description',
+      'owner_user_id',
+      'primary_email',
+      'primary_phone',
+      'status',
+      'lifecycle_stage',
+      'source',
+      'next_interaction_at',
+      'next_interaction_name',
+      'next_interaction_ref_id',
+      'organization_id',
+      'tenant_id',
+      'kind',
+      'created_at',
+    ],
+    sortFieldMap: {
+      name: 'display_name',
+      createdAt: 'created_at',
+      updatedAt: 'updated_at',
+    },
+    buildFilters: async (query: any, ctx) => {
+      const filters: Record<string, any> = { kind: { $eq: 'person' } }
+      if (query.id) filters.id = { $eq: query.id }
+      if (query.search) {
+        filters.display_name = { $ilike: `%${query.search}%` }
+      }
+      const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : ''
+      const emailStartsWith = typeof query.emailStartsWith === 'string' ? query.emailStartsWith.trim().toLowerCase() : ''
+      if (email) {
+        filters.primary_email = { $eq: email }
+      } else if (emailStartsWith) {
+        filters.primary_email = { $ilike: `${emailStartsWith}%` }
+      }
+      if (query.status) {
+        filters.status = { $eq: query.status }
+      }
+      if (query.lifecycleStage) {
+        filters.lifecycle_stage = { $eq: query.lifecycleStage }
+      }
+      if (query.source) {
+        filters.source = { $eq: query.source }
+      }
+      const hasEmail = query.hasEmail === 'true' ? true : query.hasEmail === 'false' ? false : undefined
+      if (!email && !emailStartsWith && hasEmail !== undefined) {
+        filters.primary_email = { $exists: hasEmail }
+      }
+      const hasPhone = query.hasPhone === 'true' ? true : query.hasPhone === 'false' ? false : undefined
+      if (hasPhone !== undefined) {
+        filters.primary_phone = { $exists: hasPhone }
+      }
+      const hasNextInteraction = query.hasNextInteraction === 'true' ? true : query.hasNextInteraction === 'false' ? false : undefined
+      if (hasNextInteraction !== undefined) {
+        filters.next_interaction_at = { $exists: hasNextInteraction }
+      }
+      const createdRange: Record<string, Date> = {}
+      if (query.createdFrom) {
+        const from = new Date(query.createdFrom)
+        if (!Number.isNaN(from.getTime())) createdRange.$gte = from
+      }
+      if (query.createdTo) {
+        const to = new Date(query.createdTo)
+        if (!Number.isNaN(to.getTime())) createdRange.$lte = to
+      }
+      if (Object.keys(createdRange).length) {
+        filters.created_at = createdRange
+      }
+      if (ctx) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const cfFilters = await buildCustomFieldFiltersFromQuery({
+            entityId: E.customers.customer_person_profile,
+            query,
+            em,
+            tenantId: ctx.auth?.tenantId ?? null,
+          })
+          Object.assign(filters, cfFilters)
+        } catch {
+          // ignore custom field filter errors; fall back to base filters
+        }
+      }
+      return filters
+    },
+    transformItem: (item: any) => {
+      if (!item) return item
+      const normalized = { ...item }
+      delete normalized.kind
+      const cfEntries = extractAllCustomFieldEntries(item)
+      for (const key of Object.keys(normalized)) {
+        if (key.startsWith('cf:')) {
+          delete normalized[key]
+        }
+      }
+      return { ...normalized, ...cfEntries }
+    },
+  },
+  actions: {
+    create: {
+      commandId: 'customers.people.create',
+      schema: rawBodySchema,
+      mapInput: async ({ raw, ctx }) => {
+        const { translate } = await resolveTranslations()
+        return personCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+      },
+      response: ({ result }) => ({
+        id: result?.entityId ?? result?.id ?? null,
+        personId: result?.personId ?? null,
+      }),
+      status: 201,
+    },
+    update: {
+      commandId: 'customers.people.update',
+      schema: rawBodySchema,
+      mapInput: async ({ raw, ctx }) => {
+        const { translate } = await resolveTranslations()
+        return personUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+      },
+      response: () => ({ ok: true }),
+    },
+    delete: {
+      commandId: 'customers.people.delete',
+      schema: rawBodySchema,
+      mapInput: async ({ parsed, ctx }) => {
+        const { translate } = await resolveTranslations()
+        const id = parsed?.id ?? (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
+        if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.person_required', 'Person id is required') })
+        return { id }
+      },
+      response: () => ({ ok: true }),
+    },
+  },
+})
+
+const { POST, PUT, DELETE } = crud
+
+export { POST, PUT, DELETE }
+export const GET = crud.GET

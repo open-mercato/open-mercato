@@ -80,6 +80,14 @@ function createFakeKnex() {
 }
 
 describe('BasicQueryEngine', () => {
+  test('pluralizes entity names ending with y correctly', async () => {
+    const fakeKnex = createFakeKnex()
+    const engine = new BasicQueryEngine({} as any, () => fakeKnex as any)
+    await engine.query('customers:customer_entity', { tenantId: 't1' })
+    const baseCall = fakeKnex._calls.find((b: any) => b._ops.table === 'customer_entities')
+    expect(baseCall).toBeTruthy()
+  })
+
   test('includeCustomFields true discovers keys and allows sort on cf:*; joins extensions', async () => {
     const fakeKnex = createFakeKnex()
     const engine = new BasicQueryEngine({} as any, () => fakeKnex as any)

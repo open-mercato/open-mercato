@@ -4,7 +4,14 @@ import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { DEFAULT_SETTINGS, hydrateWelcomeSettings, type WelcomeSettings } from './config'
 
-const WelcomeWidgetClient: React.FC<DashboardWidgetComponentProps<WelcomeSettings>> = ({ mode, settings, onSettingsChange, context }) => {
+const WelcomeWidgetClient: React.FC<DashboardWidgetComponentProps<WelcomeSettings>> = ({
+  mode,
+  settings,
+  onSettingsChange,
+  context,
+  refreshToken: _refreshToken,
+  onRefreshStateChange: _onRefreshStateChange,
+}) => {
   const value = React.useMemo(() => hydrateWelcomeSettings(settings), [settings])
 
   const handleChange = React.useCallback((key: keyof WelcomeSettings, next: string) => {

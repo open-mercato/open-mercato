@@ -1,0 +1,8 @@
+import './people'
+import './companies'
+import './deals'
+import './activities'
+import './comments'
+import './addresses'
+import './tags'
+import './todos'

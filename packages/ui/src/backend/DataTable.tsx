@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState } from '@tanstack/react-table'
+import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn } from '@tanstack/react-table'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
@@ -155,6 +155,14 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
     }
   }
 
+  const resolvePriority = React.useCallback((column: TableColumn<T, unknown>) => {
+    const meta = (column.columnDef as any)?.meta
+    const rawPriority = typeof meta?.priority === 'number' ? meta.priority : undefined
+    if (rawPriority && rawPriority > 0) return rawPriority
+    const index = column.getIndex()
+    return index <= 1 ? 1 : 2
+  }, [])
+
   const [sorting, setSorting] = React.useState<SortingState>(sortingProp ?? [])
   const table = useReactTable<T>({
     data,
@@ -275,22 +283,26 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
-                {hg.headers.map((header) => (
-                  <TableHead key={header.id} className={responsiveClass((header.column.columnDef as any)?.meta?.priority, (header.column.columnDef as any)?.meta?.hidden)}>
-                    {header.isPlaceholder ? null : (
-                      <button
-                        type="button"
-                        className={`inline-flex items-center gap-1 ${sortable && header.column.getCanSort?.() ? 'cursor-pointer select-none' : ''}`}
-                        onClick={() => sortable && header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
-                      >
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                        {sortable && header.column.getIsSorted?.() ? (
-                          <span className="text-xs text-muted-foreground">{header.column.getIsSorted() === 'asc' ? '▲' : '▼'}</span>
-                        ) : null}
-                      </button>
-                    )}
-                  </TableHead>
-                ))}
+                {hg.headers.map((header) => {
+                  const columnMeta = (header.column.columnDef as any)?.meta
+                  const priority = resolvePriority(header.column)
+                  return (
+                    <TableHead key={header.id} className={responsiveClass(priority, columnMeta?.hidden)}>
+                      {header.isPlaceholder ? null : (
+                        <button
+                          type="button"
+                          className={`inline-flex items-center gap-1 ${sortable && header.column.getCanSort?.() ? 'cursor-pointer select-none' : ''}`}
+                          onClick={() => sortable && header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          {sortable && header.column.getIsSorted?.() ? (
+                            <span className="text-xs text-muted-foreground">{header.column.getIsSorted() === 'asc' ? '▲' : '▼'}</span>
+                          ) : null}
+                        </button>
+                      )}
+                    </TableHead>
+                  )
+                })}
                 {rowActions ? (
                   <TableHead className="w-0 text-right">
                     Actions
@@ -345,7 +357,8 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
                     } : undefined}
                   >
                     {row.getVisibleCells().map((cell) => {
-                      const priority = (cell.column.columnDef as any)?.meta?.priority
+                      const columnMeta = (cell.column.columnDef as any)?.meta
+                      const priority = resolvePriority(cell.column)
                       const hasCustomCell = Boolean(cell.column.columnDef.cell)
                       const columnId = String((cell.column as any).id || '')
                       const isDateCol = dateColumnIds ? dateColumnIds.has(columnId) : false
@@ -360,7 +373,7 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
                       }
 
                       return (
-                        <TableCell key={cell.id} className={responsiveClass(priority, (cell.column.columnDef as any)?.meta?.hidden)}>
+                        <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden)}>
                           {content}
                         </TableCell>
                       )

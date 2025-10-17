@@ -2,10 +2,11 @@
 
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { DEFAULT_SETTINGS, hydrateTodoSettings, type TodoSettings } from './config'
+import { hydrateTodoSettings, type TodoSettings } from './config'
 
 type TodoItem = {
   id: string
@@ -25,11 +26,18 @@ async function fetchTodos(settings: TodoSettings): Promise<TodoItem[]> {
   if (!res.ok) throw new Error(`Failed with status ${res.status}`)
   const json = await res.json().catch(() => ({}))
   const items = Array.isArray(json.items) ? json.items : []
-  return items.map((item: any) => ({
-    id: String(item?.id ?? ''),
-    title: String(item?.title ?? ''),
-    is_done: Boolean(item?.is_done ?? item?.isDone ?? false),
-  })).filter((todo) => todo.id && todo.title)
+  return items
+    .map((candidate): TodoItem | null => {
+      if (!candidate || typeof candidate !== 'object') return null
+      const record = candidate as Record<string, unknown>
+      const id = typeof record.id === 'string' || typeof record.id === 'number' ? String(record.id) : ''
+      const title = typeof record.title === 'string' ? record.title : ''
+      const isDoneValue = record.is_done ?? record.isDone
+      const isDone = typeof isDoneValue === 'boolean' ? isDoneValue : Boolean(isDoneValue)
+      if (!id || !title) return null
+      return { id, title, is_done: isDone }
+    })
+    .filter((todo): todo is TodoItem => todo !== null)
 }
 
 async function createTodo(title: string): Promise<void> {
@@ -50,7 +58,14 @@ async function toggleTodo(id: string, isDone: boolean): Promise<void> {
   if (!res.ok) throw new Error(`Failed with status ${res.status}`)
 }
 
-const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = ({ mode, settings, onSettingsChange }) => {
+const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = ({
+  mode,
+  settings,
+  onSettingsChange,
+  refreshToken,
+  onRefreshStateChange,
+}) => {
+  const t = useT()
   const value = React.useMemo(() => hydrateTodoSettings(settings), [settings])
   const [items, setItems] = React.useState<TodoItem[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -60,6 +75,7 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
   const [creating, setCreating] = React.useState(false)
 
   const refresh = React.useCallback(async () => {
+    onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
@@ -67,15 +83,16 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
       setItems(next)
     } catch (err) {
       console.error('Failed to load todos widget data', err)
-      setError('Unable to load todos. Please try again later.')
+      setError(t('example.widgets.todo.error.load'))
     } finally {
       setLoading(false)
+      onRefreshStateChange?.(false)
     }
-  }, [value])
+  }, [onRefreshStateChange, t, value])
 
   React.useEffect(() => {
     refresh()
-  }, [refresh])
+  }, [refresh, refreshToken])
 
   const handleCreate = React.useCallback(async () => {
     if (!draft.trim()) return
@@ -87,11 +104,11 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
       await refresh()
     } catch (err) {
       console.error('Failed to create todo from widget', err)
-      setError('Unable to create todo. You might not have permission.')
+      setError(t('example.widgets.todo.error.create'))
     } finally {
       setCreating(false)
     }
-  }, [draft, refresh])
+  }, [draft, refresh, t])
 
   const handleToggle = React.useCallback(async (id: string, nextDone: boolean) => {
     setBusyId(id)
@@ -101,11 +118,11 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
       await refresh()
     } catch (err) {
       console.error('Failed to update todo from widget', err)
-      setError('Unable to update todo. You might not have permission.')
+      setError(t('example.widgets.todo.error.update'))
     } finally {
       setBusyId(null)
     }
-  }, [refresh])
+  }, [refresh, t])
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
@@ -119,7 +136,7 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
       <div className="space-y-4">
         <div className="space-y-1.5">
           <label htmlFor="todo-page-size" className="text-xs font-medium uppercase text-muted-foreground">
-            Items to show
+            {t('example.widgets.todo.settings.itemsLabel')}
           </label>
           <input
             id="todo-page-size"
@@ -137,10 +154,10 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
             checked={value.showCompleted}
             onChange={(event) => onSettingsChange({ ...value, showCompleted: event.target.checked })}
           />
-          Show completed items
+          {t('example.widgets.todo.settings.showCompleted')}
         </label>
         <p className="text-xs text-muted-foreground">
-          Widget saves these preferences per user layout. They do not impact the shared todos list.
+          {t('example.widgets.todo.settings.help')}
         </p>
       </div>
     )
@@ -152,14 +169,14 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
         <input
           type="text"
           className="flex-1 rounded-md border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-          placeholder="Add a todo"
+          placeholder={t('example.widgets.todo.input.placeholder')}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={handleKeyDown}
           disabled={creating}
         />
         <Button type="button" onClick={() => void handleCreate()} disabled={creating || !draft.trim()}>
-          {creating ? 'Adding…' : 'Add'}
+          {creating ? t('example.widgets.todo.actions.adding') : t('example.widgets.todo.actions.add')}
         </Button>
       </div>
       {error ? <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div> : null}
@@ -171,7 +188,7 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
         <ul className="space-y-2">
           {items.length === 0 ? (
             <li className="rounded-md border bg-muted/40 px-3 py-6 text-sm text-muted-foreground text-center">
-              {value.showCompleted ? 'No todos found.' : 'All caught up!'}
+              {value.showCompleted ? t('example.widgets.todo.state.empty') : t('example.widgets.todo.state.allCaughtUp')}
             </li>
           ) : null}
           {items.map((item) => (
@@ -196,14 +213,18 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
                 onClick={() => void handleToggle(item.id, !item.is_done)}
                 disabled={busyId === item.id}
               >
-                {busyId === item.id ? 'Saving…' : item.is_done ? 'Mark active' : 'Complete'}
+                {busyId === item.id
+                  ? t('example.widgets.todo.actions.saving')
+                  : item.is_done
+                    ? t('example.widgets.todo.actions.markActive')
+                    : t('example.widgets.todo.actions.complete')}
               </Button>
             </li>
           ))}
         </ul>
       )}
       <div className="text-xs text-muted-foreground">
-        Widget shows the most recent todos from the Example module.
+        {t('example.widgets.todo.footer')}
       </div>
     </div>
   )

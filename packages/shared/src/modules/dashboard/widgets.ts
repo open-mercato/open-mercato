@@ -14,6 +14,7 @@ export type DashboardWidgetMetadata = {
   tags?: string[]
   category?: string
   icon?: string
+  supportsRefresh?: boolean
 }
 
 export type DashboardLayoutItem = {
@@ -42,6 +43,8 @@ export type DashboardWidgetComponentProps<TSettings = unknown> = {
   settings: TSettings
   context: DashboardWidgetRenderContext
   onSettingsChange: (next: TSettings) => void
+  refreshToken: number
+  onRefreshStateChange?: (refreshing: boolean) => void
 }
 
 export type DashboardWidgetModule<TSettings = unknown> = {

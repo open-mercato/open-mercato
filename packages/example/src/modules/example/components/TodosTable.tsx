@@ -14,7 +14,9 @@ import { fetchCustomFieldDefs } from '@open-mercato/ui/backend/utils/customField
 import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@/lib/i18n/context'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 type TodoRow = TodoListItem & { organization_name?: string }
 
@@ -30,39 +32,54 @@ type OrganizationsResponse = {
   items: Array<{ id: string; name: string }>
 }
 
-const baseColumns: ColumnDef<TodoRow>[] = [
-  { accessorKey: 'title', header: 'Title', meta: { priority: 1 } },
-  { accessorKey: 'organization_name', header: 'Organization', enableSorting: false, meta: { priority: 3 } },
-  { accessorKey: 'is_done', header: 'Done', meta: { priority: 2 },
-    cell: ({ getValue }) => <BooleanIcon value={!!getValue()} /> },
-  { accessorKey: 'cf_priority', meta: { priority: 4 } },
-  {
-    accessorKey: 'cf_severity',
-    cell: ({ getValue }) => <EnumBadge value={getValue() as any} map={severityPreset} />,
-    meta: { priority: 5 },
-  },
-  { accessorKey: 'cf_blocked', meta: { priority: 6 },
-    cell: ({ getValue }) => <BooleanIcon value={!!getValue()} /> },
-  {
-    accessorKey: 'cf_labels',
-    cell: ({ getValue }) => {
-      const vals = (getValue() as string[] | null) || []
-      if (!Array.isArray(vals) || vals.length === 0) return <span className="text-xs text-muted-foreground">—</span>
-      return (
-        <span className="flex flex-wrap gap-1">
-          {vals.map((v) => (
-            <span key={v} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border bg-accent/20">
-              {v}
-            </span>
-          ))}
-        </span>
-      )
+function buildBaseColumns(t: (key: string, params?: Record<string, string | number>) => string): ColumnDef<TodoRow>[] {
+  return [
+    { accessorKey: 'title', header: t('example.todos.table.column.title'), meta: { priority: 1 } },
+    { accessorKey: 'organization_name', header: t('example.todos.table.column.organization'), enableSorting: false, meta: { priority: 3 } },
+    {
+      accessorKey: 'is_done',
+      header: t('example.todos.table.column.done'),
+      meta: { priority: 2 },
+      cell: ({ getValue }) => <BooleanIcon value={!!getValue()} />,
     },
-    meta: { priority: 4 },
-  },
-]
+    { accessorKey: 'cf_priority', meta: { priority: 4 } },
+    {
+      accessorKey: 'cf_severity',
+      cell: ({ getValue }) => {
+        const raw = getValue()
+        return <EnumBadge value={typeof raw === 'string' ? raw : null} map={severityPreset} />
+      },
+      meta: { priority: 5 },
+    },
+    {
+      accessorKey: 'cf_blocked',
+      meta: { priority: 6 },
+      cell: ({ getValue }) => <BooleanIcon value={!!getValue()} />,
+    },
+    {
+      accessorKey: 'cf_labels',
+      cell: ({ getValue }) => {
+        const raw = getValue()
+        const vals = Array.isArray(raw) ? raw.map((value) => String(value)) : []
+        if (vals.length === 0) return <span className="text-xs text-muted-foreground">—</span>
+        return (
+          <span className="flex flex-wrap gap-1">
+            {vals.map((v) => (
+              <span key={v} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border bg-accent/20">
+                {v}
+              </span>
+            ))}
+          </span>
+        )
+      },
+      meta: { priority: 4 },
+    },
+  ]
+}
 
 export default function TodosTable() {
+  const t = useT()
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [title, setTitle] = React.useState('')
   const [values, setValues] = React.useState<FilterValues>({})
@@ -70,9 +87,6 @@ export default function TodosTable() {
   const [page, setPage] = React.useState(1)
   const scopeVersion = useOrganizationScopeVersion()
 
-  // Custom field filters handled by DataTable (via customFieldFiltersEntityId)
-
-  // Build query parameters
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams({
       page: page.toString(),
@@ -82,55 +96,51 @@ export default function TodosTable() {
     })
 
     if (title) params.set('title', title)
-    // Map dynamic filter values to query params
+
     Object.entries(values).forEach(([k, v]) => {
-      if (k === 'created_at') {
-        if ((v as any)?.from) params.set('createdFrom', (v as any).from)
-        if ((v as any)?.to) params.set('createdTo', (v as any).to)
+      if (k === 'created_at' && v && typeof v === 'object') {
+        const range = v as { from?: string; to?: string }
+        if (range.from) params.set('createdFrom', range.from)
+        if (range.to) params.set('createdTo', range.to)
         return
       }
       if (k === 'is_done') {
         if (v === true || v === false) params.set('isDone', String(v))
         return
       }
-      // custom fields: keys are already cf_<key> or cf_<key>In
       if (k.startsWith('cf_')) {
-        if (Array.isArray(v)) params.set(k, (v as string[]).join(','))
+        if (Array.isArray(v)) params.set(k, v.map((value) => String(value)).join(','))
         else if (v != null && v !== '') params.set(k, String(v))
       }
     })
-    // organization and tenant filters removed per request
-    
+
     return params.toString()
   }, [page, sorting, title, values])
 
-  // Fetch todos
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
     queryKey: ['todos', queryParams, scopeVersion],
     queryFn: async () => fetchCrudList<TodoListItem>('example/todos', Object.fromEntries(new URLSearchParams(queryParams))),
   })
 
-  // Load custom field definitions for column visibility and labels
   const { data: cfDefs } = useQuery({
     queryKey: ['cf-defs', 'example:todo'],
     queryFn: async () => fetchCustomFieldDefs('example:todo'),
   })
 
   const columns = React.useMemo(() => {
-    if (!cfDefs) return baseColumns
-    return applyCustomFieldVisibility(baseColumns, cfDefs)
-  }, [cfDefs])
+    const base = buildBaseColumns(t)
+    if (!cfDefs) return base
+    return applyCustomFieldVisibility(base, cfDefs)
+  }, [cfDefs, t])
 
-  // Get unique organization IDs from todos
   const organizationIds = React.useMemo(() => {
     if (!todosData?.items) return []
     const ids = todosData.items
-      .map(todo => todo.organization_id)
+      .map((todo) => todo.organization_id)
       .filter((id): id is string => id != null)
     return [...new Set(ids)]
   }, [todosData?.items])
 
-  // Fetch organizations
   const { data: orgsData } = useQuery<OrganizationsResponse>({
     queryKey: ['organizations', organizationIds],
     queryFn: async () => {
@@ -144,7 +154,6 @@ export default function TodosTable() {
     enabled: organizationIds.length > 0,
   })
 
-  // Create organization lookup map
   const orgMap = React.useMemo(() => {
     if (!orgsData?.items) return {}
     return orgsData.items.reduce((acc, org) => {
@@ -153,18 +162,19 @@ export default function TodosTable() {
     }, {} as Record<string, string>)
   }, [orgsData?.items])
 
-  // Merge todos with organization names
   const todosWithOrgNames = React.useMemo(() => {
     if (!todosData?.items) return []
-    return todosData.items.map(todo => ({
+    return todosData.items.map((todo) => ({
       ...todo,
-      organization_name: todo.organization_id ? orgMap[todo.organization_id] || 'Unknown' : 'No Organization'
+      organization_name: todo.organization_id
+        ? orgMap[todo.organization_id] || t('example.todos.table.organization.unknown')
+        : t('example.todos.table.organization.none'),
     }))
-  }, [todosData?.items, orgMap])
+  }, [orgMap, t, todosData?.items])
 
   const handleSortingChange = (newSorting: SortingState) => {
     setSorting(newSorting)
-    setPage(1) // Reset to first page when sorting changes
+    setPage(1)
   }
 
   const handleReset = () => {
@@ -174,50 +184,70 @@ export default function TodosTable() {
   }
 
   if (error) {
-    return <div>Error: {error.message}</div>
+    return <div className="text-sm text-destructive">{t('example.todos.table.error.generic')}</div>
   }
 
   return (
-    <DataTable 
-      title="Todos"
+    <DataTable
+      title={t('example.todos.table.title')}
       actions={(
         <>
-          <Button variant="outline" onClick={() => {
-            const url = buildCrudCsvUrl('example/todos', Object.fromEntries(new URLSearchParams(queryParams)))
-            window.open(url, '_blank')
-          }}>Export</Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const url = buildCrudCsvUrl('example/todos', Object.fromEntries(new URLSearchParams(queryParams)))
+              window.open(url, '_blank')
+            }}
+          >
+            {t('example.todos.table.actions.export')}
+          </Button>
           <Button asChild>
-            <Link href="/backend/todos/create">Create</Link>
+            <Link href="/backend/todos/create">{t('example.todos.table.actions.create')}</Link>
           </Button>
         </>
       )}
       columns={columns}
       data={todosWithOrgNames}
-      // Built-in FilterBar with dynamic custom fields
       searchValue={title}
-      onSearchChange={(v) => { setTitle(v); setPage(1) }}
+      onSearchChange={(v) => {
+        setTitle(v)
+        setPage(1)
+      }}
       searchAlign="right"
-      filters={[{ id: 'is_done', label: 'Done', type: 'checkbox' }, { id: 'created_at', label: 'Created Date', type: 'dateRange' }]}
+      filters={[
+        { id: 'is_done', label: t('example.todos.table.filters.done'), type: 'checkbox' },
+        { id: 'created_at', label: t('example.todos.table.filters.createdAt'), type: 'dateRange' },
+      ]}
       filterValues={values}
-      onFiltersApply={(vals: FilterValues) => { setValues(vals); setPage(1) }}
+      onFiltersApply={(vals: FilterValues) => {
+        setValues(vals)
+        setPage(1)
+      }}
       onFiltersClear={() => handleReset()}
       entityId="example:todo"
-      sortable 
-      sorting={sorting} 
+      sortable
+      sorting={sorting}
       onSortingChange={handleSortingChange}
       rowActions={(row) => (
         <RowActions
           items={[
-            { label: 'Edit', href: `/backend/todos/${row.id}/edit` },
+            { label: t('example.todos.table.actions.edit'), href: `/backend/todos/${row.id}/edit` },
             {
-              label: 'Delete',
+              label: t('example.todos.table.actions.delete'),
               destructive: true,
               onSelect: async () => {
-                if (!window.confirm('Delete this todo?')) return
-                await deleteCrud('example/todos', row.id).catch((e) => { alert(e?.message || 'Failed to delete') })
-                flash('Todo deleted', 'success')
-                // refresh list
-                queryClient.invalidateQueries({ queryKey: ['todos'] })
+                if (!window.confirm(t('example.todos.table.confirm.delete'))) return
+                try {
+                  await deleteCrud('example/todos', row.id)
+                  flash(t('example.todos.form.flash.deleted'), 'success')
+                  queryClient.invalidateQueries({ queryKey: ['todos'] })
+                } catch (err) {
+                  const message =
+                    err instanceof Error && err.message
+                      ? err.message
+                      : t('example.todos.table.error.delete')
+                  flash(message, 'error')
+                }
               },
             },
           ]}
@@ -231,6 +261,7 @@ export default function TodosTable() {
         onPageChange: setPage,
       }}
       isLoading={isLoading}
+      onRowClick={(row) => router.push(`/backend/todos/${row.id}/edit`)}
     />
   )
 }

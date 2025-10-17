@@ -7,8 +7,8 @@ export const features = [
   { id: 'auth.roles.list', title: 'List roles', module: 'auth' },
   { id: 'auth.roles.manage', title: 'Manage roles', module: 'auth' },
   { id: 'auth.acl.manage', title: 'Manage ACLs', module: 'auth' },
+  { id: 'auth.sidebar.manage', title: 'Manage sidebar presets', module: 'auth' },
 ]
 
 export default features
-
 

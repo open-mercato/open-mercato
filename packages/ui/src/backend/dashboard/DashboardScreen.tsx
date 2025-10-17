@@ -8,7 +8,8 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { loadDashboardWidgetModule } from './widgetRegistry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { cn } from '@/lib/utils'
-import { GripVertical, Plus, Settings2, Trash2, X, Loader2 } from 'lucide-react'
+import { GripVertical, Plus, RefreshCw, Settings2, Trash2, X, Loader2 } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type DashboardWidgetSize = 'sm' | 'md' | 'lg'
 
@@ -32,6 +33,7 @@ type WidgetMeta = {
   moduleId: string
   icon: string | null
   loaderKey: string
+  supportsRefresh: boolean
 }
 
 type LayoutContext = {
@@ -86,6 +88,7 @@ function generateId(): string {
 }
 
 export function DashboardScreen() {
+  const t = useT()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
@@ -137,11 +140,11 @@ export function DashboardScreen() {
       }
     } catch (err) {
       console.error('Failed to load dashboard layout', err)
-      setError('Unable to load dashboard data. Please try again later.')
+      setError(t('dashboard.loadError'))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   React.useEffect(() => {
     load()
@@ -157,6 +160,19 @@ export function DashboardScreen() {
     const currentIds = new Set(layout.map((item) => item.widgetId))
     return widgetCatalog.filter((meta) => !currentIds.has(meta.id))
   }, [layout, widgetCatalog])
+
+  const resolveWidgetTitle = React.useCallback((meta: WidgetMeta): string => {
+    const key = `dashboard.widgets.${meta.id}.title`
+    const translated = t(key)
+    return translated === key ? meta.title : translated
+  }, [t])
+
+  const resolveWidgetDescription = React.useCallback((meta: WidgetMeta): string | null => {
+    if (!meta.description) return null
+    const key = `dashboard.widgets.${meta.id}.description`
+    const translated = t(key)
+    return translated === key ? meta.description : translated
+  }, [t])
 
   const queueLayoutSave = React.useCallback((items: LayoutItem[]) => {
     saveQueueRef.current = saveQueueRef.current.then(async () => {
@@ -181,12 +197,12 @@ export function DashboardScreen() {
         setError(null)
       } catch (err) {
         console.error('Failed to save layout', err)
-        setError('Unable to save dashboard layout changes.')
+        setError(t('dashboard.saveError'))
       } finally {
         adjustSaving(-1)
       }
     })
-  }, [adjustSaving])
+  }, [adjustSaving, t])
 
   const patchWidgetSettings = React.useCallback(async (itemId: string, nextSettings: unknown) => {
     adjustSaving(1)
@@ -200,11 +216,11 @@ export function DashboardScreen() {
       setError(null)
     } catch (err) {
       console.error('Failed to update widget settings', err)
-      setError('Unable to update widget settings.')
+      setError(t('dashboard.saveError'))
     } finally {
       adjustSaving(-1)
     }
-  }, [adjustSaving])
+  }, [adjustSaving, t])
 
   const handleAddWidget = React.useCallback((widgetId: string) => {
     const meta = metaById.get(widgetId)
@@ -284,9 +300,9 @@ export function DashboardScreen() {
   if (error && layout.length === 0) {
     return (
       <ErrorNotice
-        title="Dashboard unavailable"
+        title={t('dashboard.unavailable')}
         message={error}
-        action={<Button variant="outline" onClick={handleRefresh}>Retry</Button>}
+        action={<Button variant="outline" onClick={handleRefresh}>{t('dashboard.retry')}</Button>}
       />
     )
   }
@@ -295,20 +311,20 @@ export function DashboardScreen() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Arrange and personalize the widgets you see on your admin start page.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('dashboard.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('dashboard.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           {saving && (
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Saving…</span>
+              <span>{t('dashboard.saving')}</span>
             </div>
           )}
           {canConfigure && (
             <Button variant={editing ? 'secondary' : 'outline'} onClick={toggleEditing}>
               <Settings2 className="h-4 w-4" />
-              <span>{editing ? 'Done' : 'Customize'}</span>
+              <span>{editing ? t('dashboard.action.done') : t('dashboard.action.customize')}</span>
             </Button>
           )}
         </div>
@@ -316,15 +332,15 @@ export function DashboardScreen() {
 
       {error && layout.length > 0 && (
         <ErrorNotice
-          title="Some changes were not saved"
+          title={t('dashboard.error.partial')}
           message={error}
-          action={<Button variant="ghost" onClick={handleRefresh}>Reload data</Button>}
+          action={<Button variant="ghost" onClick={handleRefresh}>{t('dashboard.error.reload')}</Button>}
         />
       )}
 
       {editing && availableWidgets.length > 0 && (
         <div className="rounded-lg border border-dashed bg-muted/40 p-4">
-          <div className="mb-2 text-sm font-medium text-muted-foreground">Add a widget</div>
+          <div className="mb-2 text-sm font-medium text-muted-foreground">{t('dashboard.addWidget')}</div>
           <div className="flex flex-wrap gap-2">
             {availableWidgets.map((meta) => (
               <Button
@@ -334,7 +350,7 @@ export function DashboardScreen() {
                 onClick={() => handleAddWidget(meta.id)}
               >
                 <Plus className="h-4 w-4" />
-                {meta.title}
+                {resolveWidgetTitle(meta)}
               </Button>
             ))}
           </div>
@@ -376,11 +392,15 @@ export function DashboardScreen() {
         {layout.map((item) => {
           const meta = metaById.get(item.widgetId)
           if (!meta) return null
+          const title = resolveWidgetTitle(meta)
+          const description = resolveWidgetDescription(meta)
           return (
             <DashboardWidgetCard
               key={item.id}
               item={item}
               meta={meta}
+              title={title}
+              description={description}
               context={context}
               editing={editing && canConfigure}
               activeSettings={settingsId === item.id}
@@ -404,7 +424,7 @@ export function DashboardScreen() {
 
       {layout.length === 0 && (
         <div className="rounded-lg border border-dashed bg-muted/30 p-10 text-center text-sm text-muted-foreground">
-          {canConfigure ? 'No widgets selected yet. Use “Add a widget” to start building your dashboard.' : 'No widgets are available for your account yet.'}
+          {canConfigure ? t('dashboard.empty.configurable') : t('dashboard.empty.readonly')}
         </div>
       )}
     </div>
@@ -414,6 +434,8 @@ export function DashboardScreen() {
 type DashboardWidgetCardProps = {
   item: LayoutItem
   meta: WidgetMeta
+  title: string
+  description: string | null
   context: LayoutContext | null
   editing: boolean
   activeSettings: boolean
@@ -431,6 +453,8 @@ type DashboardWidgetCardProps = {
 function DashboardWidgetCard({
   item,
   meta,
+  title,
+  description,
   context,
   editing,
   activeSettings,
@@ -444,10 +468,13 @@ function DashboardWidgetCard({
   onDragLeave,
   sizeClass,
 }: DashboardWidgetCardProps) {
+  const t = useT()
   const [module, setModule] = React.useState<WidgetModule | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [isDragOver, setIsDragOver] = React.useState(false)
+  const [refreshToken, setRefreshToken] = React.useState(0)
+  const [refreshing, setRefreshing] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -462,11 +489,39 @@ function DashboardWidgetCard({
       .catch((err) => {
         if (cancelled) return
         console.error('Failed to load widget module', err)
-        setLoadError('Unable to load widget')
+        setLoadError(t('dashboard.widget.loadError'))
         setLoading(false)
       })
     return () => { cancelled = true }
-  }, [meta.loaderKey])
+  }, [meta.loaderKey, t])
+
+  React.useEffect(() => {
+    if (!meta.supportsRefresh) {
+      setRefreshing(false)
+    }
+  }, [meta.supportsRefresh])
+
+  React.useEffect(() => {
+    if (activeSettings) {
+      setRefreshing(false)
+    }
+  }, [activeSettings])
+
+  React.useEffect(() => {
+    if (loadError) {
+      setRefreshing(false)
+    }
+  }, [loadError])
+
+  const handleRefreshStateChange = React.useCallback((next: boolean) => {
+    setRefreshing(next)
+  }, [])
+
+  const triggerRefresh = React.useCallback(() => {
+    if (loading || !!loadError) return
+    setRefreshing(true)
+    setRefreshToken((current) => current + 1)
+  }, [loadError, loading])
 
   const hydratedSettings = React.useMemo(() => {
     const raw = item.settings ?? meta.defaultSettings ?? null
@@ -545,30 +600,44 @@ function DashboardWidgetCard({
         <div className="flex items-center gap-2">
           {editing && <GripVertical className="h-4 w-4 text-muted-foreground" />}
           <div>
-            <div className="text-sm font-medium leading-none">{meta.title}</div>
-            {meta.description ? <div className="text-xs text-muted-foreground">{meta.description}</div> : null}
+            <div className="text-sm font-medium leading-none">{title}</div>
+            {description ? <div className="text-xs text-muted-foreground">{description}</div> : null}
           </div>
         </div>
-        {editing && (
-          <div className="flex items-center gap-1">
-            <Button
-              variant={activeSettings ? 'secondary' : 'ghost'}
-              size="icon"
-              onClick={onToggleSettings}
-              aria-label={activeSettings ? 'Close settings' : 'Edit settings'}
-            >
-              {activeSettings ? <X className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
-            </Button>
+        <div className="flex items-center gap-1">
+          {!editing && meta.supportsRefresh && (
             <Button
               variant="ghost"
               size="icon"
-              onClick={onRemove}
-              aria-label="Remove widget"
+              disabled={refreshing || loading || !!loadError}
+              onClick={triggerRefresh}
+              aria-label={t('dashboard.widget.refresh')}
             >
-              <Trash2 className="h-4 w-4" />
+              {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              <span className="sr-only">{t('dashboard.widget.refresh')}</span>
             </Button>
-          </div>
-        )}
+          )}
+          {editing && (
+            <>
+              <Button
+                variant={activeSettings ? 'secondary' : 'ghost'}
+                size="icon"
+                onClick={onToggleSettings}
+                aria-label={activeSettings ? t('dashboard.widget.closeSettings') : t('dashboard.widget.editSettings')}
+              >
+                {activeSettings ? <X className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onRemove}
+                aria-label={t('dashboard.widget.remove')}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+        </div>
       </div>
       <div className="flex-1 p-4">
         {loading && (
@@ -586,6 +655,8 @@ function DashboardWidgetCard({
             context={context ?? { userId: '', tenantId: null, organizationId: null, userName: null, userEmail: null, userLabel: null }}
             settings={hydratedSettings}
             onSettingsChange={handleSettingsChange}
+            refreshToken={refreshToken}
+            onRefreshStateChange={handleRefreshStateChange}
           />
         )}
       </div>

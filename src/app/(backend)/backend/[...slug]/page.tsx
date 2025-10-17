@@ -46,7 +46,7 @@ export default async function BackendCatchAll(props: { params: Awaitable<{ slug?
   const Component = match.route.Component as any
   return (
     <>
-      <ApplyBreadcrumb breadcrumb={(match.route as any).breadcrumb} title={match.route.title as any} />
+      <ApplyBreadcrumb breadcrumb={(match.route as any).breadcrumb} title={match.route.title as any} titleKey={(match.route as any).titleKey as any} />
       <Component params={match.params} />
     </>
   )

@@ -3,5 +3,8 @@
   "entities.nav.systemEntities": "System Entities",
   "entities.nav.userEntities": "User Entities",
   "entities.nav.userEntities.create": "Create Entity",
-  "entities.nav.entityRecords": "Entity Records"
+  "entities.nav.entityRecords": "Entity Records",
+  "entities.customFields.title": "Custom Attributes",
+  "entities.customFields.empty": "No custom attributes specified yet.",
+  "entities.customFields.addFirst": "Add the first one"
 }

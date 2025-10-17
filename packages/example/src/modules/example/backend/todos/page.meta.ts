@@ -10,11 +10,13 @@ const checkboxIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['example.todos.view'],
-  pageTitle: 'Todos',
-  pageGroup: 'Example',
-  pageOrder: 20000,
+  pageTitle: 'General tasks',
+  pageTitleKey: 'example.todos.page.title',
+  pageGroup: 'Work plan',
+  pageGroupKey: 'example.workPlan.nav.group',
+  pageOrder: 120,
   icon: checkboxIcon,
   breadcrumb: [
-    { label: 'Todos' },
+    { label: 'General tasks', labelKey: 'example.todos.page.title' },
   ],
 }

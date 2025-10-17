@@ -3,5 +3,8 @@
   "entities.nav.systemEntities": "Entidades del sistema",
   "entities.nav.userEntities": "Entidades de usuario",
   "entities.nav.userEntities.create": "Crear entidad",
-  "entities.nav.entityRecords": "Registros de la entidad"
+  "entities.nav.entityRecords": "Registros de la entidad",
+  "entities.customFields.title": "Atributos personalizados",
+  "entities.customFields.empty": "Aún no se han definido atributos personalizados.",
+  "entities.customFields.addFirst": "Agregar el primero"
 }

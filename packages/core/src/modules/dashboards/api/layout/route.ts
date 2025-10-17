@@ -164,6 +164,7 @@ export async function GET(req: Request) {
       moduleId: widget.moduleId,
       icon: widget.metadata.icon ?? null,
       loaderKey: widget.key,
+      supportsRefresh: !!widget.metadata.supportsRefresh,
     })),
   }
 
