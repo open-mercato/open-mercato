@@ -445,7 +445,6 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       } catch {}
     }
     // Refresh on window focus
-    refreshFullNav()
     const onFocus = () => refreshFullNav()
     window.addEventListener('focus', onFocus)
     return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
