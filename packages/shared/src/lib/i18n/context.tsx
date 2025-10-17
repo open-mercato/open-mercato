@@ -13,7 +13,15 @@ const I18nContext = createContext<I18nContextValue | null>(null)
 
 function format(template: string, params?: Record<string, string | number>) {
   if (!params) return template
-  return template.replace(/\{(\w+)\}/g, (_, k) => String(params[k] ?? `{${k}}`))
+  return template.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (_, doubleKey, singleKey) => {
+    const key = doubleKey ?? singleKey
+    if (!key) return _
+    const value = params[key]
+    if (value === undefined) {
+      return doubleKey ? `{{${key}}}` : `{${key}}`
+    }
+    return String(value)
+  })
 }
 
 export function I18nProvider({ children, locale, dict }: { children: React.ReactNode; locale: Locale; dict: Dict }) {
@@ -35,4 +43,3 @@ export function useLocale() {
   if (!ctx) throw new Error('useLocale must be used within I18nProvider')
   return ctx.locale
 }
-

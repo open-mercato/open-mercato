@@ -12,11 +12,13 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['example.todos.manage'],
   pageTitle: 'Create Todo',
+  pageTitleKey: 'example.todos.create.title',
   pageGroup: 'Example',
+  pageGroupKey: 'example.nav.group',
   pageOrder: 20001,
   icon: filePlusIcon,
   breadcrumb: [
-    { label: 'Todos', href: '/backend/todos' },
-    { label: 'Create' },
+    { label: 'Todos', labelKey: 'example.todos.page.title', href: '/backend/todos' },
+    { label: 'Create', labelKey: 'example.todos.create.title' },
   ],
 }

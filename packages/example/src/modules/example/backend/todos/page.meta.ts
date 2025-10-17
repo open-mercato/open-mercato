@@ -11,10 +11,12 @@ export const metadata = {
   requireAuth: true,
   requireFeatures: ['example.todos.view'],
   pageTitle: 'Todos',
+  pageTitleKey: 'example.todos.page.title',
   pageGroup: 'Example',
+  pageGroupKey: 'example.nav.group',
   pageOrder: 20000,
   icon: checkboxIcon,
   breadcrumb: [
-    { label: 'Todos' },
+    { label: 'Todos', labelKey: 'example.todos.page.title' },
   ],
 }

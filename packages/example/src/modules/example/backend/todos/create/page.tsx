@@ -2,40 +2,52 @@
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
-
-const baseFields: CrudField[] = [
-  { id: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Write a clear title' },
-  { id: 'is_done', label: 'Done', type: 'checkbox' },
-]
+import { useT } from '@/lib/i18n/context'
 
 export default function CreateTodoPage() {
-  const groups: CrudFormGroup[] = [
-    { id: 'details', title: 'Details', column: 1, fields: ['title'] },
-    { id: 'status', title: 'Status', column: 2, fields: ['is_done'] },
-    { id: 'attributes', title: 'Attributes', column: 1, kind: 'customFields' },
+  const t = useT()
+  const fields = React.useMemo<CrudField[]>(() => [
+    {
+      id: 'title',
+      label: t('example.todos.form.fields.title.label'),
+      type: 'text',
+      required: true,
+      placeholder: t('example.todos.form.fields.title.placeholder'),
+    },
+    { id: 'is_done', label: t('example.todos.form.fields.isDone.label'), type: 'checkbox' },
+  ], [t])
+  const groups = React.useMemo<CrudFormGroup[]>(() => [
+    { id: 'details', title: t('example.todos.form.groups.details'), column: 1, fields: ['title'] },
+    { id: 'status', title: t('example.todos.form.groups.status'), column: 2, fields: ['is_done'] },
+    { id: 'attributes', title: t('example.todos.form.groups.attributes'), column: 1, kind: 'customFields' },
     {
       id: 'tips',
-      title: 'Tips',
+      title: t('example.todos.form.groups.tips'),
       column: 2,
       component: () => (
         <div className="text-sm text-muted-foreground">
-          Use clear titles like “Refactor login” or “Ship v1.2.3”.
+          {t('example.todos.form.groups.tips.body')}
         </div>
       ),
     },
-  ]
+  ], [t])
+  const successRedirect = React.useMemo(
+    () => `/backend/todos?flash=${encodeURIComponent(t('example.todos.form.flash.created'))}&type=success`,
+    [t],
+  )
+
   return (
     <Page>
       <PageBody>
         <CrudForm
-          title="Create Todo"
+          title={t('example.todos.form.create.title')}
           backHref="/backend/todos"
           entityId="example:todo"
-          fields={baseFields}
+          fields={fields}
           groups={groups}
-          submitLabel="Create Todo"
+          submitLabel={t('example.todos.form.create.submit')}
           cancelHref="/backend/todos"
-          successRedirect="/backend/todos?flash=Todo%20created&type=success"
+          successRedirect={successRedirect}
           onSubmit={async (vals) => { await createCrud('example/todos', vals) }}
         />
       </PageBody>
