@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { z } from 'zod'
-import { Check, Pencil } from 'lucide-react'
+import { Check, Pencil, Plus } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -64,7 +64,7 @@ export type DictionarySelectLabels = {
 }
 
 type DictionarySelectFieldProps = {
-  kind: 'statuses' | 'sources'
+  kind: 'statuses' | 'sources' | 'lifecycle-stages'
   value?: string
   onChange: (value: string | undefined) => void
   labels: DictionarySelectLabels
@@ -186,17 +186,25 @@ export function DictionarySelectField({
           disabled={disabled}
         >
           <option value="">{labels.placeholder}</option>
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-    <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
-      <DialogTrigger asChild>
-        <Button type="button" variant="outline" disabled={disabled}>
-          + {labels.addLabel}
-        </Button>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
+          <DialogTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={disabled}
+              aria-label={labels.addLabel}
+              title={labels.addLabel}
+              className="inline-flex items-center gap-1"
+            >
+              <Plus className="h-4 w-4" aria-hidden />
+              <span className="hidden sm:inline">{labels.addLabel}</span>
+            </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
@@ -474,8 +482,16 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
         </select>
         <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
-            <Button type="button" variant="outline" disabled={disabled}>
-              + {labels.addLabel}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={disabled}
+              aria-label={labels.addLabel}
+              title={labels.addLabel}
+              className="inline-flex items-center gap-1"
+            >
+              <Plus className="h-4 w-4" aria-hidden />
+              <span className="hidden sm:inline">{labels.addLabel}</span>
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-sm">
@@ -529,6 +545,13 @@ export const createPersonFormSchema = () =>
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val)),
       status: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      lifecycleStage: z
         .string()
         .trim()
         .optional()
@@ -708,7 +731,33 @@ export const createPersonFormFields = (t: Translator): CrudField[] => [
       />
     ),
   },
-  { id: 'lifecycleStage', label: t('customers.people.form.lifecycleStage'), type: 'text', layout: 'third' },
+  {
+    id: 'lifecycleStage',
+    label: t('customers.people.form.lifecycleStage'),
+    type: 'custom',
+    layout: 'third',
+    component: ({ value, setValue }) => (
+      <DictionarySelectField
+        kind="lifecycle-stages"
+        value={typeof value === 'string' ? value : undefined}
+        onChange={(next) => setValue(next)}
+        labels={{
+          placeholder: t('customers.people.form.lifecycleStage.placeholder'),
+          addLabel: t('customers.people.form.dictionary.addLifecycleStage'),
+          addPrompt: t('customers.people.form.dictionary.promptLifecycleStage'),
+          dialogTitle: t('customers.people.form.dictionary.dialogTitleLifecycleStage'),
+          inputLabel: t('customers.people.form.dictionary.valueLabel'),
+          inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+          emptyError: t('customers.people.form.dictionary.errorRequired'),
+          cancelLabel: t('customers.people.form.dictionary.cancel'),
+          saveLabel: t('customers.people.form.dictionary.save'),
+          errorLoad: t('customers.people.form.dictionary.errorLoad'),
+          errorSave: t('customers.people.form.dictionary.error'),
+          loadingLabel: t('customers.people.form.dictionary.loading'),
+        }}
+      />
+    ),
+  },
   {
     id: 'source',
     label: t('customers.people.form.source'),

@@ -90,7 +90,7 @@ export default function CustomersPeoplePage() {
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const router = useRouter()
-  const loadDictionaryOptions = React.useCallback(async (kind: 'statuses' | 'sources') => {
+  const loadDictionaryOptions = React.useCallback(async (kind: 'statuses' | 'sources' | 'lifecycle-stages') => {
     try {
       const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
       const payload = await res.json().catch(() => ({}))

@@ -122,11 +122,11 @@ export async function requireDealInScope(
   return deal
 }
 
-const DICTIONARY_KINDS = new Set(['status', 'source'])
+const DICTIONARY_KINDS = new Set(['status', 'source', 'lifecycle_stage'])
 
 export async function ensureDictionaryEntry(
   em: EntityManager,
-  params: { tenantId: string; organizationId: string; kind: 'status' | 'source'; value: string; label?: string | null }
+  params: { tenantId: string; organizationId: string; kind: 'status' | 'source' | 'lifecycle_stage'; value: string; label?: string | null }
 ): Promise<CustomerDictionaryEntry | null> {
   const trimmed = params.value?.trim()
   if (!trimmed) return null

@@ -44,7 +44,10 @@ function buildBaseColumns(t: (key: string, params?: Record<string, string | numb
     { accessorKey: 'cf_priority', meta: { priority: 4 } },
     {
       accessorKey: 'cf_severity',
-      cell: ({ getValue }) => <EnumBadge value={getValue() as any} map={severityPreset} />,
+      cell: ({ getValue }) => {
+        const raw = getValue()
+        return <EnumBadge value={typeof raw === 'string' ? raw : null} map={severityPreset} />
+      },
       meta: { priority: 5 },
     },
     {
@@ -55,8 +58,9 @@ function buildBaseColumns(t: (key: string, params?: Record<string, string | numb
     {
       accessorKey: 'cf_labels',
       cell: ({ getValue }) => {
-        const vals = (getValue() as string[] | null) || []
-        if (!Array.isArray(vals) || vals.length === 0) return <span className="text-xs text-muted-foreground">—</span>
+        const raw = getValue()
+        const vals = Array.isArray(raw) ? raw.map((value) => String(value)) : []
+        if (vals.length === 0) return <span className="text-xs text-muted-foreground">—</span>
         return (
           <span className="flex flex-wrap gap-1">
             {vals.map((v) => (
@@ -92,9 +96,10 @@ export default function TodosTable() {
     if (title) params.set('title', title)
 
     Object.entries(values).forEach(([k, v]) => {
-      if (k === 'created_at') {
-        if ((v as any)?.from) params.set('createdFrom', (v as any).from)
-        if ((v as any)?.to) params.set('createdTo', (v as any).to)
+      if (k === 'created_at' && v && typeof v === 'object') {
+        const range = v as { from?: string; to?: string }
+        if (range.from) params.set('createdFrom', range.from)
+        if (range.to) params.set('createdTo', range.to)
         return
       }
       if (k === 'is_done') {
@@ -102,7 +107,7 @@ export default function TodosTable() {
         return
       }
       if (k.startsWith('cf_')) {
-        if (Array.isArray(v)) params.set(k, (v as string[]).join(','))
+        if (Array.isArray(v)) params.set(k, v.map((value) => String(value)).join(','))
         else if (v != null && v !== '') params.set(k, String(v))
       }
     })

@@ -1,4 +1,5 @@
 "use client"
+import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
