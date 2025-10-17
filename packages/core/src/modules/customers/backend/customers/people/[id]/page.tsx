@@ -6,10 +6,19 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Check, Loader2, Pencil, Plus, X } from 'lucide-react'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
+import { DictionarySelectField } from '../components/formConfig'
 
 type TagSummary = { id: string; label: string; color?: string | null }
 type AddressSummary = {
@@ -58,6 +67,7 @@ type TodoLinkSummary = {
   todoId: string
   todoSource: string
   createdAt: string
+  createdByUserId?: string | null
 }
 
 type PersonOverview = {
@@ -72,6 +82,7 @@ type PersonOverview = {
     source?: string | null
     nextInteractionAt?: string | null
     nextInteractionName?: string | null
+    nextInteractionRefId?: string | null
     organizationId?: string | null
   }
   profile: {
@@ -96,11 +107,826 @@ type PersonOverview = {
   todos: TodoLinkSummary[]
 }
 
+type Translator = ReturnType<typeof useT>
+
+type SectionKey = 'notes' | 'activities' | 'deals' | 'addresses' | 'tasks'
+
+function cn(...values: Array<string | null | undefined | false>) {
+  return values.filter(Boolean).join(' ')
+}
+
 function formatDateTime(value?: string | null): string | null {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   return date.toLocaleString()
+}
+
+function formatDate(value?: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleDateString()
+}
+
+function randomId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return `tmp-${Math.random().toString(36).slice(2)}`
+}
+
+type InlineFieldProps = {
+  label: string
+  value: string | null | undefined
+  placeholder: string
+  emptyLabel: string
+  type?: 'text' | 'email' | 'tel'
+  validator?: (value: string) => string | null
+  onSave: (value: string | null) => Promise<void>
+}
+
+function InlineTextEditor({ label, value, placeholder, emptyLabel, type = 'text', validator, onSave }: InlineFieldProps) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(value ?? '')
+  const [error, setError] = React.useState<string | null>(null)
+  const [saving, setSaving] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!editing) setDraft(value ?? '')
+  }, [editing, value])
+
+  const handleSave = React.useCallback(async () => {
+    const trimmed = draft.trim()
+    const finalValue = trimmed.length ? trimmed : ''
+    if (validator) {
+      const validationError = validator(finalValue)
+      if (validationError) {
+        setError(validationError)
+        return
+      }
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      await onSave(finalValue.length ? finalValue : null)
+      setEditing(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customers.people.detail.inline.error')
+      flash(message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }, [draft, onSave, t, validator])
+
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {editing ? (
+            <div className="mt-2 space-y-3">
+              <input
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draft}
+                onChange={(event) => {
+                  if (error) setError(null)
+                  setDraft(event.target.value)
+                }}
+                placeholder={placeholder}
+                type={type}
+                autoFocus
+              />
+              {error ? <p className="text-xs text-red-600">{error}</p> : null}
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {t('customers.people.detail.inline.save')}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+                  {t('customers.people.detail.inline.cancel')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-1 text-sm">{value || emptyLabel}</p>
+          )}
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing((state) => !state)}>
+          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+type StatusEditorProps = {
+  label: string
+  value: string | null | undefined
+  emptyLabel: string
+  labels: Parameters<typeof DictionarySelectField>[0]['labels']
+  onSave: (value: string | null) => Promise<void>
+}
+
+function InlineStatusEditor({ label, value, emptyLabel, labels, onSave }: StatusEditorProps) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState<string | undefined>(value ?? undefined)
+  const [saving, setSaving] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!editing) setDraft(value ?? undefined)
+  }, [editing, value])
+
+  const handleSave = React.useCallback(async () => {
+    setSaving(true)
+    try {
+      await onSave(draft ?? null)
+      setEditing(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customers.people.detail.inline.error')
+      flash(message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }, [draft, onSave, t])
+
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {editing ? (
+            <div className="mt-2 space-y-3">
+              <DictionarySelectField
+                kind="statuses"
+                value={draft}
+                onChange={setDraft}
+                labels={labels}
+              />
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {t('customers.people.detail.inline.save')}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+                  {t('customers.people.detail.inline.cancel')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-1 text-sm">{value || emptyLabel}</p>
+          )}
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing((state) => !state)}>
+          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+type NextInteractionEditorProps = {
+  label: string
+  valueAt: string | null | undefined
+  valueName: string | null | undefined
+  valueRefId: string | null | undefined
+  emptyLabel: string
+  onSave: (next: { at: string; name: string; refId?: string | null } | null) => Promise<void>
+}
+
+function InlineNextInteractionEditor({
+  label,
+  valueAt,
+  valueName,
+  valueRefId,
+  emptyLabel,
+  onSave,
+}: NextInteractionEditorProps) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draftDate, setDraftDate] = React.useState<string>(() => (valueAt ? valueAt.slice(0, 16) : ''))
+  const [draftName, setDraftName] = React.useState(valueName ?? '')
+  const [draftRefId, setDraftRefId] = React.useState(valueRefId ?? '')
+  const [error, setError] = React.useState<string | null>(null)
+  const [saving, setSaving] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraftDate(valueAt ? valueAt.slice(0, 16) : '')
+      setDraftName(valueName ?? '')
+      setDraftRefId(valueRefId ?? '')
+    }
+  }, [editing, valueAt, valueName, valueRefId])
+
+  const handleSave = React.useCallback(async () => {
+    if (!draftDate) {
+      await onSave(null)
+      setEditing(false)
+      return
+    }
+    const iso = new Date(draftDate).toISOString()
+    if (Number.isNaN(new Date(iso).getTime())) {
+      setError(t('customers.people.detail.inline.nextInteractionInvalid'))
+      return
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      await onSave({
+        at: iso,
+        name: draftName.trim(),
+        refId: draftRefId.trim() || null,
+      })
+      setEditing(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customers.people.detail.inline.error')
+      flash(message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }, [draftDate, draftName, draftRefId, onSave, t])
+
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {editing ? (
+            <div className="mt-2 space-y-3">
+              <input
+                type="datetime-local"
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draftDate}
+                onChange={(event) => {
+                  if (error) setError(null)
+                  setDraftDate(event.target.value)
+                }}
+              />
+              <input
+                placeholder={t('customers.people.detail.inline.nextInteractionName')}
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draftName}
+                onChange={(event) => setDraftName(event.target.value)}
+              />
+              <input
+                placeholder={t('customers.people.detail.inline.nextInteractionRef')}
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draftRefId}
+                onChange={(event) => setDraftRefId(event.target.value)}
+              />
+              {error ? <p className="text-xs text-red-600">{error}</p> : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {t('customers.people.detail.inline.save')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setEditing(false)}
+                  disabled={saving}
+                >
+                  {t('customers.people.detail.inline.cancel')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setDraftDate('')
+                    setDraftName('')
+                    setDraftRefId('')
+                    setError(null)
+                  }}
+                  disabled={saving}
+                >
+                  {t('customers.people.detail.inline.clear')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-1 text-sm">
+              {valueAt ? (
+                <div className="flex flex-col">
+                  <span>{formatDateTime(valueAt)}</span>
+                  {valueName ? <span className="text-xs text-muted-foreground">{valueName}</span> : null}
+                </div>
+              ) : (
+                <span>{emptyLabel}</span>
+              )}
+            </div>
+          )}
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing((state) => !state)}>
+          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+type NotesTabProps = {
+  notes: CommentSummary[]
+  onCreate: (body: string) => Promise<void>
+  isSubmitting: boolean
+  emptyLabel: string
+  t: Translator
+}
+
+function NotesTab({ notes, onCreate, isSubmitting, emptyLabel, t }: NotesTabProps) {
+  const [draft, setDraft] = React.useState('')
+
+  const handleSubmit = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      if (!draft.trim() || isSubmitting) return
+      await onCreate(draft.trim())
+      setDraft('')
+    },
+    [draft, isSubmitting, onCreate]
+  )
+
+  return (
+    <div className="space-y-6">
+      <form onSubmit={handleSubmit} className="rounded-lg border bg-muted/20 p-4 space-y-3">
+        <label className="text-sm font-medium text-muted-foreground" htmlFor="new-note">
+          {t('customers.people.detail.notes.addLabel')}
+        </label>
+        <textarea
+          id="new-note"
+          className="w-full min-h-[120px] rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          placeholder={t('customers.people.detail.notes.placeholder')}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          disabled={isSubmitting}
+        />
+        <div className="flex justify-end">
+          <Button type="submit" disabled={isSubmitting || !draft.trim()}>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {t('customers.people.detail.notes.saving')}
+              </>
+            ) : (
+              t('customers.people.detail.notes.submit')
+            )}
+          </Button>
+        </div>
+      </form>
+      <div className="space-y-4">
+        {notes.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+        ) : (
+          notes.map((note) => (
+            <div key={note.id} className="rounded-lg border p-4 space-y-2">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{formatDateTime(note.createdAt) ?? emptyLabel}</span>
+                {note.authorUserId ? <span>{note.authorUserId}</span> : <span>{t('customers.people.detail.anonymous')}</span>}
+              </div>
+              <p className="text-sm whitespace-pre-wrap">{note.body}</p>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+type ActivitiesTabProps = {
+  activities: ActivitySummary[]
+  onCreate: (payload: { activityType: string; subject?: string; body?: string; occurredAt?: string }) => Promise<void>
+  isSubmitting: boolean
+  emptyLabel: string
+  t: Translator
+}
+
+function ActivitiesTab({ activities, onCreate, isSubmitting, emptyLabel, t }: ActivitiesTabProps) {
+  const [open, setOpen] = React.useState(false)
+  const [draft, setDraft] = React.useState({
+    activityType: '',
+    subject: '',
+    body: '',
+    occurredAt: '',
+  })
+
+  const handleSubmit = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      if (!draft.activityType.trim() || isSubmitting) {
+        flash(t('customers.people.detail.activities.typeRequired'), 'error')
+        return
+      }
+      await onCreate({
+        activityType: draft.activityType.trim(),
+        subject: draft.subject.trim() || undefined,
+        body: draft.body.trim() || undefined,
+        occurredAt: draft.occurredAt ? new Date(draft.occurredAt).toISOString() : undefined,
+      })
+      setDraft({ activityType: '', subject: '', body: '', occurredAt: '' })
+      setOpen(false)
+    },
+    [draft, isSubmitting, onCreate, t]
+  )
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button onClick={() => setOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          {t('customers.people.detail.activities.add')}
+        </Button>
+      </div>
+      <div className="space-y-4">
+        {activities.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+        ) : (
+          activities.map((activity) => (
+            <div key={activity.id} className="rounded-lg border p-4 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="font-medium uppercase tracking-wide">{activity.activityType}</span>
+                <span>{formatDateTime(activity.occurredAt) ?? emptyLabel}</span>
+              </div>
+              {activity.subject ? <p className="text-sm font-medium">{activity.subject}</p> : null}
+              {activity.body ? <p className="text-sm whitespace-pre-wrap text-muted-foreground">{activity.body}</p> : null}
+            </div>
+          ))
+        )}
+      </div>
+      <Dialog open={open} onOpenChange={(next) => { if (!next) setDraft((prev) => ({ ...prev, activityType: prev.activityType })); setOpen(next) }}>
+        <DialogContent className="bottom-4 top-auto w-[calc(100vw-2rem)] max-w-lg translate-y-0 sm:bottom-auto sm:top-1/2 sm:w-full sm:-translate-y-1/2">
+          <DialogHeader>
+            <DialogTitle>{t('customers.people.detail.activities.addTitle')}</DialogTitle>
+          </DialogHeader>
+          <form className="space-y-3" onSubmit={handleSubmit}>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">{t('customers.people.detail.activities.fields.type')}</label>
+              <input
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draft.activityType}
+                onChange={(event) => setDraft((prev) => ({ ...prev, activityType: event.target.value }))}
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">{t('customers.people.detail.activities.fields.subject')}</label>
+              <input
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draft.subject}
+                onChange={(event) => setDraft((prev) => ({ ...prev, subject: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">{t('customers.people.detail.activities.fields.body')}</label>
+              <textarea
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draft.body}
+                onChange={(event) => setDraft((prev) => ({ ...prev, body: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">{t('customers.people.detail.activities.fields.occurredAt')}</label>
+              <input
+                type="datetime-local"
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draft.occurredAt}
+                onChange={(event) => setDraft((prev) => ({ ...prev, occurredAt: event.target.value }))}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSubmitting}>
+                {t('customers.people.detail.activities.cancel')}
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t('customers.people.detail.activities.saving')}
+                  </>
+                ) : (
+                  t('customers.people.detail.activities.save')
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+type AddressesTabProps = {
+  addresses: AddressSummary[]
+  onCreate: (payload: Omit<AddressSummary, 'id'>) => Promise<void>
+  isSubmitting: boolean
+  emptyLabel: string
+  t: Translator
+}
+
+function AddressesTab({ addresses, onCreate, isSubmitting, emptyLabel, t }: AddressesTabProps) {
+  const [open, setOpen] = React.useState(false)
+  const [draft, setDraft] = React.useState({
+    name: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    region: '',
+    postalCode: '',
+    country: '',
+    isPrimary: false,
+  })
+
+  const handleSubmit = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      if (!draft.addressLine1.trim() || isSubmitting) {
+        flash(t('customers.people.detail.addresses.line1Required'), 'error')
+        return
+      }
+      await onCreate({
+        name: draft.name.trim() || null,
+        purpose: null,
+        addressLine1: draft.addressLine1.trim(),
+        addressLine2: draft.addressLine2.trim() || null,
+        city: draft.city.trim() || null,
+        region: draft.region.trim() || null,
+        postalCode: draft.postalCode.trim() || null,
+        country: draft.country.trim() || null,
+        isPrimary: draft.isPrimary,
+      })
+      setDraft({
+        name: '',
+        addressLine1: '',
+        addressLine2: '',
+        city: '',
+        region: '',
+        postalCode: '',
+        country: '',
+        isPrimary: false,
+      })
+      setOpen(false)
+    },
+    [draft, isSubmitting, onCreate, t]
+  )
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button onClick={() => setOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          {t('customers.people.detail.addresses.add')}
+        </Button>
+      </div>
+      <div className="space-y-4">
+        {addresses.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+        ) : (
+          addresses.map((address) => (
+            <div key={address.id} className="rounded-lg border p-4 space-y-1 text-sm">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                <span>{address.name || address.purpose || t('customers.people.detail.address')}</span>
+                {address.isPrimary ? (
+                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                    {t('customers.people.detail.primary')}
+                  </span>
+                ) : null}
+              </div>
+              <p>{address.addressLine1}</p>
+              {address.addressLine2 ? <p>{address.addressLine2}</p> : null}
+              <p>{[address.city, address.region, address.postalCode].filter(Boolean).join(', ')}</p>
+              {address.country ? <p>{address.country}</p> : null}
+            </div>
+          ))
+        )}
+      </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="bottom-4 top-auto w-[calc(100vw-2rem)] max-w-lg translate-y-0 sm:bottom-auto sm:top-1/2 sm:w-full sm:-translate-y-1/2">
+          <DialogHeader>
+            <DialogTitle>{t('customers.people.detail.addresses.addTitle')}</DialogTitle>
+          </DialogHeader>
+          <form className="space-y-3" onSubmit={handleSubmit}>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.label')}</label>
+              <input
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draft.name}
+                onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium required">{t('customers.people.detail.addresses.fields.line1')}</label>
+              <input
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draft.addressLine1}
+                onChange={(event) => setDraft((prev) => ({ ...prev, addressLine1: event.target.value }))}
+                required
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.city')}</label>
+                <input
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft.city}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, city: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.region')}</label>
+                <input
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft.region}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, region: event.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.postalCode')}</label>
+                <input
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft.postalCode}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, postalCode: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.country')}</label>
+                <input
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft.country}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, country: event.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.primary')}</label>
+              <div className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={draft.isPrimary}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, isPrimary: event.target.checked }))}
+                />
+                <span>{t('customers.people.detail.addresses.fields.primary')}</span>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSubmitting}>
+                {t('customers.people.detail.addresses.cancel')}
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t('customers.people.detail.addresses.saving')}
+                  </>
+                ) : (
+                  t('customers.people.detail.addresses.save')
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+type TasksTabProps = {
+  tasks: TodoLinkSummary[]
+  onCreate: (payload: { title: string; isDone: boolean }) => Promise<void>
+  isSubmitting: boolean
+  emptyLabel: string
+  t: Translator
+}
+
+function TasksTab({ tasks, onCreate, isSubmitting, emptyLabel, t }: TasksTabProps) {
+  const [open, setOpen] = React.useState(false)
+  const [draft, setDraft] = React.useState({ title: '', isDone: false })
+
+  const handleSubmit = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      if (!draft.title.trim() || isSubmitting) {
+        flash(t('customers.people.detail.tasks.titleRequired'), 'error')
+        return
+      }
+      await onCreate({ title: draft.title.trim(), isDone: draft.isDone })
+      setDraft({ title: '', isDone: false })
+      setOpen(false)
+    },
+    [draft, isSubmitting, onCreate, t]
+  )
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button onClick={() => setOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          {t('customers.people.detail.tasks.add')}
+        </Button>
+      </div>
+      <div className="space-y-4">
+        {tasks.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+        ) : (
+          tasks.map((task) => (
+            <div key={task.id} className="rounded-lg border p-4 space-y-1 text-sm">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{task.todoSource}</span>
+                <span>{formatDateTime(task.createdAt) ?? emptyLabel}</span>
+              </div>
+              <div className="text-sm text-muted-foreground">ID: {task.todoId}</div>
+            </div>
+          ))
+        )}
+      </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="bottom-4 top-auto w-[calc(100vw-2rem)] max-w-lg translate-y-0 sm:bottom-auto sm:top-1/2 sm:w-full sm:-translate-y-1/2">
+          <DialogHeader>
+            <DialogTitle>{t('customers.people.detail.tasks.addTitle')}</DialogTitle>
+          </DialogHeader>
+          <form className="space-y-3" onSubmit={handleSubmit}>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">{t('customers.people.detail.tasks.fields.title')}</label>
+              <input
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draft.title}
+                onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
+                required
+              />
+            </div>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={draft.isDone}
+                onChange={(event) => setDraft((prev) => ({ ...prev, isDone: event.target.checked }))}
+              />
+              {t('customers.people.detail.tasks.fields.done')}
+            </label>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSubmitting}>
+                {t('customers.people.detail.tasks.cancel')}
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t('customers.people.detail.tasks.saving')}
+                  </>
+                ) : (
+                  t('customers.people.detail.tasks.save')
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+type DealsTabProps = {
+  deals: DealSummary[]
+  emptyLabel: string
+  t: Translator
+}
+
+function DealsTab({ deals, emptyLabel, t }: DealsTabProps) {
+  return (
+    <div className="space-y-4">
+      {deals.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+      ) : (
+        deals.map((deal) => (
+          <div key={deal.id} className="rounded-lg border p-4 space-y-1 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-semibold">{deal.title}</h3>
+              <span className="text-xs uppercase text-muted-foreground">{deal.status || emptyLabel}</span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {deal.pipelineStage ? `${deal.pipelineStage} • ` : ''}
+              {deal.valueAmount && deal.valueCurrency ? `${deal.valueAmount} ${deal.valueCurrency}` : null}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) : emptyLabel}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
+type SectionLoaderProps = { isLoading: boolean }
+
+function SectionLoader({ isLoading }: SectionLoaderProps) {
+  if (!isLoading) return null
+  return (
+    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <Spinner className="h-4 w-4" />
+      <span>Loading…</span>
+    </div>
+  )
 }
 
 export default function CustomerPersonDetailPage({ params }: { params?: { id?: string } }) {
@@ -110,6 +936,26 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const [data, setData] = React.useState<PersonOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [activeTab, setActiveTab] = React.useState<'notes' | 'activities' | 'deals' | 'addresses' | 'tasks'>('notes')
+  const [sectionPending, setSectionPending] = React.useState<Record<SectionKey, boolean>>({
+    notes: false,
+    activities: false,
+    deals: false,
+    addresses: false,
+    tasks: false,
+  })
+
+  const validators = React.useMemo(() => ({
+    email: (value: string) => {
+      if (!value) return null
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      return emailRegex.test(value) ? null : t('customers.people.detail.inline.emailInvalid')
+    },
+    phone: (value: string) => {
+      if (!value) return null
+      return value.length >= 3 ? null : t('customers.people.detail.inline.phoneInvalid')
+    },
+  }), [t])
 
   React.useEffect(() => {
     if (!id) {
@@ -135,7 +981,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         if (cancelled) return
         const message = err instanceof Error ? err.message : t('customers.people.detail.error.load')
         setError(message)
-        flash(message, 'error')
+        setData(null)
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -143,6 +989,53 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     load()
     return () => { cancelled = true }
   }, [id, t])
+
+  const savePerson = React.useCallback(
+    async (patch: Record<string, unknown>, apply: (prev: PersonOverview) => PersonOverview) => {
+      if (!data) return
+      const res = await apiFetch('/api/customers/people', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: data.person.id, ...patch }),
+      })
+      if (!res.ok) {
+        let message = t('customers.people.detail.inline.error')
+        try {
+          const details = await res.clone().json()
+          if (details && typeof details.error === 'string') message = details.error
+        } catch {}
+        throw new Error(message)
+      }
+      setData((prev) => (prev ? apply(prev) : prev))
+    },
+    [data, t]
+  )
+
+  const statusLabels = React.useMemo(() => ({
+    placeholder: t('customers.people.form.status.placeholder'),
+    addLabel: t('customers.people.form.dictionary.addStatus'),
+    addPrompt: t('customers.people.form.dictionary.promptStatus'),
+    dialogTitle: t('customers.people.form.dictionary.dialogTitleStatus'),
+    inputLabel: t('customers.people.form.dictionary.valueLabel'),
+    inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+    emptyError: t('customers.people.form.dictionary.errorRequired'),
+    cancelLabel: t('customers.people.form.dictionary.cancel'),
+    saveLabel: t('customers.people.form.dictionary.save'),
+    errorLoad: t('customers.people.form.dictionary.errorLoad'),
+    errorSave: t('customers.people.form.dictionary.error'),
+    loadingLabel: t('customers.people.form.dictionary.loading'),
+  }), [t])
+
+  const tabs = React.useMemo(
+    () => [
+      { id: 'notes' as const, label: t('customers.people.detail.tabs.notes') },
+      { id: 'activities' as const, label: t('customers.people.detail.tabs.activities') },
+      { id: 'deals' as const, label: t('customers.people.detail.tabs.deals') },
+      { id: 'addresses' as const, label: t('customers.people.detail.tabs.addresses') },
+      { id: 'tasks' as const, label: t('customers.people.detail.tabs.tasks') },
+    ],
+    [t]
+  )
 
   if (isLoading) {
     return (
@@ -174,261 +1067,363 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
 
   const { person, profile } = data
 
-  const highlights: Array<{ label: string; value: React.ReactNode }> = [
-    {
-      label: t('customers.people.detail.highlights.primaryEmail'),
-      value: person.primaryEmail || <span className="text-muted-foreground">{t('customers.people.detail.noValue')}</span>,
-    },
-    {
-      label: t('customers.people.detail.highlights.primaryPhone'),
-      value: person.primaryPhone || <span className="text-muted-foreground">{t('customers.people.detail.noValue')}</span>,
-    },
-    {
-      label: t('customers.people.detail.highlights.status'),
-      value: person.status || <span className="text-muted-foreground">{t('customers.people.detail.noValue')}</span>,
-    },
-    {
-      label: t('customers.people.detail.highlights.nextInteraction'),
-      value: person.nextInteractionAt
-        ? (
-          <span className="flex flex-col">
-            <span>{formatDateTime(person.nextInteractionAt)}</span>
-            {person.nextInteractionName && <span className="text-xs text-muted-foreground">{person.nextInteractionName}</span>}
-          </span>
-        )
-        : <span className="text-muted-foreground">{t('customers.people.detail.noValue')}</span>,
-    },
-  ]
-
   const detailFields: Array<{ label: string; value: React.ReactNode }> = [
-    { label: t('customers.people.detail.fields.displayName'), value: person.displayName },
-    { label: t('customers.people.detail.fields.description'), value: person.description || <span className="text-muted-foreground">{t('customers.people.detail.noValue')}</span> },
-    { label: t('customers.people.detail.fields.lifecycleStage'), value: person.lifecycleStage || <span className="text-muted-foreground">{t('customers.people.detail.noValue')}</span> },
-    { label: t('customers.people.detail.fields.source'), value: person.source || <span className="text-muted-foreground">{t('customers.people.detail.noValue')}</span> },
-    { label: t('customers.people.detail.fields.jobTitle'), value: profile?.jobTitle || <span className="text-muted-foreground">{t('customers.people.detail.noValue')}</span> },
-    { label: t('customers.people.detail.fields.department'), value: profile?.department || <span className="text-muted-foreground">{t('customers.people.detail.noValue')}</span> },
-    { label: t('customers.people.detail.fields.linkedIn'), value: profile?.linkedInUrl ? <Link href={profile.linkedInUrl} target="_blank" className="underline">{profile.linkedInUrl}</Link> : <span className="text-muted-foreground">{t('customers.people.detail.noValue')}</span> },
-    { label: t('customers.people.detail.fields.twitter'), value: profile?.twitterUrl ? <Link href={profile.twitterUrl} target="_blank" className="underline">{profile.twitterUrl}</Link> : <span className="text-muted-foreground">{t('customers.people.detail.noValue')}</span> },
+    { label: t('customers.people.detail.fields.displayName'), value: person.displayName || t('customers.people.detail.noValue') },
+    { label: t('customers.people.form.firstName'), value: profile?.firstName || t('customers.people.detail.noValue') },
+    { label: t('customers.people.form.lastName'), value: profile?.lastName || t('customers.people.detail.noValue') },
+    { label: t('customers.people.form.jobTitle'), value: profile?.jobTitle || t('customers.people.detail.noValue') },
+    { label: t('customers.people.detail.fields.lifecycleStage'), value: person.lifecycleStage || t('customers.people.detail.noValue') },
+    { label: t('customers.people.form.source'), value: person.source || t('customers.people.detail.noValue') },
+    { label: t('customers.people.form.description'), value: person.description || t('customers.people.detail.noValue') },
+    { label: t('customers.people.detail.fields.department'), value: profile?.department || t('customers.people.detail.noValue') },
+    { label: t('customers.people.detail.fields.linkedIn'), value: profile?.linkedInUrl || t('customers.people.detail.noValue') },
+    { label: t('customers.people.detail.fields.twitter'), value: profile?.twitterUrl || t('customers.people.detail.noValue') },
   ]
 
-  const customFieldEntries = Object.entries(data.customFields || {})
+  const customFieldEntries = Object.entries(data.customFields ?? {})
+
+  const handleCreateNote = React.useCallback(
+    async (body: string) => {
+      setSectionPending((prev) => ({ ...prev, notes: true }))
+      try {
+        const res = await apiFetch('/api/customers/comments', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityId: person.id, body }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.notes.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        const payload = await res.json().catch(() => ({}))
+        const newNote: CommentSummary = {
+          id: typeof payload?.id === 'string' ? payload.id : randomId(),
+          body,
+          createdAt: new Date().toISOString(),
+          authorUserId: null,
+          dealId: null,
+        }
+        setData((prev) => (prev ? { ...prev, comments: [newNote, ...prev.comments] } : prev))
+        flash(t('customers.people.detail.notes.success'), 'success')
+      } finally {
+        setSectionPending((prev) => ({ ...prev, notes: false }))
+      }
+    },
+    [person.id, t]
+  )
+
+  const handleCreateActivity = React.useCallback(
+    async (payload: { activityType: string; subject?: string; body?: string; occurredAt?: string }) => {
+      setSectionPending((prev) => ({ ...prev, activities: true }))
+      try {
+        const res = await apiFetch('/api/customers/activities', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityId: person.id, ...payload }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.activities.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        const body = await res.json().catch(() => ({}))
+        const newActivity: ActivitySummary = {
+          id: typeof body?.id === 'string' ? body.id : randomId(),
+          activityType: payload.activityType,
+          subject: payload.subject ?? null,
+          body: payload.body ?? null,
+          occurredAt: payload.occurredAt ?? null,
+          createdAt: new Date().toISOString(),
+        }
+        setData((prev) => (prev ? { ...prev, activities: [newActivity, ...prev.activities] } : prev))
+        flash(t('customers.people.detail.activities.success'), 'success')
+      } finally {
+        setSectionPending((prev) => ({ ...prev, activities: false }))
+      }
+    },
+    [person.id, t]
+  )
+
+  const handleCreateAddress = React.useCallback(
+    async (payload: Omit<AddressSummary, 'id'>) => {
+      setSectionPending((prev) => ({ ...prev, addresses: true }))
+      try {
+        const res = await apiFetch('/api/customers/addresses', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityId: person.id, ...payload }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.addresses.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        const body = await res.json().catch(() => ({}))
+        const newAddress: AddressSummary = {
+          id: typeof body?.id === 'string' ? body.id : randomId(),
+          ...payload,
+        }
+        setData((prev) => (prev ? { ...prev, addresses: [newAddress, ...prev.addresses] } : prev))
+        flash(t('customers.people.detail.addresses.success'), 'success')
+      } finally {
+        setSectionPending((prev) => ({ ...prev, addresses: false }))
+      }
+    },
+    [person.id, t]
+  )
+
+  const handleCreateTask = React.useCallback(
+    async (payload: { title: string; isDone: boolean }) => {
+      setSectionPending((prev) => ({ ...prev, tasks: true }))
+      try {
+        const res = await apiFetch('/api/customers/todos', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityId: person.id, ...payload }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.tasks.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        const body = await res.json().catch(() => ({}))
+        const newTask: TodoLinkSummary = {
+          id: typeof body?.linkId === 'string' ? body.linkId : randomId(),
+          todoId: typeof body?.todoId === 'string' ? body.todoId : randomId(),
+          todoSource: 'example:todo',
+          createdAt: new Date().toISOString(),
+          createdByUserId: null,
+        }
+        setData((prev) => (prev ? { ...prev, todos: [newTask, ...prev.todos] } : prev))
+        flash(t('customers.people.detail.tasks.success'), 'success')
+      } finally {
+        setSectionPending((prev) => ({ ...prev, tasks: false }))
+      }
+    },
+    [person.id, t]
+  )
 
   return (
     <Page>
-      <PageBody className="space-y-6">
-        <header className="flex flex-col gap-3 rounded-lg border bg-card px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div className="space-y-1">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">{t('customers.people.detail.person')}</p>
-            <h1 className="text-2xl font-semibold leading-tight">{person.displayName}</h1>
-            {profile && (
-              <p className="text-sm text-muted-foreground">
-                {[profile.firstName, profile.lastName].filter(Boolean).join(' ') || profile.preferredName || ''}
-              </p>
+      <PageBody className="space-y-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">
+              {t('customers.people.detail.person')}
+            </div>
+            <h1 className="mt-1 text-2xl font-semibold">{person.displayName}</h1>
+            <div className="mt-2 text-sm text-muted-foreground">
+              <Link href="/backend/customers/people" className="hover:underline">
+                {t('customers.people.detail.actions.backToList')}
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <InlineTextEditor
+            label={t('customers.people.detail.highlights.primaryEmail')}
+            value={person.primaryEmail || ''}
+            placeholder={t('customers.people.form.primaryEmail')}
+            emptyLabel={t('customers.people.detail.noValue')}
+            type="email"
+            validator={validators.email}
+            onSave={async (next) => {
+              const send = typeof next === 'string' ? next : ''
+              await savePerson(
+                { primaryEmail: send },
+                (prev) => ({
+                  ...prev,
+                  person: { ...prev.person, primaryEmail: next && next.length ? next.toLowerCase() : null },
+                })
+              )
+            }}
+          />
+          <InlineTextEditor
+            label={t('customers.people.detail.highlights.primaryPhone')}
+            value={person.primaryPhone || ''}
+            placeholder={t('customers.people.form.primaryPhone')}
+            emptyLabel={t('customers.people.detail.noValue')}
+            type="tel"
+            validator={validators.phone}
+            onSave={async (next) => {
+              const send = typeof next === 'string' ? next : ''
+              await savePerson(
+                { primaryPhone: send },
+                (prev) => ({
+                  ...prev,
+                  person: { ...prev.person, primaryPhone: next && next.length ? next : null },
+                })
+              )
+            }}
+          />
+          <InlineStatusEditor
+            label={t('customers.people.detail.highlights.status')}
+            value={person.status || ''}
+            emptyLabel={t('customers.people.detail.noValue')}
+            labels={statusLabels}
+            onSave={async (next) => {
+              const send = typeof next === 'string' ? next : ''
+              await savePerson(
+                { status: send },
+                (prev) => ({
+                  ...prev,
+                  person: { ...prev.person, status: next && next.length ? next : null },
+                })
+              )
+            }}
+          />
+          <InlineNextInteractionEditor
+            label={t('customers.people.detail.highlights.nextInteraction')}
+            valueAt={person.nextInteractionAt || null}
+            valueName={person.nextInteractionName || null}
+            valueRefId={person.nextInteractionRefId || null}
+            emptyLabel={t('customers.people.detail.noValue')}
+            onSave={async (next) => {
+              await savePerson(
+                { nextInteraction: next },
+                (prev) => ({
+                  ...prev,
+                  person: {
+                    ...prev.person,
+                    nextInteractionAt: next ? next.at : null,
+                    nextInteractionName: next ? next.name || null : null,
+                    nextInteractionRefId: next ? next.refId || null : null,
+                  },
+                })
+              )
+            }}
+          />
+        </div>
+
+        <div>
+          <div className="flex flex-wrap items-center gap-2 border-b">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  'rounded-t-md px-3 py-2 text-sm font-medium transition',
+                  activeTab === tab.id
+                    ? 'bg-background text-foreground shadow-inner'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="rounded-b-md border border-t-0 p-6">
+            <SectionLoader isLoading={sectionPending[activeTab as SectionKey]} />
+            {activeTab === 'notes' && (
+              <NotesTab
+                notes={data.comments}
+                onCreate={handleCreateNote}
+                isSubmitting={sectionPending.notes}
+                emptyLabel={t('customers.people.detail.empty.comments')}
+                t={t}
+              />
+            )}
+            {activeTab === 'activities' && (
+              <ActivitiesTab
+                activities={data.activities}
+                onCreate={handleCreateActivity}
+                isSubmitting={sectionPending.activities}
+                emptyLabel={t('customers.people.detail.empty.activities')}
+                t={t}
+              />
+            )}
+            {activeTab === 'deals' && (
+              <DealsTab deals={data.deals} emptyLabel={t('customers.people.detail.empty.deals')} t={t} />
+            )}
+            {activeTab === 'addresses' && (
+              <AddressesTab
+                addresses={data.addresses}
+                onCreate={handleCreateAddress}
+                isSubmitting={sectionPending.addresses}
+                emptyLabel={t('customers.people.detail.empty.addresses')}
+                t={t}
+              />
+            )}
+            {activeTab === 'tasks' && (
+              <TasksTab
+                tasks={data.todos}
+                onCreate={handleCreateTask}
+                isSubmitting={sectionPending.tasks}
+                emptyLabel={t('customers.people.detail.empty.todos')}
+                t={t}
+              />
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" asChild>
-              <Link href="/backend/customers/people">{t('customers.people.detail.actions.backToList')}</Link>
-            </Button>
-            <Button variant="default" disabled>
-              {t('customers.people.detail.actions.edit')}
-            </Button>
-          </div>
-        </header>
+        </div>
 
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {highlights.map((highlight) => (
-            <div key={highlight.label} className="rounded-lg border bg-card p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">{highlight.label}</p>
-              <div className="mt-2 text-sm font-medium">{highlight.value}</div>
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.details')}</h2>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {detailFields.map((field) => (
+                <div key={field.label} className="rounded border bg-muted/20 p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{field.label}</p>
+                  <div className="mt-1 text-sm break-words">{field.value}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </section>
+          </div>
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr),340px]">
-          <main className="space-y-6">
-            <section className="rounded-lg border bg-card p-4">
-              <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.activities')}</h2>
-              <Separator className="my-3" />
-              {data.activities.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('customers.people.detail.empty.activities')}</p>
-              ) : (
-                <ul className="space-y-4">
-                  {data.activities.map((activity) => (
-                    <li key={activity.id} className="rounded border px-3 py-2">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span className="font-medium uppercase tracking-wide">{activity.activityType}</span>
-                        <span>{formatDateTime(activity.occurredAt) || formatDateTime(activity.createdAt) || t('customers.people.detail.noValue')}</span>
-                      </div>
-                      {activity.subject && <p className="mt-1 text-sm font-medium">{activity.subject}</p>}
-                      {activity.body && <p className="mt-1 text-sm whitespace-pre-wrap text-muted-foreground">{activity.body}</p>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <section className="rounded-lg border bg-card p-4">
-              <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.comments')}</h2>
-              <Separator className="my-3" />
-              {data.comments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('customers.people.detail.empty.comments')}</p>
-              ) : (
-                <ul className="space-y-4">
-                  {data.comments.map((comment) => (
-                    <li key={comment.id} className="rounded border px-3 py-2">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{comment.authorUserId || t('customers.people.detail.anonymous')}</span>
-                        <span>{formatDateTime(comment.createdAt) || t('customers.people.detail.noValue')}</span>
-                      </div>
-                      <p className="mt-1 whitespace-pre-wrap text-sm">{comment.body}</p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <section className="rounded-lg border bg-card p-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.deals')}</h2>
-                <Button variant="outline" size="sm" disabled>{t('customers.people.detail.actions.addDeal')}</Button>
-              </div>
-              <Separator className="my-3" />
-              {data.deals.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('customers.people.detail.empty.deals')}</p>
-              ) : (
-                <ul className="space-y-3">
-                  {data.deals.map((deal) => (
-                    <li key={deal.id} className="rounded border px-3 py-2">
-                      <div className="flex items-center justify-between text-sm font-semibold">
-                        <span>{deal.title}</span>
-                        {deal.status && <span className="text-xs text-muted-foreground uppercase tracking-wide">{deal.status}</span>}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {deal.pipelineStage && <span>{deal.pipelineStage}</span>}
-                        {deal.valueAmount && deal.valueCurrency && (
-                          <span className="ml-2">
-                            {new Intl.NumberFormat(undefined, { style: 'currency', currency: deal.valueCurrency }).format(Number(deal.valueAmount))}
-                          </span>
-                        )}
-                        {deal.expectedCloseAt && (
-                          <span className="ml-2">
-                            {formatDateTime(deal.expectedCloseAt)}
-                          </span>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </main>
-
-          <aside className="space-y-6">
-            <section className="rounded-lg border bg-card p-4">
-              <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.details')}</h2>
-              <Separator className="my-3" />
-              <dl className="space-y-3 text-sm">
-                {detailFields.map((field) => (
-                  <div key={field.label}>
-                    <dt className="text-xs uppercase tracking-wide text-muted-foreground">{field.label}</dt>
-                    <dd className="mt-1">{field.value}</dd>
+          {customFieldEntries.length ? (
+            <div className="space-y-3">
+              <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.customFields')}</h2>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {customFieldEntries.map(([key, value]) => (
+                  <div key={key} className="rounded border bg-muted/20 p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{key.replace(/^cf_/, '')}</p>
+                    <div className="mt-1 text-sm break-words">{String(value ?? t('customers.people.detail.noValue'))}</div>
                   </div>
                 ))}
-                {customFieldEntries.length > 0 && (
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-muted-foreground">{t('customers.people.detail.sections.customFields')}</dt>
-                    <dd className="mt-1 space-y-2">
-                      {customFieldEntries.map(([key, value]) => (
-                        <div key={key} className="flex items-center justify-between gap-2 rounded border px-2 py-1 text-xs">
-                          <span className="font-medium">{key}</span>
-                          <span>{String(value ?? '')}</span>
-                        </div>
-                      ))}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            </section>
-
-            <section className="rounded-lg border bg-card p-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.tags')}</h2>
-                <Button variant="outline" size="sm" disabled>{t('customers.people.detail.actions.manageTags')}</Button>
               </div>
-              <Separator className="my-3" />
-              {data.tags.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('customers.people.detail.empty.tags')}</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {data.tags.map((tag) => (
-                    <span
-                      key={tag.id}
-                      className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium"
-                      style={tag.color ? { borderColor: tag.color, color: tag.color } : undefined}
-                    >
-                      {tag.label}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </section>
+            </div>
+          ) : null}
 
-            <section className="rounded-lg border bg-card p-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.addresses')}</h2>
-                <Button variant="outline" size="sm" disabled>{t('customers.people.detail.actions.manageAddresses')}</Button>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.tags')}</h2>
+              <Button variant="outline" size="sm" disabled>
+                {t('customers.people.detail.actions.manageTags')}
+              </Button>
+            </div>
+            {data.tags.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('customers.people.detail.empty.tags')}</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {data.tags.map((tag) => (
+                  <span
+                    key={tag.id}
+                    className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium"
+                    style={tag.color ? { borderColor: tag.color, color: tag.color } : undefined}
+                  >
+                    {tag.label}
+                  </span>
+                ))}
               </div>
-              <Separator className="my-3" />
-              {data.addresses.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('customers.people.detail.empty.addresses')}</p>
-              ) : (
-                <ul className="space-y-3 text-sm">
-                  {data.addresses.map((address) => (
-                    <li key={address.id} className="rounded border px-3 py-2">
-                      <div className="flex items-center justify-between text-xs uppercase tracking-wide text-muted-foreground">
-                        <span>{address.name || address.purpose || t('customers.people.detail.address')}</span>
-                        {address.isPrimary && <span className="text-emerald-600">{t('customers.people.detail.primary')}</span>}
-                      </div>
-                      <div className="mt-1">
-                        <p>{address.addressLine1}</p>
-                        {address.addressLine2 && <p>{address.addressLine2}</p>}
-                        <p>
-                          {[address.postalCode, address.city].filter(Boolean).join(' ')}
-                          {address.region ? `, ${address.region}` : ''}
-                        </p>
-                        {address.country && <p>{address.country}</p>}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <section className="rounded-lg border bg-card p-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.todos')}</h2>
-                <Button variant="outline" size="sm" disabled>{t('customers.people.detail.actions.linkTodo')}</Button>
-              </div>
-              <Separator className="my-3" />
-              {data.todos.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t('customers.people.detail.empty.todos')}</p>
-              ) : (
-                <ul className="space-y-2 text-sm">
-                  {data.todos.map((todo) => (
-                    <li key={todo.id} className="flex flex-col rounded border px-3 py-2">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{todo.todoSource}</span>
-                        <span>{formatDateTime(todo.createdAt) || t('customers.people.detail.noValue')}</span>
-                      </div>
-                      <span className="font-medium">{todo.todoId}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </aside>
+            )}
+          </div>
         </div>
+
+        <Separator className="my-4" />
       </PageBody>
     </Page>
   )

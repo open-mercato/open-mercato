@@ -236,6 +236,7 @@ const setupApp: ModuleCli = {
         'entities.*',
         'attachments.*',
         'query_index.*',
+        'audit_logs.undo_self',
         'directory.organizations.*',
         'customers.*',
         'example.*',
@@ -257,6 +258,7 @@ const setupApp: ModuleCli = {
         'customers.widgets.*',
         'dashboards.view',
         'dashboards.configure',
+        'audit_logs.undo_self',
         'example.widgets.*',
       ],
     }))

@@ -88,11 +88,6 @@ function normalizeEmail(value: string | null | undefined): string | null {
   return normalized ? normalized.toLowerCase() : null
 }
 
-function buildPersonDisplayName(first: string | null, last: string | null): string {
-  const parts = [first, last].map((part) => (part ? part.trim() : '')).filter(Boolean)
-  return parts.join(' ')
-}
-
 function serializePersonSnapshot(
   entity: CustomerEntity,
   profile: CustomerPersonProfile,
@@ -214,12 +209,16 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const timezone = normalizeOptionalString(parsed.timezone)
     const linkedInUrl = normalizeOptionalString(parsed.linkedInUrl)
     const twitterUrl = normalizeOptionalString(parsed.twitterUrl)
+    const displayName = parsed.displayName.trim()
+    if (!displayName) {
+      throw new CrudHttpError(400, { error: 'Display name is required' })
+    }
 
     const entity = em.create(CustomerEntity, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       kind: 'person',
-      displayName: buildPersonDisplayName(firstName, lastName),
+      displayName,
       description,
       ownerUserId: parsed.ownerUserId ?? null,
       primaryEmail,
@@ -401,7 +400,13 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       profile.company = await resolveCompanyReference(em, parsed.companyEntityId, record.organizationId, record.tenantId)
     }
 
-    record.displayName = buildPersonDisplayName(profile.firstName ?? null, profile.lastName ?? null)
+    if (parsed.displayName !== undefined) {
+      const nextDisplayName = parsed.displayName.trim()
+      if (!nextDisplayName) {
+        throw new CrudHttpError(400, { error: 'Display name is required' })
+      }
+      record.displayName = nextDisplayName
+    }
 
     await syncEntityTags(em, record, parsed.tags)
     await em.flush()

@@ -18,7 +18,7 @@ const nextInteractionSchema = z
 const displayNameSchema = z.string().trim().min(1).max(200)
 
 const baseEntitySchema = {
-  displayName: displayNameSchema.optional(),
+  displayName: displayNameSchema,
   description: z.string().trim().max(4000).optional(),
   ownerUserId: uuid().optional(),
   primaryEmail: z

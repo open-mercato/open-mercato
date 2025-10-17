@@ -19,6 +19,7 @@ export const metadata = {
   pageTitleKey: 'customers.nav.companies',
   pageGroup: 'Customers',
   pageGroupKey: 'customers.nav.group',
+  pagePriority: 10,
   pageOrder: 110,
   icon: companyIcon,
   breadcrumb: [{ label: 'Companies', labelKey: 'customers.nav.companies' }],

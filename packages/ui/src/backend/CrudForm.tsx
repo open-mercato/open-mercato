@@ -10,6 +10,7 @@ import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
 import { Trash2, Save } from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -140,6 +141,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
   const router = useRouter()
+  const t = useT()
   const formId = React.useId()
   const [values, setValues] = React.useState<Record<string, any>>({ ...(initialValues || {}) })
   const [errors, setErrors] = React.useState<Record<string, string>>({})
@@ -209,13 +211,141 @@ export function CrudForm<TValues extends Record<string, any>>({
     return [...fields, ...extras]
   }, [fields, cfFields])
 
-  const firstFieldId = React.useMemo(() => (allFields.length ? allFields[0]?.id ?? null : null), [allFields])
+  const fieldById = React.useMemo(() => {
+    return new Map(allFields.map((f) => [f.id, f]))
+  }, [allFields])
+
+  const resolveGroupFields = React.useCallback((g: CrudFormGroup): CrudField[] => {
+    if (g.kind === 'customFields') {
+      return cfFields
+    }
+
+    const src = g.fields || []
+    const result: CrudField[] = []
+
+    for (const item of src) {
+      if (typeof item === 'string') {
+        const found = fieldById.get(item)
+        if (found) result.push(found)
+      } else if (item) {
+        result.push(item as CrudField)
+      }
+    }
+
+    return result
+  }, [cfFields, fieldById])
+
+  const customFieldsManageHref = React.useMemo(() => {
+    if (!entityId) return null
+    try {
+      const encoded = encodeURIComponent(entityId)
+      return customEntity ? `/backend/entities/user/${encoded}` : `/backend/entities/system/${encoded}`
+    } catch {
+      return null
+    }
+  }, [customEntity, entityId])
+
+  const customFieldsEmptyState = React.useMemo(() => {
+    const text = t('entities.customFields.empty')
+    const action = t('entities.customFields.addFirst')
+    return (
+      <div className="rounded-md border border-dashed border-muted-foreground/50 bg-muted/10 px-3 py-4 text-sm text-muted-foreground">
+        <span>{text} </span>
+        {customFieldsManageHref ? (
+          <Link href={customFieldsManageHref} className="font-medium text-primary hover:underline">
+            {action}
+          </Link>
+        ) : (
+          <span className="font-medium text-foreground">{action}</span>
+        )}
+      </div>
+    )
+  }, [customFieldsManageHref, t])
+
+  const firstFieldId = React.useMemo(() => {
+    if (groups && groups.length) {
+      const col1: CrudFormGroup[] = []
+      const col2: CrudFormGroup[] = []
+
+      for (const g of groups) {
+        if ((g.column ?? 1) === 2) col2.push(g)
+        else col1.push(g)
+      }
+
+      const scan = (list: CrudFormGroup[]) => {
+        for (const group of list) {
+          const resolved = resolveGroupFields(group)
+          for (const field of resolved) {
+            if (field?.id) return field.id
+          }
+        }
+        return null as string | null
+      }
+
+      const fromCol1 = scan(col1)
+      if (fromCol1) return fromCol1
+      const fromCol2 = scan(col2)
+      if (fromCol2) return fromCol2
+    }
+
+    return allFields.length ? allFields[0]?.id ?? null : null
+  }, [allFields, groups, resolveGroupFields])
 
   const requestSubmit = React.useCallback(() => {
     if (typeof document === 'undefined') return
     const form = document.getElementById(formId) as HTMLFormElement | null
     form?.requestSubmit()
   }, [formId])
+
+  const lastFocusedFieldRef = React.useRef<string | null>(null)
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return
+
+    if (isLoading || isLoadingCustomFields) {
+      lastFocusedFieldRef.current = null
+      return
+    }
+
+    if (!firstFieldId) return
+    if (lastFocusedFieldRef.current === firstFieldId) return
+
+    const selectors = '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+    const run = () => {
+      const form = document.getElementById(formId)
+      if (!form) return
+
+      const container = form.querySelector<HTMLElement>(`[data-crud-field-id="${firstFieldId}"]`)
+      const target =
+        container?.querySelector<HTMLElement>(selectors) ??
+        form.querySelector<HTMLElement>(selectors)
+
+      if (target && typeof target.focus === 'function') {
+        target.focus()
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+          try {
+            target.select()
+          } catch {}
+        }
+        lastFocusedFieldRef.current = firstFieldId
+      }
+    }
+
+    const frame =
+      typeof window.requestAnimationFrame === 'function'
+        ? window.requestAnimationFrame(run)
+        : window.setTimeout(run, 0)
+
+    return () => {
+      if (typeof window === 'undefined') return
+      if (typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(frame as number)
+      } else {
+        window.clearTimeout(frame as number)
+      }
+    }
+  }, [firstFieldId, formId, isLoading, isLoadingCustomFields])
 
   // Separate basic fields from custom fields for progressive loading
   const basicFields = React.useMemo(() => fields, [fields])
@@ -677,7 +807,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
 
     return (
-      <div className={rootClassName}>
+      <div className={rootClassName} data-crud-field-id={f.id}>
         {f.type !== 'checkbox' ? (
           <label className="block text-sm font-medium">
             {f.label}
@@ -697,10 +827,11 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             value={value ?? ''}
             onChange={(e) => setValue(f.id, e.target.value || undefined)}
             autoFocus={autoFocus}
+            data-crud-focus-target=""
           />
         )}
         {f.type === 'textarea' && (
-          <TextAreaInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={fieldSetValue} />
+          <TextAreaInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={fieldSetValue} autoFocus={autoFocus} />
         )}
         {f.type === 'richtext' && ((f as any).editor === 'simple') && (
           <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
@@ -716,6 +847,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             value={Array.isArray(value) ? (value as string[]) : []}
             onChange={fieldSetValue}
             placeholder={(f as any).placeholder}
+            autoFocus={autoFocus}
             suggestions={options.map((o) => o.label)}
             loadSuggestions={typeof (f as any).loadOptions === 'function'
               ? async (query?: string) => {
@@ -727,7 +859,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         )}
         {f.type === 'checkbox' && (
           <label className="inline-flex items-center gap-2">
-            <input type="checkbox" className="size-4" checked={!!value} onChange={(e) => setValue(f.id, e.target.checked)} />
+            <input type="checkbox" className="size-4" checked={!!value} onChange={(e) => setValue(f.id, e.target.checked)} data-crud-focus-target="" />
             <span className="text-sm">{f.label}</span>
           </label>
         )}
@@ -736,6 +868,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             className="w-full h-9 rounded border px-2 text-sm"
             value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')}
             onChange={(e) => setValue(f.id, e.target.value || undefined)}
+            data-crud-focus-target=""
           >
             <option value="">—</option>
             {options.map((opt) => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
@@ -747,6 +880,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             placeholder={(f as any).placeholder}
             value={Array.isArray(value) ? (value as string[]) : []}
             onChange={(vals) => setValue(f.id, vals)}
+            autoFocus={autoFocus}
           />
         )}
         {f.type === 'select' && ((f as any).multiple) && !((f as any).listbox === true) && (
@@ -774,10 +908,10 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </div>
         )}
         {f.type === 'relation' && (
-          <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={fieldSetValue} />
+          <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={fieldSetValue} autoFocus={autoFocus} />
         )}
         {f.type === 'custom' && (
-          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue, entityId, recordId: (values as any)?.id })}</>
+          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue, entityId, recordId: (values as any)?.id, autoFocus })}</>
         )}
         {(f as any).description ? (
           <div className="text-xs text-muted-foreground">{(f as any).description}</div>
@@ -835,7 +969,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
   // Stable listbox multi-select to avoid inline hooks causing re-renders
   const ListboxMultiSelect = React.useMemo(() => {
-    return function ListboxMultiSelectImpl({ options, placeholder, value, onChange }: { options: CrudFieldOption[]; placeholder?: string; value: string[]; onChange: (vals: string[]) => void }) {
+    return function ListboxMultiSelectImpl({ options, placeholder, value, onChange, autoFocus }: { options: CrudFieldOption[]; placeholder?: string; value: string[]; onChange: (vals: string[]) => void; autoFocus?: boolean }) {
       const [query, setQuery] = React.useState('')
       const filtered = React.useMemo(() => {
         const q = query.toLowerCase().trim()
@@ -855,6 +989,8 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             placeholder={placeholder || 'Search...'}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            autoFocus={autoFocus}
+            data-crud-focus-target=""
           />
           <div className="rounded border max-h-48 overflow-auto divide-y">
             {filtered.map((opt) => {
@@ -884,25 +1020,6 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
   // If groups are provided, render the two-column grouped layout
   if (groups && groups.length) {
-    // Build a field index for lookup by id
-    const byId = new Map(allFields.map((f) => [f.id, f]))
-
-    const resolveGroupFields = (g: CrudFormGroup): CrudField[] => {
-      if (g.kind === 'customFields') {
-        return cfFields
-      }
-      const src = g.fields || []
-      const result: CrudField[] = []
-      for (const item of src) {
-        if (typeof item === 'string') {
-          const found = byId.get(item)
-          if (found) result.push(found)
-        } else {
-          result.push(item)
-        }
-      }
-      return result
-    }
 
     const col1: CrudFormGroup[] = []
     const col2: CrudFormGroup[] = []
@@ -968,7 +1085,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                         spinnerSize="md"
                         className="min-h-[1px]"
                       >
-                        {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
+                        {groupFields.length > 0
+                          ? renderFields(groupFields)
+                          : (isCustomFieldsGroup ? customFieldsEmptyState : <div className="min-h-[1px]" />)}
                       </DataLoader>
                     </div>
                   )
@@ -993,7 +1112,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                         spinnerSize="md"
                         className="min-h-[1px]"
                       >
-                        {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
+                        {groupFields.length > 0
+                          ? renderFields(groupFields)
+                          : (isCustomFieldsGroup ? customFieldsEmptyState : <div className="min-h-[1px]" />)}
                       </DataLoader>
                     </div>
                   )
@@ -1120,12 +1241,14 @@ function TagsInput({
   placeholder,
   suggestions,
   loadSuggestions,
+  autoFocus,
 }: {
   value: string[]
   onChange: (v: string[]) => void
   placeholder?: string
   suggestions?: string[]
   loadSuggestions?: (q?: string) => Promise<string[]>
+  autoFocus?: boolean
 }) {
   const [input, setInput] = React.useState('')
   const [asyncSugg, setAsyncSugg] = React.useState<string[] | null>(null)
@@ -1184,6 +1307,8 @@ function TagsInput({
           className="flex-1 min-w-[120px] border-0 outline-none py-1 text-sm"
           value={input}
           placeholder={placeholder || 'Add tag and press Enter'}
+          autoFocus={autoFocus}
+          data-crud-focus-target=""
           onFocus={() => setTouched(true)}
           onChange={(e) => { setTouched(true); setInput(e.target.value) }}
           onKeyDown={(e) => {
@@ -1222,11 +1347,13 @@ function RelationSelect({
   onChange,
   options,
   placeholder,
+  autoFocus,
 }: {
   value: string
   onChange: (v: string) => void
   options: CrudFieldOption[]
   placeholder?: string
+  autoFocus?: boolean
 }) {
   const [query, setQuery] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement | null>(null)
@@ -1245,6 +1372,8 @@ function RelationSelect({
         placeholder={placeholder || 'Search...'}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        autoFocus={autoFocus}
+        data-crud-focus-target=""
       />
       <div className="max-h-40 overflow-auto rounded border">
         <button
@@ -1274,16 +1403,18 @@ function RelationSelect({
 function TextInput({ value, onChange, placeholder, autoFocus, onSubmit }: { value: any; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void }) {
   const [local, setLocal] = React.useState<string>(value ?? '')
   const isFocusedRef = React.useRef(false)
+  const userTypingRef = React.useRef(false)
   
   React.useEffect(() => {
-    // Only sync from props when not focused to avoid caret jumps
-    if (!isFocusedRef.current) {
+    // Sync from props whenever the input is unfocused or the user hasn't typed yet.
+    if (!isFocusedRef.current || !userTypingRef.current) {
       setLocal(value ?? '')
     }
   }, [value])
   
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const next = e.target.value
+    userTypingRef.current = true
     setLocal(next)
     onChange(next)
   }, [onChange])
@@ -1302,6 +1433,7 @@ function TextInput({ value, onChange, placeholder, autoFocus, onSubmit }: { valu
   
   const handleBlur = React.useCallback(() => {
     isFocusedRef.current = false
+    userTypingRef.current = false
     onChange(local)
   }, [local, onChange])
   
@@ -1317,6 +1449,7 @@ function TextInput({ value, onChange, placeholder, autoFocus, onSubmit }: { valu
       onBlur={handleBlur}
       spellCheck={false}
       autoFocus={autoFocus}
+      data-crud-focus-target=""
     />
   )
 }
@@ -1370,12 +1503,13 @@ function NumberInput({ value, onChange, placeholder, autoFocus, onSubmit }: { va
       onFocus={handleFocus}
       onBlur={handleBlur}
       autoFocus={autoFocus}
+      data-crud-focus-target=""
     />
   )
 }
 
 // Local-buffer textarea to avoid form-wide re-renders while typing
-function TextAreaInput({ value, onChange, placeholder }: { value: any; onChange: (v: string) => void; placeholder?: string }) {
+function TextAreaInput({ value, onChange, placeholder, autoFocus }: { value: any; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean }) {
   const [local, setLocal] = React.useState<string>(value ?? '')
   const isFocusedRef = React.useRef(false)
 
@@ -1400,6 +1534,8 @@ function TextAreaInput({ value, onChange, placeholder }: { value: any; onChange:
       onChange={handleChange}
       onFocus={handleFocus}
       onBlur={handleBlur}
+      autoFocus={autoFocus}
+      data-crud-focus-target=""
     />
   )
 }

@@ -16,6 +16,7 @@ export const metadata = {
   pageTitleKey: 'customers.people.create.title',
   pageGroup: 'Customers',
   pageGroupKey: 'customers.nav.group',
+  pagePriority: 10,
   pageOrder: 105,
   icon: createIcon,
   breadcrumb: [
