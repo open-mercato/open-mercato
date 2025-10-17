@@ -11,7 +11,7 @@ import {
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
-import { CustomerEntity, CustomerPersonProfile } from '../data/entities'
+import { CustomerEntity, CustomerPersonProfile, CustomerTagAssignment } from '../data/entities'
 import {
   personCreateSchema,
   personUpdateSchema,

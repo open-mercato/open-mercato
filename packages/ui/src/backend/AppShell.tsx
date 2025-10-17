@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation'
 import { apiFetch } from './utils/api'
 import { LanguageSwitcher } from '../frontend/LanguageSwitcher'
 import { LastOperationBanner } from './operations/LastOperationBanner'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type AppShellProps = {
   productName?: string
@@ -63,6 +64,7 @@ function Chevron({ open }: { open: boolean }) {
 
 export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi }: AppShellProps) {
   const pathname = usePathname()
+  const t = useT()
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState<boolean>(sidebarCollapsedDefault)
@@ -224,7 +226,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
       <div className="flex flex-col gap-2 min-h-full">
         {!hideHeader && (
           <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
-            <Link href="/backend" className="flex items-center gap-2" aria-label="Go to dashboard">
+            <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
               <Image src="/open-mercato.svg" alt="Open Mercato" width={32} height={32} className="rounded m-4" />
               {!compact && <div className="text-m font-semibold">{productName}</div>}
             </Link>
@@ -330,11 +332,11 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
         <header className="border-b bg-background/60 px-3 lg:px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2 flex-wrap">
             {/* Mobile menu button */}
-            <button type="button" className="lg:hidden rounded border px-2 py-1" aria-label="Open menu" onClick={() => setMobileOpen(true)}>
+            <button type="button" className="lg:hidden rounded border px-2 py-1" aria-label={t('appShell.openMenu')} onClick={() => setMobileOpen(true)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
             </button>
             {/* Desktop collapse toggle */}
-            <button type="button" className="hidden lg:inline-flex rounded border px-2 py-1" aria-label="Toggle sidebar" onClick={() => setCollapsed((c) => !c)}>
+            <button type="button" className="hidden lg:inline-flex rounded border px-2 py-1" aria-label={t('appShell.toggleSidebar')} onClick={() => setCollapsed((c) => !c)}>
               {/* Sidebar toggle icon */}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="4" width="18" height="16" rx="2"/>
@@ -343,11 +345,12 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
             </button>
             {/* Header breadcrumb: always starts with Dashboard */}
             {(() => {
-              const root: Breadcrumb = [{ label: 'Dashboard', href: '/backend' }]
+              const dashboardLabel = t('dashboard.title')
+              const root: Breadcrumb = [{ label: dashboardLabel, href: '/backend' }]
               let rest: Breadcrumb = []
               if (headerBreadcrumb && headerBreadcrumb.length) {
                 const first = headerBreadcrumb[0]
-                const dup = first && (first.href === '/backend' || first.label?.toLowerCase() === 'dashboard')
+                const dup = first && (first.href === '/backend' || first.label === dashboardLabel || first.label?.toLowerCase() === 'dashboard')
                 rest = dup ? headerBreadcrumb.slice(1) : headerBreadcrumb
               } else if (headerTitle) {
                 rest = [{ label: headerTitle }]
@@ -377,7 +380,7 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
             ) : (
               <>
                 <Separator className="w-px h-5 mx-1" />
-                <span className="opacity-80">{email || 'User'}</span>
+                <span className="opacity-80">{email || t('appShell.userFallback')}</span>
               </>
             )}
           </div>
@@ -398,11 +401,11 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
           <aside className="absolute left-0 top-0 h-full w-[260px] bg-background border-r p-3">
             <div className="mb-2 flex items-center justify-between">
-              <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label="Go to dashboard">
+              <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
                 <Image src="/open-mercato.svg" alt="Open Mercato" width={28} height={28} className="rounded" />
                 {productName}
               </Link>
-              <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label="Close menu">✕</button>
+              <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
             </div>
             {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
             {renderSidebar(false, false, true)}

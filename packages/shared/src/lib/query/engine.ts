@@ -15,7 +15,7 @@ export class BasicQueryEngine implements QueryEngine {
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
     // Heuristic: map '<module>:user' -> table 'users'
     const [, name] = entity.split(':')
-    const table = name.endsWith('s') ? name : `${name}s`
+    const table = this.pluralize(name)
     const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
 
     let q = knex(table)
@@ -265,6 +265,12 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     return { items, page, pageSize, total }
+  }
+
+  private pluralize(name: string): string {
+    if (name.endsWith('s')) return name
+    if (name.endsWith('y')) return `${name.slice(0, -1)}ies`
+    return `${name}s`
   }
 
   private async resolveBaseColumn(table: string, field: string): Promise<string | null> {

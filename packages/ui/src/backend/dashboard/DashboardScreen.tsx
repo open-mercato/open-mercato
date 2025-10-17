@@ -9,6 +9,7 @@ import { loadDashboardWidgetModule } from './widgetRegistry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { cn } from '@/lib/utils'
 import { GripVertical, Plus, Settings2, Trash2, X, Loader2 } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type DashboardWidgetSize = 'sm' | 'md' | 'lg'
 
@@ -86,6 +87,7 @@ function generateId(): string {
 }
 
 export function DashboardScreen() {
+  const t = useT()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
@@ -137,11 +139,11 @@ export function DashboardScreen() {
       }
     } catch (err) {
       console.error('Failed to load dashboard layout', err)
-      setError('Unable to load dashboard data. Please try again later.')
+      setError(t('dashboard.loadError'))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   React.useEffect(() => {
     load()
@@ -181,12 +183,12 @@ export function DashboardScreen() {
         setError(null)
       } catch (err) {
         console.error('Failed to save layout', err)
-        setError('Unable to save dashboard layout changes.')
+        setError(t('dashboard.saveError'))
       } finally {
         adjustSaving(-1)
       }
     })
-  }, [adjustSaving])
+  }, [adjustSaving, t])
 
   const patchWidgetSettings = React.useCallback(async (itemId: string, nextSettings: unknown) => {
     adjustSaving(1)
@@ -200,11 +202,11 @@ export function DashboardScreen() {
       setError(null)
     } catch (err) {
       console.error('Failed to update widget settings', err)
-      setError('Unable to update widget settings.')
+      setError(t('dashboard.saveError'))
     } finally {
       adjustSaving(-1)
     }
-  }, [adjustSaving])
+  }, [adjustSaving, t])
 
   const handleAddWidget = React.useCallback((widgetId: string) => {
     const meta = metaById.get(widgetId)
@@ -284,9 +286,9 @@ export function DashboardScreen() {
   if (error && layout.length === 0) {
     return (
       <ErrorNotice
-        title="Dashboard unavailable"
+        title={t('dashboard.unavailable')}
         message={error}
-        action={<Button variant="outline" onClick={handleRefresh}>Retry</Button>}
+        action={<Button variant="outline" onClick={handleRefresh}>{t('dashboard.retry')}</Button>}
       />
     )
   }
@@ -295,20 +297,20 @@ export function DashboardScreen() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Arrange and personalize the widgets you see on your admin start page.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('dashboard.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('dashboard.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           {saving && (
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Saving…</span>
+              <span>{t('dashboard.saving')}</span>
             </div>
           )}
           {canConfigure && (
             <Button variant={editing ? 'secondary' : 'outline'} onClick={toggleEditing}>
               <Settings2 className="h-4 w-4" />
-              <span>{editing ? 'Done' : 'Customize'}</span>
+              <span>{editing ? t('dashboard.action.done') : t('dashboard.action.customize')}</span>
             </Button>
           )}
         </div>
@@ -316,15 +318,15 @@ export function DashboardScreen() {
 
       {error && layout.length > 0 && (
         <ErrorNotice
-          title="Some changes were not saved"
+          title={t('dashboard.error.partial')}
           message={error}
-          action={<Button variant="ghost" onClick={handleRefresh}>Reload data</Button>}
+          action={<Button variant="ghost" onClick={handleRefresh}>{t('dashboard.error.reload')}</Button>}
         />
       )}
 
       {editing && availableWidgets.length > 0 && (
         <div className="rounded-lg border border-dashed bg-muted/40 p-4">
-          <div className="mb-2 text-sm font-medium text-muted-foreground">Add a widget</div>
+          <div className="mb-2 text-sm font-medium text-muted-foreground">{t('dashboard.addWidget')}</div>
           <div className="flex flex-wrap gap-2">
             {availableWidgets.map((meta) => (
               <Button
@@ -404,7 +406,7 @@ export function DashboardScreen() {
 
       {layout.length === 0 && (
         <div className="rounded-lg border border-dashed bg-muted/30 p-10 text-center text-sm text-muted-foreground">
-          {canConfigure ? 'No widgets selected yet. Use “Add a widget” to start building your dashboard.' : 'No widgets are available for your account yet.'}
+          {canConfigure ? t('dashboard.empty.configurable') : t('dashboard.empty.readonly')}
         </div>
       )}
     </div>
@@ -444,6 +446,7 @@ function DashboardWidgetCard({
   onDragLeave,
   sizeClass,
 }: DashboardWidgetCardProps) {
+  const t = useT()
   const [module, setModule] = React.useState<WidgetModule | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -462,11 +465,11 @@ function DashboardWidgetCard({
       .catch((err) => {
         if (cancelled) return
         console.error('Failed to load widget module', err)
-        setLoadError('Unable to load widget')
+        setLoadError(t('dashboard.widget.loadError'))
         setLoading(false)
       })
     return () => { cancelled = true }
-  }, [meta.loaderKey])
+  }, [meta.loaderKey, t])
 
   const hydratedSettings = React.useMemo(() => {
     const raw = item.settings ?? meta.defaultSettings ?? null
@@ -555,7 +558,7 @@ function DashboardWidgetCard({
               variant={activeSettings ? 'secondary' : 'ghost'}
               size="icon"
               onClick={onToggleSettings}
-              aria-label={activeSettings ? 'Close settings' : 'Edit settings'}
+              aria-label={activeSettings ? t('dashboard.widget.closeSettings') : t('dashboard.widget.editSettings')}
             >
               {activeSettings ? <X className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
             </Button>
@@ -563,7 +566,7 @@ function DashboardWidgetCard({
               variant="ghost"
               size="icon"
               onClick={onRemove}
-              aria-label="Remove widget"
+              aria-label={t('dashboard.widget.remove')}
             >
               <Trash2 className="h-4 w-4" />
             </Button>
