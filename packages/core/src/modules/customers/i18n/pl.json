@@ -230,6 +230,7 @@
   "customers.widgets.todos.actions.refresh": "Odśwież",
   "customers.widgets.todos.empty": "Brak zadań klientów.",
   "customers.widgets.todos.error": "Nie udało się załadować zadań klientów.",
+  "customers.widgets.todos.untitled": "Zadanie bez tytułu",
   "customers.widgets.todos.settings.pageSize": "Liczba elementów",
   "customers.widgets.todos.settings.help": "Ustawienia widżetu obowiązują tylko na Twoim pulpicie.",
   "customers.widgets.nextInteractions.title": "Najbliższe interakcje",

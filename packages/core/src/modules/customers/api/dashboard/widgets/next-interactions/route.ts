@@ -32,12 +32,13 @@ async function resolveContext(req: Request, translate: (key: string, fallback?: 
     throw new CrudHttpError(400, { error: translate('customers.errors.invalid_query', 'Invalid query parameters') })
   }
 
-  const { em, tenantId, organizationIds } = await resolveWidgetScope(req, translate, {
+  const { container, em, tenantId, organizationIds } = await resolveWidgetScope(req, translate, {
     tenantId: parsed.data.tenantId ?? null,
     organizationId: parsed.data.organizationId ?? null,
   })
 
   return {
+    container,
     em,
     tenantId,
     organizationIds,

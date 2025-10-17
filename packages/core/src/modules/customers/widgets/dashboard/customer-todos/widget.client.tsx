@@ -12,6 +12,7 @@ type TodoLinkSummary = {
   id: string
   todoId: string
   todoSource: string
+  todoTitle: string | null
   createdAt: string
   entity: {
     id: string | null
@@ -39,6 +40,7 @@ async function loadTodos(settings: CustomerTodoWidgetSettings): Promise<TodoLink
         id: typeof data.id === 'string' ? data.id : null,
         todoId: typeof data.todoId === 'string' ? data.todoId : '',
         todoSource: typeof data.todoSource === 'string' ? data.todoSource : '',
+        todoTitle: typeof data.todoTitle === 'string' ? data.todoTitle : null,
         createdAt: typeof data.createdAt === 'string' ? data.createdAt : '',
         entity: {
           id: typeof entity.id === 'string' ? entity.id : null,
@@ -150,9 +152,13 @@ const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWi
                   <span>{item.entity.displayName ?? t('customers.widgets.common.unknown')}</span>
                   <span className="text-xs text-muted-foreground">{createdLabel || t('customers.widgets.common.unknownDate')}</span>
                 </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  <span className="font-medium">{item.todoSource}</span>
-                  {item.todoId ? <span className="ml-1 text-muted-foreground">#{item.todoId}</span> : null}
+                <div className="mt-1 space-y-0.5">
+                  <p className="text-sm font-medium text-foreground">
+                    {item.todoTitle ?? t('customers.widgets.todos.untitled')}
+                  </p>
+                  {item.todoSource ? (
+                    <p className="text-xs text-muted-foreground">{item.todoSource}</p>
+                  ) : null}
                 </div>
                 {href ? (
                   <div className="mt-2 text-xs">

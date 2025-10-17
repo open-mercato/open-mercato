@@ -230,6 +230,7 @@
   "customers.widgets.todos.actions.refresh": "Refresh",
   "customers.widgets.todos.empty": "No customer tasks yet.",
   "customers.widgets.todos.error": "Unable to load customer tasks.",
+  "customers.widgets.todos.untitled": "Untitled task",
   "customers.widgets.todos.settings.pageSize": "Items to show",
   "customers.widgets.todos.settings.help": "Widget settings apply only to your dashboard layout.",
   "customers.widgets.nextInteractions.title": "Next interactions",

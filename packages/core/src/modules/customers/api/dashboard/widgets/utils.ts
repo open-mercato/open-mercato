@@ -1,10 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer, type AppContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 export type WidgetScopeContext = {
+  container: AppContainer
   em: EntityManager
   tenantId: string
   organizationIds: string[]
@@ -43,6 +44,7 @@ export async function resolveWidgetScope(
   const em = container.resolve<EntityManager>('em')
 
   return {
+    container,
     em,
     tenantId,
     organizationIds,
