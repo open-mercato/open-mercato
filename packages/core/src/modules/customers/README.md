@@ -35,7 +35,7 @@ Implementation phases:
 - `customer_tags` & `customer_tag_assignments`: reusable tagging system shared across entities.
 - `customer_todo_links`: references to tasks (e.g., example/todos) attached to customer records.
 
-Custom fields can be registered against `customers:person`, `customers:company`, `customers:deal`, and `customers:activity` via `ce.ts`.
+Custom fields can be registered against `customers:customer_person_profile`, `customers:customer_company_profile`, `customers:customer_deal`, and `customers:customer_activity` via `ce.ts`.
 
 ### Next steps
 

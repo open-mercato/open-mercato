@@ -20,6 +20,7 @@ export type CrudFieldBase = {
   placeholder?: string
   description?: string // inline field-level help
   required?: boolean
+  layout?: 'full' | 'half'
 }
 
 export type CrudFieldOption = { value: string; label: string }
@@ -207,6 +208,14 @@ export function CrudForm<TValues extends Record<string, any>>({
     const extras = cfFields.filter(f => !provided.has(f.id))
     return [...fields, ...extras]
   }, [fields, cfFields])
+
+  const firstFieldId = React.useMemo(() => (allFields.length ? allFields[0]?.id ?? null : null), [allFields])
+
+  const requestSubmit = React.useCallback(() => {
+    if (typeof document === 'undefined') return
+    const form = document.getElementById(formId) as HTMLFormElement | null
+    form?.requestSubmit()
+  }, [formId])
 
   // Separate basic fields from custom fields for progressive loading
   const basicFields = React.useMemo(() => fields, [fields])
@@ -622,7 +631,12 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
   // no auto-focus; let the browser/user manage focus
 
-  const grid = twoColumn ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4' : 'grid grid-cols-1 gap-4'
+  const hasHalfLayout = allFields.some((field) => (field as any).layout === 'half')
+  const grid = twoColumn
+    ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4'
+    : hasHalfLayout
+      ? 'grid grid-cols-1 gap-4 md:grid-cols-2'
+      : 'grid grid-cols-1 gap-4'
 
   type FieldControlProps = {
     f: CrudField
@@ -632,9 +646,25 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     idx: number
     setValue: (id: string, v: any) => void
     loadFieldOptions: (field: CrudField, query?: string) => Promise<CrudFieldOption[]>
+    autoFocus: boolean
+    onSubmitRequest: () => void
+    wrapperClassName?: string
   }
 
-  const FieldControl = React.useMemo(() => React.memo(function FieldControlImpl({ f, value, error, options, idx, setValue, loadFieldOptions }: FieldControlProps) {
+  const FieldControl = React.useMemo(
+    () =>
+      React.memo(function FieldControlImpl({
+        f,
+        value,
+        error,
+        options,
+        idx,
+        setValue,
+        loadFieldOptions,
+        autoFocus,
+        onSubmitRequest,
+        wrapperClassName,
+      }: FieldControlProps) {
     // Memoize the setValue callback for this specific field to prevent unnecessary re-renders
     const fieldSetValue = React.useCallback((v: any) => setValue(f.id, v), [setValue, f.id])
     const hasLoader = typeof (f as any).loadOptions === 'function'
@@ -644,8 +674,10 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       loadFieldOptions(f).catch(() => {})
     }, [hasLoader, f, loadFieldOptions])
 
+    const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
+
     return (
-      <div className="space-y-1">
+      <div className={rootClassName}>
         {f.type !== 'checkbox' ? (
           <label className="block text-sm font-medium">
             {f.label}
@@ -653,13 +685,19 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </label>
         ) : null}
         {f.type === 'text' && (
-          <TextInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={fieldSetValue} />
+          <TextInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={fieldSetValue} autoFocus={autoFocus} onSubmit={onSubmitRequest} />
         )}
         {f.type === 'number' && (
-          <NumberInput value={value} placeholder={(f as any).placeholder} onChange={fieldSetValue} />
+          <NumberInput value={value} placeholder={(f as any).placeholder} onChange={fieldSetValue} autoFocus={autoFocus} onSubmit={onSubmitRequest} />
         )}
         {f.type === 'date' && (
-          <input type="date" className="w-full h-9 rounded border px-2 text-sm" value={value ?? ''} onChange={(e) => setValue(f.id, e.target.value || undefined)} />
+          <input
+            type="date"
+            className="w-full h-9 rounded border px-2 text-sm"
+            value={value ?? ''}
+            onChange={(e) => setValue(f.id, e.target.value || undefined)}
+            autoFocus={autoFocus}
+          />
         )}
         {f.type === 'textarea' && (
           <TextAreaInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={fieldSetValue} />
@@ -759,27 +797,41 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       prev.value === next.value && 
       prev.error === next.error && 
       prev.options === next.options &&
-      prev.loadFieldOptions === next.loadFieldOptions
+      prev.loadFieldOptions === next.loadFieldOptions &&
+      prev.autoFocus === next.autoFocus &&
+      prev.onSubmitRequest === next.onSubmitRequest &&
+      prev.wrapperClassName === next.wrapperClassName
     )
   }), [])
 
   // Helper to render a list of field configs
-  const renderFields = (fieldList: CrudField[]) => (
-    <div className="grid grid-cols-1 gap-4">
-      {fieldList.map((f, idx) => (
-        <FieldControl
-          key={f.id}
-          f={f}
-          value={values[f.id]}
-          error={errors[f.id]}
-          options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
-          idx={idx}
-          setValue={setValue}
-          loadFieldOptions={loadFieldOptions}
-        />
-      ))}
-    </div>
-  )
+  const renderFields = (fieldList: CrudField[]) => {
+    const hasHalf = fieldList.some((field) => (field as any).layout === 'half')
+    const gridClass = hasHalf ? 'grid grid-cols-1 gap-4 md:grid-cols-2' : 'grid grid-cols-1 gap-4'
+    return (
+      <div className={gridClass}>
+        {fieldList.map((f, idx) => {
+          const layout = (f as any).layout ?? 'full'
+          const wrapperClassName = hasHalf && layout !== 'half' ? 'md:col-span-2' : undefined
+          return (
+            <FieldControl
+              key={f.id}
+              f={f}
+              value={values[f.id]}
+              error={errors[f.id]}
+              options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
+              idx={idx}
+              setValue={setValue}
+              loadFieldOptions={loadFieldOptions}
+              autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
+              onSubmitRequest={requestSubmit}
+              wrapperClassName={wrapperClassName}
+            />
+          )
+        })}
+      </div>
+    )
+  }
 
   // Stable listbox multi-select to avoid inline hooks causing re-renders
   const ListboxMultiSelect = React.useMemo(() => {
@@ -1016,18 +1068,25 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         <div>
           <form id={formId} onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
             <div className={grid}>
-              {allFields.map((f, idx) => (
-                <FieldControl
-                  key={f.id}
-                  f={f}
-                  value={values[f.id]}
-                  error={errors[f.id]}
-                  options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
-                  idx={idx}
-                  setValue={setValue}
-                  loadFieldOptions={loadFieldOptions}
-                />
-              ))}
+              {allFields.map((f, idx) => {
+                const layout = (f as any).layout ?? 'full'
+                const wrapperClassName = hasHalfLayout && layout !== 'half' ? 'md:col-span-2' : undefined
+                return (
+                  <FieldControl
+                    key={f.id}
+                    f={f}
+                    value={values[f.id]}
+                    error={errors[f.id]}
+                    options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
+                    idx={idx}
+                    setValue={setValue}
+                    loadFieldOptions={loadFieldOptions}
+                    autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
+                    onSubmitRequest={requestSubmit}
+                    wrapperClassName={wrapperClassName}
+                  />
+                )
+              })}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             <div className="flex items-center justify-end gap-2">
@@ -1212,8 +1271,7 @@ function RelationSelect({
   )
 }
 // Local-buffer text input to avoid focus loss when parent re-renders
-function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v: string) => void; placeholder?: string }) {
-  const ref = React.useRef<HTMLInputElement | null>(null)
+function TextInput({ value, onChange, placeholder, autoFocus, onSubmit }: { value: any; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void }) {
   const [local, setLocal] = React.useState<string>(value ?? '')
   const isFocusedRef = React.useRef(false)
   
@@ -1231,11 +1289,12 @@ function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v:
   }, [onChange])
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
       onChange(local)
-      ;(e.target as HTMLInputElement).blur()
+      onSubmit?.()
     }
-  }, [local, onChange])
+  }, [local, onChange, onSubmit])
   
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
@@ -1248,7 +1307,6 @@ function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v:
   
   return (
     <input
-      ref={ref}
       type="text"
       className="w-full h-9 rounded border px-2 text-sm"
       placeholder={placeholder}
@@ -1258,12 +1316,13 @@ function TextInput({ value, onChange, placeholder }: { value: any; onChange: (v:
       onFocus={handleFocus}
       onBlur={handleBlur}
       spellCheck={false}
+      autoFocus={autoFocus}
     />
   )
 }
 
 // Local-buffer number input to avoid focus loss when parent re-renders
-function NumberInput({ value, onChange, placeholder }: { value: any; onChange: (v: number | undefined) => void; placeholder?: string }) {
+function NumberInput({ value, onChange, placeholder, autoFocus, onSubmit }: { value: any; onChange: (v: number | undefined) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void }) {
   const [local, setLocal] = React.useState<string>(value !== undefined && value !== null ? String(value) : '')
   const isFocusedRef = React.useRef(false)
   
@@ -1282,12 +1341,13 @@ function NumberInput({ value, onChange, placeholder }: { value: any; onChange: (
   }, [onChange])
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
       const numValue = local === '' ? undefined : Number(local)
       onChange(numValue)
-      ;(e.target as HTMLInputElement).blur()
+      onSubmit?.()
     }
-  }, [local, onChange])
+  }, [local, onChange, onSubmit])
   
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
@@ -1309,6 +1369,7 @@ function NumberInput({ value, onChange, placeholder }: { value: any; onChange: (
       onKeyDown={handleKeyDown}
       onFocus={handleFocus}
       onBlur={handleBlur}
+      autoFocus={autoFocus}
     />
   )
 }

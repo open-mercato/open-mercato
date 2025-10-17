@@ -254,6 +254,7 @@ const setupApp: ModuleCli = {
         'customers.companies.view',
         'customers.deals.view',
         'customers.activities.view',
+        'customers.widgets.*',
         'dashboards.view',
         'dashboards.configure',
         'example.widgets.*',

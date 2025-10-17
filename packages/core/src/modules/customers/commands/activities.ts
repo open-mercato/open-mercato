@@ -34,7 +34,7 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
-const ACTIVITY_ENTITY_ID = 'customers:activity'
+const ACTIVITY_ENTITY_ID = 'customers:customer_activity'
 
 type ActivitySnapshot = {
   activity: {

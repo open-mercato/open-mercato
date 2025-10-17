@@ -32,7 +32,7 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
-const DEAL_ENTITY_ID = 'customers:deal'
+const DEAL_ENTITY_ID = 'customers:customer_deal'
 
 type DealSnapshot = {
   deal: {

@@ -71,6 +71,7 @@ describe('auth CLI setup seeds ACLs', () => {
       'customers.companies.view',
       'customers.deals.view',
       'customers.activities.view',
+      'customers.widgets.*',
     ]))
   })
 })

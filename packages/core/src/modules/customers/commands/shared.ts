@@ -1,6 +1,6 @@
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, type CustomerEntityKind } from '../data/entities'
+import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
@@ -120,4 +120,35 @@ export async function requireDealInScope(
   if (!deal) throw new CrudHttpError(400, { error: 'Deal not found' })
   ensureSameScope(deal, organizationId, tenantId)
   return deal
+}
+
+const DICTIONARY_KINDS = new Set(['status', 'source'])
+
+export async function ensureDictionaryEntry(
+  em: EntityManager,
+  params: { tenantId: string; organizationId: string; kind: 'status' | 'source'; value: string; label?: string | null }
+): Promise<CustomerDictionaryEntry | null> {
+  const trimmed = params.value?.trim()
+  if (!trimmed) return null
+  if (!DICTIONARY_KINDS.has(params.kind)) {
+    throw new CrudHttpError(400, { error: 'Unsupported dictionary kind' })
+  }
+  const normalized = trimmed.toLowerCase()
+  const existing = await em.findOne(CustomerDictionaryEntry, {
+    tenantId: params.tenantId,
+    organizationId: params.organizationId,
+    kind: params.kind,
+    normalizedValue: normalized,
+  })
+  if (existing) return existing
+  const entry = em.create(CustomerDictionaryEntry, {
+    tenantId: params.tenantId,
+    organizationId: params.organizationId,
+    kind: params.kind,
+    value: trimmed,
+    label: params.label?.trim() || trimmed,
+    normalizedValue: normalized,
+  })
+  em.persist(entry)
+  return entry
 }

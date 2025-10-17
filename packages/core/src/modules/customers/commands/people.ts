@@ -25,6 +25,7 @@ import {
   assertRecordFound,
   syncEntityTags,
   loadEntityTagIds,
+  ensureDictionaryEntry,
 } from './shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -34,7 +35,7 @@ import {
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 
-const PERSON_ENTITY_ID = 'customers:person'
+const PERSON_ENTITY_ID = 'customers:customer_person_profile'
 
 type PersonSnapshot = {
   entity: {
@@ -74,6 +75,22 @@ type PersonSnapshot = {
 type PersonUndoPayload = {
   before?: PersonSnapshot | null
   after?: PersonSnapshot | null
+}
+
+function normalizeOptionalString(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+function normalizeEmail(value: string | null | undefined): string | null {
+  const normalized = normalizeOptionalString(value)
+  return normalized ? normalized.toLowerCase() : null
+}
+
+function buildPersonDisplayName(first: string | null, last: string | null): string {
+  const parts = [first, last].map((part) => (part ? part.trim() : '')).filter(Boolean)
+  return parts.join(' ')
 }
 
 function serializePersonSnapshot(
@@ -130,7 +147,7 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
   const tagIds = await loadEntityTagIds(em, entity)
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: PERSON_ENTITY_ID,
-    recordId: entity.id,
+    recordId: profile.id,
     tenantId: entity.tenantId,
     organizationId: entity.organizationId,
   })
@@ -156,7 +173,7 @@ async function resolveCompanyReference(
 
 async function setCustomFieldsForPerson(
   ctx: CommandRuntimeContext,
-  entityId: string,
+  profileId: string,
   organizationId: string,
   tenantId: string,
   values: Record<string, unknown>
@@ -166,7 +183,7 @@ async function setCustomFieldsForPerson(
   await setCustomFieldsIfAny({
     dataEngine: de,
     entityId: PERSON_ENTITY_ID,
-    recordId: entityId,
+    recordId: profileId,
     organizationId,
     tenantId,
     values,
@@ -182,18 +199,34 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
+    const firstName = parsed.firstName.trim()
+    const lastName = parsed.lastName.trim()
+    const description = normalizeOptionalString(parsed.description)
+    const primaryEmail = normalizeEmail(parsed.primaryEmail)
+    const primaryPhone = normalizeOptionalString(parsed.primaryPhone)
+    const status = normalizeOptionalString(parsed.status)
+    const lifecycleStage = normalizeOptionalString(parsed.lifecycleStage)
+    const source = normalizeOptionalString(parsed.source)
+    const preferredName = normalizeOptionalString(parsed.preferredName)
+    const jobTitle = normalizeOptionalString(parsed.jobTitle)
+    const department = normalizeOptionalString(parsed.department)
+    const seniority = normalizeOptionalString(parsed.seniority)
+    const timezone = normalizeOptionalString(parsed.timezone)
+    const linkedInUrl = normalizeOptionalString(parsed.linkedInUrl)
+    const twitterUrl = normalizeOptionalString(parsed.twitterUrl)
+
     const entity = em.create(CustomerEntity, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       kind: 'person',
-      displayName: parsed.displayName,
-      description: parsed.description ?? null,
+      displayName: buildPersonDisplayName(firstName, lastName),
+      description,
       ownerUserId: parsed.ownerUserId ?? null,
-      primaryEmail: parsed.primaryEmail ?? null,
-      primaryPhone: parsed.primaryPhone ?? null,
-      status: parsed.status ?? null,
-      lifecycleStage: parsed.lifecycleStage ?? null,
-      source: parsed.source ?? null,
+      primaryEmail,
+      primaryPhone,
+      status,
+      lifecycleStage,
+      source,
       nextInteractionAt: parsed.nextInteraction?.at ?? null,
       nextInteractionName: parsed.nextInteraction?.name ?? null,
       nextInteractionRefId: parsed.nextInteraction?.refId ?? null,
@@ -206,27 +239,43 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       entity,
-      firstName: parsed.firstName ?? null,
-      lastName: parsed.lastName ?? null,
-      preferredName: parsed.preferredName ?? null,
-      jobTitle: parsed.jobTitle ?? null,
-      department: parsed.department ?? null,
-      seniority: parsed.seniority ?? null,
-      timezone: parsed.timezone ?? null,
-      linkedInUrl: parsed.linkedInUrl ?? null,
-      twitterUrl: parsed.twitterUrl ?? null,
+      firstName,
+      lastName,
+      preferredName,
+      jobTitle,
+      department,
+      seniority,
+      timezone,
+      linkedInUrl,
+      twitterUrl,
       company,
     })
 
     em.persist(entity)
     em.persist(profile)
+    if (status) {
+      await ensureDictionaryEntry(em, {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        kind: 'status',
+        value: status,
+      })
+    }
+    if (source) {
+      await ensureDictionaryEntry(em, {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        kind: 'source',
+        value: source,
+      })
+    }
     await em.flush()
 
     const tenantId = entity.tenantId
     const organizationId = entity.organizationId
     await syncEntityTags(em, entity, parsed.tags)
     await em.flush()
-    await setCustomFieldsForPerson(ctx, entity.id, organizationId, tenantId, custom)
+    await setCustomFieldsForPerson(ctx, profile.id, organizationId, tenantId, custom)
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await emitCrudSideEffects({
@@ -298,14 +347,35 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const profile = await em.findOne(CustomerPersonProfile, { entity: record })
     if (!profile) throw new CrudHttpError(404, { error: 'Person profile not found' })
 
-    if (parsed.displayName !== undefined) record.displayName = parsed.displayName
-    if (parsed.description !== undefined) record.description = parsed.description ?? null
+    if (parsed.description !== undefined) record.description = normalizeOptionalString(parsed.description)
     if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
-    if (parsed.primaryEmail !== undefined) record.primaryEmail = parsed.primaryEmail ?? null
-    if (parsed.primaryPhone !== undefined) record.primaryPhone = parsed.primaryPhone ?? null
-    if (parsed.status !== undefined) record.status = parsed.status ?? null
-    if (parsed.lifecycleStage !== undefined) record.lifecycleStage = parsed.lifecycleStage ?? null
-    if (parsed.source !== undefined) record.source = parsed.source ?? null
+    if (parsed.primaryEmail !== undefined) record.primaryEmail = normalizeEmail(parsed.primaryEmail)
+    if (parsed.primaryPhone !== undefined) record.primaryPhone = normalizeOptionalString(parsed.primaryPhone)
+    if (parsed.status !== undefined) {
+      const normalizedStatus = normalizeOptionalString(parsed.status)
+      record.status = normalizedStatus
+      if (normalizedStatus) {
+        await ensureDictionaryEntry(em, {
+          tenantId: record.tenantId,
+          organizationId: record.organizationId,
+          kind: 'status',
+          value: normalizedStatus,
+        })
+      }
+    }
+    if (parsed.lifecycleStage !== undefined) record.lifecycleStage = normalizeOptionalString(parsed.lifecycleStage)
+    if (parsed.source !== undefined) {
+      const normalizedSource = normalizeOptionalString(parsed.source)
+      record.source = normalizedSource
+      if (normalizedSource) {
+        await ensureDictionaryEntry(em, {
+          tenantId: record.tenantId,
+          organizationId: record.organizationId,
+          kind: 'source',
+          value: normalizedSource,
+        })
+      }
+    }
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     if (parsed.nextInteraction) {
       record.nextInteractionAt = parsed.nextInteraction.at
@@ -317,24 +387,26 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       record.nextInteractionRefId = null
     }
 
-    if (parsed.firstName !== undefined) profile.firstName = parsed.firstName ?? null
-    if (parsed.lastName !== undefined) profile.lastName = parsed.lastName ?? null
-    if (parsed.preferredName !== undefined) profile.preferredName = parsed.preferredName ?? null
-    if (parsed.jobTitle !== undefined) profile.jobTitle = parsed.jobTitle ?? null
-    if (parsed.department !== undefined) profile.department = parsed.department ?? null
-    if (parsed.seniority !== undefined) profile.seniority = parsed.seniority ?? null
-    if (parsed.timezone !== undefined) profile.timezone = parsed.timezone ?? null
-    if (parsed.linkedInUrl !== undefined) profile.linkedInUrl = parsed.linkedInUrl ?? null
-    if (parsed.twitterUrl !== undefined) profile.twitterUrl = parsed.twitterUrl ?? null
+    if (parsed.firstName !== undefined) profile.firstName = normalizeOptionalString(parsed.firstName)
+    if (parsed.lastName !== undefined) profile.lastName = normalizeOptionalString(parsed.lastName)
+    if (parsed.preferredName !== undefined) profile.preferredName = normalizeOptionalString(parsed.preferredName)
+    if (parsed.jobTitle !== undefined) profile.jobTitle = normalizeOptionalString(parsed.jobTitle)
+    if (parsed.department !== undefined) profile.department = normalizeOptionalString(parsed.department)
+    if (parsed.seniority !== undefined) profile.seniority = normalizeOptionalString(parsed.seniority)
+    if (parsed.timezone !== undefined) profile.timezone = normalizeOptionalString(parsed.timezone)
+    if (parsed.linkedInUrl !== undefined) profile.linkedInUrl = normalizeOptionalString(parsed.linkedInUrl)
+    if (parsed.twitterUrl !== undefined) profile.twitterUrl = normalizeOptionalString(parsed.twitterUrl)
 
     if (parsed.companyEntityId !== undefined) {
       profile.company = await resolveCompanyReference(em, parsed.companyEntityId, record.organizationId, record.tenantId)
     }
 
+    record.displayName = buildPersonDisplayName(profile.firstName ?? null, profile.lastName ?? null)
+
     await syncEntityTags(em, record, parsed.tags)
     await em.flush()
 
-    await setCustomFieldsForPerson(ctx, record.id, record.organizationId, record.tenantId, custom)
+    await setCustomFieldsForPerson(ctx, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await emitCrudSideEffects({
@@ -500,7 +572,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
     if (Object.keys(resetValues).length) {
-      await setCustomFieldsForPerson(ctx, before.entity.id, before.entity.organizationId, before.entity.tenantId, resetValues)
+      await setCustomFieldsForPerson(ctx, before.profile.id, before.entity.organizationId, before.entity.tenantId, resetValues)
     }
   },
 }
@@ -643,7 +715,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       })
       const resetValues = buildCustomFieldResetMap(before.custom, null)
       if (Object.keys(resetValues).length) {
-        await setCustomFieldsForPerson(ctx, entity.id, entity.organizationId, entity.tenantId, resetValues)
+        await setCustomFieldsForPerson(ctx, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }
     },
   }

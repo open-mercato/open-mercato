@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -9,44 +10,254 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Button } from '@open-mercato/ui/primitives/button'
 
 type CreatePersonFormValues = {
-  displayName: string
-  description?: string
+  firstName: string
+  lastName: string
+  jobTitle?: string
   primaryEmail?: string
   primaryPhone?: string
   status?: string
   lifecycleStage?: string
   source?: string
-  firstName?: string
-  lastName?: string
-  jobTitle?: string
+  description?: string
 } & Record<string, unknown>
+
+type DictionaryOption = { value: string; label: string }
+
+type DictionarySelectFieldProps = {
+  kind: 'statuses' | 'sources'
+  value?: string
+  onChange: (value: string | undefined) => void
+  placeholder: string
+  addLabel: string
+  addPrompt: string
+  errorLoad: string
+  errorSave: string
+  loadingLabel: string
+}
+
+function DictionarySelectField({
+  kind,
+  value,
+  onChange,
+  placeholder,
+  addLabel,
+  addPrompt,
+  errorLoad,
+  errorSave,
+  loadingLabel,
+}: DictionarySelectFieldProps) {
+  const [options, setOptions] = React.useState<DictionaryOption[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [saving, setSaving] = React.useState(false)
+
+  const loadOptions = React.useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const message = typeof payload?.error === 'string' ? payload.error : errorLoad
+        flash(message, 'error')
+        setOptions([])
+        return
+      }
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      const normalized = items
+        .map((item: any) => {
+          const rawValue = typeof item?.value === 'string' ? item.value.trim() : ''
+          if (!rawValue) return null
+          const label = typeof item?.label === 'string' && item.label.trim().length ? item.label.trim() : rawValue
+          return { value: rawValue, label }
+        })
+        .filter((entry): entry is DictionaryOption => !!entry)
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+      setOptions(normalized)
+    } catch {
+      flash(errorLoad, 'error')
+      setOptions([])
+    } finally {
+      setLoading(false)
+    }
+  }, [errorLoad, kind])
+
+  React.useEffect(() => {
+    loadOptions().catch(() => {})
+  }, [loadOptions])
+
+  const handleAdd = React.useCallback(async () => {
+    const input = typeof window !== 'undefined' ? window.prompt(addPrompt) : null
+    const nextValue = input?.trim()
+    if (!nextValue) return
+    setSaving(true)
+    try {
+      const res = await apiFetch(`/api/customers/dictionaries/${kind}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value: nextValue }),
+      })
+      let payload: any = null
+      try {
+        payload = await res.json()
+      } catch {
+        payload = null
+      }
+      if (!res.ok) {
+        const message = typeof payload?.error === 'string' ? payload.error : errorSave
+        flash(message, 'error')
+        return
+      }
+      await loadOptions()
+      const createdValue = typeof payload?.value === 'string' ? payload.value : nextValue
+      onChange(createdValue || undefined)
+    } catch {
+      flash(errorSave, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }, [addLabel, addPrompt, errorSave, kind, loadOptions, onChange])
+
+  const disabled = loading || saving
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <select
+          className="w-full h-9 rounded border px-2 text-sm"
+          value={value ?? ''}
+          onChange={(event) => onChange(event.target.value ? event.target.value : undefined)}
+          disabled={disabled}
+        >
+          <option value="">{placeholder}</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <Button type="button" variant="outline" onClick={handleAdd} disabled={saving}>
+          + {addLabel}
+        </Button>
+      </div>
+      {loading ? <div className="text-xs text-muted-foreground">{loadingLabel}</div> : null}
+    </div>
+  )
+}
+
+const blankToUndefined = (value?: string): string | undefined => {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : undefined
+}
 
 export default function CreatePersonPage() {
   const t = useT()
   const router = useRouter()
   const { organizationId } = useOrganizationScopeDetail()
 
+  const formSchema = React.useMemo(
+    () =>
+      z
+        .object({
+          firstName: z.string().trim().min(1),
+          lastName: z.string().trim().min(1),
+          primaryEmail: z
+            .string()
+            .trim()
+            .email()
+            .optional()
+            .or(z.literal(''))
+            .transform((val) => (val === '' ? undefined : val)),
+          status: z
+            .string()
+            .trim()
+            .optional()
+            .or(z.literal(''))
+            .transform((val) => (val === '' ? undefined : val))
+            .optional(),
+          source: z
+            .string()
+            .trim()
+            .optional()
+            .or(z.literal(''))
+            .transform((val) => (val === '' ? undefined : val))
+            .optional(),
+        })
+        .passthrough(),
+    []
+  )
+
   const fields = React.useMemo<CrudField[]>(() => [
-    { id: 'displayName', label: t('customers.people.form.displayName'), type: 'text', required: true },
-    { id: 'firstName', label: t('customers.people.form.firstName'), type: 'text' },
-    { id: 'lastName', label: t('customers.people.form.lastName'), type: 'text' },
+    { id: 'firstName', label: t('customers.people.form.firstName'), type: 'text', required: true, layout: 'half' },
+    { id: 'lastName', label: t('customers.people.form.lastName'), type: 'text', required: true, layout: 'half' },
     { id: 'jobTitle', label: t('customers.people.form.jobTitle'), type: 'text' },
     { id: 'primaryEmail', label: t('customers.people.form.primaryEmail'), type: 'text' },
     { id: 'primaryPhone', label: t('customers.people.form.primaryPhone'), type: 'text' },
-    { id: 'status', label: t('customers.people.form.status'), type: 'text' },
+    {
+      id: 'status',
+      label: t('customers.people.form.status'),
+      type: 'custom',
+      component: ({ value, setValue }) => (
+        <DictionarySelectField
+          kind="statuses"
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(next) => setValue(next)}
+          placeholder={t('customers.people.form.status.placeholder')}
+          addLabel={t('customers.people.form.dictionary.addStatus')}
+          addPrompt={t('customers.people.form.dictionary.promptStatus')}
+          errorLoad={t('customers.people.form.dictionary.errorLoad')}
+          errorSave={t('customers.people.form.dictionary.error')}
+          loadingLabel={t('customers.people.form.dictionary.loading')}
+        />
+      ),
+    },
     { id: 'lifecycleStage', label: t('customers.people.form.lifecycleStage'), type: 'text' },
-    { id: 'source', label: t('customers.people.form.source'), type: 'text' },
+    {
+      id: 'source',
+      label: t('customers.people.form.source'),
+      type: 'custom',
+      component: ({ value, setValue }) => (
+        <DictionarySelectField
+          kind="sources"
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(next) => setValue(next)}
+          placeholder={t('customers.people.form.source.placeholder')}
+          addLabel={t('customers.people.form.dictionary.addSource')}
+          addPrompt={t('customers.people.form.dictionary.promptSource')}
+          errorLoad={t('customers.people.form.dictionary.errorLoad')}
+          errorSave={t('customers.people.form.dictionary.error')}
+          loadingLabel={t('customers.people.form.dictionary.loading')}
+        />
+      ),
+    },
     { id: 'description', label: t('customers.people.form.description'), type: 'textarea' },
   ], [t])
+
+  const namePreview = React.useCallback(({ values }: { values: Record<string, any> }) => {
+    const first = typeof values.firstName === 'string' ? values.firstName.trim() : ''
+    const last = typeof values.lastName === 'string' ? values.lastName.trim() : ''
+    const preview = [first, last].filter(Boolean).join(' ')
+    return (
+      <div className="rounded border bg-muted/30 px-3 py-2">
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {t('customers.people.form.displayNamePreview')}
+        </div>
+        <div className="mt-1 font-medium">
+          {preview || t('customers.people.form.displayNamePreview.empty')}
+        </div>
+      </div>
+    )
+  }, [t])
 
   const groups: CrudFormGroup[] = [
     {
       id: 'details',
       title: t('customers.people.form.groups.details'),
       column: 1,
-      fields: ['displayName', 'firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone', 'status', 'lifecycleStage', 'source'],
+      fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone', 'status', 'lifecycleStage', 'source'],
+      component: namePreview,
     },
     {
       id: 'notes',
@@ -73,30 +284,36 @@ export default function CreatePersonPage() {
           entityId={E.customers.customer_entity}
           submitLabel={t('customers.people.form.submit')}
           cancelHref="/backend/customers/people"
+          schema={formSchema}
           onSubmit={async (values) => {
             const customFields: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(values)) {
+            for (const [key, fieldValue] of Object.entries(values)) {
               if (key.startsWith('cf_')) {
-                customFields[key.slice(3)] = value
+                customFields[key.slice(3)] = fieldValue
               }
             }
 
             const payload: Record<string, unknown> = {
-              displayName: values.displayName,
-              description: values.description ?? undefined,
-              primaryEmail: values.primaryEmail ?? undefined,
-              primaryPhone: values.primaryPhone ?? undefined,
-              status: values.status ?? undefined,
-              lifecycleStage: values.lifecycleStage ?? undefined,
-              source: values.source ?? undefined,
-              firstName: values.firstName ?? undefined,
-              lastName: values.lastName ?? undefined,
-              jobTitle: values.jobTitle ?? undefined,
+              firstName: values.firstName.trim(),
+              lastName: values.lastName.trim(),
             }
 
+            const assign = (key: string, val?: string) => {
+              const normalized = blankToUndefined(val)
+              if (normalized !== undefined) payload[key] = normalized
+            }
+
+            assign('jobTitle', values.jobTitle)
+            assign('primaryEmail', values.primaryEmail)
+            assign('primaryPhone', values.primaryPhone)
+            assign('status', values.status)
+            assign('lifecycleStage', values.lifecycleStage)
+            assign('source', values.source)
+            assign('description', values.description)
+
             if (Object.keys(customFields).length) {
-              for (const [key, value] of Object.entries(customFields)) {
-                payload[`cf_${key}`] = value
+              for (const [key, fieldValue] of Object.entries(customFields)) {
+                payload[`cf_${key}`] = fieldValue
               }
             }
 
@@ -118,7 +335,11 @@ export default function CreatePersonPage() {
             }
 
             const created = await res.json().catch(() => null)
-            const newId = created && typeof created.id === 'string' ? created.id : (typeof created?.entityId === 'string' ? created.entityId : null)
+            const newId =
+              created && typeof created.id === 'string'
+                ? created.id
+                : (typeof created?.entityId === 'string' ? created.entityId : null)
+
             flash(t('customers.people.form.success'), 'success')
             if (newId) router.push(`/backend/customers/people/${newId}`)
             else router.push('/backend/customers/people')

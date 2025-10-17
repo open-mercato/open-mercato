@@ -493,8 +493,40 @@ export class CustomerTagAssignment {
   @ManyToOne(() => CustomerTag, { fieldName: 'tag_id' })
   tag!: CustomerTag
 
-  @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
+@ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
   entity!: CustomerEntity
+}
+
+@Entity({ tableName: 'customer_dictionary_entries' })
+@Index({ name: 'customer_dictionary_entries_scope_idx', properties: ['organizationId', 'tenantId', 'kind'] })
+@Unique({ name: 'customer_dictionary_entries_unique', properties: ['organizationId', 'tenantId', 'kind', 'normalizedValue'] })
+export class CustomerDictionaryEntry {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  kind!: string
+
+  @Property({ type: 'text' })
+  value!: string
+
+  @Property({ name: 'normalized_value', type: 'text' })
+  normalizedValue!: string
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
 
 @Entity({ tableName: 'customer_todo_links' })

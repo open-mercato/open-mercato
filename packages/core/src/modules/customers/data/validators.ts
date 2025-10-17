@@ -15,44 +15,54 @@ const nextInteractionSchema = z
   })
   .strict()
 
+const displayNameSchema = z.string().trim().min(1).max(200)
+
 const baseEntitySchema = {
-  displayName: z.string().min(1).max(200),
-  description: z.string().max(4000).optional(),
+  displayName: displayNameSchema.optional(),
+  description: z.string().trim().max(4000).optional(),
   ownerUserId: uuid().optional(),
-  primaryEmail: z.string().email().max(320).optional(),
-  primaryPhone: z.string().max(50).optional(),
-  status: z.string().max(100).optional(),
-  lifecycleStage: z.string().max(100).optional(),
-  source: z.string().max(150).optional(),
+  primaryEmail: z
+    .string()
+    .trim()
+    .email()
+    .max(320)
+    .optional(),
+  primaryPhone: z.string().trim().max(50).optional(),
+  status: z.string().trim().max(100).optional(),
+  lifecycleStage: z.string().trim().max(100).optional(),
+  source: z.string().trim().max(150).optional(),
   nextInteraction: nextInteractionSchema.optional(),
   tags: z.array(uuid()).optional(),
 }
 
 const personDetailsSchema = {
-  firstName: z.string().max(120).optional(),
-  lastName: z.string().max(120).optional(),
-  preferredName: z.string().max(120).optional(),
-  jobTitle: z.string().max(150).optional(),
-  department: z.string().max(150).optional(),
-  seniority: z.string().max(100).optional(),
-  timezone: z.string().max(120).optional(),
-  linkedInUrl: z.string().url().max(300).optional(),
-  twitterUrl: z.string().url().max(300).optional(),
+  firstName: z.string().trim().max(120).optional(),
+  lastName: z.string().trim().max(120).optional(),
+  preferredName: z.string().trim().max(120).optional(),
+  jobTitle: z.string().trim().max(150).optional(),
+  department: z.string().trim().max(150).optional(),
+  seniority: z.string().trim().max(100).optional(),
+  timezone: z.string().trim().max(120).optional(),
+  linkedInUrl: z.string().trim().url().max(300).optional(),
+  twitterUrl: z.string().trim().url().max(300).optional(),
   companyEntityId: uuid().optional(),
 }
 
 const companyDetailsSchema = {
-  legalName: z.string().max(200).optional(),
-  brandName: z.string().max(200).optional(),
-  domain: z.string().max(200).optional(),
-  websiteUrl: z.string().url().max(300).optional(),
-  industry: z.string().max(150).optional(),
-  sizeBucket: z.string().max(100).optional(),
+  legalName: z.string().trim().max(200).optional(),
+  brandName: z.string().trim().max(200).optional(),
+  domain: z.string().trim().max(200).optional(),
+  websiteUrl: z.string().trim().url().max(300).optional(),
+  industry: z.string().trim().max(150).optional(),
+  sizeBucket: z.string().trim().max(100).optional(),
   annualRevenue: z.coerce.number().min(0).optional(),
 }
 
 export const personCreateSchema = scopedSchema.extend({
   ...baseEntitySchema,
+  displayName: displayNameSchema.optional(),
+  firstName: z.string().trim().min(1).max(120),
+  lastName: z.string().trim().min(1).max(120),
   ...personDetailsSchema,
 })
 
@@ -60,10 +70,18 @@ export const personUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(personCreateSchema.partial())
+  .merge(
+    scopedSchema.extend({
+      ...baseEntitySchema,
+      ...personDetailsSchema,
+      firstName: z.string().trim().min(1).max(120).optional(),
+      lastName: z.string().trim().min(1).max(120).optional(),
+    }).partial()
+  )
 
 export const companyCreateSchema = scopedSchema.extend({
   ...baseEntitySchema,
+  displayName: displayNameSchema,
   ...companyDetailsSchema,
 })
 

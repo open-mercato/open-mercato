@@ -34,7 +34,7 @@ import {
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 
-const COMPANY_ENTITY_ID = 'customers:company'
+const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
 
 type CompanySnapshot = {
   entity: {
@@ -81,7 +81,7 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
   const tagIds = await loadEntityTagIds(em, entity)
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: COMPANY_ENTITY_ID,
-    recordId: entity.id,
+    recordId: profile.id,
     tenantId: entity.tenantId,
     organizationId: entity.organizationId,
   })
@@ -120,7 +120,7 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
 
 async function setCompanyCustomFields(
   ctx: CommandRuntimeContext,
-  entityId: string,
+  profileId: string,
   organizationId: string,
   tenantId: string,
   values: Record<string, unknown>
@@ -130,7 +130,7 @@ async function setCompanyCustomFields(
   await setCustomFieldsIfAny({
     dataEngine: de,
     entityId: COMPANY_ENTITY_ID,
-    recordId: entityId,
+    recordId: profileId,
     organizationId,
     tenantId,
     values,
@@ -183,7 +183,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
 
     await syncEntityTags(em, entity, parsed.tags)
     await em.flush()
-    await setCompanyCustomFields(ctx, entity.id, entity.organizationId, entity.tenantId, custom)
+    await setCompanyCustomFields(ctx, profile.id, entity.organizationId, entity.tenantId, custom)
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await emitCrudSideEffects({
@@ -285,7 +285,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     await syncEntityTags(em, record, parsed.tags)
     await em.flush()
 
-    await setCompanyCustomFields(ctx, record.id, record.organizationId, record.tenantId, custom)
+    await setCompanyCustomFields(ctx, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await emitCrudSideEffects({
@@ -432,7 +432,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
     if (Object.keys(resetValues).length) {
-      await setCompanyCustomFields(ctx, entity.id, entity.organizationId, entity.tenantId, resetValues)
+      await setCompanyCustomFields(ctx, profile.id, entity.organizationId, entity.tenantId, resetValues)
     }
   },
 }
@@ -561,7 +561,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
 
       const resetValues = buildCustomFieldResetMap(before.custom, null)
       if (Object.keys(resetValues).length) {
-        await setCompanyCustomFields(ctx, entity.id, entity.organizationId, entity.tenantId, resetValues)
+        await setCompanyCustomFields(ctx, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }
     },
   }

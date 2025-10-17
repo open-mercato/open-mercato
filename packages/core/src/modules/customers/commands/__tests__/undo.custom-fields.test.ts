@@ -227,8 +227,8 @@ describe('customers commands undo custom fields', () => {
 
     expect(setCustomFields).toHaveBeenCalledWith(
       expect.objectContaining({
-        recordId: 'person-1',
-        entityId: 'customers:person',
+        recordId: 'profile-1',
+        entityId: 'customers:customer_person_profile',
         organizationId: 'org-1',
         tenantId: 'tenant-1',
         values: { priority: 'high', rating: null },
@@ -386,8 +386,8 @@ describe('customers commands undo custom fields', () => {
 
     expect(setCustomFields).toHaveBeenCalledWith(
       expect.objectContaining({
-        recordId: 'company-1',
-        entityId: 'customers:company',
+        recordId: 'company-profile-1',
+        entityId: 'customers:customer_company_profile',
         organizationId: 'org-1',
         tenantId: 'tenant-1',
         values: { tier: 'gold', account_manager: null },
@@ -540,7 +540,7 @@ describe('customers commands undo custom fields', () => {
     expect(setCustomFields).toHaveBeenCalledWith(
       expect.objectContaining({
         recordId: 'deal-1',
-        entityId: 'customers:deal',
+        entityId: 'customers:customer_deal',
         organizationId: 'org-1',
         tenantId: 'tenant-1',
         values: { priority: 'high', segment: null },
@@ -686,7 +686,7 @@ describe('customers commands undo custom fields', () => {
     expect(setCustomFields).toHaveBeenCalledWith(
       expect.objectContaining({
         recordId: 'activity-1',
-        entityId: 'customers:activity',
+        entityId: 'customers:customer_activity',
         organizationId: 'org-1',
         tenantId: 'tenant-1',
         values: { notes: 'important', outcome: null },
