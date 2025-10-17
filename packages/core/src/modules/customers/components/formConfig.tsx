@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { z } from 'zod'
-import { Check, Pencil, Plus } from 'lucide-react'
+import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -51,7 +51,7 @@ type DictionaryOption = { value: string; label: string }
 export type DictionarySelectLabels = {
   placeholder: string
   addLabel: string
-  addPrompt: string
+  addPrompt?: string
   dialogTitle: string
   inputLabel: string
   inputPlaceholder: string
@@ -61,6 +61,7 @@ export type DictionarySelectLabels = {
   errorLoad: string
   errorSave: string
   loadingLabel: string
+  manageTitle: string
 }
 
 type DictionarySelectFieldProps = {
@@ -204,51 +205,65 @@ export function DictionarySelectField({
             </option>
           ))}
         </select>
-        <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
-          <DialogTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              disabled={disabled}
-              aria-label={labels.addLabel}
-              title={labels.addLabel}
-            >
-              <Plus className="h-4 w-4" aria-hidden />
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-sm">
-            <DialogHeader>
-              <DialogTitle>{labels.dialogTitle}</DialogTitle>
-              {labels.addPrompt ? <DialogDescription>{labels.addPrompt}</DialogDescription> : null}
-            </DialogHeader>
-            <form onSubmit={handleAddSubmit} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-sm font-medium">{labels.inputLabel}</label>
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder={labels.inputPlaceholder}
-                  value={newOption}
-                  onChange={(event) => {
-                    setNewOption(event.target.value)
-                    if (formError) setFormError(null)
-                  }}
-                  autoFocus
-                  disabled={saving}
-                />
-              </div>
-              {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
-                  {labels.cancelLabel}
-                </Button>
-                <Button type="submit" disabled={saving || !newOption.trim()}>
-                  {saving ? `${labels.saveLabel}…` : labels.saveLabel}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <div className="flex items-center gap-1">
+          <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
+            <DialogTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                disabled={disabled}
+                aria-label={labels.addLabel}
+                title={labels.addLabel}
+              >
+                <Plus className="h-4 w-4" aria-hidden />
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-sm">
+              <DialogHeader>
+                <DialogTitle>{labels.dialogTitle}</DialogTitle>
+                {labels.addPrompt ? <DialogDescription>{labels.addPrompt}</DialogDescription> : null}
+              </DialogHeader>
+              <form onSubmit={handleAddSubmit} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">{labels.inputLabel}</label>
+                  <input
+                    className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder={labels.inputPlaceholder}
+                    value={newOption}
+                    onChange={(event) => {
+                      setNewOption(event.target.value)
+                      if (formError) setFormError(null)
+                    }}
+                    autoFocus
+                    disabled={saving}
+                  />
+                </div>
+                {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
+                    {labels.cancelLabel}
+                  </Button>
+                  <Button type="submit" disabled={saving || !newOption.trim()}>
+                    {saving ? `${labels.saveLabel}…` : labels.saveLabel}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            title={labels.manageTitle}
+            aria-label={labels.manageTitle}
+          >
+            <Link href="/backend/config/customers">
+              <Settings className="h-4 w-4" aria-hidden />
+              <span className="sr-only">{labels.manageTitle}</span>
+            </Link>
+          </Button>
+        </div>
       </div>
       {loading ? <div className="text-xs text-muted-foreground">{labels.loadingLabel}</div> : null}
     </div>
@@ -307,6 +322,62 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
       </div>
     )
   },
+})
+
+type DictionaryFieldDefinition = {
+  id: 'status' | 'lifecycleStage' | 'source'
+  kind: 'statuses' | 'lifecycle-stages' | 'sources'
+  labelKey: string
+  placeholderKey: string
+  addLabelKey: string
+  promptKey: string
+  dialogTitleKey: string
+}
+
+const dictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
+  {
+    id: 'status',
+    kind: 'statuses',
+    labelKey: 'customers.people.form.status',
+    placeholderKey: 'customers.people.form.status.placeholder',
+    addLabelKey: 'customers.people.form.dictionary.addStatus',
+    promptKey: 'customers.people.form.dictionary.promptStatus',
+    dialogTitleKey: 'customers.people.form.dictionary.dialogTitleStatus',
+  },
+  {
+    id: 'lifecycleStage',
+    kind: 'lifecycle-stages',
+    labelKey: 'customers.people.form.lifecycleStage',
+    placeholderKey: 'customers.people.form.lifecycleStage.placeholder',
+    addLabelKey: 'customers.people.form.dictionary.addLifecycleStage',
+    promptKey: 'customers.people.form.dictionary.promptLifecycleStage',
+    dialogTitleKey: 'customers.people.form.dictionary.dialogTitleLifecycleStage',
+  },
+  {
+    id: 'source',
+    kind: 'sources',
+    labelKey: 'customers.people.form.source',
+    placeholderKey: 'customers.people.form.source.placeholder',
+    addLabelKey: 'customers.people.form.dictionary.addSource',
+    promptKey: 'customers.people.form.dictionary.promptSource',
+    dialogTitleKey: 'customers.people.form.dictionary.dialogTitleSource',
+  },
+]
+
+const buildDictionaryLabels = (t: Translator, definition: DictionaryFieldDefinition): DictionarySelectLabels => ({
+  placeholder: t(definition.placeholderKey),
+  addLabel: t(definition.addLabelKey),
+  addPrompt: t(definition.promptKey),
+  dialogTitle: t(definition.dialogTitleKey),
+  inputLabel: t('customers.people.form.dictionary.valueLabel'),
+  inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+  emptyError: t('customers.people.form.dictionary.errorRequired'),
+  cancelLabel: t('customers.people.form.dictionary.cancel'),
+  saveLabel: t('customers.people.form.dictionary.save'),
+  errorLoad: t('customers.people.form.dictionary.errorLoad'),
+  errorSave: t('customers.people.form.dictionary.error'),
+  loadingLabel: t('customers.people.form.dictionary.loading'),
+  manageTitle: t('customers.people.form.dictionary.manage'),
 })
 
 const createPrimaryPhoneField = (t: Translator): CrudField => ({
@@ -684,6 +755,20 @@ export const createDisplayNameSection = (t: Translator) =>
 export const createPersonFormFields = (t: Translator): CrudField[] => {
   const contactSection = createSectionHeadingField('__contactInformationSection', t('customers.people.form.sections.contactInformation'))
   const companySection = createSectionHeadingField('__companyInformationSection', t('customers.people.form.sections.companyInformation'))
+  const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition) => ({
+    id: definition.id,
+    label: t(definition.labelKey),
+    type: 'custom',
+    layout: 'third',
+    component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+      <DictionarySelectField
+        kind={definition.kind}
+        value={typeof value === 'string' ? value : undefined}
+        onChange={(next) => setValue(next)}
+        labels={buildDictionaryLabels(t, definition)}
+      />
+    ),
+  }))
 
   return [
     { id: 'displayName', label: t('customers.people.form.displayName.label'), type: 'text', required: true },
@@ -720,87 +805,7 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
         />
       ),
     },
-    {
-      id: 'status',
-      label: t('customers.people.form.status'),
-      type: 'custom',
-      layout: 'third',
-      component: ({ value, setValue }) => (
-        <DictionarySelectField
-          kind="statuses"
-          value={typeof value === 'string' ? value : undefined}
-          onChange={(next) => setValue(next)}
-          labels={{
-            placeholder: t('customers.people.form.status.placeholder'),
-            addLabel: t('customers.people.form.dictionary.addStatus'),
-            addPrompt: t('customers.people.form.dictionary.promptStatus'),
-            dialogTitle: t('customers.people.form.dictionary.dialogTitleStatus'),
-            inputLabel: t('customers.people.form.dictionary.valueLabel'),
-            inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-            emptyError: t('customers.people.form.dictionary.errorRequired'),
-            cancelLabel: t('customers.people.form.dictionary.cancel'),
-            saveLabel: t('customers.people.form.dictionary.save'),
-            errorLoad: t('customers.people.form.dictionary.errorLoad'),
-            errorSave: t('customers.people.form.dictionary.error'),
-            loadingLabel: t('customers.people.form.dictionary.loading'),
-          }}
-        />
-      ),
-    },
-    {
-      id: 'lifecycleStage',
-      label: t('customers.people.form.lifecycleStage'),
-      type: 'custom',
-      layout: 'third',
-      component: ({ value, setValue }) => (
-        <DictionarySelectField
-          kind="lifecycle-stages"
-          value={typeof value === 'string' ? value : undefined}
-          onChange={(next) => setValue(next)}
-          labels={{
-            placeholder: t('customers.people.form.lifecycleStage.placeholder'),
-            addLabel: t('customers.people.form.dictionary.addLifecycleStage'),
-            addPrompt: t('customers.people.form.dictionary.promptLifecycleStage'),
-            dialogTitle: t('customers.people.form.dictionary.dialogTitleLifecycleStage'),
-            inputLabel: t('customers.people.form.dictionary.valueLabel'),
-            inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-            emptyError: t('customers.people.form.dictionary.errorRequired'),
-            cancelLabel: t('customers.people.form.dictionary.cancel'),
-            saveLabel: t('customers.people.form.dictionary.save'),
-            errorLoad: t('customers.people.form.dictionary.errorLoad'),
-            errorSave: t('customers.people.form.dictionary.error'),
-            loadingLabel: t('customers.people.form.dictionary.loading'),
-          }}
-        />
-      ),
-    },
-    {
-      id: 'source',
-      label: t('customers.people.form.source'),
-      type: 'custom',
-      layout: 'third',
-      component: ({ value, setValue }) => (
-        <DictionarySelectField
-          kind="sources"
-          value={typeof value === 'string' ? value : undefined}
-          onChange={(next) => setValue(next)}
-          labels={{
-            placeholder: t('customers.people.form.source.placeholder'),
-            addLabel: t('customers.people.form.dictionary.addSource'),
-            addPrompt: t('customers.people.form.dictionary.promptSource'),
-            dialogTitle: t('customers.people.form.dictionary.dialogTitleSource'),
-            inputLabel: t('customers.people.form.dictionary.valueLabel'),
-            inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-            emptyError: t('customers.people.form.dictionary.errorRequired'),
-            cancelLabel: t('customers.people.form.dictionary.cancel'),
-            saveLabel: t('customers.people.form.dictionary.save'),
-            errorLoad: t('customers.people.form.dictionary.errorLoad'),
-            errorSave: t('customers.people.form.dictionary.error'),
-            loadingLabel: t('customers.people.form.dictionary.loading'),
-          }}
-        />
-      ),
-    },
+    ...dictionaryFields,
     { id: 'description', label: t('customers.people.form.description'), type: 'textarea' },
   ]
 }

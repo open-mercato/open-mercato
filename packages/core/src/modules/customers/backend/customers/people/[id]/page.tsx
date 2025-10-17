@@ -1083,6 +1083,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     errorLoad: t('customers.people.form.dictionary.errorLoad'),
     errorSave: t('customers.people.form.dictionary.error'),
     loadingLabel: t('customers.people.form.dictionary.loading'),
+    manageTitle: t('customers.people.form.dictionary.manage'),
   }), [t])
 
   const tabs = React.useMemo(

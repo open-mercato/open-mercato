@@ -327,9 +327,14 @@ function DictionarySection({
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => loadEntries()}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            {refreshLabel}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => loadEntries()}
+            title={refreshLabel}
+            aria-label={refreshLabel}
+          >
+            <RefreshCw className="h-4 w-4" />
           </Button>
           <Dialog open={addOpen} onOpenChange={(open) => (open ? openCreateDialog() : closeDialogs())}>
             <DialogTrigger asChild>
@@ -446,9 +451,14 @@ function DictionarySection({
                           </form>
                         </DialogContent>
                       </Dialog>
-                      <Button variant="destructive" size="sm" onClick={() => handleDelete(entry)}>
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        {deleteLabel}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(entry)}
+                        title={deleteLabel}
+                        aria-label={deleteLabel}
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </TableCell>
