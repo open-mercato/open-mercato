@@ -214,10 +214,13 @@ export async function GET(req: Request) {
 
   let rolePreference = null
   if (Array.isArray(auth.roles) && auth.roles.length) {
+    const roleScope = auth.tenantId
+      ? { $or: [{ tenantId: auth.tenantId }, { tenantId: null }] }
+      : { tenantId: null }
     const roleRecords = await em.find(Role, {
       name: { $in: auth.roles },
-      tenantId: auth.tenantId ?? null,
-    })
+      ...roleScope,
+    } as any)
     const roleIds = roleRecords.map((role: Role) => role.id)
     if (roleIds.length) {
       rolePreference = await loadFirstRoleSidebarPreference(em, {
@@ -229,6 +232,7 @@ export async function GET(req: Request) {
   }
 
   const groupsWithRole = rolePreference ? applySidebarPreference(groups, rolePreference) : groups
+  const baseForUser = adoptSidebarDefaults(groupsWithRole)
 
   const preference = await loadSidebarPreference(em, {
     userId: auth.sub,
@@ -237,7 +241,7 @@ export async function GET(req: Request) {
     locale,
   })
 
-  const withPreference = applySidebarPreference(groupsWithRole, preference)
+  const withPreference = applySidebarPreference(baseForUser, preference)
 
   const payload = {
     groups: withPreference.map((group) => ({
@@ -275,4 +279,19 @@ export async function GET(req: Request) {
   } catch {}
 
   return NextResponse.json(payload)
+}
+
+function adoptSidebarDefaults(groups: ReturnType<typeof applySidebarPreference>) {
+  const adoptItems = (items: any[]) =>
+    items.map((item) => ({
+      ...item,
+      defaultTitle: item.title,
+      children: item.children ? adoptItems(item.children) : undefined,
+    }))
+
+  return groups.map((group) => ({
+    ...group,
+    defaultName: group.name,
+    items: adoptItems(group.items),
+  }))
 }

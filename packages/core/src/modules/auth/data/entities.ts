@@ -83,7 +83,7 @@ export class UserSidebarPreference {
 }
 
 @Entity({ tableName: 'role_sidebar_preferences' })
-@Unique({ properties: ['role', 'locale'] })
+@Unique({ properties: ['role', 'tenantId', 'locale'] })
 export class RoleSidebarPreference {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

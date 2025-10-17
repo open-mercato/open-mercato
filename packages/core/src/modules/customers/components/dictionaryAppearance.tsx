@@ -48,7 +48,7 @@ const LUCIDE_ICON_MAP: Record<string, LucideIcon> = {
   globe: Globe,
 }
 
-export type CustomerDictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages'
+export type CustomerDictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types'
 
 export type CustomerDictionaryDisplayEntry = {
   value: string

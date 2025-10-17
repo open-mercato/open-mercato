@@ -8,7 +8,8 @@ import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { applySidebarPreference, loadSidebarPreference } from '@open-mercato/core/modules/auth/services/sidebarPreferencesService'
+import { applySidebarPreference, loadFirstRoleSidebarPreference, loadSidebarPreference } from '@open-mercato/core/modules/auth/services/sidebarPreferencesService'
+import { Role } from '@open-mercato/core/modules/auth/data/entities'
 
 export default async function BackendLayout({ children, params }: { children: React.ReactNode; params?: { slug?: string[] } }) {
   const auth = await getAuthFromCookies()
@@ -93,11 +94,29 @@ export default async function BackendLayout({ children, params }: { children: Re
   }))
   baseGroups.sort((a, b) => a.weight - b.weight)
 
+  let rolePreference = null
   let sidebarPreference = null
   if (auth) {
     try {
       const container = await createRequestContainer()
       const em = container.resolve('em') as any
+      if (Array.isArray(auth.roles) && auth.roles.length) {
+        const roleScope = auth.tenantId
+          ? { $or: [{ tenantId: auth.tenantId }, { tenantId: null }] }
+          : { tenantId: null }
+        const roleRecords = await em.find(Role, {
+          name: { $in: auth.roles },
+          ...roleScope,
+        } as any)
+        const roleIds = roleRecords.map((role: Role) => role.id)
+        if (roleIds.length) {
+          rolePreference = await loadFirstRoleSidebarPreference(em, {
+            roleIds,
+            tenantId: auth.tenantId ?? null,
+            locale,
+          })
+        }
+      }
       sidebarPreference = await loadSidebarPreference(em, {
         userId: auth.sub,
         tenantId: auth.tenantId ?? null,
@@ -107,7 +126,9 @@ export default async function BackendLayout({ children, params }: { children: Re
     } catch {}
   }
 
-  const appliedGroups = sidebarPreference ? applySidebarPreference(baseGroups, sidebarPreference) : baseGroups
+  const groupsWithRole = rolePreference ? applySidebarPreference(baseGroups, rolePreference) : baseGroups
+  const baseForUser = adoptSidebarDefaults(groupsWithRole)
+  const appliedGroups = sidebarPreference ? applySidebarPreference(baseForUser, sidebarPreference) : baseForUser
 
   const materializeItem = (item: ReturnType<typeof mapItem>) => ({
     href: item.href,
@@ -160,3 +181,18 @@ export default async function BackendLayout({ children, params }: { children: Re
   )
 }
 export const dynamic = 'force-dynamic'
+
+function adoptSidebarDefaults(groups: ReturnType<typeof applySidebarPreference>) {
+  const adoptItems = (items: any[]) =>
+    items.map((item) => ({
+      ...item,
+      defaultTitle: item.title,
+      children: item.children ? adoptItems(item.children) : undefined,
+    }))
+
+  return groups.map((group) => ({
+    ...group,
+    defaultName: group.name,
+    items: adoptItems(group.items),
+  }))
+}

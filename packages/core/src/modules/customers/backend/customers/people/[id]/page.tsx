@@ -897,6 +897,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     statuses: {},
     sources: {},
     'lifecycle-stages': {},
+    'address-types': {},
   })
   const personId = data?.person?.id ?? null
   const [isDeleting, setIsDeleting] = React.useState(false)
@@ -921,11 +922,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   React.useEffect(() => {
     const controller = new AbortController()
     async function loadAll() {
-      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {} })
+      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {} })
       await Promise.all([
         loadDictionaryEntries('statuses', controller.signal),
         loadDictionaryEntries('sources', controller.signal),
         loadDictionaryEntries('lifecycle-stages', controller.signal),
+        loadDictionaryEntries('address-types', controller.signal),
       ])
     }
     loadAll().catch(() => {})
@@ -1141,6 +1143,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           isPrimary: payload.isPrimary ?? false,
         }
         if (typeof payload.name === 'string') bodyPayload.name = payload.name
+        if (typeof payload.purpose === 'string') bodyPayload.purpose = payload.purpose
         if (typeof payload.addressLine2 === 'string') bodyPayload.addressLine2 = payload.addressLine2
         if (typeof payload.city === 'string') bodyPayload.city = payload.city
         if (typeof payload.region === 'string') bodyPayload.region = payload.region
@@ -1181,7 +1184,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         const newAddress: AddressSummary = {
           id: typeof body?.id === 'string' ? body.id : randomId(),
           name: payload.name ?? null,
-          purpose: null,
+          purpose: payload.purpose ?? null,
           addressLine1: payload.addressLine1,
           addressLine2: payload.addressLine2 ?? null,
           city: payload.city ?? null,
@@ -1216,6 +1219,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           isPrimary: payload.isPrimary ?? false,
         }
         if (typeof payload.name === 'string') bodyPayload.name = payload.name
+        if (typeof payload.purpose === 'string') bodyPayload.purpose = payload.purpose
         if (typeof payload.addressLine2 === 'string') bodyPayload.addressLine2 = payload.addressLine2
         if (typeof payload.city === 'string') bodyPayload.city = payload.city
         if (typeof payload.region === 'string') bodyPayload.region = payload.region
@@ -1260,7 +1264,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             return {
               ...address,
               name: payload.name ?? null,
-              purpose: null,
+              purpose: payload.purpose ?? null,
               addressLine1: payload.addressLine1,
               addressLine2: payload.addressLine2 ?? null,
               city: payload.city ?? null,

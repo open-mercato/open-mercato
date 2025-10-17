@@ -19,7 +19,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
 
-type DictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages'
+type DictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types'
 
 type DictionaryEntry = {
   id: string
@@ -118,6 +118,11 @@ export function DictionarySettings() {
       kind: 'lifecycle-stages' as const,
       title: t('customers.config.dictionaries.sections.lifecycle.title', 'Lifecycle stages'),
       description: t('customers.config.dictionaries.sections.lifecycle.description', 'Configure lifecycle stages to track customer progress.'),
+    },
+    {
+      kind: 'address-types' as const,
+      title: t('customers.config.dictionaries.sections.addressTypes.title', 'Address types'),
+      description: t('customers.config.dictionaries.sections.addressTypes.description', 'Define the available address types.'),
     },
   ]), [t])
 
@@ -218,20 +223,26 @@ function DictionarySection({
       }
       const items = Array.isArray(payload?.items) ? payload.items : []
       const normalized = items
-        .map((item: any) => {
-          const id = typeof item?.id === 'string' ? item.id : null
-          const value = typeof item?.value === 'string' ? item.value.trim() : ''
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null
+          const record = item as Record<string, unknown>
+          const id = typeof record.id === 'string' ? record.id : null
+          const value = typeof record.value === 'string' ? record.value.trim() : ''
           if (!id || !value) return null
-          const label = typeof item?.label === 'string' && item.label.trim().length ? item.label.trim() : value
-          const color = typeof item?.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(item.color) ? `#${item.color.slice(1).toLowerCase()}` : null
-          const icon = typeof item?.icon === 'string' && item.icon.trim().length ? item.icon.trim() : null
+          const label =
+            typeof record.label === 'string' && record.label.trim().length ? record.label.trim() : value
+          const color =
+            typeof record.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(record.color)
+              ? `#${record.color.slice(1).toLowerCase()}`
+              : null
+          const icon = typeof record.icon === 'string' && record.icon.trim().length ? record.icon.trim() : null
           return { id, value, label, color, icon }
         })
         .filter((entry): entry is DictionaryEntry => !!entry)
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
       setEntries(normalized)
-    } catch (err: any) {
-      const message = err?.message || errorLoad
+    } catch (err) {
+      const message = err instanceof Error ? err.message : errorLoad
       setError(message)
       flash(message, 'error')
       setEntries([])
@@ -308,7 +319,7 @@ function DictionarySection({
     } finally {
       setSaving(false)
     }
-  }, [closeDialogs, errorSave, formState.color, formState.icon, formState.label, formState.value, kind, loadEntries, saving, successSave])
+  }, [closeDialogs, errorSave, formState.color, formState.icon, formState.label, formState.value, kind, loadEntries, requiredValueMessage, saving, successSave])
 
   const handleUpdate = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -354,7 +365,7 @@ function DictionarySection({
     } finally {
       setSaving(false)
     }
-  }, [closeDialogs, editTarget, errorSave, formState.color, formState.icon, formState.label, formState.value, kind, loadEntries, saving, successSave])
+  }, [closeDialogs, editTarget, errorSave, formState.color, formState.icon, formState.label, formState.value, kind, loadEntries, requiredValueMessage, saving, successSave])
 
   const handleDelete = React.useCallback(async (entry: DictionaryEntry) => {
     const message = deleteConfirmTemplate.replace('{{value}}', entry.label || entry.value)
@@ -364,11 +375,12 @@ function DictionarySection({
         method: 'DELETE',
       })
       if (!res.ok) {
-        let payload: any = null
+        let payload: unknown = null
         try {
           payload = await res.json()
         } catch {}
-        const errMessage = typeof payload?.error === 'string' ? payload.error : errorDelete
+        const errorValue = (payload as { error?: unknown } | null)?.error
+        const errMessage = typeof errorValue === 'string' ? errorValue : errorDelete
         flash(errMessage, 'error')
         return
       }

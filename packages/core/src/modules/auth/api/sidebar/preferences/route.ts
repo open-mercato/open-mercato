@@ -173,8 +173,8 @@ export async function PUT(req: Request) {
   if (filteredClearRoleIds.length > 0) {
     await em.nativeDelete(RoleSidebarPreference, {
       role: { $in: filteredClearRoleIds },
-      tenantId: auth.tenantId ?? null,
       locale,
+      tenantId: auth.tenantId ?? null,
     })
     if (cache?.deleteByTags) {
       try {

@@ -100,6 +100,7 @@ export default function CustomersPeoplePage() {
     statuses: {},
     sources: {},
     'lifecycle-stages': {},
+    'address-types': {},
   })
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
@@ -128,7 +129,7 @@ export default function CustomersPeoplePage() {
     let cancelled = false
     async function loadAll() {
       if (cancelled) return
-      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {} })
+      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {} })
       await Promise.all([
         fetchDictionaryEntries('statuses'),
         fetchDictionaryEntries('sources'),

@@ -90,6 +90,8 @@ export default function CreatePersonPage() {
                 }
                 const name = normalize(entry.name)
                 if (name !== undefined) body.name = name
+                const purpose = normalize(entry.purpose)
+                if (purpose !== undefined) body.purpose = purpose
                 const line2 = normalize(entry.addressLine2)
                 if (line2 !== undefined) body.addressLine2 = line2
                 const city = normalize(entry.city)

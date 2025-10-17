@@ -68,7 +68,7 @@ export type DictionarySelectLabels = {
 }
 
 type DictionarySelectFieldProps = {
-  kind: 'statuses' | 'sources' | 'lifecycle-stages'
+  kind: 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types'
   value?: string
   onChange: (value: string | undefined) => void
   labels: DictionarySelectLabels
@@ -861,7 +861,7 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
               const next: CustomerAddressValue = {
                 id: nextId,
                 name: payload.name ?? null,
-                purpose: null,
+                purpose: payload.purpose ?? null,
                 addressLine1: payload.addressLine1,
                 addressLine2: payload.addressLine2 ?? null,
                 city: payload.city ?? null,
@@ -886,7 +886,7 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
                 return {
                   ...item,
                   name: payload.name ?? null,
-                  purpose: null,
+                  purpose: payload.purpose ?? null,
                   addressLine1: payload.addressLine1,
                   addressLine2: payload.addressLine2 ?? null,
                   city: payload.city ?? null,

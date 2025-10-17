@@ -75,14 +75,24 @@ export async function loadRoleSidebarPreferences(
 ): Promise<Map<string, SidebarPreferencesSettings>> {
   if (!options.roleIds.length) return new Map()
   const tenantId = options.tenantId ?? null
+  const tenantFilter = tenantId === null ? null : { $in: [tenantId, null] }
   const prefs = await em.find(RoleSidebarPreference, {
     role: { $in: options.roleIds },
-    tenantId,
+    tenantId: tenantFilter,
     locale: options.locale,
   })
   const map = new Map<string, SidebarPreferencesSettings>()
   for (const pref of prefs) {
-    map.set(pref.role.id, normalizeSidebarSettings(pref.settingsJson as SidebarPreferencesSettings | undefined))
+    const key = pref.role.id
+    if (tenantId !== null) {
+      const existing = map.get(key)
+      if (existing && pref.tenantId === null) continue
+      if (!existing || pref.tenantId === tenantId) {
+        map.set(key, normalizeSidebarSettings(pref.settingsJson as SidebarPreferencesSettings | undefined))
+      }
+      continue
+    }
+    map.set(key, normalizeSidebarSettings(pref.settingsJson as SidebarPreferencesSettings | undefined))
   }
   return map
 }
@@ -93,13 +103,22 @@ export async function loadFirstRoleSidebarPreference(
 ): Promise<SidebarPreferencesSettings | null> {
   if (!options.roleIds.length) return null
   const tenantId = options.tenantId ?? null
+  const tenantFilter = tenantId === null ? null : { $in: [tenantId, null] }
   const prefs = await em.find(RoleSidebarPreference, {
     role: { $in: options.roleIds },
-    tenantId,
+    tenantId: tenantFilter,
     locale: options.locale,
   })
   if (!prefs.length) return null
-  const ordered = options.roleIds.map((id) => prefs.find((pref) => pref.role.id === id)).filter(Boolean) as RoleSidebarPreference[]
+  const ordered = options.roleIds
+    .map((id) => {
+      if (tenantId !== null) {
+        const specific = prefs.find((pref) => pref.role.id === id && pref.tenantId === tenantId)
+        if (specific) return specific
+      }
+      return prefs.find((pref) => pref.role.id === id && pref.tenantId === null)
+    })
+    .filter(Boolean) as RoleSidebarPreference[]
   const first = ordered[0] ?? prefs[0]
   return normalizeSidebarSettings(first?.settingsJson as SidebarPreferencesSettings | undefined)
 }
