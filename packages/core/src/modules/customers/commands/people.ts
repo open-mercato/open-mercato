@@ -11,7 +11,13 @@ import {
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
-import { CustomerAddress, CustomerEntity, CustomerPersonProfile, CustomerTagAssignment } from '../data/entities'
+import {
+  CustomerAddress,
+  CustomerComment,
+  CustomerEntity,
+  CustomerPersonProfile,
+  CustomerTagAssignment,
+} from '../data/entities'
 import {
   personCreateSchema,
   personUpdateSchema,
@@ -52,6 +58,16 @@ type PersonAddressSnapshot = {
   isPrimary: boolean
 }
 
+type PersonCommentSnapshot = {
+  id: string
+  body: string
+  authorUserId: string | null
+  dealId: string | null
+  createdAt: Date
+  updatedAt: Date
+  deletedAt: Date | null
+}
+
 type PersonSnapshot = {
   entity: {
     id: string
@@ -85,6 +101,7 @@ type PersonSnapshot = {
   }
   tagIds: string[]
   addresses: PersonAddressSnapshot[]
+  comments: PersonCommentSnapshot[]
   custom?: Record<string, unknown>
 }
 
@@ -109,6 +126,7 @@ function serializePersonSnapshot(
   profile: CustomerPersonProfile,
   tagIds: string[],
   addresses: CustomerAddress[],
+  comments: CustomerComment[],
   custom?: Record<string, unknown>
 ): PersonSnapshot {
   return {
@@ -161,6 +179,19 @@ function serializePersonSnapshot(
       longitude: address.longitude ?? null,
       isPrimary: address.isPrimary,
     })),
+    comments: comments.map((comment) => ({
+      id: comment.id,
+      body: comment.body,
+      authorUserId: comment.authorUserId ?? null,
+      dealId: comment.deal
+        ? typeof comment.deal === 'string'
+          ? comment.deal
+          : comment.deal.id
+        : null,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+      deletedAt: comment.deletedAt ?? null,
+    })),
     custom,
   }
 }
@@ -172,13 +203,14 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
   if (!profile) return null
   const tagIds = await loadEntityTagIds(em, entity)
   const addresses = await em.find(CustomerAddress, { entity }, { orderBy: { createdAt: 'asc' } })
+  const comments = await em.find(CustomerComment, { entity }, { orderBy: { createdAt: 'asc' }, populate: ['deal'] })
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: PERSON_ENTITY_ID,
     recordId: profile.id,
     tenantId: entity.tenantId,
     organizationId: entity.organizationId,
   })
-  return serializePersonSnapshot(entity, profile, tagIds, addresses, custom)
+  return serializePersonSnapshot(entity, profile, tagIds, addresses, comments, custom)
 }
 
 async function resolveCompanyReference(
@@ -633,6 +665,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const profile = await em.findOne(CustomerPersonProfile, { entity: record })
       if (profile) em.remove(profile)
       await em.nativeDelete(CustomerAddress, { entity: record })
+      await em.nativeDelete(CustomerComment, { entity: record })
       await em.nativeDelete(CustomerTagAssignment, { entity: record })
       em.remove(record)
       await em.flush()
@@ -738,6 +771,24 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
 
       await em.flush()
       await syncEntityTags(em, entity, before.tagIds)
+      await em.flush()
+
+      await em.nativeDelete(CustomerComment, { entity })
+      for (const comment of before.comments) {
+        const restoredComment = em.create(CustomerComment, {
+          id: comment.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          entity,
+          body: comment.body,
+          authorUserId: comment.authorUserId,
+          deal: comment.dealId ?? null,
+          createdAt: comment.createdAt,
+          updatedAt: comment.updatedAt,
+          deletedAt: comment.deletedAt,
+        })
+        em.persist(restoredComment)
+      }
       await em.flush()
 
       await em.nativeDelete(CustomerAddress, { entity })
