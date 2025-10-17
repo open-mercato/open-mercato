@@ -45,5 +45,6 @@
   "customers.errors.unassign_failed": "Nie udało się odpiąć tagu",
   "customers.errors.todo_create_failed": "Nie udało się utworzyć zadania",
   "customers.errors.todo_link_failed": "Nie udało się powiązać zadania",
-  "customers.errors.todo_unlink_failed": "Nie udało się odpiąć zadania"
+  "customers.errors.todo_unlink_failed": "Nie udało się odpiąć zadania",
+  "customers.errors.todo_link_required": "Wymagany identyfikator powiązania zadania"
 }

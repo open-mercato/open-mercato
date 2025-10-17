@@ -7,6 +7,7 @@ import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib
 import { tagAssignmentSchema } from '../../../data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { withScopedPayload } from '../../utils'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['customers.activities.manage'] },
@@ -35,20 +36,8 @@ export async function POST(req: Request) {
   try {
     const { ctx, auth, translate } = await buildContext(req)
     const body = await req.json().catch(() => ({}))
-    const organizationId = body?.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
-    if (!organizationId) {
-      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
-    }
-    const tenantId = body?.tenantId ?? auth.tenantId ?? null
-    if (!tenantId) {
-      throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
-    }
-
-    const input = tagAssignmentSchema.parse({
-      ...body,
-      organizationId,
-      tenantId,
-    })
+    const scoped = withScopedPayload(body, ctx, translate)
+    const input = tagAssignmentSchema.parse(scoped)
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
     const { result, logEntry } = await commandBus.execute('customers.tags.unassign', { input, ctx })

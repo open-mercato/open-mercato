@@ -45,5 +45,6 @@
   "customers.errors.unassign_failed": "Failed to unassign tag",
   "customers.errors.todo_create_failed": "Failed to create todo",
   "customers.errors.todo_link_failed": "Failed to link todo",
-  "customers.errors.todo_unlink_failed": "Failed to unlink todo"
+  "customers.errors.todo_unlink_failed": "Failed to unlink todo",
+  "customers.errors.todo_link_required": "Todo link id is required"
 }

@@ -8,6 +8,7 @@ import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib
 import { todoLinkCreateSchema, todoLinkWithTodoCreateSchema } from '../../data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { withScopedPayload } from '../utils'
 
 const unlinkSchema = z.object({
   id: z.string().uuid(),
@@ -56,19 +57,13 @@ function attachOperationHeader(response: NextResponse, logEntry: any, fallbackId
 
 export async function POST(req: Request) {
   try {
-    const { ctx, auth, translate } = await buildContext(req)
+    const { ctx, translate } = await buildContext(req)
     const raw = await req.json().catch(() => ({}))
-    const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
-    if (!organizationId) {
-      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
-    }
-    const tenantId = raw?.tenantId ?? auth.tenantId ?? null
-    if (!tenantId) {
-      throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
-    }
-
-    const scopedPayload = { ...raw, organizationId, tenantId }
-    const input = todoLinkWithTodoCreateSchema.parse(scopedPayload)
+    const scopedPayload = withScopedPayload(raw, ctx, translate)
+    const input = todoLinkWithTodoCreateSchema.parse({
+      ...scopedPayload,
+      todoCustom: (scopedPayload as { todoCustom?: unknown; custom?: unknown }).todoCustom ?? (scopedPayload as { custom?: unknown }).custom,
+    })
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
     const { result, logEntry } = await commandBus.execute('customers.todos.create', { input, ctx })
@@ -93,18 +88,9 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   try {
-    const { ctx, auth, translate } = await buildContext(req)
+    const { ctx, translate } = await buildContext(req)
     const raw = await req.json().catch(() => ({}))
-    const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
-    if (!organizationId) {
-      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
-    }
-    const tenantId = raw?.tenantId ?? auth.tenantId ?? null
-    if (!tenantId) {
-      throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
-    }
-
-    const scopedPayload = { ...raw, organizationId, tenantId }
+    const scopedPayload = withScopedPayload(raw, ctx, translate)
     const input = todoLinkCreateSchema.parse(scopedPayload)
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
@@ -124,7 +110,7 @@ export async function PUT(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { ctx } = await buildContext(req)
+    const { ctx, translate } = await buildContext(req)
     let body: unknown = {}
     try {
       body = await req.json()
@@ -132,8 +118,11 @@ export async function DELETE(req: Request) {
       // ignore empty body
     }
     const params = new URL(req.url).searchParams
-    const id = (body as { id?: string })?.id ?? params.get('id')
-    const input = unlinkSchema.parse({ id })
+    const idValue = (body as { id?: string })?.id ?? params.get('id')
+    if (!idValue) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.todo_link_required', 'Todo link id is required') })
+    }
+    const input = unlinkSchema.parse({ id: idValue })
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
     const { result, logEntry } = await commandBus.execute('customers.todos.unlink', { input, ctx })

@@ -6,6 +6,7 @@ import { CustomerEntity } from '../../data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { companyCreateSchema, companyUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { withScopedPayload } from '../utils'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -82,19 +83,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const tenantId = raw?.tenantId ?? ctx.auth?.tenantId ?? null
-        if (!tenantId) {
-          throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
-        }
-        const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-        if (!organizationId) {
-          throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
-        }
-        return companyCreateSchema.parse({
-          ...raw,
-          tenantId,
-          organizationId,
-        })
+        return companyCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
       },
       response: ({ result }) => ({
         id: result?.entityId ?? result?.id ?? null,
@@ -107,19 +96,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const tenantId = raw?.tenantId ?? ctx.auth?.tenantId ?? null
-        if (!tenantId) {
-          throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
-        }
-        const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-        if (!organizationId) {
-          throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
-        }
-        return companyUpdateSchema.parse({
-          ...raw,
-          tenantId,
-          organizationId,
-        })
+        return companyUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
       },
       response: () => ({ ok: true }),
     },

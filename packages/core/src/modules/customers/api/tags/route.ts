@@ -6,6 +6,7 @@ import { CustomerTag } from '../../data/entities'
 import { tagCreateSchema, tagUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { withScopedPayload } from '../utils'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -54,15 +55,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const tenantId = raw?.tenantId ?? ctx.auth?.tenantId ?? null
-        if (!tenantId) throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
-        const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-        if (!organizationId) throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
-        return tagCreateSchema.parse({
-          ...raw,
-          tenantId,
-          organizationId,
-        })
+        return tagCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
       },
       response: ({ result }) => ({ id: result?.tagId ?? result?.id ?? null }),
       status: 201,
@@ -72,15 +65,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const tenantId = raw?.tenantId ?? ctx.auth?.tenantId ?? null
-        if (!tenantId) throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
-        const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-        if (!organizationId) throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
-        return tagUpdateSchema.parse({
-          ...raw,
-          tenantId,
-          organizationId,
-        })
+        return tagUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
       },
       response: () => ({ ok: true }),
     },
