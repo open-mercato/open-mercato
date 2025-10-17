@@ -16,6 +16,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 type TodoRow = TodoListItem & { organization_name?: string }
 
@@ -78,6 +79,7 @@ function buildBaseColumns(t: (key: string, params?: Record<string, string | numb
 
 export default function TodosTable() {
   const t = useT()
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [title, setTitle] = React.useState('')
   const [values, setValues] = React.useState<FilterValues>({})
@@ -259,6 +261,7 @@ export default function TodosTable() {
         onPageChange: setPage,
       }}
       isLoading={isLoading}
+      onRowClick={(row) => router.push(`/backend/todos/${row.id}/edit`)}
     />
   )
 }

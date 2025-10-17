@@ -5,7 +5,9 @@ export type AdminNavItem = {
   group: string
   groupId: string
   groupKey?: string
+  groupDefaultName: string
   title: string
+  defaultTitle: string
   titleKey?: string
   href: string
   enabled: boolean
@@ -124,7 +126,20 @@ export async function buildAdminNav(
       const order = (r as any).order as number | undefined
       const priority = ((r as any).priority as number | undefined) ?? order
       let icon = (r as any).icon as ReactNode | undefined
-      entries.push({ group: displayGroup, groupId, groupKey, title: displayTitle, titleKey, href, enabled, order, priority, icon })
+      entries.push({
+        group: displayGroup,
+        groupId,
+        groupKey,
+        groupDefaultName: displayGroup,
+        title: displayTitle,
+        defaultTitle: displayTitle,
+        titleKey,
+        href,
+        enabled,
+        order,
+        priority,
+        icon,
+      })
     }
   }
   // Build hierarchy: treat routes whose href starts with a parent href + '/'
@@ -164,10 +179,13 @@ export async function buildAdminNav(
         group: userEntitiesItem.group,
         groupId: userEntitiesItem.groupId,
         groupKey: userEntitiesItem.groupKey,
+        groupDefaultName: userEntitiesItem.groupDefaultName,
         title: entity.label,
+        defaultTitle: entity.label,
         href: entity.href,
         enabled: true,
         order: 1000, // High order to appear at the end
+        priority: 1000,
         icon: tableIcon,
       }))
       // Merge and deduplicate by href to avoid duplicates coming from server or generator

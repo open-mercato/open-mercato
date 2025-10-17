@@ -3,9 +3,12 @@ import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
+import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
 import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createRequestContainer } from '@/lib/di/container'
+import { applySidebarPreference, loadSidebarPreference } from '@open-mercato/core/modules/auth/services/sidebarPreferencesService'
 
 export default async function BackendLayout({ children, params }: { children: React.ReactNode; params?: { slug?: string[] } }) {
   const auth = await getAuthFromCookies()
@@ -46,28 +49,82 @@ export default async function BackendLayout({ children, params }: { children: Re
     (key, fallback) => (key ? translate(key, fallback) : fallback),
   )
   const groupMap = new Map<string, {
+    id: string,
+    key?: string,
     name: string,
-    items: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode; children?: { href: string; title: string; enabled?: boolean; icon?: React.ReactNode }[] }[],
+    defaultName: string,
+    items: AdminNavItem[],
     weight: number,
   }>()
-  for (const e of entries) {
-    const w = (e.priority ?? e.order ?? 10_000)
-    if (!groupMap.has(e.group)) {
-      groupMap.set(e.group, { name: e.group, items: [], weight: w })
+  for (const entry of entries) {
+    const weight = entry.priority ?? entry.order ?? 10_000
+    if (!groupMap.has(entry.groupId)) {
+      groupMap.set(entry.groupId, {
+        id: entry.groupId,
+        key: entry.groupKey,
+        name: entry.group,
+        defaultName: entry.groupDefaultName,
+        items: [entry],
+        weight,
+      })
     } else {
-      const g = groupMap.get(e.group)!
-      if (w < g.weight) g.weight = w
+      const group = groupMap.get(entry.groupId)!
+      group.items.push(entry)
+      if (weight < group.weight) group.weight = weight
+      if (!group.key && entry.groupKey) group.key = entry.groupKey
     }
-    const g = groupMap.get(e.group)!
-    g.items.push({
-      href: e.href,
-      title: e.title,
-      enabled: e.enabled,
-      icon: e.icon,
-      children: (e.children || []).map((c) => ({ href: c.href, title: c.title, enabled: c.enabled, icon: c.icon })),
-    })
   }
-  const groups = Array.from(groupMap.values()).sort((a, b) => a.weight - b.weight)
+
+  const mapItem = (item: AdminNavItem) => ({
+    href: item.href,
+    title: item.title,
+    defaultTitle: item.defaultTitle,
+    enabled: item.enabled,
+    icon: item.icon,
+    children: item.children?.map(mapItem),
+  })
+
+  const baseGroups = Array.from(groupMap.values()).map((group) => ({
+    id: group.id,
+    name: group.name,
+    defaultName: group.defaultName,
+    weight: group.weight,
+    items: group.items.map((item) => mapItem(item)),
+  }))
+  baseGroups.sort((a, b) => a.weight - b.weight)
+
+  let sidebarPreference = null
+  if (auth) {
+    try {
+      const container = await createRequestContainer()
+      const em = container.resolve('em') as any
+      sidebarPreference = await loadSidebarPreference(em, {
+        userId: auth.sub,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        locale,
+      })
+    } catch {}
+  }
+
+  const appliedGroups = sidebarPreference ? applySidebarPreference(baseGroups, sidebarPreference) : baseGroups
+
+  const materializeItem = (item: ReturnType<typeof mapItem>) => ({
+    href: item.href,
+    title: item.title,
+    defaultTitle: item.defaultTitle,
+    enabled: item.enabled,
+    icon: item.icon,
+    children: item.children?.map(materializeItem),
+  })
+
+  const groups = appliedGroups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    defaultName: group.defaultName,
+    items: group.items.map((item) => materializeItem(item)),
+    weight: group.weight,
+  }))
 
   // Derive current title from path and fetched groups
   const allEntries: Array<{ href: string; title: string; group: string; children?: any[] }> = groups.flatMap((g) => g.items.map((i: any) => ({ ...i, group: g.name })))

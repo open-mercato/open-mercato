@@ -11,6 +11,22 @@ type UndoEnvelope<T> = {
   [key: string]: unknown
 }
 
+function normalizeDictionaryColor(input: unknown): string | null {
+  if (typeof input !== 'string') return null
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  const hexMatch = /^#([0-9a-fA-F]{6})$/.exec(trimmed)
+  if (!hexMatch) return null
+  return `#${hexMatch[1].toLowerCase()}`
+}
+
+function normalizeDictionaryIcon(input: unknown): string | null {
+  if (typeof input !== 'string') return null
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  return trimmed.slice(0, 48)
+}
+
 export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
   const currentTenant = ctx.auth?.tenantId ?? null
   if (currentTenant && currentTenant !== tenantId) {
@@ -126,7 +142,15 @@ const DICTIONARY_KINDS = new Set(['status', 'source', 'lifecycle_stage'])
 
 export async function ensureDictionaryEntry(
   em: EntityManager,
-  params: { tenantId: string; organizationId: string; kind: 'status' | 'source' | 'lifecycle_stage'; value: string; label?: string | null }
+  params: {
+    tenantId: string
+    organizationId: string
+    kind: 'status' | 'source' | 'lifecycle_stage'
+    value: string
+    label?: string | null
+    color?: string | null | undefined
+    icon?: string | null | undefined
+  }
 ): Promise<CustomerDictionaryEntry | null> {
   const trimmed = params.value?.trim()
   if (!trimmed) return null
@@ -134,13 +158,34 @@ export async function ensureDictionaryEntry(
     throw new CrudHttpError(400, { error: 'Unsupported dictionary kind' })
   }
   const normalized = trimmed.toLowerCase()
+  const color = params.color === undefined ? undefined : normalizeDictionaryColor(params.color)
+  const icon = params.icon === undefined ? undefined : normalizeDictionaryIcon(params.icon)
   const existing = await em.findOne(CustomerDictionaryEntry, {
     tenantId: params.tenantId,
     organizationId: params.organizationId,
     kind: params.kind,
     normalizedValue: normalized,
   })
-  if (existing) return existing
+  if (existing) {
+    let changed = false
+    if (color !== undefined) {
+      if (existing.color !== color) {
+        existing.color = color ?? null
+        changed = true
+      }
+    }
+    if (icon !== undefined) {
+      if (existing.icon !== icon) {
+        existing.icon = icon ?? null
+        changed = true
+      }
+    }
+    if (changed) {
+      existing.updatedAt = new Date()
+      em.persist(existing)
+    }
+    return existing
+  }
   const entry = em.create(CustomerDictionaryEntry, {
     tenantId: params.tenantId,
     organizationId: params.organizationId,
@@ -148,6 +193,8 @@ export async function ensureDictionaryEntry(
     value: trimmed,
     label: params.label?.trim() || trimmed,
     normalizedValue: normalized,
+    color: color ?? null,
+    icon: icon ?? null,
   })
   em.persist(entry)
   return entry

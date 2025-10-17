@@ -6,9 +6,14 @@ import { ensureDictionaryEntry } from '../../../commands/shared'
 import { mapDictionaryKind, resolveDictionaryRouteContext } from '../context'
 import { z } from 'zod'
 
+const colorSchema = z.string().trim().regex(/^#([0-9A-Fa-f]{6})$/, 'Invalid color hex')
+const iconSchema = z.string().trim().min(1).max(48)
+
 const postSchema = z.object({
   value: z.string().trim().min(1).max(150),
   label: z.string().trim().max(150).optional(),
+  color: colorSchema.optional(),
+  icon: iconSchema.optional(),
 })
 
 export const metadata = {
@@ -32,6 +37,8 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
         id: entry.id,
         value: entry.value,
         label: entry.label,
+        color: entry.color,
+        icon: entry.icon,
       })),
     })
   } catch (err) {
@@ -58,12 +65,6 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
       kind: mappedKind,
       normalizedValue: normalized,
     })
-    if (existing) {
-      return NextResponse.json(
-        { id: existing.id, value: existing.value, label: existing.label },
-        { status: 200 }
-      )
-    }
 
     const entry = await ensureDictionaryEntry(context.em, {
       tenantId: context.tenantId,
@@ -71,7 +72,17 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
       kind: mappedKind,
       value,
       label: body.label ?? value,
+      color: body.color,
+      icon: body.icon,
     })
+    let hasChanges = false
+    if (existing && body.label !== undefined && entry.label !== body.label) {
+      entry.label = body.label
+      hasChanges = true
+    }
+    if (hasChanges) {
+      entry.updatedAt = new Date()
+    }
     await context.em.flush()
 
     if (!entry) {
@@ -79,8 +90,8 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
     }
 
     return NextResponse.json(
-      { id: entry.id, value: entry.value, label: entry.label },
-      { status: 201 }
+      { id: entry.id, value: entry.value, label: entry.label, color: entry.color, icon: entry.icon },
+      { status: existing ? 200 : 201 }
     )
   } catch (err) {
     if (err instanceof CrudHttpError) {

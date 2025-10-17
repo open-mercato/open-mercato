@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -12,7 +14,6 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
-import Link from 'next/link'
 
 type CustomerTodoItem = {
   id: string
@@ -39,23 +40,22 @@ type CustomerTodosResponse = {
   totalPages: number
 }
 
-function formatDateTime(value: string | null): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleString()
-}
+const TASKS_TAB_QUERY = 'tab=tasks'
 
 function buildCustomerHref(item: CustomerTodoItem): string | null {
-  if (!item.customer?.id) return null
-  const kind = (item.customer.kind ?? '').toLowerCase()
-  if (kind === 'person') return `/backend/customers/people/${item.customer.id}`
-  if (kind === 'company') return `/backend/customers/companies/${item.customer.id}`
-  return `/backend/customers/people/${item.customer.id}`
+  const customerId = item.customer?.id
+  if (!customerId) return null
+  const kind = (item.customer?.kind ?? '').toLowerCase()
+  const base =
+    kind === 'company'
+      ? `/backend/customers/companies/${customerId}`
+      : `/backend/customers/people/${customerId}`
+  return `${base}?${TASKS_TAB_QUERY}`
 }
 
 export function CustomerTodosTable(): JSX.Element {
   const t = useT()
+  const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
 
   const [search, setSearch] = React.useState('')
@@ -96,20 +96,6 @@ export function CustomerTodosTable(): JSX.Element {
 
   const columns = React.useMemo<ColumnDef<CustomerTodoItem>[]>(() => [
     {
-      accessorKey: 'todoTitle',
-      header: t('customers.workPlan.customerTodos.table.column.todo'),
-      cell: ({ row }) => {
-        const todoId = row.original.todoId
-        if (!todoId) return <span className="text-muted-foreground">—</span>
-        return (
-          <Link href={`/backend/todos/${todoId}/edit`} className="underline-offset-2 hover:underline">
-            {row.original.todoTitle ?? t('customers.workPlan.customerTodos.table.column.todo.unnamed')}
-          </Link>
-        )
-      },
-      meta: { priority: 1 },
-    },
-    {
       accessorKey: 'customer.displayName',
       header: t('customers.workPlan.customerTodos.table.column.customer'),
       cell: ({ row }) => {
@@ -123,6 +109,21 @@ export function CustomerTodosTable(): JSX.Element {
           </Link>
         )
       },
+      meta: { priority: 1 },
+    },
+    {
+      accessorKey: 'todoTitle',
+      header: t('customers.workPlan.customerTodos.table.column.todo'),
+      cell: ({ row }) => {
+        const title = row.original.todoTitle ?? t('customers.workPlan.customerTodos.table.column.todo.unnamed')
+        const todoId = row.original.todoId
+        if (!todoId) return <span className="text-muted-foreground">{title}</span>
+        return (
+          <Link href={`/backend/todos/${todoId}/edit`} className="underline-offset-2 hover:underline">
+            {title}
+          </Link>
+        )
+      },
       meta: { priority: 2 },
     },
     {
@@ -130,17 +131,6 @@ export function CustomerTodosTable(): JSX.Element {
       header: t('customers.workPlan.customerTodos.table.column.done'),
       cell: ({ row }) => <BooleanIcon value={row.original.todoIsDone === true} />,
       meta: { priority: 3 },
-    },
-    {
-      accessorKey: 'createdAt',
-      header: t('customers.workPlan.customerTodos.table.column.createdAt'),
-      cell: ({ row }) => <span>{formatDateTime(row.original.createdAt)}</span>,
-      meta: { priority: 4 },
-    },
-    {
-      accessorKey: 'todoSource',
-      header: t('customers.workPlan.customerTodos.table.column.source'),
-      meta: { priority: 5 },
     },
   ], [t])
 
@@ -183,6 +173,12 @@ export function CustomerTodosTable(): JSX.Element {
 
   const rows = data?.items ?? []
 
+  const handleNavigate = React.useCallback((item: CustomerTodoItem) => {
+    const href = buildCustomerHref(item)
+    if (!href) return
+    router.push(href)
+  }, [router])
+
   return (
     <DataTable
       title={t('customers.workPlan.customerTodos.table.title')}
@@ -207,23 +203,20 @@ export function CustomerTodosTable(): JSX.Element {
       onFiltersApply={onFiltersApply}
       onFiltersClear={onFiltersClear}
       rowActions={(row) => {
-        const actions = []
-        if (row.todoId) {
-          actions.push({
-            label: t('customers.workPlan.customerTodos.table.actions.openTask'),
-            href: `/backend/todos/${row.todoId}/edit`,
-          })
-        }
         const customerLink = buildCustomerHref(row)
-        if (customerLink) {
-          actions.push({
-            label: t('customers.workPlan.customerTodos.table.actions.openCustomer'),
-            href: customerLink,
-          })
-        }
-        if (actions.length === 0) return null
-        return <RowActions items={actions} />
+        if (!customerLink) return null
+        return (
+          <RowActions
+            items={[
+              {
+                label: t('customers.workPlan.customerTodos.table.actions.openCustomer'),
+                href: customerLink,
+              },
+            ]}
+          />
+        )
       }}
+      onRowClick={handleNavigate}
       pagination={{
         page,
         pageSize,

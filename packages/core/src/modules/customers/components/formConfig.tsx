@@ -25,6 +25,7 @@ import type {
 } from '@open-mercato/ui/backend/CrudForm'
 import { useEmailDuplicateCheck } from '../backend/hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../utils/phoneDuplicates'
+import { renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 
 export const metadata = {
   navHidden: true,
@@ -46,7 +47,7 @@ export type PersonFormValues = {
   description?: string
 } & Record<string, unknown>
 
-type DictionaryOption = { value: string; label: string }
+type DictionaryOption = { value: string; label: string; color?: string | null; icon?: string | null }
 
 export type DictionarySelectLabels = {
   placeholder: string

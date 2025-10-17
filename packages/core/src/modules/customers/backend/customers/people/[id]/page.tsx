@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Check, Loader2, Mail, Pencil, Plus, X } from 'lucide-react'
+import { Check, Loader2, Mail, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
@@ -991,10 +991,18 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const id = params?.id
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const initialTab = React.useMemo(() => {
+    const raw = searchParams?.get('tab')
+    if (raw === 'notes' || raw === 'activities' || raw === 'deals' || raw === 'addresses' || raw === 'tasks') {
+      return raw
+    }
+    return 'notes'
+  }, [searchParams])
   const [data, setData] = React.useState<PersonOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [activeTab, setActiveTab] = React.useState<'notes' | 'activities' | 'deals' | 'addresses' | 'tasks'>('notes')
+  const [activeTab, setActiveTab] = React.useState<'notes' | 'activities' | 'deals' | 'addresses' | 'tasks'>(initialTab)
   const [sectionPending, setSectionPending] = React.useState<Record<SectionKey, boolean>>({
     notes: false,
     activities: false,
@@ -1003,6 +1011,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     tasks: false,
   })
   const personId = data?.person?.id ?? null
+  const [isDeleting, setIsDeleting] = React.useState(false)
 
   const validators = React.useMemo(() => ({
     email: (value: string) => {
@@ -1015,6 +1024,38 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       return value.length >= 3 ? null : t('customers.people.detail.inline.phoneInvalid')
     },
   }), [t])
+
+  const personName = React.useMemo(
+    () => (data?.person?.displayName ? data.person.displayName : t('customers.people.list.deleteFallbackName')),
+    [data?.person?.displayName, t],
+  )
+
+  const handleDelete = React.useCallback(async () => {
+    if (!personId) return
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm(t('customers.people.list.deleteConfirm', { name: personName }))
+      : true
+    if (!confirmed) return
+    setIsDeleting(true)
+    try {
+      const res = await apiFetch(`/api/customers/people?id=${encodeURIComponent(personId)}`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+      })
+      if (!res.ok) {
+        const details = await res.json().catch(() => ({}))
+        const message = typeof details?.error === 'string' ? details.error : t('customers.people.list.deleteError')
+        throw new Error(message)
+      }
+      flash(t('customers.people.list.deleteSuccess'), 'success')
+      router.push('/backend/customers/people')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customers.people.list.deleteError')
+      flash(message, 'error')
+    } finally {
+      setIsDeleting(false)
+    }
+  }, [personId, personName, router, t])
 
   React.useEffect(() => {
     if (!id) {
@@ -1283,17 +1324,28 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   return (
     <Page>
       <PageBody className="space-y-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">
-              {t('customers.people.detail.person')}
-            </div>
-            <h1 className="mt-1 text-2xl font-semibold">{person.displayName}</h1>
-            <div className="mt-2 text-sm text-muted-foreground">
-              <Link href="/backend/customers/people" className="hover:underline">
-                {t('customers.people.detail.actions.backToList')}
-              </Link>
-            </div>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/backend/customers/people"
+              className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+            >
+              <span aria-hidden className="mr-1 text-base">←</span>
+              <span className="sr-only">{t('customers.people.detail.actions.backToList')}</span>
+            </Link>
+            <h1 className="text-2xl font-semibold">{person.displayName}</h1>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              {t('customers.people.list.actions.delete')}
+            </Button>
           </div>
         </div>
 

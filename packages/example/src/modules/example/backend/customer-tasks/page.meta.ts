@@ -11,7 +11,7 @@ const usersIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['customers.activities.view'],
+  requireFeatures: ['example.todos.view', 'customers.activities.view'],
   pageTitle: 'Customer related tasks',
   pageTitleKey: 'customers.workPlan.customerTodos.page.title',
   pageGroup: 'Work plan',

@@ -522,6 +522,12 @@ export class CustomerDictionaryEntry {
   @Property({ type: 'text' })
   label!: string
 
+  @Property({ type: 'text', nullable: true })
+  color?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  icon?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 

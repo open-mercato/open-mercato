@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
+import { ICON_SUGGESTIONS, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -24,6 +25,8 @@ type DictionaryEntry = {
   id: string
   value: string
   label: string
+  color: string | null
+  icon: string | null
 }
 
 export default DictionarySettings
@@ -34,6 +37,7 @@ type DictionarySectionProps = {
   description: string
   valueLabel: string
   labelLabel: string
+  appearanceLabel: string
   actionsLabel: string
   emptyLabel: string
   addLabel: string
@@ -44,6 +48,14 @@ type DictionarySectionProps = {
   editDialogTitle: string
   dialogValueLabel: string
   dialogLabelLabel: string
+  dialogColorLabel: string
+  dialogColorHelp: string
+  dialogIconLabel: string
+  dialogIconPlaceholder: string
+  dialogIconSuggestionsLabel: string
+  dialogIconClearLabel: string
+  dialogColorClearLabel: string
+  appearanceEmptyLabel: string
   dialogSaveLabel: string
   dialogCancelLabel: string
   deleteConfirmTemplate: string
@@ -61,6 +73,7 @@ export function DictionarySettings() {
   const common = React.useMemo(() => ({
     valueLabel: t('customers.config.dictionaries.columns.value', 'Value'),
     labelLabel: t('customers.config.dictionaries.columns.label', 'Label'),
+    appearanceLabel: t('customers.config.dictionaries.columns.appearance', 'Appearance'),
     actionsLabel: t('customers.config.dictionaries.columns.actions', 'Actions'),
     emptyLabel: t('customers.config.dictionaries.empty', 'No entries yet.'),
     addLabel: t('customers.config.dictionaries.actions.add', 'Add entry'),
@@ -71,6 +84,14 @@ export function DictionarySettings() {
     editDialogTitle: t('customers.config.dictionaries.dialog.editTitle', 'Edit entry'),
     dialogValueLabel: t('customers.config.dictionaries.dialog.valueLabel', 'Value'),
     dialogLabelLabel: t('customers.config.dictionaries.dialog.labelLabel', 'Label'),
+    dialogColorLabel: t('customers.config.dictionaries.dialog.colorLabel', 'Color'),
+    dialogColorHelp: t('customers.config.dictionaries.dialog.colorHelp', 'Pick a highlight color for this entry.'),
+    dialogColorClearLabel: t('customers.config.dictionaries.dialog.colorClear', 'Remove color'),
+    dialogIconLabel: t('customers.config.dictionaries.dialog.iconLabel', 'Icon'),
+    dialogIconPlaceholder: t('customers.config.dictionaries.dialog.iconPlaceholder', 'Type an emoji or pick one of the suggestions.'),
+    dialogIconSuggestionsLabel: t('customers.config.dictionaries.dialog.iconSuggestions', 'Suggestions'),
+    dialogIconClearLabel: t('customers.config.dictionaries.dialog.iconClear', 'Remove icon'),
+    appearanceEmptyLabel: t('customers.config.dictionaries.appearance.empty', 'None'),
     dialogSaveLabel: t('customers.config.dictionaries.dialog.save', 'Save'),
     dialogCancelLabel: t('customers.config.dictionaries.dialog.cancel', 'Cancel'),
     deleteConfirmTemplate: t('customers.config.dictionaries.deleteConfirm', 'Delete "{{value}}"?'),
@@ -129,6 +150,8 @@ export function DictionarySettings() {
 type FormState = {
   value: string
   label: string
+  color: string
+  icon: string
 }
 
 function DictionarySection({
@@ -137,6 +160,7 @@ function DictionarySection({
   description,
   valueLabel,
   labelLabel,
+  appearanceLabel,
   actionsLabel,
   emptyLabel,
   addLabel,
@@ -147,6 +171,14 @@ function DictionarySection({
   editDialogTitle,
   dialogValueLabel,
   dialogLabelLabel,
+  dialogColorLabel,
+  dialogColorHelp,
+  dialogIconLabel,
+  dialogIconPlaceholder,
+  dialogIconSuggestionsLabel,
+  dialogIconClearLabel,
+  dialogColorClearLabel,
+  appearanceEmptyLabel,
   dialogSaveLabel,
   dialogCancelLabel,
   deleteConfirmTemplate,
@@ -163,11 +195,11 @@ function DictionarySection({
   const [addOpen, setAddOpen] = React.useState(false)
   const [editOpen, setEditOpen] = React.useState(false)
   const [editTarget, setEditTarget] = React.useState<DictionaryEntry | null>(null)
-  const [formState, setFormState] = React.useState<FormState>({ value: '', label: '' })
+  const [formState, setFormState] = React.useState<FormState>({ value: '', label: '', color: '', icon: '' })
   const [saving, setSaving] = React.useState(false)
 
   const resetForm = React.useCallback(() => {
-    setFormState({ value: '', label: '' })
+    setFormState({ value: '', label: '', color: '', icon: '' })
     setSaving(false)
   }, [])
 
@@ -191,7 +223,9 @@ function DictionarySection({
           const value = typeof item?.value === 'string' ? item.value.trim() : ''
           if (!id || !value) return null
           const label = typeof item?.label === 'string' && item.label.trim().length ? item.label.trim() : value
-          return { id, value, label }
+          const color = typeof item?.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(item.color) ? `#${item.color.slice(1).toLowerCase()}` : null
+          const icon = typeof item?.icon === 'string' && item.icon.trim().length ? item.icon.trim() : null
+          return { id, value, label, color, icon }
         })
         .filter((entry): entry is DictionaryEntry => !!entry)
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
@@ -217,7 +251,12 @@ function DictionarySection({
 
   const openEditDialog = React.useCallback((entry: DictionaryEntry) => {
     setEditTarget(entry)
-    setFormState({ value: entry.value, label: entry.label })
+    setFormState({
+      value: entry.value,
+      label: entry.label,
+      color: entry.color ?? '',
+      icon: entry.icon ?? '',
+    })
     setEditOpen(true)
   }, [])
 
@@ -237,6 +276,8 @@ function DictionarySection({
     if (saving) return
     const value = formState.value.trim()
     const label = formState.label.trim()
+    const color = formState.color.trim()
+    const icon = formState.icon.trim()
     if (!value) {
       flash(requiredValueMessage, 'error')
       return
@@ -246,7 +287,12 @@ function DictionarySection({
       const res = await apiFetch(`/api/customers/dictionaries/${kind}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ value, label: label || undefined }),
+        body: JSON.stringify({
+          value,
+          label: label || undefined,
+          color: color || undefined,
+          icon: icon || undefined,
+        }),
       })
       const payload = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -262,23 +308,37 @@ function DictionarySection({
     } finally {
       setSaving(false)
     }
-  }, [closeDialogs, errorSave, formState.label, formState.value, kind, loadEntries, saving, successSave])
+  }, [closeDialogs, errorSave, formState.color, formState.icon, formState.label, formState.value, kind, loadEntries, saving, successSave])
 
   const handleUpdate = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (saving || !editTarget) return
     const value = formState.value.trim()
     const label = formState.label.trim()
+    const color = formState.color.trim()
+    const icon = formState.icon.trim()
     if (!value) {
       flash(requiredValueMessage, 'error')
       return
     }
     setSaving(true)
     try {
+      const body: Record<string, unknown> = { value }
+      if (label !== editTarget.label) {
+        body.label = label
+      }
+      const targetColor = editTarget.color ?? ''
+      if (color !== targetColor) {
+        body.color = color || null
+      }
+      const targetIcon = editTarget.icon ?? ''
+      if (icon !== targetIcon) {
+        body.icon = icon || null
+      }
       const res = await apiFetch(`/api/customers/dictionaries/${kind}/${encodeURIComponent(editTarget.id)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ value, label: label || undefined }),
+        body: JSON.stringify(body),
       })
       const payload = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -294,7 +354,7 @@ function DictionarySection({
     } finally {
       setSaving(false)
     }
-  }, [closeDialogs, editTarget, errorSave, formState.label, formState.value, kind, loadEntries, saving, successSave])
+  }, [closeDialogs, editTarget, errorSave, formState.color, formState.icon, formState.label, formState.value, kind, loadEntries, saving, successSave])
 
   const handleDelete = React.useCallback(async (entry: DictionaryEntry) => {
     const message = deleteConfirmTemplate.replace('{{value}}', entry.label || entry.value)
@@ -318,6 +378,102 @@ function DictionarySection({
       flash(errorDelete, 'error')
     }
   }, [deleteConfirmTemplate, errorDelete, kind, loadEntries, successDelete])
+
+  const AppearanceInputs = () => {
+    const hasAppearance = Boolean(formState.icon || formState.color)
+    return (
+      <>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            {dialogColorLabel}
+            {renderDictionaryColor(formState.color, 'h-4 w-4 rounded-sm')}
+          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="color"
+              value={formState.color || '#4f46e5'}
+              onChange={(event) => handleInputChange('color', event.target.value)}
+              className="h-9 w-12 cursor-pointer rounded border bg-background p-1"
+              aria-label={dialogColorLabel}
+              disabled={saving}
+            />
+            <span className="min-w-[160px] flex-1 text-xs text-muted-foreground">{dialogColorHelp}</span>
+            {formState.color ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handleInputChange('color', '')}
+                disabled={saving}
+              >
+                {dialogColorClearLabel}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            {dialogIconLabel}
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded border border-dashed">
+              {renderDictionaryIcon(formState.icon, 'h-4 w-4')}
+            </span>
+          </label>
+          <input
+            type="text"
+            value={formState.icon}
+            onChange={(event) => handleInputChange('icon', event.target.value)}
+            placeholder={dialogIconPlaceholder}
+            className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            disabled={saving}
+          />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="inline-flex items-center gap-2 rounded border border-dashed px-2 py-1">
+              {renderDictionaryIcon(formState.icon, 'h-4 w-4')}
+              {renderDictionaryColor(formState.color, 'h-4 w-4 rounded-sm')}
+            </div>
+            <span>{hasAppearance ? '' : appearanceEmptyLabel}</span>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {dialogIconSuggestionsLabel}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {ICON_SUGGESTIONS.map((suggestion) => {
+                const isSelected = formState.icon === suggestion.value
+                return (
+                  <button
+                    key={suggestion.value}
+                    type="button"
+                    className={`flex h-8 w-8 items-center justify-center rounded border text-sm transition ${
+                      isSelected ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary'
+                    }`}
+                    onClick={() => handleInputChange('icon', suggestion.value)}
+                    title={suggestion.label}
+                    aria-label={suggestion.label}
+                    aria-pressed={isSelected}
+                    disabled={saving}
+                  >
+                    {renderDictionaryIcon(suggestion.value, 'h-4 w-4')}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          {formState.icon ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => handleInputChange('icon', '')}
+              disabled={saving}
+            >
+              {dialogIconClearLabel}
+            </Button>
+          ) : null}
+        </div>
+      </>
+    )
+  }
 
   return (
     <section className="rounded border bg-card text-card-foreground shadow-sm">
@@ -368,6 +524,7 @@ function DictionarySection({
                     className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   />
                 </div>
+                <AppearanceInputs />
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={closeDialogs} disabled={saving}>
                     {dialogCancelLabel}
@@ -396,9 +553,10 @@ function DictionarySection({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-1/3">{valueLabel}</TableHead>
-                <TableHead className="w-1/3">{labelLabel}</TableHead>
-                <TableHead className="w-1/3 text-right">{actionsLabel}</TableHead>
+                <TableHead className="w-1/4">{valueLabel}</TableHead>
+                <TableHead className="w-1/4">{labelLabel}</TableHead>
+                <TableHead className="w-1/4">{appearanceLabel}</TableHead>
+                <TableHead className="w-1/4 text-right">{actionsLabel}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -406,6 +564,25 @@ function DictionarySection({
                 <TableRow key={entry.id}>
                   <TableCell className="font-medium">{entry.value}</TableCell>
                   <TableCell>{entry.label}</TableCell>
+                  <TableCell>
+                    {entry.icon || entry.color ? (
+                      <div className="flex flex-wrap items-center gap-3">
+                        {entry.icon ? (
+                          <span className="inline-flex h-8 w-8 items-center justify-center rounded border border-border">
+                            {renderDictionaryIcon(entry.icon, 'h-4 w-4')}
+                          </span>
+                        ) : null}
+                        {entry.color ? (
+                          <span className="inline-flex items-center gap-2 text-xs font-medium">
+                            {renderDictionaryColor(entry.color, 'h-4 w-4 rounded-sm')}
+                            <span className="text-muted-foreground">{entry.color}</span>
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{appearanceEmptyLabel}</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Dialog open={editOpen && editTarget?.id === entry.id} onOpenChange={(open) => (open ? openEditDialog(entry) : closeDialogs())}>
@@ -440,6 +617,7 @@ function DictionarySection({
                                 className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                               />
                             </div>
+                            <AppearanceInputs />
                             <DialogFooter>
                               <Button type="button" variant="outline" onClick={closeDialogs} disabled={saving}>
                                 {dialogCancelLabel}

@@ -13,8 +13,10 @@ const patchSchema = z
   .object({
     value: z.string().trim().min(1).max(150).optional(),
     label: z.string().trim().max(150).optional(),
+    color: z.union([z.string().trim(), z.null()]).optional(),
+    icon: z.union([z.string().trim(), z.null()]).optional(),
   })
-  .refine((input) => input.value !== undefined || input.label !== undefined, {
+  .refine((input) => input.value !== undefined || input.label !== undefined || input.color !== undefined || input.icon !== undefined, {
     message: 'No changes provided',
   })
 
@@ -67,8 +69,42 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
       hasChanges = true
     }
 
+    if (payload.color !== undefined) {
+      const colorInput = payload.color
+      const normalizedColor =
+        colorInput === null || colorInput === ''
+          ? null
+          : /^#([0-9A-Fa-f]{6})$/.test(colorInput)
+            ? `#${colorInput.slice(1).toLowerCase()}`
+            : null
+      if (colorInput && !normalizedColor) {
+        throw new CrudHttpError(400, { error: routeContext.translate('customers.config.dictionaries.errors.invalidColor', 'Color must be a valid hex value like #3366ff') })
+      }
+      if (entry.color !== normalizedColor) {
+        entry.color = normalizedColor
+        hasChanges = true
+      }
+    }
+
+    if (payload.icon !== undefined) {
+      const iconInput = payload.icon
+      const normalizedIcon =
+        iconInput === null || iconInput === ''
+          ? null
+          : iconInput.length > 48
+            ? iconInput.slice(0, 48)
+            : iconInput
+      if (normalizedIcon && normalizedIcon.length === 0) {
+        throw new CrudHttpError(400, { error: routeContext.translate('customers.config.dictionaries.errors.invalidIcon', 'Icon must be a short name or emoji') })
+      }
+      if (entry.icon !== normalizedIcon) {
+        entry.icon = normalizedIcon
+        hasChanges = true
+      }
+    }
+
     if (!hasChanges) {
-      return NextResponse.json({ id: entry.id, value: entry.value, label: entry.label })
+      return NextResponse.json({ id: entry.id, value: entry.value, label: entry.label, color: entry.color, icon: entry.icon })
     }
 
     await routeContext.em.flush()
@@ -77,6 +113,8 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
       id: entry.id,
       value: entry.value,
       label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
     })
   } catch (err) {
     if (err instanceof CrudHttpError) {
