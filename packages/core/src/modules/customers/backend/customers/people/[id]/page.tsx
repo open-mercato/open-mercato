@@ -18,7 +18,8 @@ import { Check, Loader2, Mail, Pencil, Plus, X } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
-import { DictionarySelectField } from '../components/formConfig'
+import { DictionarySelectField } from '../../../../components/formConfig'
+import { useEmailDuplicateCheck } from '../../../hooks/useEmailDuplicateCheck'
 
 type TagSummary = { id: string; label: string; color?: string | null }
 type AddressSummary = {
@@ -160,67 +161,25 @@ function InlineTextEditor({
   const [draft, setDraft] = React.useState(value ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
-  const [duplicate, setDuplicate] = React.useState<{ id: string; displayName: string } | null>(null)
-  const [checkingDuplicate, setCheckingDuplicate] = React.useState(false)
+  const trimmedDraft = React.useMemo(() => draft.trim(), [draft])
+  const isEmailField = type === 'email'
+  const isValidEmailForLookup = React.useMemo(() => {
+    if (!isEmailField) return false
+    if (!trimmedDraft.length) return false
+    if (!validator) return true
+    return validator(trimmedDraft) === null
+  }, [isEmailField, trimmedDraft, validator])
+  const { duplicate, checking } = useEmailDuplicateCheck(draft, {
+    recordId,
+    disabled: !editing || !isEmailField || !!error || saving || !isValidEmailForLookup,
+    matchMode: 'prefix',
+  })
 
   React.useEffect(() => {
     if (!editing) {
       setDraft(value ?? '')
-      setDuplicate(null)
-      setCheckingDuplicate(false)
     }
   }, [editing, value])
-
-  React.useEffect(() => {
-    if (!editing || type !== 'email') return
-    const trimmed = draft.trim().toLowerCase()
-    const initial = typeof value === 'string' ? value.trim().toLowerCase() : ''
-    if (!trimmed || trimmed === initial) {
-      setDuplicate(null)
-      setCheckingDuplicate(false)
-      return
-    }
-    if (validator && validator(trimmed)) {
-      setDuplicate(null)
-      setCheckingDuplicate(false)
-      return
-    }
-    let cancelled = false
-    const timer = window.setTimeout(async () => {
-      setCheckingDuplicate(true)
-      try {
-        const res = await apiFetch(
-          `/api/customers/people?emailStartsWith=${encodeURIComponent(trimmed)}&pageSize=5&page=1`
-        )
-        if (!res.ok) {
-          setDuplicate(null)
-          return
-        }
-        const payload = await res.json().catch(() => ({}))
-        const items = Array.isArray(payload?.items) ? payload.items : []
-        const match = items
-          .map((item: Record<string, unknown>) => {
-            const id = typeof item.id === 'string' ? item.id : null
-            const displayName = typeof item.display_name === 'string' ? item.display_name : null
-            const email = typeof item.primary_email === 'string' ? item.primary_email : null
-            return id && displayName && email ? { id, displayName, email } : null
-          })
-          .filter((entry): entry is { id: string; displayName: string; email: string } => !!entry)
-          .find((entry) => entry.id !== recordId && entry.email.toLowerCase().startsWith(trimmed))
-        if (!cancelled) {
-          setDuplicate(match ? { id: match.id, displayName: match.displayName } : null)
-        }
-      } catch {
-        if (!cancelled) setDuplicate(null)
-      } finally {
-        if (!cancelled) setCheckingDuplicate(false)
-      }
-    }, 300)
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-    }
-  }, [draft, editing, recordId, type, validator, value])
 
   const handleSave = React.useCallback(async () => {
     const trimmed = draft.trim()
@@ -275,7 +234,7 @@ function InlineTextEditor({
                   </Link>
                 </p>
               ) : null}
-              {!error && !duplicate && checkingDuplicate && type === 'email' ? (
+              {!error && !duplicate && checking && type === 'email' ? (
                 <p className="text-xs text-muted-foreground">
                   {t('customers.people.detail.inline.emailChecking')}
                 </p>

@@ -15,7 +15,7 @@ import {
   createPersonFormGroups,
   createPersonFormSchema,
   type PersonFormValues,
-} from '../components/formConfig'
+} from '../../../../components/formConfig'
 
 export default function CreatePersonPage() {
   const t = useT()
@@ -80,4 +80,3 @@ export default function CreatePersonPage() {
     </Page>
   )
 }
-

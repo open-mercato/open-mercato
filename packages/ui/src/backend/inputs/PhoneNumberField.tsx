@@ -11,6 +11,7 @@ export type PhoneDuplicateMatch = {
 export type PhoneNumberFieldProps = {
   value?: string | null
   onValueChange: (next: string | undefined) => void
+  onDigitsChange?: (digits: string | null) => void
   disabled?: boolean
   autoFocus?: boolean
   placeholder?: string
@@ -37,6 +38,7 @@ const formatPhoneNumber = (digits: string): string => {
 export function PhoneNumberField({
   value,
   onValueChange,
+  onDigitsChange,
   disabled = false,
   autoFocus,
   placeholder,
@@ -56,12 +58,14 @@ export function PhoneNumberField({
   React.useEffect(() => {
     if (!value) {
       setLocal('')
+      onDigitsChange?.(null)
       return
     }
     const normalizedDigits = digitsOnly(String(value))
     const formatted = formatPhoneNumber(normalizedDigits)
     setLocal(formatted)
-  }, [value])
+    onDigitsChange?.(normalizedDigits || null)
+  }, [value, onDigitsChange])
 
   React.useEffect(() => {
     if (!onDuplicateLookup || disabled) {
@@ -102,13 +106,15 @@ export function PhoneNumberField({
       if (!cleanDigits) {
         setLocal('')
         onValueChange(undefined)
+        onDigitsChange?.(null)
         return
       }
       const formatted = formatPhoneNumber(cleanDigits)
       setLocal(formatted)
       onValueChange(formatted)
+      onDigitsChange?.(cleanDigits)
     },
-    [onValueChange]
+    [onValueChange, onDigitsChange]
   )
 
   return (

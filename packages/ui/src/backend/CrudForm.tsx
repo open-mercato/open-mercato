@@ -121,7 +121,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   schema,
   fields,
   initialValues,
-  submitLabel = 'Save',
+  submitLabel,
   cancelHref,
   successRedirect,
   deleteRedirect,
@@ -134,7 +134,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   entityId,
   groups,
   isLoading = false,
-  loadingMessage = 'Loading data...',
+  loadingMessage,
   customEntity = false,
   extraActions,
 }: CrudFormProps<TValues>) {
@@ -142,6 +142,18 @@ export function CrudForm<TValues extends Record<string, any>>({
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
   const router = useRouter()
   const t = useT()
+  const resolvedSubmitLabel = submitLabel ?? t('ui.forms.actions.save')
+  const resolvedLoadingMessage = loadingMessage ?? t('ui.forms.loading')
+  const cancelLabel = t('ui.forms.actions.cancel')
+  const deleteLabel = t('ui.forms.actions.delete')
+  const savingLabel = t('ui.forms.status.saving')
+  const backLabel = t('ui.navigation.back')
+  const customFieldsLabel = t('entities.customFields.title')
+  const deleteConfirmMessage = t('ui.forms.confirmDelete')
+  const deleteSuccessMessage = t('ui.forms.flash.deleteSuccess')
+  const deleteErrorMessage = t('ui.forms.flash.deleteError')
+  const saveErrorMessage = t('ui.forms.flash.saveError')
+  const unexpectedErrorMessage = t('ui.forms.errors.unexpected')
   const formId = React.useId()
   const [values, setValues] = React.useState<Record<string, any>>({ ...(initialValues || {}) })
   const [errors, setErrors] = React.useState<Record<string, string>>({})
@@ -154,19 +166,19 @@ export function CrudForm<TValues extends Record<string, any>>({
   const handleDelete = React.useCallback(async () => {
     if (!onDelete) return
     try {
-      const ok = typeof window !== 'undefined' ? window.confirm('Delete this record? This action cannot be undone.') : true
+      const ok = typeof window !== 'undefined' ? window.confirm(deleteConfirmMessage) : true
       if (!ok) return
       await onDelete()
-      try { flash('Record deleted', 'success') } catch {}
+      try { flash(deleteSuccessMessage, 'success') } catch {}
       // Redirect if requested by caller
       if (typeof deleteRedirect === 'string' && deleteRedirect) {
         router.push(deleteRedirect)
       }
     } catch (err) {
-      const message = err instanceof Error && err.message ? err.message : 'Failed to delete record'
+      const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
       try { flash(message, 'error') } catch {}
     }
-  }, [onDelete, deleteRedirect, router])
+  }, [onDelete, deleteRedirect, router, deleteConfirmMessage, deleteSuccessMessage, deleteErrorMessage])
   
   // Determine whether this form is creating a new record (no `id` yet)
   const isNewRecord = React.useMemo(() => {
@@ -375,8 +387,8 @@ export function CrudForm<TValues extends Record<string, any>>({
     setFormError(null)
     setErrors({})
 
-    const requiredMessage = t('ui.forms.errors.required', 'This field is required')
-    const highlightedMessage = t('ui.forms.errors.highlighted', 'Please fix the highlighted errors.')
+    const requiredMessage = t('ui.forms.errors.required')
+    const highlightedMessage = t('ui.forms.errors.highlighted')
 
     // Make sure any inputs that commit on blur (rich text, textarea, number)
     // flush their local state into the form values before validation/submit.
@@ -467,7 +479,7 @@ export function CrudForm<TValues extends Record<string, any>>({
       if (successRedirect) router.push(successRedirect)
     } catch (err: any) {
       // Try to extract field-level errors from structured responses
-      let msg = err?.message || 'Unexpected error'
+      let msg = (err && typeof err === 'object' && typeof err.message === 'string') ? err.message : unexpectedErrorMessage
       let fieldErrors: Record<string, string> | null = null
       // Custom error shape from callers: { fieldErrors }
       if (err && typeof err === 'object' && err.fieldErrors && typeof err.fieldErrors === 'object') {
@@ -497,12 +509,13 @@ export function CrudForm<TValues extends Record<string, any>>({
         setErrors(next)
       }
 
-      flash(msg || 'Save failed', 'error')
-      setFormError(msg)
+      const displayMessage = typeof msg === 'string' && msg.trim() ? msg : saveErrorMessage
+      flash(displayMessage, 'error')
+      setFormError(displayMessage)
     } finally {
       setPending(false)
+    }
   }
-}
 
 type RTEProps = { value?: string; onChange: (html: string) => void }
 // Markdown editor using @uiw/react-md-editor (client-only)
@@ -557,6 +570,14 @@ const MarkdownEditor = React.memo(({ value = '', onChange }: MDProps) => {
 // HTML Rich Text editor (contentEditable) with shortcuts; returns HTML string
 type HtmlRTProps = { value?: string; onChange: (html: string) => void }
 const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', onChange }: HtmlRTProps) {
+  const t = useT()
+  const boldLabel = t('ui.forms.richtext.bold')
+  const italicLabel = t('ui.forms.richtext.italic')
+  const underlineLabel = t('ui.forms.richtext.underline')
+  const listLabel = t('ui.forms.richtext.list')
+  const heading3Label = t('ui.forms.richtext.heading3')
+  const linkLabel = t('ui.forms.richtext.link')
+  const linkUrlPrompt = t('ui.forms.richtext.linkUrlPrompt')
   const ref = React.useRef<HTMLDivElement | null>(null)
   const applyingExternal = React.useRef(false)
   const typingRef = React.useRef(false)
@@ -596,21 +617,21 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
   return (
     <div className="w-full rounded border">
       <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>Bold</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>Italic</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>Underline</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>{boldLabel}</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>{italicLabel}</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>{underlineLabel}</button>
         <span className="mx-2 text-muted-foreground">|</span>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• List</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>H3</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• {listLabel}</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>{heading3Label}</button>
         <button
           type="button"
           className="px-2 py-0.5 text-xs rounded hover:bg-muted"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
-            const url = window.prompt('Link URL')?.trim()
+            const url = window.prompt(linkUrlPrompt)?.trim()
             if (url) exec('createLink', url)
           }}
-        >Link</button>
+        >{linkLabel}</button>
       </div>
       <div
         ref={ref}
@@ -633,6 +654,12 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
 // Very simple markdown editor with Bold/Italic/Underline + shortcuts.
 type SimpleMDProps = { value?: string; onChange: (md: string) => void }
 const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange }: SimpleMDProps) {
+  const t = useT()
+  const boldLabel = t('ui.forms.richtext.bold')
+  const italicLabel = t('ui.forms.richtext.italic')
+  const underlineLabel = t('ui.forms.richtext.underline')
+  const markdownPlaceholder = t('ui.forms.richtext.placeholder')
+  const sampleText = t('ui.forms.richtext.sampleText')
   const taRef = React.useRef<HTMLTextAreaElement | null>(null)
   const [local, setLocal] = React.useState<string>(value)
   const typingRef = React.useRef(false)
@@ -646,7 +673,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     if (!el) return
     const start = el.selectionStart ?? 0
     const end = el.selectionEnd ?? 0
-    const sel = value.slice(start, end) || 'text'
+    const sel = value.slice(start, end) || sampleText
     const next = value.slice(0, start) + before + sel + after + value.slice(end)
     onChange(next)
     queueMicrotask(() => {
@@ -668,9 +695,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   return (
     <div className="w-full rounded border">
       <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>Bold</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>Italic</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>Underline</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>{boldLabel}</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>{italicLabel}</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</button>
       </div>
       <textarea
         ref={taRef}
@@ -680,7 +707,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         onChange={(e) => { typingRef.current = true; setLocal(e.target.value) }}
         onBlur={() => { if (typingRef.current) { typingRef.current = false; onChange(local) } }}
         onKeyDown={onKeyDown}
-        placeholder="Write markdown..."
+        placeholder={markdownPlaceholder}
       />
     </div>
   )
@@ -990,6 +1017,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   // Stable listbox multi-select to avoid inline hooks causing re-renders
   const ListboxMultiSelect = React.useMemo(() => {
     return function ListboxMultiSelectImpl({ options, placeholder, value, onChange, autoFocus }: { options: CrudFieldOption[]; placeholder?: string; value: string[]; onChange: (vals: string[]) => void; autoFocus?: boolean }) {
+      const t = useT()
+      const searchPlaceholder = placeholder || t('ui.forms.listbox.searchPlaceholder')
+      const noMatchesLabel = t('ui.forms.listbox.noMatches')
       const [query, setQuery] = React.useState('')
       const filtered = React.useMemo(() => {
         const q = query.toLowerCase().trim()
@@ -1006,7 +1036,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         <div className="w-full">
           <input
             className="mb-2 w-full h-8 rounded border px-2 text-sm"
-            placeholder={placeholder || 'Search...'}
+            placeholder={searchPlaceholder}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             autoFocus={autoFocus}
@@ -1030,7 +1060,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
               )
             })}
             {!filtered.length ? (
-              <div className="px-3 py-2 text-sm text-muted-foreground">No matches</div>
+              <div className="px-3 py-2 text-sm text-muted-foreground">{noMatchesLabel}</div>
             ) : null}
           </div>
         </div>
@@ -1054,7 +1084,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <div className="flex items-center gap-3">
             {backHref ? (
               <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-                ← 
+                ← {backLabel}
               </Link>
             ) : null}
             {title ? <div className="text-base font-medium">{title}</div> : null}
@@ -1064,23 +1094,23 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             {showDelete ? (
               <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
                 <Trash2 className="size-4 mr-2" />
-                Delete
+                {deleteLabel}
               </Button>
             ) : null}
             {cancelHref ? (
               <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                Cancel
+                {cancelLabel}
               </Link>
             ) : null}
             <Button type="submit" form={formId} disabled={pending}>
               <Save className="size-4 mr-2" />
-              {pending ? 'Saving…' : submitLabel}
+              {pending ? savingLabel : resolvedSubmitLabel}
             </Button>
           </div>
         </div>
         <DataLoader
           isLoading={isLoading}
-          loadingMessage={loadingMessage}
+          loadingMessage={resolvedLoadingMessage}
           spinnerSize="md"
           className="min-h-[400px]"
         >
@@ -1093,7 +1123,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                   return (
                     <div key={g.id} className="rounded-lg border bg-card p-4 space-y-3">
                       {g.title || isCustomFieldsGroup ? (
-                        <div className="text-sm font-medium">{g.title || 'Custom Fields'}</div>
+                        <div className="text-sm font-medium">{g.title || customFieldsLabel}</div>
                       ) : null}
                       {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
                       {g.component ? (
@@ -1101,7 +1131,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                       ) : null}
                       <DataLoader
                         isLoading={isCustomFieldsGroup && isLoadingCustomFields}
-                        loadingMessage="Loading data..."
+                        loadingMessage={resolvedLoadingMessage}
                         spinnerSize="md"
                         className="min-h-[1px]"
                       >
@@ -1120,7 +1150,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                   return (
                     <div key={g.id} className="rounded-lg border bg-card p-4 space-y-3">
                       {g.title || isCustomFieldsGroup ? (
-                        <div className="text-sm font-medium">{g.title || 'Custom Fields'}</div>
+                        <div className="text-sm font-medium">{g.title || customFieldsLabel}</div>
                       ) : null}
                       {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
                       {g.component ? (
@@ -1128,7 +1158,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                       ) : null}
                       <DataLoader
                         isLoading={isCustomFieldsGroup && isLoadingCustomFields}
-                        loadingMessage="Loading data..."
+                        loadingMessage={resolvedLoadingMessage}
                         spinnerSize="md"
                         className="min-h-[1px]"
                       >
@@ -1149,17 +1179,17 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                 {showDelete ? (
                   <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
                     <Trash2 className="size-4 mr-2" />
-                    Delete
+                    {deleteLabel}
                   </Button>
                 ) : null}
                 {cancelHref ? (
                   <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                    Cancel
+                    {cancelLabel}
                   </Link>
                 ) : null}
                 <Button type="submit" disabled={pending}>
                   <Save className="size-4 mr-2" />
-                  {pending ? 'Saving…' : submitLabel}
+                  {pending ? savingLabel : resolvedSubmitLabel}
                 </Button>
               </div>
             </div>
@@ -1176,7 +1206,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         <div className="flex items-center gap-3">
           {backHref ? (
             <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground">
-              ← Back
+              ← {backLabel}
             </Link>
           ) : null}
           {title ? <div className="text-base font-medium">{title}</div> : null}
@@ -1186,23 +1216,23 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           {showDelete ? (
             <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
               <Trash2 className="size-4 mr-2" />
-              Delete
+              {deleteLabel}
             </Button>
           ) : null}
           {cancelHref ? (
             <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-              Cancel
+              {cancelLabel}
             </Link>
           ) : null}
           <Button type="submit" form={formId} disabled={pending}>
             <Save className="size-4 mr-2" />
-            {pending ? 'Saving…' : submitLabel}
+            {pending ? savingLabel : resolvedSubmitLabel}
           </Button>
         </div>
       </div>
       <DataLoader
         isLoading={isLoading}
-        loadingMessage={loadingMessage}
+        loadingMessage={resolvedLoadingMessage}
         spinnerSize="md"
         className="min-h-[400px]"
       >
@@ -1235,17 +1265,17 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
               {showDelete ? (
                 <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50">
                   <Trash2 className="size-4 mr-2" />
-                  Delete
+                  {deleteLabel}
                 </Button>
               ) : null}
               {cancelHref ? (
                 <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
-                  Cancel
+                  {cancelLabel}
                 </Link>
               ) : null}
               <Button type="submit" disabled={pending}>
                 <Save className="size-4 mr-2" />
-                {pending ? 'Saving…' : submitLabel}
+                {pending ? savingLabel : resolvedSubmitLabel}
               </Button>
             </div>
           </form>

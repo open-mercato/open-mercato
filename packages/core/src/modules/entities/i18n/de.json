@@ -4,6 +4,7 @@
   "entities.nav.userEntities": "Benutzerentitäten",
   "entities.nav.userEntities.create": "Entität erstellen",
   "entities.nav.entityRecords": "Entitätsdatensätze",
+  "entities.customFields.title": "Benutzerdefinierte Attribute",
   "entities.customFields.empty": "Noch keine benutzerdefinierten Attribute definiert.",
   "entities.customFields.addFirst": "Erstes hinzufügen"
 }

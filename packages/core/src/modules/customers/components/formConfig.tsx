@@ -16,14 +16,15 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { PhoneNumberField, type PhoneDuplicateMatch } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
+import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import type {
   CrudCustomFieldRenderProps,
   CrudField,
   CrudFormGroup,
   CrudFormGroupComponentProps,
 } from '@open-mercato/ui/backend/CrudForm'
-import { useEmailDuplicateCheck } from '../hooks/useEmailDuplicateCheck'
+import { useEmailDuplicateCheck } from '../backend/hooks/useEmailDuplicateCheck'
+import { lookupPhoneDuplicate } from '../utils/phoneDuplicates'
 
 export const metadata = {
   navHidden: true,
@@ -293,23 +294,15 @@ const createPrimaryPhoneField = (t: Translator): CrudField => ({
   id: 'primaryPhone',
   label: t('customers.people.form.primaryPhone'),
   type: 'custom',
-  component: function PrimaryPhoneField({ value, setValue, error, autoFocus, disabled }: CrudCustomFieldRenderProps) {
-    const handleDuplicateLookup = React.useCallback(
-      async (digits: string): Promise<PhoneDuplicateMatch | null> => {
-        try {
-          const res = await apiFetch(`/api/customers/people/check-phone?digits=${encodeURIComponent(digits)}`)
-          if (!res.ok) return null
-          const payload = await res.json().catch(() => null)
-          const match = payload && typeof payload === 'object' ? (payload as any).match : null
-          const id = typeof match?.id === 'string' ? match.id : null
-          const displayName = typeof match?.displayName === 'string' ? match.displayName : null
-          if (!id || !displayName) return null
-          return { id, label: displayName, href: `/backend/customers/people/${id}` }
-        } catch {
-          return null
-        }
+  component: function PrimaryPhoneField({ value, setValue, error, autoFocus, disabled, recordId }: CrudCustomFieldRenderProps) {
+    const currentRecordId = React.useMemo(() => (typeof recordId === 'string' ? recordId : null), [recordId])
+
+    const duplicateLookup = React.useCallback(
+      async (digits: string) => {
+        if (disabled || error) return null
+        return lookupPhoneDuplicate(digits, { recordId: currentRecordId })
       },
-      []
+      [currentRecordId, disabled, error]
     )
 
     return (
@@ -323,7 +316,7 @@ const createPrimaryPhoneField = (t: Translator): CrudField => ({
         duplicateLabel={(match) => t('customers.people.form.phoneDuplicateNotice', { name: match.label })}
         duplicateLinkLabel={t('customers.people.form.phoneDuplicateLink')}
         minDigits={7}
-        onDuplicateLookup={error ? undefined : handleDuplicateLookup}
+        onDuplicateLookup={!disabled && !error ? duplicateLookup : undefined}
       />
     )
   },

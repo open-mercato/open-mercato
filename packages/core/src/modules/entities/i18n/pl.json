@@ -4,6 +4,7 @@
   "entities.nav.userEntities": "Encje użytkownika",
   "entities.nav.userEntities.create": "Utwórz encję",
   "entities.nav.entityRecords": "Rekordy encji",
+  "entities.customFields.title": "Atrybuty niestandardowe",
   "entities.customFields.empty": "Brak zdefiniowanych atrybutów niestandardowych.",
   "entities.customFields.addFirst": "Dodaj pierwszy"
 }
