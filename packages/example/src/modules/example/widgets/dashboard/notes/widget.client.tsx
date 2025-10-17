@@ -4,7 +4,13 @@ import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { DEFAULT_SETTINGS, hydrateNotesSettings, type NotesSettings } from './config'
 
-const NotesWidgetClient: React.FC<DashboardWidgetComponentProps<NotesSettings>> = ({ mode, settings, onSettingsChange }) => {
+const NotesWidgetClient: React.FC<DashboardWidgetComponentProps<NotesSettings>> = ({
+  mode,
+  settings,
+  onSettingsChange,
+  refreshToken: _refreshToken,
+  onRefreshStateChange: _onRefreshStateChange,
+}) => {
   const value = React.useMemo(() => hydrateNotesSettings(settings), [settings])
 
   if (mode === 'settings') {

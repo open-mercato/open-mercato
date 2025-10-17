@@ -8,7 +8,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { loadDashboardWidgetModule } from './widgetRegistry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { cn } from '@/lib/utils'
-import { GripVertical, Plus, Settings2, Trash2, X, Loader2 } from 'lucide-react'
+import { GripVertical, Plus, RefreshCw, Settings2, Trash2, X, Loader2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type DashboardWidgetSize = 'sm' | 'md' | 'lg'
@@ -33,6 +33,7 @@ type WidgetMeta = {
   moduleId: string
   icon: string | null
   loaderKey: string
+  supportsRefresh: boolean
 }
 
 type LayoutContext = {
@@ -472,6 +473,8 @@ function DashboardWidgetCard({
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [isDragOver, setIsDragOver] = React.useState(false)
+  const [refreshToken, setRefreshToken] = React.useState(0)
+  const [refreshing, setRefreshing] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -491,6 +494,34 @@ function DashboardWidgetCard({
       })
     return () => { cancelled = true }
   }, [meta.loaderKey, t])
+
+  React.useEffect(() => {
+    if (!meta.supportsRefresh) {
+      setRefreshing(false)
+    }
+  }, [meta.supportsRefresh])
+
+  React.useEffect(() => {
+    if (activeSettings) {
+      setRefreshing(false)
+    }
+  }, [activeSettings])
+
+  React.useEffect(() => {
+    if (loadError) {
+      setRefreshing(false)
+    }
+  }, [loadError])
+
+  const handleRefreshStateChange = React.useCallback((next: boolean) => {
+    setRefreshing(next)
+  }, [])
+
+  const triggerRefresh = React.useCallback(() => {
+    if (loading || !!loadError) return
+    setRefreshing(true)
+    setRefreshToken((current) => current + 1)
+  }, [loadError, loading])
 
   const hydratedSettings = React.useMemo(() => {
     const raw = item.settings ?? meta.defaultSettings ?? null
@@ -573,26 +604,40 @@ function DashboardWidgetCard({
             {description ? <div className="text-xs text-muted-foreground">{description}</div> : null}
           </div>
         </div>
-        {editing && (
-          <div className="flex items-center gap-1">
-            <Button
-              variant={activeSettings ? 'secondary' : 'ghost'}
-              size="icon"
-              onClick={onToggleSettings}
-              aria-label={activeSettings ? t('dashboard.widget.closeSettings') : t('dashboard.widget.editSettings')}
-            >
-              {activeSettings ? <X className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
-            </Button>
+        <div className="flex items-center gap-1">
+          {!editing && meta.supportsRefresh && (
             <Button
               variant="ghost"
               size="icon"
-              onClick={onRemove}
-              aria-label={t('dashboard.widget.remove')}
+              disabled={refreshing || loading || !!loadError}
+              onClick={triggerRefresh}
+              aria-label={t('dashboard.widget.refresh')}
             >
-              <Trash2 className="h-4 w-4" />
+              {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              <span className="sr-only">{t('dashboard.widget.refresh')}</span>
             </Button>
-          </div>
-        )}
+          )}
+          {editing && (
+            <>
+              <Button
+                variant={activeSettings ? 'secondary' : 'ghost'}
+                size="icon"
+                onClick={onToggleSettings}
+                aria-label={activeSettings ? t('dashboard.widget.closeSettings') : t('dashboard.widget.editSettings')}
+              >
+                {activeSettings ? <X className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onRemove}
+                aria-label={t('dashboard.widget.remove')}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+        </div>
       </div>
       <div className="flex-1 p-4">
         {loading && (
@@ -610,6 +655,8 @@ function DashboardWidgetCard({
             context={context ?? { userId: '', tenantId: null, organizationId: null, userName: null, userEmail: null, userLabel: null }}
             settings={hydratedSettings}
             onSettingsChange={handleSettingsChange}
+            refreshToken={refreshToken}
+            onRefreshStateChange={handleRefreshStateChange}
           />
         )}
       </div>

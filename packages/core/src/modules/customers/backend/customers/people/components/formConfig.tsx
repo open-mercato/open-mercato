@@ -32,6 +32,7 @@ export type PersonFormValues = {
   firstName: string
   lastName: string
   jobTitle?: string
+  companyEntityId?: string
   primaryEmail?: string
   primaryPhone?: string
   status?: string
@@ -177,20 +178,17 @@ export function DictionarySelectField({
           disabled={disabled}
         >
           <option value="">{labels.placeholder}</option>
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <Button type="button" variant="outline" onClick={() => onChange(undefined)} disabled={disabled}>
-          {labels.placeholder}
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+    <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" disabled={disabled}>
+          + {labels.addLabel}
         </Button>
-        <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
-          <DialogTrigger asChild>
-            <Button type="button" variant="outline" disabled={disabled}>
-              + {labels.addLabel}
-            </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
@@ -236,6 +234,194 @@ const blankToUndefined = (value?: string): string | undefined => {
   return trimmed.length ? trimmed : undefined
 }
 
+type CompanySelectLabels = {
+  placeholder: string
+  addLabel: string
+  addPrompt?: string
+  dialogTitle: string
+  inputLabel: string
+  inputPlaceholder: string
+  emptyError: string
+  cancelLabel: string
+  saveLabel: string
+  errorLoad: string
+  errorSave: string
+  loadingLabel: string
+}
+
+type CompanySelectFieldProps = {
+  value?: string
+  onChange: (value: string | undefined) => void
+  labels: CompanySelectLabels
+}
+
+type CompanyOption = { value: string; label: string }
+
+function normalizeCompanyOption(raw: any): CompanyOption | null {
+  const id = typeof raw?.id === 'string' ? raw.id : null
+  if (!id) return null
+  const displayName =
+    typeof raw?.display_name === 'string' && raw.display_name.trim().length
+      ? raw.display_name.trim()
+      : typeof raw?.displayName === 'string' && raw.displayName.trim().length
+        ? raw.displayName.trim()
+        : null
+  if (!displayName) return null
+  return { value: id, label: displayName }
+}
+
+export function CompanySelectField({ value, onChange, labels }: CompanySelectFieldProps) {
+  const [options, setOptions] = React.useState<CompanyOption[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [newCompany, setNewCompany] = React.useState('')
+  const [saving, setSaving] = React.useState(false)
+  const [formError, setFormError] = React.useState<string | null>(null)
+
+  const loadOptions = React.useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await apiFetch('/api/customers/companies?pageSize=100&sortField=name&sortDir=asc')
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const message = typeof payload?.error === 'string' ? payload.error : labels.errorLoad
+        flash(message, 'error')
+        setOptions([])
+        return
+      }
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      const normalized = items
+        .map((item) => normalizeCompanyOption(item))
+        .filter((item): item is CompanyOption => !!item)
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+      setOptions(normalized)
+    } catch {
+      flash(labels.errorLoad, 'error')
+      setOptions([])
+    } finally {
+      setLoading(false)
+    }
+  }, [labels.errorLoad])
+
+  React.useEffect(() => {
+    loadOptions().catch(() => {})
+  }, [loadOptions])
+
+  const handleDialogChange = React.useCallback((open: boolean) => {
+    setDialogOpen(open)
+    if (!open) {
+      setNewCompany('')
+      setFormError(null)
+      setSaving(false)
+    }
+  }, [])
+
+  const handleSubmit = React.useCallback<React.FormEventHandler<HTMLFormElement>>(
+    async (event) => {
+      event.preventDefault()
+      if (saving) return
+      const trimmed = newCompany.trim()
+      if (!trimmed) {
+        setFormError(labels.emptyError)
+        return
+      }
+      setSaving(true)
+      try {
+        const res = await apiFetch('/api/customers/companies', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ displayName: trimmed }),
+        })
+        const payload = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          const message = typeof payload?.error === 'string' ? payload.error : labels.errorSave
+          flash(message, 'error')
+          return
+        }
+        const createdId =
+          typeof payload?.id === 'string'
+            ? payload.id
+            : typeof payload?.entityId === 'string'
+              ? payload.entityId
+              : null
+        await loadOptions()
+        if (createdId) {
+          onChange(createdId)
+        }
+        setDialogOpen(false)
+        setNewCompany('')
+        setFormError(null)
+      } catch {
+        flash(labels.errorSave, 'error')
+      } finally {
+        setSaving(false)
+      }
+    },
+    [labels.emptyError, labels.errorSave, loadOptions, newCompany, onChange, saving]
+  )
+
+  const disabled = loading || saving
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <select
+          className="w-full h-9 rounded border px-2 text-sm"
+          value={value ?? ''}
+          onChange={(event) => onChange(event.target.value ? event.target.value : undefined)}
+          disabled={loading}
+        >
+          <option value="">{labels.placeholder}</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
+          <DialogTrigger asChild>
+            <Button type="button" variant="outline" disabled={disabled}>
+              + {labels.addLabel}
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>{labels.dialogTitle}</DialogTitle>
+              {labels.addPrompt ? <DialogDescription>{labels.addPrompt}</DialogDescription> : null}
+            </DialogHeader>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">{labels.inputLabel}</label>
+                <input
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={labels.inputPlaceholder}
+                  value={newCompany}
+                  onChange={(event) => {
+                    setNewCompany(event.target.value)
+                    if (formError) setFormError(null)
+                  }}
+                  autoFocus
+                  disabled={saving}
+                />
+              </div>
+              {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
+                  {labels.cancelLabel}
+                </Button>
+                <Button type="submit" disabled={saving || !newCompany.trim()}>
+                  {saving ? `${labels.saveLabel}…` : labels.saveLabel}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+      {loading ? <div className="text-xs text-muted-foreground">{labels.loadingLabel}</div> : null}
+    </div>
+  )
+}
+
 export const createPersonFormSchema = () =>
   z
     .object({
@@ -258,6 +444,14 @@ export const createPersonFormSchema = () =>
       source: z
         .string()
         .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      companyEntityId: z
+        .string()
+        .trim()
+        .uuid()
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
@@ -332,9 +526,7 @@ export const createDisplayNameSection = (t: Translator) =>
                 {error ? <p className="text-xs text-red-600">{error}</p> : null}
               </div>
             ) : (
-              <div className="mt-1 text-base font-medium">
-                {previewValue || placeholder}
-              </div>
+              <div className="mt-1 text-base font-medium">{previewValue || placeholder}</div>
             )}
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={toggleEditing}>
@@ -366,13 +558,40 @@ export const createPersonFormFields = (t: Translator): CrudField[] => [
   { id: 'displayName', label: t('customers.people.form.displayName.label'), type: 'text', required: true },
   { id: 'firstName', label: t('customers.people.form.firstName'), type: 'text', required: true, layout: 'half' },
   { id: 'lastName', label: t('customers.people.form.lastName'), type: 'text', required: true, layout: 'half' },
-  { id: 'jobTitle', label: t('customers.people.form.jobTitle'), type: 'text' },
+  { id: 'jobTitle', label: t('customers.people.form.jobTitle'), type: 'text', layout: 'half' },
+  {
+    id: 'companyEntityId',
+    label: t('customers.people.form.company'),
+    type: 'custom',
+    layout: 'half',
+    component: ({ value, setValue }) => (
+      <CompanySelectField
+        value={typeof value === 'string' ? value : undefined}
+        onChange={(next) => setValue(next)}
+        labels={{
+          placeholder: t('customers.people.form.company.placeholder'),
+          addLabel: t('customers.people.form.company.add'),
+          addPrompt: t('customers.people.form.company.prompt'),
+          dialogTitle: t('customers.people.form.company.dialogTitle'),
+          inputLabel: t('customers.people.form.company.inputLabel'),
+          inputPlaceholder: t('customers.people.form.company.inputPlaceholder'),
+          emptyError: t('customers.people.form.dictionary.errorRequired'),
+          cancelLabel: t('customers.people.form.dictionary.cancel'),
+          saveLabel: t('customers.people.form.dictionary.save'),
+          errorLoad: t('customers.people.form.dictionary.errorLoad'),
+          errorSave: t('customers.people.form.dictionary.error'),
+          loadingLabel: t('customers.people.form.company.loading'),
+        }}
+      />
+    ),
+  },
   { id: 'primaryEmail', label: t('customers.people.form.primaryEmail'), type: 'text' },
   { id: 'primaryPhone', label: t('customers.people.form.primaryPhone'), type: 'text' },
   {
     id: 'status',
     label: t('customers.people.form.status'),
     type: 'custom',
+    layout: 'third',
     component: ({ value, setValue }) => (
       <DictionarySelectField
         kind="statuses"
@@ -395,11 +614,12 @@ export const createPersonFormFields = (t: Translator): CrudField[] => [
       />
     ),
   },
-  { id: 'lifecycleStage', label: t('customers.people.form.lifecycleStage'), type: 'text' },
+  { id: 'lifecycleStage', label: t('customers.people.form.lifecycleStage'), type: 'text', layout: 'third' },
   {
     id: 'source',
     label: t('customers.people.form.source'),
     type: 'custom',
+    layout: 'third',
     component: ({ value, setValue }) => (
       <DictionarySelectField
         kind="sources"
@@ -430,7 +650,7 @@ export const createPersonFormGroups = (t: Translator): CrudFormGroup[] => [
     id: 'details',
     title: t('customers.people.form.groups.details'),
     column: 1,
-    fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone', 'status', 'lifecycleStage', 'source'],
+    fields: ['firstName', 'lastName', 'jobTitle', 'companyEntityId', 'primaryEmail', 'primaryPhone', 'status', 'lifecycleStage', 'source'],
     component: createDisplayNameSection(t),
   },
   {
@@ -469,6 +689,7 @@ export function buildPersonPayload(values: PersonFormValues, organizationId?: st
   assign('status', typeof values.status === 'string' ? values.status : undefined)
   assign('lifecycleStage', typeof values.lifecycleStage === 'string' ? values.lifecycleStage : undefined)
   assign('source', typeof values.source === 'string' ? values.source : undefined)
+  assign('companyEntityId', typeof values.companyEntityId === 'string' ? values.companyEntityId : undefined)
   assign('description', typeof values.description === 'string' ? values.description : undefined)
 
   for (const [key, fieldValue] of Object.entries(values)) {

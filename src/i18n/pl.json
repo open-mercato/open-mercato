@@ -39,6 +39,7 @@
   "dashboard.widget.loadError": "Nie udało się wczytać widżetu.",
   "dashboard.widget.closeSettings": "Zamknij ustawienia",
   "dashboard.widget.editSettings": "Edytuj ustawienia",
+  "dashboard.widget.refresh": "Odśwież widżet",
   "dashboard.widget.remove": "Usuń widżet",
   "dashboard.widgets.customers.dashboard.todos.title": "Zadania klientów",
   "dashboard.widgets.customers.dashboard.todos.description": "Przeglądaj najnowsze zadania powiązane z rekordami klientów i przechodź bezpośrednio do szczegółów.",
@@ -50,5 +51,16 @@
   "appShell.toggleSidebar": "Przełącz panel boczny",
   "appShell.goToDashboard": "Przejdź do pulpitu",
   "appShell.closeMenu": "Zamknij menu",
-  "appShell.userFallback": "Użytkownik"
+  "appShell.userFallback": "Użytkownik",
+  "appShell.productName": "Open Mercato",
+  "organizationSwitcher.label": "Organizacja",
+  "organizationSwitcher.loading": "Ładowanie…",
+  "organizationSwitcher.error": "Nie udało się załadować",
+  "organizationSwitcher.empty": "Brak organizacji",
+  "organizationSwitcher.manage": "Zarządzaj",
+  "organizationSelect.all": "Wszystkie organizacje",
+  "organizationSelect.empty": "—",
+  "organizationSelect.loading": "Ładowanie organizacji…",
+  "organizationSelect.error": "Nie udało się załadować organizacji",
+  "organizationSelect.inactive": "Nieaktywna"
 }

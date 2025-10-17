@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -11,6 +12,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type PersonRow = {
   id: string
@@ -24,7 +26,7 @@ type PersonRow = {
   nextInteractionName?: string | null
   organizationId?: string | null
   source?: string | null
-}
+} & Record<string, unknown>
 
 type PeopleResponse = {
   items?: Array<Record<string, unknown>>
@@ -53,6 +55,12 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
   const nextInteractionName = typeof item.next_interaction_name === 'string' ? item.next_interaction_name : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
+  const customFields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(item)) {
+    if (key.startsWith('cf_')) {
+      customFields[key] = value
+    }
+  }
   return {
     id,
     name,
@@ -65,6 +73,7 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
     nextInteractionName,
     organizationId,
     source,
+    ...customFields,
   }
 }
 
@@ -75,21 +84,116 @@ export default function CustomersPeoplePage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+  const router = useRouter()
+  const loadDictionaryOptions = React.useCallback(async (kind: 'statuses' | 'sources') => {
+    try {
+      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) return []
+      const items = Array.isArray(payload.items) ? payload.items : []
+      return items
+        .map((entry: any) => {
+          const rawValue = typeof entry?.value === 'string' ? entry.value.trim() : ''
+          if (!rawValue) return null
+          const label = typeof entry?.label === 'string' && entry.label.trim().length ? entry.label : rawValue
+          return { value: rawValue, label }
+        })
+        .filter((entry): entry is { value: string; label: string } => !!entry)
+    } catch {
+      return []
+    }
+  }, [])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'status',
+      label: t('customers.people.list.filters.status'),
+      type: 'select',
+      loadOptions: () => loadDictionaryOptions('statuses'),
+    },
+    {
+      id: 'source',
+      label: t('customers.people.list.filters.source'),
+      type: 'select',
+      loadOptions: () => loadDictionaryOptions('sources'),
+    },
+    {
+      id: 'lifecycleStage',
+      label: t('customers.people.list.filters.lifecycleStage'),
+      type: 'text',
+    },
+    {
+      id: 'createdAt',
+      label: t('customers.people.list.filters.createdAt'),
+      type: 'dateRange',
+    },
+    {
+      id: 'hasEmail',
+      label: t('customers.people.list.filters.hasEmail'),
+      type: 'checkbox',
+    },
+    {
+      id: 'hasPhone',
+      label: t('customers.people.list.filters.hasPhone'),
+      type: 'checkbox',
+    },
+    {
+      id: 'hasNextInteraction',
+      label: t('customers.people.list.filters.hasNextInteraction'),
+      type: 'checkbox',
+    },
+  ], [loadDictionaryOptions, t])
+
+  const queryParams = React.useMemo(() => {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('pageSize', String(pageSize))
+    if (search.trim()) params.set('search', search.trim())
+    const status = filterValues.status
+    if (typeof status === 'string' && status.trim()) params.set('status', status)
+    const source = filterValues.source
+    if (typeof source === 'string' && source.trim()) params.set('source', source)
+    const lifecycleStage = filterValues.lifecycleStage
+    if (typeof lifecycleStage === 'string' && lifecycleStage.trim()) params.set('lifecycleStage', lifecycleStage)
+    const createdAt = filterValues.createdAt
+    if (createdAt && typeof createdAt === 'object') {
+      if (createdAt.from) params.set('createdFrom', createdAt.from)
+      if (createdAt.to) params.set('createdTo', createdAt.to)
+    }
+    const booleanFilters: Array<['hasEmail' | 'hasPhone' | 'hasNextInteraction', string]> = [
+      ['hasEmail', 'hasEmail'],
+      ['hasPhone', 'hasPhone'],
+      ['hasNextInteraction', 'hasNextInteraction'],
+    ]
+    for (const [key, queryKey] of booleanFilters) {
+      const value = filterValues[key]
+      if (value === true) params.set(queryKey, 'true')
+      if (value === false) params.set(queryKey, 'false')
+    }
+    Object.entries(filterValues).forEach(([key, value]) => {
+      if (!key.startsWith('cf_') || value == null) return
+      if (Array.isArray(value) && value.length) {
+        params.set(key, value.join(','))
+      } else if (typeof value === 'object') {
+        return
+      } else if (value !== '') {
+        params.set(key, String(value))
+      }
+    })
+    return params.toString()
+  }, [filterValues, page, pageSize, search])
 
   React.useEffect(() => {
     let cancelled = false
     async function load() {
       setIsLoading(true)
       try {
-        const params = new URLSearchParams()
-        params.set('page', String(page))
-        params.set('pageSize', String(pageSize))
-        if (search.trim()) params.set('search', search.trim())
-        const res = await apiFetch(`/api/customers/people?${params.toString()}`)
+        const res = await apiFetch(`/api/customers/people?${queryParams}`)
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
           const message = typeof data?.error === 'string' ? data.error : t('customers.people.list.error.load')
@@ -113,11 +217,36 @@ export default function CustomersPeoplePage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, pageSize, search, reloadToken, scopeVersion, t])
+  }, [queryParams, reloadToken, scopeVersion, t])
 
   const handleRefresh = React.useCallback(() => {
     setReloadToken((token) => token + 1)
   }, [])
+
+  const handleDelete = React.useCallback(async (person: PersonRow) => {
+    if (!person?.id) return
+    const name = person.name || t('customers.people.list.deleteFallbackName')
+    const confirmed = window.confirm(t('customers.people.list.deleteConfirm', { name }))
+    if (!confirmed) return
+    try {
+      const res = await apiFetch(`/api/customers/people?id=${encodeURIComponent(person.id)}`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+      })
+      if (!res.ok) {
+        const details = await res.json().catch(() => ({}))
+        const message = typeof details?.error === 'string' ? details.error : t('customers.people.list.deleteError')
+        throw new Error(message)
+      }
+      setRows((prev) => prev.filter((row) => row.id !== person.id))
+      setTotal((prev) => Math.max(prev - 1, 0))
+      handleRefresh()
+      flash(t('customers.people.list.deleteSuccess'), 'success')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customers.people.list.deleteError')
+      flash(message, 'error')
+    }
+  }, [handleRefresh, t])
 
   const columns = React.useMemo<ColumnDef<PersonRow>[]>(() => [
     {
@@ -182,16 +311,28 @@ export default function CustomersPeoplePage() {
           data={rows}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
+          searchPlaceholder={t('customers.people.list.searchPlaceholder')}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
+          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
+          entityId="customers:customer_person_profile"
+          onRowClick={(row) => router.push(`/backend/customers/people/${row.id}`)}
           rowActions={(row) => (
             <RowActions
               items={[
                 {
                   label: t('customers.people.list.actions.view'),
-                  onSelect: () => { window.location.href = `/backend/customers/people/${row.original.id}` },
+                  onSelect: () => { router.push(`/backend/customers/people/${row.id}`) },
                 },
                 {
                   label: t('customers.people.list.actions.openInNewTab'),
-                  onSelect: () => window.open(`/backend/customers/people/${row.original.id}`, '_blank'),
+                  onSelect: () => window.open(`/backend/customers/people/${row.id}`, '_blank', 'noopener'),
+                },
+                {
+                  label: t('customers.people.list.actions.delete'),
+                  destructive: true,
+                  onSelect: () => handleDelete(row),
                 },
               ]}
             />

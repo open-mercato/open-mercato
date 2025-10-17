@@ -74,7 +74,12 @@ export default async function BackendLayout({ children, params }: { children: Re
   const current = allEntries.find((i) => path.startsWith(i.href))
   const currentTitle = current?.title || ''
   const match = findBackendMatch(modules as any[], path)
-  const breadcrumb = (match?.route as any)?.breadcrumb as Array<{ label: string; href?: string }> | undefined
+  const rawBreadcrumb = (match?.route as any)?.breadcrumb as Array<{ label?: string; labelKey?: string; href?: string }> | undefined
+  const breadcrumb = rawBreadcrumb?.map((item) => {
+    const fallback = typeof item.label === 'string' ? item.label : ''
+    const label = item.labelKey ? translate(item.labelKey, fallback || item.labelKey) : fallback
+    return { ...item, label }
+  })
   // Read collapsed state from cookie for SSR-perfect initial render
   let initialCollapsed = false
   if (cookieStore) {
@@ -89,8 +94,10 @@ export default async function BackendLayout({ children, params }: { children: Re
     </div>
   )
 
+  const productName = translate('appShell.productName', 'Open Mercato')
+
   return (
-    <AppShell key={path} productName="Open Mercato" email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={rightHeaderContent} adminNavApi="/api/auth/admin/nav"> 
+    <AppShell key={path} productName={productName} email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={rightHeaderContent} adminNavApi="/api/auth/admin/nav"> 
       {children}
     </AppShell>
   )

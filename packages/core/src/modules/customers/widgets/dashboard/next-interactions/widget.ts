@@ -18,6 +18,7 @@ const widget: DashboardWidgetModule<CustomerNextInteractionsSettings> = {
     tags: ['customers', 'activities'],
     category: 'customers',
     icon: 'calendar',
+    supportsRefresh: true,
   },
   Widget: CustomerNextInteractionsWidget,
   hydrateSettings: hydrateNextInteractionsSettings,

@@ -39,6 +39,7 @@
   "dashboard.widget.loadError": "No se pudo cargar el widget.",
   "dashboard.widget.closeSettings": "Cerrar configuración",
   "dashboard.widget.editSettings": "Editar configuración",
+  "dashboard.widget.refresh": "Actualizar widget",
   "dashboard.widget.remove": "Eliminar widget",
   "dashboard.widgets.customers.dashboard.todos.title": "Tareas de clientes",
   "dashboard.widgets.customers.dashboard.todos.description": "Revisa las tareas más recientes vinculadas a los clientes y accede rápidamente a sus registros.",
@@ -50,5 +51,16 @@
   "appShell.toggleSidebar": "Alternar barra lateral",
   "appShell.goToDashboard": "Ir al panel",
   "appShell.closeMenu": "Cerrar menú",
-  "appShell.userFallback": "Usuario"
+  "appShell.userFallback": "Usuario",
+  "appShell.productName": "Open Mercato",
+  "organizationSwitcher.label": "Organización",
+  "organizationSwitcher.loading": "Cargando…",
+  "organizationSwitcher.error": "Error al cargar",
+  "organizationSwitcher.empty": "Sin organizaciones",
+  "organizationSwitcher.manage": "Administrar",
+  "organizationSelect.all": "Todas las organizaciones",
+  "organizationSelect.empty": "—",
+  "organizationSelect.loading": "Cargando organizaciones…",
+  "organizationSelect.error": "No se pudieron cargar las organizaciones",
+  "organizationSelect.inactive": "Inactiva"
 }

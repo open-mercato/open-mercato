@@ -944,6 +944,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     addresses: false,
     tasks: false,
   })
+  const personId = data?.person?.id ?? null
 
   const validators = React.useMemo(() => ({
     email: (value: string) => {
@@ -1037,6 +1038,144 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     [t]
   )
 
+  const handleCreateNote = React.useCallback(
+    async (body: string) => {
+      if (!personId) return
+      setSectionPending((prev) => ({ ...prev, notes: true }))
+      try {
+        const res = await apiFetch('/api/customers/comments', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityId: personId, body }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.notes.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        const payload = await res.json().catch(() => ({}))
+        const newNote: CommentSummary = {
+          id: typeof payload?.id === 'string' ? payload.id : randomId(),
+          body,
+          createdAt: new Date().toISOString(),
+          authorUserId: null,
+          dealId: null,
+        }
+        setData((prev) => (prev ? { ...prev, comments: [newNote, ...prev.comments] } : prev))
+        flash(t('customers.people.detail.notes.success'), 'success')
+      } finally {
+        setSectionPending((prev) => ({ ...prev, notes: false }))
+      }
+    },
+    [personId, t]
+  )
+
+  const handleCreateActivity = React.useCallback(
+    async (payload: { activityType: string; subject?: string; body?: string; occurredAt?: string }) => {
+      if (!personId) return
+      setSectionPending((prev) => ({ ...prev, activities: true }))
+      try {
+        const res = await apiFetch('/api/customers/activities', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityId: personId, ...payload }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.activities.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        const body = await res.json().catch(() => ({}))
+        const newActivity: ActivitySummary = {
+          id: typeof body?.id === 'string' ? body.id : randomId(),
+          activityType: payload.activityType,
+          subject: payload.subject ?? null,
+          body: payload.body ?? null,
+          occurredAt: payload.occurredAt ?? null,
+          createdAt: new Date().toISOString(),
+        }
+        setData((prev) => (prev ? { ...prev, activities: [newActivity, ...prev.activities] } : prev))
+        flash(t('customers.people.detail.activities.success'), 'success')
+      } finally {
+        setSectionPending((prev) => ({ ...prev, activities: false }))
+      }
+    },
+    [personId, t]
+  )
+
+  const handleCreateAddress = React.useCallback(
+    async (payload: Omit<AddressSummary, 'id'>) => {
+      if (!personId) return
+      setSectionPending((prev) => ({ ...prev, addresses: true }))
+      try {
+        const res = await apiFetch('/api/customers/addresses', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityId: personId, ...payload }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.addresses.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        const body = await res.json().catch(() => ({}))
+        const newAddress: AddressSummary = {
+          id: typeof body?.id === 'string' ? body.id : randomId(),
+          ...payload,
+        }
+        setData((prev) => (prev ? { ...prev, addresses: [newAddress, ...prev.addresses] } : prev))
+        flash(t('customers.people.detail.addresses.success'), 'success')
+      } finally {
+        setSectionPending((prev) => ({ ...prev, addresses: false }))
+      }
+    },
+    [personId, t]
+  )
+
+  const handleCreateTask = React.useCallback(
+    async (payload: { title: string; isDone: boolean }) => {
+      if (!personId) return
+      setSectionPending((prev) => ({ ...prev, tasks: true }))
+      try {
+        const res = await apiFetch('/api/customers/todos', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityId: personId, ...payload }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.tasks.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        const body = await res.json().catch(() => ({}))
+        const newTask: TodoLinkSummary = {
+          id: typeof body?.linkId === 'string' ? body.linkId : randomId(),
+          todoId: typeof body?.todoId === 'string' ? body.todoId : randomId(),
+          todoSource: 'example:todo',
+          createdAt: new Date().toISOString(),
+          createdByUserId: null,
+        }
+        setData((prev) => (prev ? { ...prev, todos: [newTask, ...prev.todos] } : prev))
+        flash(t('customers.people.detail.tasks.success'), 'success')
+      } finally {
+        setSectionPending((prev) => ({ ...prev, tasks: false }))
+      }
+    },
+    [personId, t]
+  )
+
   if (isLoading) {
     return (
       <Page>
@@ -1050,7 +1189,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     )
   }
 
-  if (error || !data) {
+  if (error || !data || !personId) {
     return (
       <Page>
         <PageBody>
@@ -1081,140 +1220,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   ]
 
   const customFieldEntries = Object.entries(data.customFields ?? {})
-
-  const handleCreateNote = React.useCallback(
-    async (body: string) => {
-      setSectionPending((prev) => ({ ...prev, notes: true }))
-      try {
-        const res = await apiFetch('/api/customers/comments', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ entityId: person.id, body }),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.notes.error')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
-        const payload = await res.json().catch(() => ({}))
-        const newNote: CommentSummary = {
-          id: typeof payload?.id === 'string' ? payload.id : randomId(),
-          body,
-          createdAt: new Date().toISOString(),
-          authorUserId: null,
-          dealId: null,
-        }
-        setData((prev) => (prev ? { ...prev, comments: [newNote, ...prev.comments] } : prev))
-        flash(t('customers.people.detail.notes.success'), 'success')
-      } finally {
-        setSectionPending((prev) => ({ ...prev, notes: false }))
-      }
-    },
-    [person.id, t]
-  )
-
-  const handleCreateActivity = React.useCallback(
-    async (payload: { activityType: string; subject?: string; body?: string; occurredAt?: string }) => {
-      setSectionPending((prev) => ({ ...prev, activities: true }))
-      try {
-        const res = await apiFetch('/api/customers/activities', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ entityId: person.id, ...payload }),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.activities.error')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
-        const body = await res.json().catch(() => ({}))
-        const newActivity: ActivitySummary = {
-          id: typeof body?.id === 'string' ? body.id : randomId(),
-          activityType: payload.activityType,
-          subject: payload.subject ?? null,
-          body: payload.body ?? null,
-          occurredAt: payload.occurredAt ?? null,
-          createdAt: new Date().toISOString(),
-        }
-        setData((prev) => (prev ? { ...prev, activities: [newActivity, ...prev.activities] } : prev))
-        flash(t('customers.people.detail.activities.success'), 'success')
-      } finally {
-        setSectionPending((prev) => ({ ...prev, activities: false }))
-      }
-    },
-    [person.id, t]
-  )
-
-  const handleCreateAddress = React.useCallback(
-    async (payload: Omit<AddressSummary, 'id'>) => {
-      setSectionPending((prev) => ({ ...prev, addresses: true }))
-      try {
-        const res = await apiFetch('/api/customers/addresses', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ entityId: person.id, ...payload }),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.addresses.error')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
-        const body = await res.json().catch(() => ({}))
-        const newAddress: AddressSummary = {
-          id: typeof body?.id === 'string' ? body.id : randomId(),
-          ...payload,
-        }
-        setData((prev) => (prev ? { ...prev, addresses: [newAddress, ...prev.addresses] } : prev))
-        flash(t('customers.people.detail.addresses.success'), 'success')
-      } finally {
-        setSectionPending((prev) => ({ ...prev, addresses: false }))
-      }
-    },
-    [person.id, t]
-  )
-
-  const handleCreateTask = React.useCallback(
-    async (payload: { title: string; isDone: boolean }) => {
-      setSectionPending((prev) => ({ ...prev, tasks: true }))
-      try {
-        const res = await apiFetch('/api/customers/todos', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ entityId: person.id, ...payload }),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.tasks.error')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
-        const body = await res.json().catch(() => ({}))
-        const newTask: TodoLinkSummary = {
-          id: typeof body?.linkId === 'string' ? body.linkId : randomId(),
-          todoId: typeof body?.todoId === 'string' ? body.todoId : randomId(),
-          todoSource: 'example:todo',
-          createdAt: new Date().toISOString(),
-          createdByUserId: null,
-        }
-        setData((prev) => (prev ? { ...prev, todos: [newTask, ...prev.todos] } : prev))
-        flash(t('customers.people.detail.tasks.success'), 'success')
-      } finally {
-        setSectionPending((prev) => ({ ...prev, tasks: false }))
-      }
-    },
-    [person.id, t]
-  )
 
   return (
     <Page>

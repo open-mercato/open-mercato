@@ -39,6 +39,7 @@
   "dashboard.widget.loadError": "Unable to load widget.",
   "dashboard.widget.closeSettings": "Close settings",
   "dashboard.widget.editSettings": "Edit settings",
+  "dashboard.widget.refresh": "Refresh widget",
   "dashboard.widget.remove": "Remove widget",
   "dashboard.widgets.customers.dashboard.todos.title": "Customer Tasks",
   "dashboard.widgets.customers.dashboard.todos.description": "Review the latest tasks linked to customers and jump directly to their records.",
@@ -50,5 +51,16 @@
   "appShell.toggleSidebar": "Toggle sidebar",
   "appShell.goToDashboard": "Go to dashboard",
   "appShell.closeMenu": "Close menu",
-  "appShell.userFallback": "User"
+  "appShell.userFallback": "User",
+  "appShell.productName": "Open Mercato",
+  "organizationSwitcher.label": "Organization",
+  "organizationSwitcher.loading": "Loading…",
+  "organizationSwitcher.error": "Failed to load",
+  "organizationSwitcher.empty": "No organizations",
+  "organizationSwitcher.manage": "Manage",
+  "organizationSelect.all": "All organizations",
+  "organizationSelect.empty": "—",
+  "organizationSelect.loading": "Loading organizations…",
+  "organizationSelect.error": "Failed to load organizations",
+  "organizationSelect.inactive": "Inactive"
 }

@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { formatOrganizationTreeLabel } from '../lib/tree'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type OrganizationTreeNode = {
   id: string
@@ -65,6 +66,7 @@ function buildOptions(
   nodes: OrganizationTreeNode[],
   includeInactiveSet: Set<string>,
   labelKey: 'name' | 'pathLabel',
+  inactiveSuffix: string,
 ): InternalOption[] {
   const acc: InternalOption[] = []
   const walk = (list: OrganizationTreeNode[], depth: number) => {
@@ -80,7 +82,7 @@ function buildOptions(
             ? (node.pathLabel || node.name || node.id)
             : (node.name || node.pathLabel || node.id)
         const baseLabel = formatOrganizationTreeLabel(display, nodeDepth)
-        const label = `${baseLabel}${isInactive ? ' (inactive)' : ''}`
+        const label = `${baseLabel}${isInactive ? inactiveSuffix : ''}`
         acc.push({
           value: node.id,
           label,
@@ -109,9 +111,9 @@ export const OrganizationSelect = React.forwardRef<HTMLSelectElement, Organizati
     nodes: providedNodes,
     includeInactiveIds = null,
     includeAllOption = false,
-    allOptionLabel = 'All organizations',
+    allOptionLabel,
     includeEmptyOption = false,
-    emptyOptionLabel = '—',
+    emptyOptionLabel,
     fetchOnMount = true,
     tenantId = null,
     status = 'all',
@@ -119,6 +121,7 @@ export const OrganizationSelect = React.forwardRef<HTMLSelectElement, Organizati
   },
   ref,
 ) {
+  const t = useT()
   const [fetchState, setFetchState] = React.useState<FetchState>(() => {
     if (providedNodes) {
       return { status: 'success', nodes: normalizeNodes(providedNodes) }
@@ -169,9 +172,11 @@ export const OrganizationSelect = React.forwardRef<HTMLSelectElement, Organizati
     return set
   }, [includeInactiveIds])
 
+  const inactiveSuffix = React.useMemo(() => ` (${t('organizationSelect.inactive')})`, [t])
+
   const options = React.useMemo(
-    () => buildOptions(nodes, includeInactiveSet, labelKey),
-    [nodes, includeInactiveSet, labelKey],
+    () => buildOptions(nodes, includeInactiveSet, labelKey, inactiveSuffix),
+    [nodes, includeInactiveSet, labelKey, inactiveSuffix],
   )
 
   const handleChange = React.useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -184,6 +189,11 @@ export const OrganizationSelect = React.forwardRef<HTMLSelectElement, Organizati
 
   const shouldShowStatusOption = options.length === 0 && !includeAllOption && !includeEmptyOption
 
+  const resolvedAllOptionLabel = includeAllOption ? (allOptionLabel ?? t('organizationSelect.all')) : null
+  const resolvedEmptyOptionLabel = includeEmptyOption && !includeAllOption ? (emptyOptionLabel ?? t('organizationSelect.empty')) : null
+  const loadingLabel = t('organizationSelect.loading')
+  const errorLabel = t('organizationSelect.error')
+
   return (
     <select
       ref={ref}
@@ -195,10 +205,10 @@ export const OrganizationSelect = React.forwardRef<HTMLSelectElement, Organizati
       required={required}
       className={className ?? 'h-9 rounded border px-2 text-sm'}
     >
-      {includeAllOption ? <option value="">{allOptionLabel}</option> : null}
-      {includeEmptyOption && !includeAllOption ? <option value="">{emptyOptionLabel}</option> : null}
-      {shouldShowStatusOption && isLoading ? <option value="" disabled>Loading organizations…</option> : null}
-      {shouldShowStatusOption && isError ? <option value="" disabled>Failed to load organizations</option> : null}
+      {resolvedAllOptionLabel ? <option value="">{resolvedAllOptionLabel}</option> : null}
+      {resolvedEmptyOptionLabel ? <option value="">{resolvedEmptyOptionLabel}</option> : null}
+      {shouldShowStatusOption && isLoading ? <option value="" disabled>{loadingLabel}</option> : null}
+      {shouldShowStatusOption && isError ? <option value="" disabled>{errorLabel}</option> : null}
       {!isLoading && !isError ? options.map((opt) => (
         <option key={opt.value} value={opt.value} disabled={opt.disabled}>
           {opt.label}

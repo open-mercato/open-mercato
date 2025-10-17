@@ -14,6 +14,7 @@ const widget: DashboardWidgetModule<CustomerNewCustomersSettings> = {
     tags: ['customers'],
     category: 'customers',
     icon: 'user-plus',
+    supportsRefresh: true,
   },
   Widget: CustomerNewCustomersWidget,
   hydrateSettings: hydrateNewCustomersSettings,

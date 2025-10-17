@@ -4,7 +4,6 @@ import * as React from 'react'
 import Link from 'next/link'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateCustomerTodoSettings, type CustomerTodoWidgetSettings } from './config'
@@ -69,6 +68,8 @@ const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWi
   mode,
   settings,
   onSettingsChange,
+  refreshToken,
+  onRefreshStateChange,
 }) => {
   const t = useT()
   const hydrated = React.useMemo(() => hydrateCustomerTodoSettings(settings), [settings])
@@ -84,6 +85,7 @@ const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWi
   }, [])
 
   const refresh = React.useCallback(async () => {
+    onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
@@ -94,12 +96,13 @@ const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWi
       setError(t('customers.widgets.todos.error'))
     } finally {
       setLoading(false)
+      onRefreshStateChange?.(false)
     }
-  }, [hydrated, t])
+  }, [hydrated, onRefreshStateChange, t])
 
   React.useEffect(() => {
     refresh().catch(() => {})
-  }, [refresh])
+  }, [refresh, refreshToken])
 
   if (mode === 'settings') {
     return (
@@ -128,11 +131,6 @@ const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWi
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
-        <Button variant="outline" size="sm" onClick={() => refresh().catch(() => {})} disabled={loading}>
-          {loading ? <Spinner className="h-4 w-4" /> : t('customers.widgets.todos.actions.refresh')}
-        </Button>
-      </div>
       {error ? (
         <p className="text-sm text-destructive">{error}</p>
       ) : loading ? (

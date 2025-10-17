@@ -30,12 +30,30 @@ const HeaderContext = React.createContext<{
   setTitle: (t?: string) => void
 } | null>(null)
 
-export function ApplyBreadcrumb({ breadcrumb, title }: { breadcrumb?: Breadcrumb; title?: string }) {
+export function ApplyBreadcrumb({ breadcrumb, title, titleKey }: { breadcrumb?: Array<{ label: string; href?: string; labelKey?: string }>; title?: string; titleKey?: string }) {
   const ctx = React.useContext(HeaderContext)
+  const t = useT()
+  const resolvedBreadcrumb = React.useMemo<Breadcrumb | undefined>(() => {
+    if (!breadcrumb) return undefined
+    return breadcrumb.map(({ label, labelKey, href }) => {
+      const translated = labelKey ? t(labelKey) : undefined
+      const finalLabel = translated && translated !== labelKey ? translated : label
+      return {
+        href,
+        label: finalLabel,
+      }
+    })
+  }, [breadcrumb, t])
+  const resolvedTitle = React.useMemo(() => {
+    if (!titleKey) return title
+    const translated = t(titleKey)
+    if (translated && translated !== titleKey) return translated
+    return title
+  }, [titleKey, title, t])
   React.useEffect(() => {
-    ctx?.setBreadcrumb(breadcrumb)
-    if (title !== undefined) ctx?.setTitle(title)
-  }, [ctx, breadcrumb, title])
+    ctx?.setBreadcrumb(resolvedBreadcrumb)
+    if (resolvedTitle !== undefined) ctx?.setTitle(resolvedTitle)
+  }, [ctx, resolvedBreadcrumb, resolvedTitle])
   return null
 }
 
@@ -62,9 +80,10 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi }: AppShellProps) {
+export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi }: AppShellProps) {
   const pathname = usePathname()
   const t = useT()
+  const resolvedProductName = productName ?? t('appShell.productName')
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState<boolean>(sidebarCollapsedDefault)
@@ -227,8 +246,8 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
         {!hideHeader && (
           <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
             <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
-              <Image src="/open-mercato.svg" alt="Open Mercato" width={32} height={32} className="rounded m-4" />
-              {!compact && <div className="text-m font-semibold">{productName}</div>}
+              <Image src="/open-mercato.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
+              {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
             </Link>
           </div>
         )}
@@ -402,8 +421,8 @@ export function AppShell({ productName = 'Admin', email, groups, rightHeaderSlot
           <aside className="absolute left-0 top-0 h-full w-[260px] bg-background border-r p-3">
             <div className="mb-2 flex items-center justify-between">
               <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src="/open-mercato.svg" alt="Open Mercato" width={28} height={28} className="rounded" />
-                {productName}
+                <Image src="/open-mercato.svg" alt={resolvedProductName} width={28} height={28} className="rounded" />
+                {resolvedProductName}
               </Link>
               <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
             </div>

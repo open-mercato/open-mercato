@@ -50,7 +50,13 @@ async function toggleTodo(id: string, isDone: boolean): Promise<void> {
   if (!res.ok) throw new Error(`Failed with status ${res.status}`)
 }
 
-const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = ({ mode, settings, onSettingsChange }) => {
+const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = ({
+  mode,
+  settings,
+  onSettingsChange,
+  refreshToken,
+  onRefreshStateChange,
+}) => {
   const value = React.useMemo(() => hydrateTodoSettings(settings), [settings])
   const [items, setItems] = React.useState<TodoItem[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -60,6 +66,7 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
   const [creating, setCreating] = React.useState(false)
 
   const refresh = React.useCallback(async () => {
+    onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
@@ -70,12 +77,13 @@ const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = 
       setError('Unable to load todos. Please try again later.')
     } finally {
       setLoading(false)
+      onRefreshStateChange?.(false)
     }
-  }, [value])
+  }, [onRefreshStateChange, value])
 
   React.useEffect(() => {
     refresh()
-  }, [refresh])
+  }, [refresh, refreshToken])
 
   const handleCreate = React.useCallback(async () => {
     if (!draft.trim()) return

@@ -21,7 +21,7 @@ export type CrudFieldBase = {
   placeholder?: string
   description?: string // inline field-level help
   required?: boolean
-  layout?: 'full' | 'half'
+  layout?: 'full' | 'half' | 'third'
 }
 
 export type CrudFieldOption = { value: string; label: string }
@@ -375,6 +375,9 @@ export function CrudForm<TValues extends Record<string, any>>({
     setFormError(null)
     setErrors({})
 
+    const requiredMessage = t('ui.forms.errors.required', 'This field is required')
+    const highlightedMessage = t('ui.forms.errors.highlighted', 'Please fix the highlighted errors.')
+
     // Make sure any inputs that commit on blur (rich text, textarea, number)
     // flush their local state into the form values before validation/submit.
     // Trigger a blur on the active element and yield once to let React process onBlur.
@@ -401,11 +404,11 @@ export function CrudForm<TValues extends Record<string, any>>({
         (isString && v.trim() === '') ||
         (isArray && v.length === 0) ||
         ((f as any).type === 'checkbox' && v !== true)
-      if (empty) requiredErrors[f.id] = 'This field is required'
+      if (empty) requiredErrors[f.id] = requiredMessage
     }
     if (Object.keys(requiredErrors).length) {
       setErrors(requiredErrors)
-      flash('Please fix the highlighted errors.', 'error')
+      flash(highlightedMessage, 'error')
       return
     }
 
@@ -435,7 +438,7 @@ export function CrudForm<TValues extends Record<string, any>>({
           } else {
             setErrors((prev) => ({ ...prev, ...result.fieldErrors }))
           }
-          flash('Please fix the highlighted errors.', 'error')
+          flash(highlightedMessage, 'error')
           return
         }
       } catch {
@@ -452,7 +455,7 @@ export function CrudForm<TValues extends Record<string, any>>({
           if (iss.path && iss.path.length) fieldErrors[String(iss.path[0])] = iss.message
         })
         setErrors(fieldErrors)
-        flash('Please fix the highlighted errors.', 'error')
+        flash(highlightedMessage, 'error')
         return
       }
       parsed = res.data
@@ -761,11 +764,14 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
   // no auto-focus; let the browser/user manage focus
 
-  const hasHalfLayout = allFields.some((field) => (field as any).layout === 'half')
+  const usesResponsiveLayout = allFields.some((field) => {
+    const layout = (field as any).layout
+    return layout === 'half' || layout === 'third'
+  })
   const grid = twoColumn
     ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4'
-    : hasHalfLayout
-      ? 'grid grid-cols-1 gap-4 md:grid-cols-2'
+    : usesResponsiveLayout
+      ? 'grid grid-cols-1 gap-4 md:grid-cols-6'
       : 'grid grid-cols-1 gap-4'
 
   type FieldControlProps = {
@@ -939,14 +945,28 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   }), [])
 
   // Helper to render a list of field configs
+  const resolveLayoutClass = (layout?: CrudFieldBase['layout']) => {
+    switch (layout) {
+      case 'half':
+        return 'md:col-span-3'
+      case 'third':
+        return 'md:col-span-2'
+      default:
+        return 'md:col-span-6'
+    }
+  }
+
   const renderFields = (fieldList: CrudField[]) => {
-    const hasHalf = fieldList.some((field) => (field as any).layout === 'half')
-    const gridClass = hasHalf ? 'grid grid-cols-1 gap-4 md:grid-cols-2' : 'grid grid-cols-1 gap-4'
+    const usesResponsive = fieldList.some((field) => {
+      const layout = (field as any).layout
+      return layout === 'half' || layout === 'third'
+    })
+    const gridClass = usesResponsive ? 'grid grid-cols-1 gap-4 md:grid-cols-6' : 'grid grid-cols-1 gap-4'
     return (
       <div className={gridClass}>
         {fieldList.map((f, idx) => {
-          const layout = (f as any).layout ?? 'full'
-          const wrapperClassName = hasHalf && layout !== 'half' ? 'md:col-span-2' : undefined
+          const layout = ((f as any).layout ?? 'full') as CrudFieldBase['layout']
+          const wrapperClassName = usesResponsive ? resolveLayoutClass(layout) : undefined
           return (
             <FieldControl
               key={f.id}
@@ -1190,8 +1210,8 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <form id={formId} onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
             <div className={grid}>
               {allFields.map((f, idx) => {
-                const layout = (f as any).layout ?? 'full'
-                const wrapperClassName = hasHalfLayout && layout !== 'half' ? 'md:col-span-2' : undefined
+                const layout = ((f as any).layout ?? 'full') as CrudFieldBase['layout']
+                const wrapperClassName = usesResponsiveLayout ? resolveLayoutClass(layout) : undefined
                 return (
                   <FieldControl
                     key={f.id}

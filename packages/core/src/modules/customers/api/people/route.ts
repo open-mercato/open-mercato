@@ -7,6 +7,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { personCreateSchema, personUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -15,6 +16,14 @@ const listSchema = z
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
+    status: z.string().optional(),
+    lifecycleStage: z.string().optional(),
+    source: z.string().optional(),
+    hasEmail: z.string().optional(),
+    hasPhone: z.string().optional(),
+    hasNextInteraction: z.string().optional(),
+    createdFrom: z.string().optional(),
+    createdTo: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     id: z.string().uuid().optional(),
@@ -58,23 +67,79 @@ const crud = makeCrudRoute({
       'organization_id',
       'tenant_id',
       'kind',
+      'created_at',
     ],
     sortFieldMap: {
       name: 'display_name',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    buildFilters: async (query: any) => {
+    buildFilters: async (query: any, ctx) => {
       const filters: Record<string, any> = { kind: { $eq: 'person' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
         filters.display_name = { $ilike: `%${query.search}%` }
       }
+      if (query.status) {
+        filters.status = { $eq: query.status }
+      }
+      if (query.lifecycleStage) {
+        filters.lifecycle_stage = { $eq: query.lifecycleStage }
+      }
+      if (query.source) {
+        filters.source = { $eq: query.source }
+      }
+      const hasEmail = query.hasEmail === 'true' ? true : query.hasEmail === 'false' ? false : undefined
+      if (hasEmail !== undefined) {
+        filters.primary_email = { $exists: hasEmail }
+      }
+      const hasPhone = query.hasPhone === 'true' ? true : query.hasPhone === 'false' ? false : undefined
+      if (hasPhone !== undefined) {
+        filters.primary_phone = { $exists: hasPhone }
+      }
+      const hasNextInteraction = query.hasNextInteraction === 'true' ? true : query.hasNextInteraction === 'false' ? false : undefined
+      if (hasNextInteraction !== undefined) {
+        filters.next_interaction_at = { $exists: hasNextInteraction }
+      }
+      const createdRange: Record<string, Date> = {}
+      if (query.createdFrom) {
+        const from = new Date(query.createdFrom)
+        if (!Number.isNaN(from.getTime())) createdRange.$gte = from
+      }
+      if (query.createdTo) {
+        const to = new Date(query.createdTo)
+        if (!Number.isNaN(to.getTime())) createdRange.$lte = to
+      }
+      if (Object.keys(createdRange).length) {
+        filters.created_at = createdRange
+      }
+      if (ctx) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const cfFilters = await buildCustomFieldFiltersFromQuery({
+            entityId: E.customers.customer_person_profile,
+            query,
+            em,
+            tenantId: ctx.auth?.tenantId ?? null,
+          })
+          Object.assign(filters, cfFilters)
+        } catch {
+          // ignore custom field filter errors; fall back to base filters
+        }
+      }
       return filters
     },
     transformItem: (item: any) => {
-      if (item) delete item.kind
-      return item
+      if (!item) return item
+      const normalized = { ...item }
+      delete normalized.kind
+      const cfEntries = extractAllCustomFieldEntries(item)
+      for (const key of Object.keys(normalized)) {
+        if (key.startsWith('cf:')) {
+          delete normalized[key]
+        }
+      }
+      return { ...normalized, ...cfEntries }
     },
   },
   actions: {

@@ -14,6 +14,7 @@ const widget: DashboardWidgetModule<CustomerTodoWidgetSettings> = {
     tags: ['customers', 'activities'],
     category: 'customers',
     icon: 'check-square',
+    supportsRefresh: true,
   },
   Widget: CustomerTodosWidget,
   hydrateSettings: hydrateCustomerTodoSettings,

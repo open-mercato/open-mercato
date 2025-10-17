@@ -39,6 +39,7 @@
   "dashboard.widget.loadError": "Widget konnte nicht geladen werden.",
   "dashboard.widget.closeSettings": "Einstellungen schließen",
   "dashboard.widget.editSettings": "Einstellungen bearbeiten",
+  "dashboard.widget.refresh": "Widget aktualisieren",
   "dashboard.widget.remove": "Widget entfernen",
   "dashboard.widgets.customers.dashboard.todos.title": "Kundenaufgaben",
   "dashboard.widgets.customers.dashboard.todos.description": "Behalte die neuesten Aufgaben zu deinen Kunden im Blick und springe direkt in deren Datensätze.",
@@ -50,5 +51,16 @@
   "appShell.toggleSidebar": "Seitenleiste umschalten",
   "appShell.goToDashboard": "Zum Dashboard",
   "appShell.closeMenu": "Menü schließen",
-  "appShell.userFallback": "Benutzer"
+  "appShell.userFallback": "Benutzer",
+  "appShell.productName": "Open Mercato",
+  "organizationSwitcher.label": "Organisation",
+  "organizationSwitcher.loading": "Wird geladen…",
+  "organizationSwitcher.error": "Laden fehlgeschlagen",
+  "organizationSwitcher.empty": "Keine Organisationen",
+  "organizationSwitcher.manage": "Verwalten",
+  "organizationSelect.all": "Alle Organisationen",
+  "organizationSelect.empty": "—",
+  "organizationSelect.loading": "Organisationen werden geladen…",
+  "organizationSelect.error": "Organisationen konnten nicht geladen werden",
+  "organizationSelect.inactive": "Inaktiv"
 }
