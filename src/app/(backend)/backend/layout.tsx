@@ -41,7 +41,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   const ctx = { auth: ctxAuth, path }
   
   // Build initial nav (SSR) using module metadata to preserve icons
-  const { translate } = await resolveTranslations()
+  const { translate, locale } = await resolveTranslations()
   const entries = await buildAdminNav(
     modules as any[],
     ctx,

@@ -1,5 +1,5 @@
 import { EntityManager } from '@mikro-orm/postgresql'
-import { User, UserSidebarPreference } from '../data/entities'
+import { Role, RoleSidebarPreference, User, UserSidebarPreference } from '../data/entities'
 import {
   SIDEBAR_PREFERENCES_VERSION,
   SidebarPreferencesSettings,
@@ -10,6 +10,12 @@ export type SidebarPreferenceScope = {
   userId: string
   tenantId?: string | null
   organizationId?: string | null
+  locale: string
+}
+
+export type RoleSidebarPreferenceScope = {
+  roleId: string
+  tenantId?: string | null
   locale: string
 }
 
@@ -53,6 +59,66 @@ export async function saveSidebarPreference(
       user: em.getReference(User, userId),
       tenantId,
       organizationId,
+      locale,
+      settingsJson: normalized,
+    })
+  } else {
+    pref.settingsJson = normalized
+  }
+  await em.flush()
+  return normalized
+}
+
+export async function loadRoleSidebarPreferences(
+  em: EntityManager,
+  options: { roleIds: string[]; tenantId?: string | null; locale: string },
+): Promise<Map<string, SidebarPreferencesSettings>> {
+  if (!options.roleIds.length) return new Map()
+  const tenantId = options.tenantId ?? null
+  const prefs = await em.find(RoleSidebarPreference, {
+    role: { $in: options.roleIds },
+    tenantId,
+    locale: options.locale,
+  })
+  const map = new Map<string, SidebarPreferencesSettings>()
+  for (const pref of prefs) {
+    map.set(pref.role.id, normalizeSidebarSettings(pref.settingsJson as SidebarPreferencesSettings | undefined))
+  }
+  return map
+}
+
+export async function loadFirstRoleSidebarPreference(
+  em: EntityManager,
+  options: { roleIds: string[]; tenantId?: string | null; locale: string },
+): Promise<SidebarPreferencesSettings | null> {
+  if (!options.roleIds.length) return null
+  const tenantId = options.tenantId ?? null
+  const prefs = await em.find(RoleSidebarPreference, {
+    role: { $in: options.roleIds },
+    tenantId,
+    locale: options.locale,
+  })
+  if (!prefs.length) return null
+  const ordered = options.roleIds.map((id) => prefs.find((pref) => pref.role.id === id)).filter(Boolean) as RoleSidebarPreference[]
+  const first = ordered[0] ?? prefs[0]
+  return normalizeSidebarSettings(first?.settingsJson as SidebarPreferencesSettings | undefined)
+}
+
+export async function saveRoleSidebarPreference(
+  em: EntityManager,
+  scope: RoleSidebarPreferenceScope,
+  input: SidebarPreferencesSettings,
+): Promise<SidebarPreferencesSettings> {
+  const normalized = normalizeSidebarSettings({
+    ...input,
+    version: input?.version ?? SIDEBAR_PREFERENCES_VERSION,
+  })
+  const { roleId, tenantId, locale } = normalizeRoleScope(scope)
+  let pref = await em.findOne(RoleSidebarPreference, { role: roleId, tenantId, locale })
+  if (!pref) {
+    pref = em.create(RoleSidebarPreference, {
+      role: em.getReference(Role, roleId),
+      tenantId,
       locale,
       settingsJson: normalized,
     })
@@ -108,6 +174,14 @@ function normalizeScope(scope: SidebarPreferenceScope) {
     userId: scope.userId,
     tenantId: scope.tenantId ?? null,
     organizationId: scope.organizationId ?? null,
+    locale: scope.locale,
+  }
+}
+
+function normalizeRoleScope(scope: RoleSidebarPreferenceScope) {
+  return {
+    roleId: scope.roleId,
+    tenantId: scope.tenantId ?? null,
     locale: scope.locale,
   }
 }

@@ -48,6 +48,17 @@ const LUCIDE_ICON_MAP: Record<string, LucideIcon> = {
   globe: Globe,
 }
 
+export type CustomerDictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages'
+
+export type CustomerDictionaryDisplayEntry = {
+  value: string
+  label: string
+  color?: string | null
+  icon?: string | null
+}
+
+export type CustomerDictionaryMap = Record<string, CustomerDictionaryDisplayEntry>
+
 export const ICON_SUGGESTIONS: Array<{ value: string; label: string }> = [
   { value: 'lucide:star', label: 'Star' },
   { value: 'lucide:flag', label: 'Flag' },
@@ -107,5 +118,68 @@ export function renderDictionaryColor(color: string | null | undefined, classNam
       style={{ backgroundColor: color }}
       aria-hidden
     />
+  )
+}
+
+export function normalizeCustomerDictionaryEntries(items: unknown): CustomerDictionaryDisplayEntry[] {
+  if (!Array.isArray(items)) return []
+  return items
+    .map((item: any) => {
+      const rawValue = typeof item?.value === 'string' ? item.value.trim() : ''
+      if (!rawValue) return null
+      const label = typeof item?.label === 'string' && item.label.trim().length ? item.label.trim() : rawValue
+      const color =
+        typeof item?.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(item.color)
+          ? `#${item.color.slice(1).toLowerCase()}`
+          : null
+      const icon = typeof item?.icon === 'string' && item.icon.trim().length ? item.icon.trim() : null
+      return { value: rawValue, label, color, icon }
+    })
+    .filter((entry): entry is CustomerDictionaryDisplayEntry => !!entry)
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+}
+
+export function createDictionaryMap(entries: CustomerDictionaryDisplayEntry[]): CustomerDictionaryMap {
+  return entries.reduce<CustomerDictionaryMap>((acc, entry) => {
+    acc[entry.value] = entry
+    return acc
+  }, {})
+}
+
+type DictionaryValueProps = {
+  value: string | null | undefined
+  map?: CustomerDictionaryMap | null
+  fallback: React.ReactNode
+  className?: string
+  iconWrapperClassName?: string
+  iconClassName?: string
+  colorClassName?: string
+}
+
+export function DictionaryValue({
+  value,
+  map,
+  fallback,
+  className,
+  iconWrapperClassName = 'inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card',
+  iconClassName = 'h-4 w-4',
+  colorClassName = 'h-3 w-3 rounded-full',
+}: DictionaryValueProps): React.ReactNode {
+  if (!value) return fallback
+  const entry = map?.[value]
+  if (!entry) {
+    return <span className={className}>{value}</span>
+  }
+  const classes = ['inline-flex items-center gap-2', className].filter(Boolean).join(' ')
+  return (
+    <span className={classes}>
+      {entry.icon ? (
+        <span className={[iconWrapperClassName].filter(Boolean).join(' ')}>
+          {renderDictionaryIcon(entry.icon, iconClassName)}
+        </span>
+      ) : null}
+      <span>{entry.label}</span>
+      {entry.color ? renderDictionaryColor(entry.color, colorClassName) : null}
+    </span>
   )
 }

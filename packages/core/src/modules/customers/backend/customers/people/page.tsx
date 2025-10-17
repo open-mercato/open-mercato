@@ -13,6 +13,13 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import {
+  DictionaryValue,
+  createDictionaryMap,
+  normalizeCustomerDictionaryEntries,
+  type CustomerDictionaryKind,
+  type CustomerDictionaryMap,
+} from '../../../components/dictionaryAppearance'
 
 type PersonRow = {
   id: string
@@ -34,6 +41,8 @@ type PeopleResponse = {
   page?: number
   totalPages?: number
 }
+
+type DictionaryKindKey = CustomerDictionaryKind
 
 function formatDate(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback
@@ -87,27 +96,50 @@ export default function CustomersPeoplePage() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>({
+    statuses: {},
+    sources: {},
+    'lifecycle-stages': {},
+  })
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const router = useRouter()
-  const loadDictionaryOptions = React.useCallback(async (kind: 'statuses' | 'sources' | 'lifecycle-stages') => {
+  const fetchDictionaryEntries = React.useCallback(async (kind: DictionaryKindKey) => {
     try {
       const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
       const payload = await res.json().catch(() => ({}))
       if (!res.ok) return []
-      const items = Array.isArray(payload.items) ? payload.items : []
-      return items
-        .map((entry: any) => {
-          const rawValue = typeof entry?.value === 'string' ? entry.value.trim() : ''
-          if (!rawValue) return null
-          const label = typeof entry?.label === 'string' && entry.label.trim().length ? entry.label : rawValue
-          return { value: rawValue, label }
-        })
-        .filter((entry): entry is { value: string; label: string } => !!entry)
+      const normalized = normalizeCustomerDictionaryEntries(payload.items)
+      setDictionaryMaps((prev) => ({
+        ...prev,
+        [kind]: createDictionaryMap(normalized),
+      }))
+      return normalized
     } catch {
       return []
     }
   }, [])
+  const loadDictionaryOptions = React.useCallback(async (kind: 'statuses' | 'sources' | 'lifecycle-stages') => {
+    const entries = await fetchDictionaryEntries(kind)
+    return entries.map((entry) => ({ value: entry.value, label: entry.label }))
+  }, [fetchDictionaryEntries])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadAll() {
+      if (cancelled) return
+      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {} })
+      await Promise.all([
+        fetchDictionaryEntries('statuses'),
+        fetchDictionaryEntries('sources'),
+        fetchDictionaryEntries('lifecycle-stages'),
+      ])
+    }
+    loadAll().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {
@@ -125,7 +157,8 @@ export default function CustomersPeoplePage() {
     {
       id: 'lifecycleStage',
       label: t('customers.people.list.filters.lifecycleStage'),
-      type: 'text',
+      type: 'select',
+      loadOptions: () => loadDictionaryOptions('lifecycle-stages'),
     },
     {
       id: 'createdAt',
@@ -248,30 +281,49 @@ export default function CustomersPeoplePage() {
     }
   }, [handleRefresh, t])
 
-  const columns = React.useMemo<ColumnDef<PersonRow>[]>(() => [
-    {
-      accessorKey: 'name',
-      header: t('customers.people.list.columns.name'),
-      cell: ({ row }) => (
-        <Link href={`/backend/customers/people/${row.original.id}`} className="font-medium hover:underline">
-          {row.original.name}
-        </Link>
-      ),
-    },
-    {
-      accessorKey: 'email',
-      header: t('customers.people.list.columns.email'),
-      cell: ({ row }) => row.original.email || <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
-    },
-    {
-      accessorKey: 'status',
-      header: t('customers.people.list.columns.status'),
-      cell: ({ row }) => row.original.status || <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
-    },
-    {
-      accessorKey: 'nextInteractionAt',
-      header: t('customers.people.list.columns.nextInteraction'),
-      cell: ({ row }) =>
+  const columns = React.useMemo<ColumnDef<PersonRow>[]>(() => {
+    const noValue = <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>
+    const renderDictionaryCell = (kind: DictionaryKindKey, rawValue: string | null | undefined) => (
+      <DictionaryValue
+        value={rawValue}
+        map={dictionaryMaps[kind]}
+        fallback={rawValue ? <span>{rawValue}</span> : noValue}
+        className="text-sm"
+        iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
+        iconClassName="h-4 w-4"
+        colorClassName="h-3 w-3 rounded-full"
+      />
+    )
+
+    return [
+      {
+        accessorKey: 'name',
+        header: t('customers.people.list.columns.name'),
+        cell: ({ row }) => (
+          <Link href={`/backend/customers/people/${row.original.id}`} className="font-medium hover:underline">
+            {row.original.name}
+          </Link>
+        ),
+      },
+      {
+        accessorKey: 'email',
+        header: t('customers.people.list.columns.email'),
+        cell: ({ row }) => row.original.email || <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
+      },
+      {
+        accessorKey: 'status',
+        header: t('customers.people.list.columns.status'),
+        cell: ({ row }) => renderDictionaryCell('statuses', row.original.status),
+      },
+      {
+        accessorKey: 'lifecycleStage',
+        header: t('customers.people.list.columns.lifecycleStage'),
+        cell: ({ row }) => renderDictionaryCell('lifecycle-stages', row.original.lifecycleStage),
+      },
+      {
+        accessorKey: 'nextInteractionAt',
+        header: t('customers.people.list.columns.nextInteraction'),
+        cell: ({ row }) =>
         row.original.nextInteractionAt
           ? (
             <span className="flex flex-col text-sm">
@@ -282,13 +334,14 @@ export default function CustomersPeoplePage() {
             </span>
           )
           : <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
-    },
-    {
-      accessorKey: 'source',
-      header: t('customers.people.list.columns.source'),
-      cell: ({ row }) => row.original.source || <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
-    },
-  ], [t])
+      },
+      {
+        accessorKey: 'source',
+        header: t('customers.people.list.columns.source'),
+        cell: ({ row }) => renderDictionaryCell('sources', row.original.source),
+      },
+    ]
+  }, [dictionaryMaps, t])
 
   return (
     <Page>

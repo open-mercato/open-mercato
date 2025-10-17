@@ -34,11 +34,13 @@ export default function CreatePersonPage() {
           backHref="/backend/customers/people"
           fields={fields}
           groups={groups}
+          initialValues={{ addresses: [] as PersonFormValues['addresses'] }}
           entityId={E.customers.customer_entity}
           submitLabel={t('customers.people.form.submit')}
           cancelHref="/backend/customers/people"
           schema={formSchema}
           onSubmit={async (values) => {
+            const addresses = Array.isArray(values.addresses) ? values.addresses : []
             let payload: Record<string, unknown>
             try {
               payload = buildPersonPayload(values, organizationId)
@@ -70,6 +72,57 @@ export default function CreatePersonPage() {
               created && typeof created.id === 'string'
                 ? created.id
                 : (typeof created?.entityId === 'string' ? created.entityId : null)
+
+            if (newId && addresses.length) {
+              const normalize = (value?: string | null) => {
+                if (typeof value !== 'string') return undefined
+                const trimmed = value.trim()
+                return trimmed.length ? trimmed : undefined
+              }
+              for (const entry of addresses) {
+                const normalizedLine1 = normalize(entry.addressLine1)
+                if (!normalizedLine1) continue
+                const body: Record<string, unknown> = {
+                  entityId: newId,
+                  ...(organizationId ? { organizationId } : {}),
+                  addressLine1: normalizedLine1,
+                  isPrimary: entry.isPrimary ?? false,
+                }
+                const name = normalize(entry.name)
+                if (name !== undefined) body.name = name
+                const line2 = normalize(entry.addressLine2)
+                if (line2 !== undefined) body.addressLine2 = line2
+                const city = normalize(entry.city)
+                if (city !== undefined) body.city = city
+                const region = normalize(entry.region)
+                if (region !== undefined) body.region = region
+                const postalCode = normalize(entry.postalCode)
+                if (postalCode !== undefined) body.postalCode = postalCode
+                const country = normalize(entry.country)
+                if (country !== undefined) body.country = country
+                try {
+                  const addressRes = await apiFetch('/api/customers/addresses', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(body),
+                  })
+                  if (!addressRes.ok) {
+                    let message = t('customers.people.detail.addresses.error')
+                    try {
+                      const details = await addressRes.clone().json()
+                      if (details && typeof details.error === 'string') message = details.error
+                    } catch {}
+                    flash(message, 'error')
+                  }
+                } catch (addressErr) {
+                  const message =
+                    addressErr instanceof Error && addressErr.message
+                      ? addressErr.message
+                      : t('customers.people.detail.addresses.error')
+                  flash(message, 'error')
+                }
+              }
+            }
 
             flash(t('customers.people.form.success'), 'success')
             if (newId) router.push(`/backend/customers/people/${newId}`)

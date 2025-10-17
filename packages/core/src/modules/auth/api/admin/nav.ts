@@ -6,7 +6,8 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
-import { applySidebarPreference, loadSidebarPreference } from '../../services/sidebarPreferencesService'
+import { applySidebarPreference, loadFirstRoleSidebarPreference, loadSidebarPreference } from '../../services/sidebarPreferencesService'
+import { Role } from '../../data/entities'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -211,6 +212,24 @@ export async function GET(req: Request) {
     }
   })
 
+  let rolePreference = null
+  if (Array.isArray(auth.roles) && auth.roles.length) {
+    const roleRecords = await em.find(Role, {
+      name: { $in: auth.roles },
+      tenantId: auth.tenantId ?? null,
+    })
+    const roleIds = roleRecords.map((role: Role) => role.id)
+    if (roleIds.length) {
+      rolePreference = await loadFirstRoleSidebarPreference(em, {
+        roleIds,
+        tenantId: auth.tenantId ?? null,
+        locale,
+      })
+    }
+  }
+
+  const groupsWithRole = rolePreference ? applySidebarPreference(groups, rolePreference) : groups
+
   const preference = await loadSidebarPreference(em, {
     userId: auth.sub,
     tenantId: auth.tenantId ?? null,
@@ -218,7 +237,7 @@ export async function GET(req: Request) {
     locale,
   })
 
-  const withPreference = applySidebarPreference(groups, preference)
+  const withPreference = applySidebarPreference(groupsWithRole, preference)
 
   const payload = {
     groups: withPreference.map((group) => ({
@@ -249,6 +268,7 @@ export async function GET(req: Request) {
         `nav:locale:${locale}`,
         `nav:sidebar:user:${auth.sub}`,
         `nav:sidebar:scope:${auth.sub}:${auth.tenantId || 'null'}:${auth.orgId || 'null'}:${locale}`,
+        ...(Array.isArray(auth.roles) ? auth.roles.map((role: string) => `nav:sidebar:role:${role}`) : []),
       ].filter(Boolean) as string[]
       await cache.set(cacheKey, payload, { tags })
     }

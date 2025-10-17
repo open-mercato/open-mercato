@@ -6,19 +6,24 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Check, Loader2, Mail, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Loader2, Mail, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
-import { DictionarySelectField } from '../../../../components/formConfig'
+import {
+  DictionarySelectField,
+} from '../../../../components/formConfig'
+import {
+  DictionaryValue,
+  createDictionaryMap,
+  normalizeCustomerDictionaryEntries,
+  type CustomerDictionaryKind,
+  type CustomerDictionaryMap,
+} from '../../../../components/dictionaryAppearance'
+import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../../../../components/AddressTiles'
 import { useEmailDuplicateCheck } from '../../../hooks/useEmailDuplicateCheck'
 
 type TagSummary = { id: string; label: string; color?: string | null }
@@ -283,22 +288,27 @@ type StatusEditorProps = {
   emptyLabel: string
   labels: Parameters<typeof DictionarySelectField>[0]['labels']
   onSave: (value: string | null) => Promise<void>
+  dictionaryMap?: CustomerDictionaryMap | null
+  onAfterSave?: () => void | Promise<void>
 }
 
-function InlineStatusEditor({ label, value, emptyLabel, labels, onSave }: StatusEditorProps) {
+function InlineStatusEditor({ label, value, emptyLabel, labels, onSave, dictionaryMap, onAfterSave }: StatusEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
-  const [draft, setDraft] = React.useState<string | undefined>(value ?? undefined)
+  const [draft, setDraft] = React.useState<string | undefined>(value && value.length ? value : undefined)
   const [saving, setSaving] = React.useState(false)
 
   React.useEffect(() => {
-    if (!editing) setDraft(value ?? undefined)
+    if (!editing) setDraft(value && value.length ? value : undefined)
   }, [editing, value])
 
   const handleSave = React.useCallback(async () => {
     setSaving(true)
     try {
       await onSave(draft ?? null)
+      if (onAfterSave) {
+        await onAfterSave()
+      }
       setEditing(false)
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customers.people.detail.inline.error')
@@ -306,7 +316,7 @@ function InlineStatusEditor({ label, value, emptyLabel, labels, onSave }: Status
     } finally {
       setSaving(false)
     }
-  }, [draft, onSave, t])
+  }, [draft, onAfterSave, onSave, t])
 
   return (
     <div className="rounded-lg border p-4">
@@ -332,7 +342,17 @@ function InlineStatusEditor({ label, value, emptyLabel, labels, onSave }: Status
               </div>
             </div>
           ) : (
-            <p className="mt-1 text-sm">{value || emptyLabel}</p>
+            <div className="mt-1 text-sm">
+              <DictionaryValue
+                value={value}
+                map={dictionaryMap}
+                fallback={<span className="text-sm text-muted-foreground">{emptyLabel}</span>}
+                className="text-sm"
+                iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
+                iconClassName="h-4 w-4"
+                colorClassName="h-3 w-3 rounded-full"
+              />
+            </div>
           )}
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={() => setEditing((state) => !state)}>
@@ -675,177 +695,40 @@ function ActivitiesTab({ activities, onCreate, isSubmitting, emptyLabel, t }: Ac
 
 type AddressesTabProps = {
   addresses: AddressSummary[]
-  onCreate: (payload: Omit<AddressSummary, 'id'>) => Promise<void>
+  onCreate: (payload: CustomerAddressInput) => Promise<void>
+  onUpdate: (id: string, payload: CustomerAddressInput) => Promise<void>
+  onDelete: (id: string) => Promise<void>
   isSubmitting: boolean
   emptyLabel: string
   t: Translator
 }
 
-function AddressesTab({ addresses, onCreate, isSubmitting, emptyLabel, t }: AddressesTabProps) {
-  const [open, setOpen] = React.useState(false)
-  const [draft, setDraft] = React.useState({
-    name: '',
-    addressLine1: '',
-    addressLine2: '',
-    city: '',
-    region: '',
-    postalCode: '',
-    country: '',
-    isPrimary: false,
-  })
-
-  const handleSubmit = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      if (!draft.addressLine1.trim() || isSubmitting) {
-        flash(t('customers.people.detail.addresses.line1Required'), 'error')
-        return
-      }
-      await onCreate({
-        name: draft.name.trim() || null,
-        purpose: null,
-        addressLine1: draft.addressLine1.trim(),
-        addressLine2: draft.addressLine2.trim() || null,
-        city: draft.city.trim() || null,
-        region: draft.region.trim() || null,
-        postalCode: draft.postalCode.trim() || null,
-        country: draft.country.trim() || null,
-        isPrimary: draft.isPrimary,
-      })
-      setDraft({
-        name: '',
-        addressLine1: '',
-        addressLine2: '',
-        city: '',
-        region: '',
-        postalCode: '',
-        country: '',
-        isPrimary: false,
-      })
-      setOpen(false)
-    },
-    [draft, isSubmitting, onCreate, t]
-  )
+function AddressesTab({ addresses, onCreate, onUpdate, onDelete, isSubmitting, emptyLabel, t }: AddressesTabProps) {
+  const displayAddresses = React.useMemo<CustomerAddressValue[]>(() => {
+    return addresses.map((address) => ({
+      id: address.id,
+      name: address.name ?? null,
+      purpose: address.purpose ?? null,
+      addressLine1: address.addressLine1,
+      addressLine2: address.addressLine2 ?? null,
+      city: address.city ?? null,
+      region: address.region ?? null,
+      postalCode: address.postalCode ?? null,
+      country: address.country ?? null,
+      isPrimary: address.isPrimary ?? false,
+    }))
+  }, [addresses])
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-end">
-        <Button onClick={() => setOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t('customers.people.detail.addresses.add')}
-        </Button>
-      </div>
-      <div className="space-y-4">
-        {addresses.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-        ) : (
-          addresses.map((address) => (
-            <div key={address.id} className="rounded-lg border p-4 space-y-1 text-sm">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-                <span>{address.name || address.purpose || t('customers.people.detail.address')}</span>
-                {address.isPrimary ? (
-                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                    {t('customers.people.detail.primary')}
-                  </span>
-                ) : null}
-              </div>
-              <p>{address.addressLine1}</p>
-              {address.addressLine2 ? <p>{address.addressLine2}</p> : null}
-              <p>{[address.city, address.region, address.postalCode].filter(Boolean).join(', ')}</p>
-              {address.country ? <p>{address.country}</p> : null}
-            </div>
-          ))
-        )}
-      </div>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="bottom-4 top-auto w-[calc(100vw-2rem)] max-w-lg translate-y-0 sm:bottom-auto sm:top-1/2 sm:w-full sm:-translate-y-1/2">
-          <DialogHeader>
-            <DialogTitle>{t('customers.people.detail.addresses.addTitle')}</DialogTitle>
-          </DialogHeader>
-          <form className="space-y-3" onSubmit={handleSubmit}>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.label')}</label>
-              <input
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={draft.name}
-                onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium required">{t('customers.people.detail.addresses.fields.line1')}</label>
-              <input
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={draft.addressLine1}
-                onChange={(event) => setDraft((prev) => ({ ...prev, addressLine1: event.target.value }))}
-                required
-              />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.city')}</label>
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft.city}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, city: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.region')}</label>
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft.region}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, region: event.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.postalCode')}</label>
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft.postalCode}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, postalCode: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.country')}</label>
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft.country}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, country: event.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">{t('customers.people.detail.addresses.fields.primary')}</label>
-              <div className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={draft.isPrimary}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, isPrimary: event.target.checked }))}
-                />
-                <span>{t('customers.people.detail.addresses.fields.primary')}</span>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSubmitting}>
-                {t('customers.people.detail.addresses.cancel')}
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t('customers.people.detail.addresses.saving')}
-                  </>
-                ) : (
-                  t('customers.people.detail.addresses.save')
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
+    <CustomerAddressTiles
+      addresses={displayAddresses}
+      onCreate={onCreate}
+      onUpdate={onUpdate}
+      onDelete={onDelete}
+      isSubmitting={isSubmitting}
+      emptyLabel={emptyLabel}
+      t={t}
+    />
   )
 }
 
@@ -946,10 +829,9 @@ function TasksTab({ tasks, onCreate, isSubmitting, emptyLabel, t }: TasksTabProp
 type DealsTabProps = {
   deals: DealSummary[]
   emptyLabel: string
-  t: Translator
 }
 
-function DealsTab({ deals, emptyLabel, t }: DealsTabProps) {
+function DealsTab({ deals, emptyLabel }: DealsTabProps) {
   return (
     <div className="space-y-4">
       {deals.length === 0 ? (
@@ -1010,8 +892,47 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     addresses: false,
     tasks: false,
   })
+  const scopeVersion = useOrganizationScopeVersion()
+  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<CustomerDictionaryKind, CustomerDictionaryMap>>({
+    statuses: {},
+    sources: {},
+    'lifecycle-stages': {},
+  })
   const personId = data?.person?.id ?? null
   const [isDeleting, setIsDeleting] = React.useState(false)
+
+  const loadDictionaryEntries = React.useCallback(async (kind: CustomerDictionaryKind, signal?: AbortSignal) => {
+    try {
+      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) return []
+      const normalized = normalizeCustomerDictionaryEntries(payload.items)
+      if (signal?.aborted) return normalized
+      setDictionaryMaps((prev) => ({
+        ...prev,
+        [kind]: createDictionaryMap(normalized),
+      }))
+      return normalized
+    } catch {
+      return []
+    }
+  }, [])
+
+  React.useEffect(() => {
+    const controller = new AbortController()
+    async function loadAll() {
+      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {} })
+      await Promise.all([
+        loadDictionaryEntries('statuses', controller.signal),
+        loadDictionaryEntries('sources', controller.signal),
+        loadDictionaryEntries('lifecycle-stages', controller.signal),
+      ])
+    }
+    loadAll().catch(() => {})
+    return () => {
+      controller.abort()
+    }
+  }, [loadDictionaryEntries, scopeVersion, id])
 
   const validators = React.useMemo(() => ({
     email: (value: string) => {
@@ -1210,14 +1131,164 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   )
 
   const handleCreateAddress = React.useCallback(
-    async (payload: Omit<AddressSummary, 'id'>) => {
+    async (payload: CustomerAddressInput) => {
+      if (!personId) return
+      setSectionPending((prev) => ({ ...prev, addresses: true }))
+      try {
+        const bodyPayload: Record<string, unknown> = {
+          entityId: personId,
+          addressLine1: payload.addressLine1,
+          isPrimary: payload.isPrimary ?? false,
+        }
+        if (typeof payload.name === 'string') bodyPayload.name = payload.name
+        if (typeof payload.addressLine2 === 'string') bodyPayload.addressLine2 = payload.addressLine2
+        if (typeof payload.city === 'string') bodyPayload.city = payload.city
+        if (typeof payload.region === 'string') bodyPayload.region = payload.region
+        if (typeof payload.postalCode === 'string') bodyPayload.postalCode = payload.postalCode
+        if (typeof payload.country === 'string') bodyPayload.country = payload.country
+
+        const res = await apiFetch('/api/customers/addresses', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(bodyPayload),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.addresses.error')
+          let detailsPayload: unknown = null
+          try {
+            detailsPayload = await res.clone().json()
+            if (
+              detailsPayload &&
+              typeof detailsPayload === 'object' &&
+              typeof (detailsPayload as { error?: unknown }).error === 'string'
+            ) {
+              message = (detailsPayload as { error: string }).error
+            }
+          } catch {}
+          const error = new Error(message)
+          if (
+            detailsPayload &&
+            typeof detailsPayload === 'object' &&
+            Array.isArray((detailsPayload as { details?: unknown }).details)
+          ) {
+            ;(error as Error & { details?: unknown }).details = (detailsPayload as {
+              details: unknown
+            }).details
+          }
+          throw error
+        }
+        const body = await res.json().catch(() => ({}))
+        const newAddress: AddressSummary = {
+          id: typeof body?.id === 'string' ? body.id : randomId(),
+          name: payload.name ?? null,
+          purpose: null,
+          addressLine1: payload.addressLine1,
+          addressLine2: payload.addressLine2 ?? null,
+          city: payload.city ?? null,
+          region: payload.region ?? null,
+          postalCode: payload.postalCode ?? null,
+          country: payload.country ?? null,
+          isPrimary: payload.isPrimary ?? false,
+        }
+        setData((prev) => {
+          if (!prev) return prev
+          const existing = payload.isPrimary
+            ? prev.addresses.map((addr) => ({ ...addr, isPrimary: false }))
+            : prev.addresses
+          return { ...prev, addresses: [newAddress, ...existing] }
+        })
+        flash(t('customers.people.detail.addresses.success'), 'success')
+      } finally {
+        setSectionPending((prev) => ({ ...prev, addresses: false }))
+      }
+    },
+    [personId, t]
+  )
+
+  const handleUpdateAddress = React.useCallback(
+    async (id: string, payload: CustomerAddressInput) => {
+      if (!personId) return
+      setSectionPending((prev) => ({ ...prev, addresses: true }))
+      try {
+        const bodyPayload: Record<string, unknown> = {
+          id,
+          addressLine1: payload.addressLine1,
+          isPrimary: payload.isPrimary ?? false,
+        }
+        if (typeof payload.name === 'string') bodyPayload.name = payload.name
+        if (typeof payload.addressLine2 === 'string') bodyPayload.addressLine2 = payload.addressLine2
+        if (typeof payload.city === 'string') bodyPayload.city = payload.city
+        if (typeof payload.region === 'string') bodyPayload.region = payload.region
+        if (typeof payload.postalCode === 'string') bodyPayload.postalCode = payload.postalCode
+        if (typeof payload.country === 'string') bodyPayload.country = payload.country
+
+        const res = await apiFetch('/api/customers/addresses', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(bodyPayload),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.addresses.error')
+          let detailsPayload: unknown = null
+          try {
+            detailsPayload = await res.clone().json()
+            if (
+              detailsPayload &&
+              typeof detailsPayload === 'object' &&
+              typeof (detailsPayload as { error?: unknown }).error === 'string'
+            ) {
+              message = (detailsPayload as { error: string }).error
+            }
+          } catch {}
+          const error = new Error(message) as Error & { details?: unknown }
+          if (
+            detailsPayload &&
+            typeof detailsPayload === 'object' &&
+            Array.isArray((detailsPayload as { details?: unknown }).details)
+          ) {
+            error.details = (detailsPayload as { details: unknown }).details
+          }
+          throw error
+        }
+
+        setData((prev) => {
+          if (!prev) return prev
+          const updated = prev.addresses.map((address) => {
+            if (address.id !== id) {
+              return payload.isPrimary ? { ...address, isPrimary: false } : address
+            }
+            return {
+              ...address,
+              name: payload.name ?? null,
+              purpose: null,
+              addressLine1: payload.addressLine1,
+              addressLine2: payload.addressLine2 ?? null,
+              city: payload.city ?? null,
+              region: payload.region ?? null,
+              postalCode: payload.postalCode ?? null,
+              country: payload.country ?? null,
+              isPrimary: payload.isPrimary ?? false,
+            }
+          })
+          return { ...prev, addresses: updated }
+        })
+        flash(t('customers.people.detail.addresses.success'), 'success')
+      } finally {
+        setSectionPending((prev) => ({ ...prev, addresses: false }))
+      }
+    },
+    [personId, t]
+  )
+
+  const handleDeleteAddress = React.useCallback(
+    async (id: string) => {
       if (!personId) return
       setSectionPending((prev) => ({ ...prev, addresses: true }))
       try {
         const res = await apiFetch('/api/customers/addresses', {
-          method: 'POST',
+          method: 'DELETE',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ entityId: personId, ...payload }),
+          body: JSON.stringify({ id }),
         })
         if (!res.ok) {
           let message = t('customers.people.detail.addresses.error')
@@ -1227,13 +1298,11 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           } catch {}
           throw new Error(message)
         }
-        const body = await res.json().catch(() => ({}))
-        const newAddress: AddressSummary = {
-          id: typeof body?.id === 'string' ? body.id : randomId(),
-          ...payload,
-        }
-        setData((prev) => (prev ? { ...prev, addresses: [newAddress, ...prev.addresses] } : prev))
-        flash(t('customers.people.detail.addresses.success'), 'success')
+        setData((prev) => {
+          if (!prev) return prev
+          return { ...prev, addresses: prev.addresses.filter((address) => address.id !== id) }
+        })
+        flash(t('customers.people.detail.addresses.deleted'), 'success')
       } finally {
         setSectionPending((prev) => ({ ...prev, addresses: false }))
       }
@@ -1311,8 +1380,34 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     { label: t('customers.people.form.firstName'), value: profile?.firstName || t('customers.people.detail.noValue') },
     { label: t('customers.people.form.lastName'), value: profile?.lastName || t('customers.people.detail.noValue') },
     { label: t('customers.people.form.jobTitle'), value: profile?.jobTitle || t('customers.people.detail.noValue') },
-    { label: t('customers.people.detail.fields.lifecycleStage'), value: person.lifecycleStage || t('customers.people.detail.noValue') },
-    { label: t('customers.people.form.source'), value: person.source || t('customers.people.detail.noValue') },
+    {
+      label: t('customers.people.detail.fields.lifecycleStage'),
+      value: (
+        <DictionaryValue
+          value={person.lifecycleStage}
+          map={dictionaryMaps['lifecycle-stages']}
+          fallback={<span className="text-sm text-muted-foreground">{t('customers.people.detail.noValue')}</span>}
+          className="text-sm"
+          iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
+          iconClassName="h-4 w-4"
+          colorClassName="h-3 w-3 rounded-full"
+        />
+      ),
+    },
+    {
+      label: t('customers.people.form.source'),
+      value: (
+        <DictionaryValue
+          value={person.source}
+          map={dictionaryMaps.sources}
+          fallback={<span className="text-sm text-muted-foreground">{t('customers.people.detail.noValue')}</span>}
+          className="text-sm"
+          iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
+          iconClassName="h-4 w-4"
+          colorClassName="h-3 w-3 rounded-full"
+        />
+      ),
+    },
     { label: t('customers.people.form.description'), value: person.description || t('customers.people.detail.noValue') },
     { label: t('customers.people.detail.fields.department'), value: profile?.department || t('customers.people.detail.noValue') },
     { label: t('customers.people.detail.fields.linkedIn'), value: profile?.linkedInUrl || t('customers.people.detail.noValue') },
@@ -1338,10 +1433,11 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
-              variant="destructive"
+              variant="outline"
               size="sm"
               onClick={handleDelete}
               disabled={isDeleting}
+              className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
             >
               {isDeleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
               {t('customers.people.list.actions.delete')}
@@ -1389,7 +1485,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           />
           <InlineStatusEditor
             label={t('customers.people.detail.highlights.status')}
-            value={person.status || ''}
+            value={person.status ?? null}
             emptyLabel={t('customers.people.detail.noValue')}
             labels={statusLabels}
             onSave={async (next) => {
@@ -1402,6 +1498,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 })
               )
             }}
+            dictionaryMap={dictionaryMaps.statuses}
+            onAfterSave={() => loadDictionaryEntries('statuses')}
           />
           <InlineNextInteractionEditor
             label={t('customers.people.detail.highlights.nextInteraction')}
@@ -1465,12 +1563,14 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               />
             )}
             {activeTab === 'deals' && (
-              <DealsTab deals={data.deals} emptyLabel={t('customers.people.detail.empty.deals')} t={t} />
+              <DealsTab deals={data.deals} emptyLabel={t('customers.people.detail.empty.deals')} />
             )}
             {activeTab === 'addresses' && (
               <AddressesTab
                 addresses={data.addresses}
                 onCreate={handleCreateAddress}
+                onUpdate={handleUpdateAddress}
+                onDelete={handleDeleteAddress}
                 isSubmitting={sectionPending.addresses}
                 emptyLabel={t('customers.people.detail.empty.addresses')}
                 t={t}

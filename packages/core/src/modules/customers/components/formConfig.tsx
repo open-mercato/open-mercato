@@ -26,6 +26,7 @@ import type {
 import { useEmailDuplicateCheck } from '../backend/hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../utils/phoneDuplicates'
 import { renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
+import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from './AddressTiles'
 
 export const metadata = {
   navHidden: true,
@@ -45,6 +46,7 @@ export type PersonFormValues = {
   lifecycleStage?: string
   source?: string
   description?: string
+  addresses?: CustomerAddressValue[]
 } & Record<string, unknown>
 
 type DictionaryOption = { value: string; label: string; color?: string | null; icon?: string | null }
@@ -99,25 +101,43 @@ export function DictionarySelectField({
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [newOption, setNewOption] = React.useState('')
   const [formError, setFormError] = React.useState<string | null>(null)
+  const activeOption = React.useMemo(
+    () => options.find((option) => option.value === value) ?? null,
+    [options, value]
+  )
 
   const loadOptions = React.useCallback(async () => {
     setLoading(true)
     try {
       const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
-      const payload = await res.json().catch(() => ({}))
+      const payload: Record<string, unknown> = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const message = typeof payload?.error === 'string' ? payload.error : labels.errorLoad
+        const errorValue = payload.error
+        const message = typeof errorValue === 'string' ? errorValue : labels.errorLoad
         flash(message, 'error')
         setOptions([])
         return
       }
-      const items = Array.isArray(payload?.items) ? payload.items : []
-      const normalized = items
-        .map((item: any) => {
-          const rawValue = typeof item?.value === 'string' ? item.value.trim() : ''
+      const itemsSource = Array.isArray(payload.items) ? payload.items : []
+      const normalized = itemsSource
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null
+          const candidate = item as Record<string, unknown>
+          const rawValue = typeof candidate.value === 'string' ? candidate.value.trim() : ''
           if (!rawValue) return null
-          const label = typeof item?.label === 'string' && item.label.trim().length ? item.label.trim() : rawValue
-          return { value: rawValue, label }
+          const label =
+            typeof candidate.label === 'string' && candidate.label.trim().length
+              ? candidate.label.trim()
+              : rawValue
+          const color =
+            typeof candidate.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(candidate.color)
+              ? `#${candidate.color.slice(1).toLowerCase()}`
+              : null
+          const icon =
+            typeof candidate.icon === 'string' && candidate.icon.trim().length
+              ? candidate.icon.trim()
+              : null
+          return { value: rawValue, label, color, icon }
         })
         .filter((entry): entry is DictionaryOption => !!entry)
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
@@ -165,20 +185,22 @@ export function DictionarySelectField({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ value: trimmed }),
       })
-      let payload: any = null
+      let payload: unknown = null
       try {
         payload = await res.json()
       } catch {
         payload = null
       }
       if (!res.ok) {
-        const message = typeof payload?.error === 'string' ? payload.error : labels.errorSave
+        const errorValue = (payload as Record<string, unknown> | null)?.error
+        const message = typeof errorValue === 'string' ? errorValue : labels.errorSave
         flash(message, 'error')
         return
       }
       await loadOptions()
-      const createdValue = typeof payload?.value === 'string' ? payload.value : trimmed
-      onChange(createdValue || undefined)
+      const createdValue = (payload as Record<string, unknown> | null)?.value
+      const selected = typeof createdValue === 'string' ? createdValue : trimmed
+      onChange(selected || undefined)
       setDialogOpen(false)
       resetDialogState()
     } catch {
@@ -266,6 +288,15 @@ export function DictionarySelectField({
           </Button>
         </div>
       </div>
+      {activeOption && (activeOption.icon || activeOption.color) ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-2 rounded border border-dashed px-2 py-1">
+            {renderDictionaryIcon(activeOption.icon, 'h-4 w-4')}
+            {renderDictionaryColor(activeOption.color, 'h-4 w-4 rounded-sm')}
+          </span>
+          {activeOption.color ? <span>{activeOption.color}</span> : null}
+        </div>
+      ) : null}
       {loading ? <div className="text-xs text-muted-foreground">{labels.loadingLabel}</div> : null}
     </div>
   )
@@ -442,14 +473,16 @@ type CompanySelectFieldProps = {
 
 type CompanyOption = { value: string; label: string }
 
-function normalizeCompanyOption(raw: any): CompanyOption | null {
-  const id = typeof raw?.id === 'string' ? raw.id : null
+function normalizeCompanyOption(raw: unknown): CompanyOption | null {
+  if (!raw || typeof raw !== 'object') return null
+  const candidate = raw as Record<string, unknown>
+  const id = typeof candidate.id === 'string' ? candidate.id : null
   if (!id) return null
   const displayName =
-    typeof raw?.display_name === 'string' && raw.display_name.trim().length
-      ? raw.display_name.trim()
-      : typeof raw?.displayName === 'string' && raw.displayName.trim().length
-        ? raw.displayName.trim()
+    typeof candidate.display_name === 'string' && candidate.display_name.trim().length
+      ? candidate.display_name.trim()
+      : typeof candidate.displayName === 'string' && candidate.displayName.trim().length
+        ? candidate.displayName.trim()
         : null
   if (!displayName) return null
   return { value: id, label: displayName }
@@ -808,6 +841,71 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
     },
     ...dictionaryFields,
     { id: 'description', label: t('customers.people.form.description'), type: 'textarea' },
+    {
+      id: 'addresses',
+      label: '',
+      type: 'custom',
+      layout: 'full',
+      component: ({ value, setValue }: CrudCustomFieldRenderProps) => {
+        const addresses = Array.isArray(value) ? (value as CustomerAddressValue[]) : []
+        return (
+          <CustomerAddressTiles
+            addresses={addresses}
+            t={t}
+            emptyLabel={t('customers.people.detail.empty.addresses')}
+            onCreate={async (payload: CustomerAddressInput) => {
+              const nextId =
+                typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                  ? crypto.randomUUID()
+                  : `tmp-${Math.random().toString(36).slice(2)}`
+              const next: CustomerAddressValue = {
+                id: nextId,
+                name: payload.name ?? null,
+                purpose: null,
+                addressLine1: payload.addressLine1,
+                addressLine2: payload.addressLine2 ?? null,
+                city: payload.city ?? null,
+                region: payload.region ?? null,
+                postalCode: payload.postalCode ?? null,
+                country: payload.country ?? null,
+                isPrimary: payload.isPrimary ?? false,
+              }
+              const current = Array.isArray(addresses) ? addresses : []
+              const nextAddresses =
+                next.isPrimary === true
+                  ? [next, ...current.map((item) => ({ ...item, isPrimary: false }))]
+                  : [next, ...current]
+              setValue(nextAddresses)
+            }}
+            onUpdate={async (id, payload) => {
+              const current = Array.isArray(addresses) ? addresses : []
+              const updated = current.map((item) => {
+                if (item.id !== id) {
+                  return payload.isPrimary ? { ...item, isPrimary: false } : item
+                }
+                return {
+                  ...item,
+                  name: payload.name ?? null,
+                  purpose: null,
+                  addressLine1: payload.addressLine1,
+                  addressLine2: payload.addressLine2 ?? null,
+                  city: payload.city ?? null,
+                  region: payload.region ?? null,
+                  postalCode: payload.postalCode ?? null,
+                  country: payload.country ?? null,
+                  isPrimary: payload.isPrimary ?? false,
+                }
+              })
+              setValue(updated)
+            }}
+            onDelete={async (id) => {
+              const current = Array.isArray(addresses) ? addresses : []
+              setValue(current.filter((item) => item.id !== id))
+            }}
+          />
+        )
+      },
+    },
   ]
 }
 
@@ -830,6 +928,12 @@ export const createPersonFormGroups = (t: Translator): CrudFormGroup[] => [
       'source',
     ],
     component: createDisplayNameSection(t),
+  },
+  {
+    id: 'addresses',
+    title: t('customers.people.form.groups.addresses'),
+    column: 1,
+    fields: ['addresses'],
   },
   {
     id: 'notes',

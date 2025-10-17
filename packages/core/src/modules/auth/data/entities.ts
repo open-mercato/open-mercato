@@ -33,6 +33,24 @@ export class User {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'roles' })
+export class Role {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ type: 'text', unique: true })
+  name!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'user_sidebar_preferences' })
 @Unique({ properties: ['user', 'tenantId', 'organizationId', 'locale'] })
 export class UserSidebarPreference {
@@ -64,19 +82,29 @@ export class UserSidebarPreference {
   deletedAt?: Date | null
 }
 
-@Entity({ tableName: 'roles' })
-export class Role {
+@Entity({ tableName: 'role_sidebar_preferences' })
+@Unique({ properties: ['role', 'locale'] })
+export class RoleSidebarPreference {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @Property({ type: 'text', unique: true })
-  name!: string
+  @ManyToOne(() => Role)
+  role!: Role
 
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
   tenantId?: string | null
 
+  @Property({ type: 'text' })
+  locale!: string
+
+  @Property({ name: 'settings_json', type: 'json', nullable: true })
+  settingsJson?: unknown
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null

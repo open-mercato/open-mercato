@@ -21,6 +21,8 @@ export const sidebarPreferencesInputSchema = z.object({
   groupOrder: z.array(z.string().min(1)).max(200).optional(),
   groupLabels: z.record(z.string().min(1), z.string().min(1).max(120)).optional(),
   itemLabels: z.record(z.string().min(1), z.string().min(1).max(120)).optional(),
+  applyToRoles: z.array(z.string().uuid()).optional(),
+  clearRoleIds: z.array(z.string().uuid()).optional(),
 })
 
 // Optional helpers for CLI or admin forms
