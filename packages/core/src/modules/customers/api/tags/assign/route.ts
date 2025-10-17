@@ -6,15 +6,19 @@ import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/op
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
 import { tagAssignmentSchema } from '../../../data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['customers.activities.manage'] },
 }
 
-async function buildContext(req: Request): Promise<{ ctx: CommandRuntimeContext; auth: Awaited<ReturnType<typeof getAuthFromRequest>> }> {
+async function buildContext(
+  req: Request
+): Promise<{ ctx: CommandRuntimeContext; auth: Awaited<ReturnType<typeof getAuthFromRequest>>; translate: (key: string, fallback?: string) => string }> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
-  if (!auth) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const { translate } = await resolveTranslations()
+  if (!auth) throw new CrudHttpError(401, { error: translate('customers.errors.unauthorized', 'Unauthorized') })
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const ctx: CommandRuntimeContext = {
     container,
@@ -24,17 +28,21 @@ async function buildContext(req: Request): Promise<{ ctx: CommandRuntimeContext;
     organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
     request: req,
   }
-  return { ctx, auth }
+  return { ctx, auth, translate }
 }
 
 export async function POST(req: Request) {
   try {
-    const { ctx, auth } = await buildContext(req)
+    const { ctx, auth, translate } = await buildContext(req)
     const body = await req.json().catch(() => ({}))
     const organizationId = body?.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
-    if (!organizationId) throw new CrudHttpError(400, { error: 'organizationId is required' })
+    if (!organizationId) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+    }
     const tenantId = body?.tenantId ?? auth.tenantId ?? null
-    if (!tenantId) throw new CrudHttpError(400, { error: 'tenantId is required' })
+    if (!tenantId) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
+    }
 
     const input = tagAssignmentSchema.parse({
       ...body,
@@ -64,7 +72,8 @@ export async function POST(req: Request) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const { translate } = await resolveTranslations()
     console.error('customers.tags.assign failed', err)
-    return NextResponse.json({ error: 'Failed to assign tag' }, { status: 400 })
+    return NextResponse.json({ error: translate('customers.errors.assign_failed', 'Failed to assign tag') }, { status: 400 })
   }
 }

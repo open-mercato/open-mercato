@@ -30,5 +30,20 @@
   "customers.audit.tags.assign": "Przypisz tag",
   "customers.audit.tags.unassign": "Odepnij tag",
   "customers.audit.todos.link": "Powiąż zadanie",
-  "customers.audit.todos.unlink": "Odepnij zadanie"
+  "customers.audit.todos.unlink": "Odepnij zadanie",
+  "customers.errors.unauthorized": "Brak autoryzacji",
+  "customers.errors.tenant_required": "Wymagany jest kontekst najemcy",
+  "customers.errors.organization_required": "Wymagany jest kontekst organizacji",
+  "customers.errors.person_required": "Wymagany identyfikator osoby",
+  "customers.errors.company_required": "Wymagany identyfikator firmy",
+  "customers.errors.deal_required": "Wymagany identyfikator szansy",
+  "customers.errors.activity_required": "Wymagany identyfikator aktywności",
+  "customers.errors.comment_required": "Wymagany identyfikator notatki",
+  "customers.errors.address_required": "Wymagany identyfikator adresu",
+  "customers.errors.tag_required": "Wymagany identyfikator tagu",
+  "customers.errors.assign_failed": "Nie udało się przypisać tagu",
+  "customers.errors.unassign_failed": "Nie udało się odpiąć tagu",
+  "customers.errors.todo_create_failed": "Nie udało się utworzyć zadania",
+  "customers.errors.todo_link_failed": "Nie udało się powiązać zadania",
+  "customers.errors.todo_unlink_failed": "Nie udało się odpiąć zadania"
 }

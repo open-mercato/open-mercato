@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerComment } from '../../data/entities'
 import { commentCreateSchema, commentUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -27,14 +28,6 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
-
-function ensureScopedInput(body: any, ctx: any) {
-  const tenantId = body?.tenantId ?? ctx.auth?.tenantId ?? null
-  if (!tenantId) throw new CrudHttpError(400, { error: 'tenantId is required' })
-  const organizationId = body?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  if (!organizationId) throw new CrudHttpError(400, { error: 'organizationId is required' })
-  return { ...body, tenantId, organizationId }
-}
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -74,22 +67,45 @@ const crud = makeCrudRoute({
     create: {
       commandId: 'customers.comments.create',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => commentCreateSchema.parse(ensureScopedInput(raw ?? {}, ctx)),
+      mapInput: async ({ raw, ctx }) => {
+        const { translate } = await resolveTranslations()
+        const tenantId = raw?.tenantId ?? ctx.auth?.tenantId ?? null
+        if (!tenantId) throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
+        const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+        if (!organizationId) throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+        return commentCreateSchema.parse({
+          ...raw,
+          tenantId,
+          organizationId,
+        })
+      },
       response: ({ result }) => ({ id: result?.commentId ?? result?.id ?? null }),
       status: 201,
     },
     update: {
       commandId: 'customers.comments.update',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => commentUpdateSchema.parse(ensureScopedInput(raw ?? {}, ctx)),
+      mapInput: async ({ raw, ctx }) => {
+        const { translate } = await resolveTranslations()
+        const tenantId = raw?.tenantId ?? ctx.auth?.tenantId ?? null
+        if (!tenantId) throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
+        const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+        if (!organizationId) throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+        return commentUpdateSchema.parse({
+          ...raw,
+          tenantId,
+          organizationId,
+        })
+      },
       response: () => ({ ok: true }),
     },
     delete: {
       commandId: 'customers.comments.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
+        const { translate } = await resolveTranslations()
         const id = parsed?.id ?? (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
-        if (!id) throw new CrudHttpError(400, { error: 'Comment id is required' })
+        if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.comment_required', 'Comment id is required') })
         return { id }
       },
       response: () => ({ ok: true }),

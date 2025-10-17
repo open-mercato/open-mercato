@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerTag } from '../../data/entities'
 import { tagCreateSchema, tagUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -26,14 +27,6 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
-
-function ensureScopedInput(body: any, ctx: any) {
-  const tenantId = body?.tenantId ?? ctx.auth?.tenantId ?? null
-  if (!tenantId) throw new CrudHttpError(400, { error: 'tenantId is required' })
-  const organizationId = body?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  if (!organizationId) throw new CrudHttpError(400, { error: 'organizationId is required' })
-  return { ...body, tenantId, organizationId }
-}
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -59,22 +52,45 @@ const crud = makeCrudRoute({
     create: {
       commandId: 'customers.tags.create',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => tagCreateSchema.parse(ensureScopedInput(raw ?? {}, ctx)),
+      mapInput: async ({ raw, ctx }) => {
+        const { translate } = await resolveTranslations()
+        const tenantId = raw?.tenantId ?? ctx.auth?.tenantId ?? null
+        if (!tenantId) throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
+        const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+        if (!organizationId) throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+        return tagCreateSchema.parse({
+          ...raw,
+          tenantId,
+          organizationId,
+        })
+      },
       response: ({ result }) => ({ id: result?.tagId ?? result?.id ?? null }),
       status: 201,
     },
     update: {
       commandId: 'customers.tags.update',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => tagUpdateSchema.parse(ensureScopedInput(raw ?? {}, ctx)),
+      mapInput: async ({ raw, ctx }) => {
+        const { translate } = await resolveTranslations()
+        const tenantId = raw?.tenantId ?? ctx.auth?.tenantId ?? null
+        if (!tenantId) throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
+        const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+        if (!organizationId) throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+        return tagUpdateSchema.parse({
+          ...raw,
+          tenantId,
+          organizationId,
+        })
+      },
       response: () => ({ ok: true }),
     },
     delete: {
       commandId: 'customers.tags.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
+        const { translate } = await resolveTranslations()
         const id = parsed?.id ?? (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
-        if (!id) throw new CrudHttpError(400, { error: 'Tag id is required' })
+        if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.tag_required', 'Tag id is required') })
         return { id }
       },
       response: () => ({ ok: true }),

@@ -4,7 +4,8 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerEntity } from '../../data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { companyUpdateSchema } from '../../data/validators'
+import { companyCreateSchema, companyUpdateSchema } from '../../data/validators'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -27,18 +28,6 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
-
-function ensureScopedInput(body: any, ctx: any, { requireOrganization = true }: { requireOrganization?: boolean } = {}) {
-  const tenantId = body?.tenantId ?? ctx.auth?.tenantId ?? null
-  if (!tenantId) throw new CrudHttpError(400, { error: 'tenantId is required' })
-  const resolvedOrgId = body?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  if (requireOrganization && !resolvedOrgId) {
-    throw new CrudHttpError(400, { error: 'organizationId is required' })
-  }
-  const payload = { ...body, tenantId }
-  if (resolvedOrgId) payload.organizationId = resolvedOrgId
-  return payload
-}
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -91,7 +80,22 @@ const crud = makeCrudRoute({
     create: {
       commandId: 'customers.companies.create',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => ensureScopedInput(raw ?? {}, ctx),
+      mapInput: async ({ raw, ctx }) => {
+        const { translate } = await resolveTranslations()
+        const tenantId = raw?.tenantId ?? ctx.auth?.tenantId ?? null
+        if (!tenantId) {
+          throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
+        }
+        const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+        if (!organizationId) {
+          throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+        }
+        return companyCreateSchema.parse({
+          ...raw,
+          tenantId,
+          organizationId,
+        })
+      },
       response: ({ result }) => ({
         id: result?.entityId ?? result?.id ?? null,
         companyId: result?.companyId ?? null,
@@ -102,8 +106,20 @@ const crud = makeCrudRoute({
       commandId: 'customers.companies.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
-        const merged = ensureScopedInput(raw ?? {}, ctx)
-        return companyUpdateSchema.parse(merged)
+        const { translate } = await resolveTranslations()
+        const tenantId = raw?.tenantId ?? ctx.auth?.tenantId ?? null
+        if (!tenantId) {
+          throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
+        }
+        const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+        if (!organizationId) {
+          throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+        }
+        return companyUpdateSchema.parse({
+          ...raw,
+          tenantId,
+          organizationId,
+        })
       },
       response: () => ({ ok: true }),
     },
@@ -111,8 +127,9 @@ const crud = makeCrudRoute({
       commandId: 'customers.companies.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
+        const { translate } = await resolveTranslations()
         const id = parsed?.id ?? (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
-        if (!id) throw new CrudHttpError(400, { error: 'Company id is required' })
+        if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.company_required', 'Company id is required') })
         return { id }
       },
       response: () => ({ ok: true }),

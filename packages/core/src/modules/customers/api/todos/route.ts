@@ -7,6 +7,7 @@ import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/op
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
 import { todoLinkCreateSchema, todoLinkWithTodoCreateSchema } from '../../data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const unlinkSchema = z.object({
   id: z.string().uuid(),
@@ -18,10 +19,13 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['customers.activities.manage'] },
 }
 
-async function buildContext(req: Request): Promise<{ ctx: CommandRuntimeContext; auth: Awaited<ReturnType<typeof getAuthFromRequest>> }> {
+async function buildContext(
+  req: Request
+): Promise<{ ctx: CommandRuntimeContext; auth: Awaited<ReturnType<typeof getAuthFromRequest>>; translate: (key: string, fallback?: string) => string }> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
-  if (!auth) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const { translate } = await resolveTranslations()
+  if (!auth) throw new CrudHttpError(401, { error: translate('customers.errors.unauthorized', 'Unauthorized') })
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const ctx: CommandRuntimeContext = {
     container,
@@ -31,7 +35,7 @@ async function buildContext(req: Request): Promise<{ ctx: CommandRuntimeContext;
     organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
     request: req,
   }
-  return { ctx, auth }
+  return { ctx, auth, translate }
 }
 
 function attachOperationHeader(response: NextResponse, logEntry: any, fallbackId: string | null) {
@@ -52,12 +56,16 @@ function attachOperationHeader(response: NextResponse, logEntry: any, fallbackId
 
 export async function POST(req: Request) {
   try {
-    const { ctx, auth } = await buildContext(req)
+    const { ctx, auth, translate } = await buildContext(req)
     const raw = await req.json().catch(() => ({}))
     const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
-    if (!organizationId) throw new CrudHttpError(400, { error: 'organizationId is required' })
+    if (!organizationId) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+    }
     const tenantId = raw?.tenantId ?? auth.tenantId ?? null
-    if (!tenantId) throw new CrudHttpError(400, { error: 'tenantId is required' })
+    if (!tenantId) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
+    }
 
     const scopedPayload = { ...raw, organizationId, tenantId }
     const input = todoLinkWithTodoCreateSchema.parse(scopedPayload)
@@ -77,19 +85,24 @@ export async function POST(req: Request) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const { translate } = await resolveTranslations()
     console.error('customers.todos.create failed', err)
-    return NextResponse.json({ error: 'Failed to create todo' }, { status: 400 })
+    return NextResponse.json({ error: translate('customers.errors.todo_create_failed', 'Failed to create todo') }, { status: 400 })
   }
 }
 
 export async function PUT(req: Request) {
   try {
-    const { ctx, auth } = await buildContext(req)
+    const { ctx, auth, translate } = await buildContext(req)
     const raw = await req.json().catch(() => ({}))
     const organizationId = raw?.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
-    if (!organizationId) throw new CrudHttpError(400, { error: 'organizationId is required' })
+    if (!organizationId) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+    }
     const tenantId = raw?.tenantId ?? auth.tenantId ?? null
-    if (!tenantId) throw new CrudHttpError(400, { error: 'tenantId is required' })
+    if (!tenantId) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
+    }
 
     const scopedPayload = { ...raw, organizationId, tenantId }
     const input = todoLinkCreateSchema.parse(scopedPayload)
@@ -103,8 +116,9 @@ export async function PUT(req: Request) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const { translate } = await resolveTranslations()
     console.error('customers.todos.link failed', err)
-    return NextResponse.json({ error: 'Failed to link todo' }, { status: 400 })
+    return NextResponse.json({ error: translate('customers.errors.todo_link_failed', 'Failed to link todo') }, { status: 400 })
   }
 }
 
@@ -130,7 +144,8 @@ export async function DELETE(req: Request) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const { translate } = await resolveTranslations()
     console.error('customers.todos.unlink failed', err)
-    return NextResponse.json({ error: 'Failed to unlink todo' }, { status: 400 })
+    return NextResponse.json({ error: translate('customers.errors.todo_unlink_failed', 'Failed to unlink todo') }, { status: 400 })
   }
 }

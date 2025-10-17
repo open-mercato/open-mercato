@@ -30,5 +30,20 @@
   "customers.audit.tags.assign": "Assign tag",
   "customers.audit.tags.unassign": "Unassign tag",
   "customers.audit.todos.link": "Link todo",
-  "customers.audit.todos.unlink": "Unlink todo"
+  "customers.audit.todos.unlink": "Unlink todo",
+  "customers.errors.unauthorized": "Unauthorized",
+  "customers.errors.tenant_required": "Tenant context is required",
+  "customers.errors.organization_required": "Organization context is required",
+  "customers.errors.person_required": "Person id is required",
+  "customers.errors.company_required": "Company id is required",
+  "customers.errors.deal_required": "Deal id is required",
+  "customers.errors.activity_required": "Activity id is required",
+  "customers.errors.comment_required": "Comment id is required",
+  "customers.errors.address_required": "Address id is required",
+  "customers.errors.tag_required": "Tag id is required",
+  "customers.errors.assign_failed": "Failed to assign tag",
+  "customers.errors.unassign_failed": "Failed to unassign tag",
+  "customers.errors.todo_create_failed": "Failed to create todo",
+  "customers.errors.todo_link_failed": "Failed to link todo",
+  "customers.errors.todo_unlink_failed": "Failed to unlink todo"
 }
