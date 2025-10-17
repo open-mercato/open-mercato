@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Check, Loader2, Pencil, Plus, X } from 'lucide-react'
+import { Check, Loader2, Mail, Pencil, Plus, X } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
@@ -142,18 +142,85 @@ type InlineFieldProps = {
   type?: 'text' | 'email' | 'tel'
   validator?: (value: string) => string | null
   onSave: (value: string | null) => Promise<void>
+  recordId?: string
 }
 
-function InlineTextEditor({ label, value, placeholder, emptyLabel, type = 'text', validator, onSave }: InlineFieldProps) {
+function InlineTextEditor({
+  label,
+  value,
+  placeholder,
+  emptyLabel,
+  type = 'text',
+  validator,
+  onSave,
+  recordId,
+}: InlineFieldProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState(value ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const [duplicate, setDuplicate] = React.useState<{ id: string; displayName: string } | null>(null)
+  const [checkingDuplicate, setCheckingDuplicate] = React.useState(false)
 
   React.useEffect(() => {
-    if (!editing) setDraft(value ?? '')
+    if (!editing) {
+      setDraft(value ?? '')
+      setDuplicate(null)
+      setCheckingDuplicate(false)
+    }
   }, [editing, value])
+
+  React.useEffect(() => {
+    if (!editing || type !== 'email') return
+    const trimmed = draft.trim().toLowerCase()
+    const initial = typeof value === 'string' ? value.trim().toLowerCase() : ''
+    if (!trimmed || trimmed === initial) {
+      setDuplicate(null)
+      setCheckingDuplicate(false)
+      return
+    }
+    if (validator && validator(trimmed)) {
+      setDuplicate(null)
+      setCheckingDuplicate(false)
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      setCheckingDuplicate(true)
+      try {
+        const res = await apiFetch(
+          `/api/customers/people?emailStartsWith=${encodeURIComponent(trimmed)}&pageSize=5&page=1`
+        )
+        if (!res.ok) {
+          setDuplicate(null)
+          return
+        }
+        const payload = await res.json().catch(() => ({}))
+        const items = Array.isArray(payload?.items) ? payload.items : []
+        const match = items
+          .map((item: Record<string, unknown>) => {
+            const id = typeof item.id === 'string' ? item.id : null
+            const displayName = typeof item.display_name === 'string' ? item.display_name : null
+            const email = typeof item.primary_email === 'string' ? item.primary_email : null
+            return id && displayName && email ? { id, displayName, email } : null
+          })
+          .filter((entry): entry is { id: string; displayName: string; email: string } => !!entry)
+          .find((entry) => entry.id !== recordId && entry.email.toLowerCase().startsWith(trimmed))
+        if (!cancelled) {
+          setDuplicate(match ? { id: match.id, displayName: match.displayName } : null)
+        }
+      } catch {
+        if (!cancelled) setDuplicate(null)
+      } finally {
+        if (!cancelled) setCheckingDuplicate(false)
+      }
+    }, 300)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [draft, editing, recordId, type, validator, value])
 
   const handleSave = React.useCallback(async () => {
     const trimmed = draft.trim()
@@ -181,7 +248,7 @@ function InlineTextEditor({ label, value, placeholder, emptyLabel, type = 'text'
   return (
     <div className="rounded-lg border p-4">
       <div className="flex items-start justify-between gap-2">
-        <div>
+        <div className="flex-1 min-w-0">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
           {editing ? (
             <div className="mt-2 space-y-3">
@@ -197,6 +264,22 @@ function InlineTextEditor({ label, value, placeholder, emptyLabel, type = 'text'
                 autoFocus
               />
               {error ? <p className="text-xs text-red-600">{error}</p> : null}
+              {!error && duplicate ? (
+                <p className="text-xs text-muted-foreground">
+                  {t('customers.people.detail.inline.emailDuplicate', { name: duplicate.displayName })}{' '}
+                  <Link
+                    className="font-medium text-primary underline underline-offset-2"
+                    href={`/backend/customers/people/${duplicate.id}`}
+                  >
+                    {t('customers.people.detail.inline.emailDuplicateLink')}
+                  </Link>
+                </p>
+              ) : null}
+              {!error && !duplicate && checkingDuplicate && type === 'email' ? (
+                <p className="text-xs text-muted-foreground">
+                  {t('customers.people.detail.inline.emailChecking')}
+                </p>
+              ) : null}
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
@@ -208,7 +291,23 @@ function InlineTextEditor({ label, value, placeholder, emptyLabel, type = 'text'
               </div>
             </div>
           ) : (
-            <p className="mt-1 text-sm">{value || emptyLabel}</p>
+            <div className="mt-1">
+              {value ? (
+                type === 'email' ? (
+                  <a
+                    className="flex items-center gap-2 text-sm text-primary hover:text-primary/90 hover:underline"
+                    href={`mailto:${value}`}
+                  >
+                    <Mail aria-hidden className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{value}</span>
+                  </a>
+                ) : (
+                  <p className="text-sm break-words">{value}</p>
+                )
+              ) : (
+                <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+              )}
+            </div>
           )}
         </div>
         <Button type="button" variant="ghost" size="sm" onClick={() => setEditing((state) => !state)}>
@@ -1246,6 +1345,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             emptyLabel={t('customers.people.detail.noValue')}
             type="email"
             validator={validators.email}
+            recordId={person.id}
             onSave={async (next) => {
               const send = typeof next === 'string' ? next : ''
               await savePerson(

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { z } from 'zod'
 import { Check, Pencil } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -15,11 +16,14 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { PhoneNumberField, type PhoneDuplicateMatch } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import type {
+  CrudCustomFieldRenderProps,
   CrudField,
   CrudFormGroup,
   CrudFormGroupComponentProps,
 } from '@open-mercato/ui/backend/CrudForm'
+import { useEmailDuplicateCheck } from '../hooks/useEmailDuplicateCheck'
 
 export const metadata = {
   navHidden: true,
@@ -64,6 +68,9 @@ type DictionarySelectFieldProps = {
   onChange: (value: string | undefined) => void
   labels: DictionarySelectLabels
 }
+
+const emailValidationSchema = z.string().email()
+const EMAIL_CHECK_DEBOUNCE_MS = 350
 
 export function DictionarySelectField({
   kind,
@@ -227,6 +234,100 @@ export function DictionarySelectField({
     </div>
   )
 }
+
+const createPrimaryEmailField = (t: Translator): CrudField => ({
+  id: 'primaryEmail',
+  label: t('customers.people.form.primaryEmail'),
+  type: 'custom',
+  component: function PrimaryEmailField({ value, setValue, error, autoFocus, disabled }: CrudCustomFieldRenderProps) {
+    const [inputValue, setInputValue] = React.useState(() => (typeof value === 'string' ? value : ''))
+    const trimmedInput = inputValue.trim()
+    const isValidEmail = React.useMemo(
+      () => !!trimmedInput.length && emailValidationSchema.safeParse(trimmedInput).success,
+      [trimmedInput]
+    )
+    const { duplicate, checking } = useEmailDuplicateCheck(inputValue, {
+      disabled: disabled || !!error || !isValidEmail,
+      debounceMs: EMAIL_CHECK_DEBOUNCE_MS,
+      matchMode: 'prefix',
+    })
+
+    React.useEffect(() => {
+      setInputValue(typeof value === 'string' ? value : '')
+    }, [value])
+
+    return (
+      <div className="space-y-2">
+        <input
+          type="email"
+          className="w-full h-9 rounded border px-2 text-sm"
+          value={inputValue}
+          onChange={(event) => {
+            const nextValue = event.target.value
+            setInputValue(nextValue)
+            setValue(nextValue)
+          }}
+          placeholder={t('customers.people.form.primaryEmailPlaceholder', 'name@example.com')}
+          spellCheck={false}
+          autoFocus={autoFocus}
+          data-crud-focus-target=""
+          disabled={disabled}
+        />
+        {!error && duplicate ? (
+          <p className="text-xs text-amber-600">
+            {t('customers.people.form.emailDuplicateNotice', { name: duplicate.displayName })}{' '}
+            <Link className="font-medium text-primary underline underline-offset-2" href={`/backend/customers/people/${duplicate.id}`}>
+              {t('customers.people.form.emailDuplicateLink')}
+            </Link>
+          </p>
+        ) : null}
+        {!error && !duplicate && checking ? (
+          <p className="text-xs text-muted-foreground">{t('customers.people.form.emailChecking')}</p>
+        ) : null}
+      </div>
+    )
+  },
+})
+
+const createPrimaryPhoneField = (t: Translator): CrudField => ({
+  id: 'primaryPhone',
+  label: t('customers.people.form.primaryPhone'),
+  type: 'custom',
+  component: function PrimaryPhoneField({ value, setValue, error, autoFocus, disabled }: CrudCustomFieldRenderProps) {
+    const handleDuplicateLookup = React.useCallback(
+      async (digits: string): Promise<PhoneDuplicateMatch | null> => {
+        try {
+          const res = await apiFetch(`/api/customers/people/check-phone?digits=${encodeURIComponent(digits)}`)
+          if (!res.ok) return null
+          const payload = await res.json().catch(() => null)
+          const match = payload && typeof payload === 'object' ? (payload as any).match : null
+          const id = typeof match?.id === 'string' ? match.id : null
+          const displayName = typeof match?.displayName === 'string' ? match.displayName : null
+          if (!id || !displayName) return null
+          return { id, label: displayName, href: `/backend/customers/people/${id}` }
+        } catch {
+          return null
+        }
+      },
+      []
+    )
+
+    return (
+      <PhoneNumberField
+        value={typeof value === 'string' ? value : null}
+        onValueChange={(next) => setValue(typeof next === 'string' ? next : undefined)}
+        autoFocus={autoFocus}
+        disabled={disabled}
+        placeholder={t('customers.people.form.primaryPhonePlaceholder', '+00 000 000 000')}
+        checkingLabel={t('customers.people.form.phoneChecking')}
+        duplicateLabel={(match) => t('customers.people.form.phoneDuplicateNotice', { name: match.label })}
+        duplicateLinkLabel={t('customers.people.form.phoneDuplicateLink')}
+        minDigits={7}
+        onDuplicateLookup={error ? undefined : handleDuplicateLookup}
+      />
+    )
+  },
+})
 
 const blankToUndefined = (value?: string): string | undefined => {
   if (typeof value !== 'string') return undefined
@@ -585,8 +686,8 @@ export const createPersonFormFields = (t: Translator): CrudField[] => [
       />
     ),
   },
-  { id: 'primaryEmail', label: t('customers.people.form.primaryEmail'), type: 'text' },
-  { id: 'primaryPhone', label: t('customers.people.form.primaryPhone'), type: 'text' },
+  createPrimaryEmailField(t),
+  createPrimaryPhoneField(t),
   {
     id: 'status',
     label: t('customers.people.form.status'),

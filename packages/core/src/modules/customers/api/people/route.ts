@@ -16,6 +16,8 @@ const listSchema = z
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
+    email: z.string().optional(),
+    emailStartsWith: z.string().optional(),
     status: z.string().optional(),
     lifecycleStage: z.string().optional(),
     source: z.string().optional(),
@@ -80,6 +82,13 @@ const crud = makeCrudRoute({
       if (query.search) {
         filters.display_name = { $ilike: `%${query.search}%` }
       }
+      const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : ''
+      const emailStartsWith = typeof query.emailStartsWith === 'string' ? query.emailStartsWith.trim().toLowerCase() : ''
+      if (email) {
+        filters.primary_email = { $eq: email }
+      } else if (emailStartsWith) {
+        filters.primary_email = { $ilike: `${emailStartsWith}%` }
+      }
       if (query.status) {
         filters.status = { $eq: query.status }
       }
@@ -90,7 +99,7 @@ const crud = makeCrudRoute({
         filters.source = { $eq: query.source }
       }
       const hasEmail = query.hasEmail === 'true' ? true : query.hasEmail === 'false' ? false : undefined
-      if (hasEmail !== undefined) {
+      if (!email && !emailStartsWith && hasEmail !== undefined) {
         filters.primary_email = { $exists: hasEmail }
       }
       const hasPhone = query.hasPhone === 'true' ? true : query.hasPhone === 'false' ? false : undefined
