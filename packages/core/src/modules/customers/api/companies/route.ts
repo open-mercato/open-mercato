@@ -18,6 +18,7 @@ const listSchema = z
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     status: z.string().optional(),
+    id: z.string().uuid().optional(),
   })
   .passthrough()
 
@@ -64,6 +65,7 @@ const crud = makeCrudRoute({
     },
     buildFilters: async (query: any) => {
       const filters: Record<string, any> = { kind: { $eq: 'company' } }
+      if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
         filters.display_name = { $ilike: `%${query.search}%` }
       }
