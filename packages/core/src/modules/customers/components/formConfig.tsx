@@ -73,6 +73,18 @@ type DictionarySelectFieldProps = {
 const emailValidationSchema = z.string().email()
 const EMAIL_CHECK_DEBOUNCE_MS = 350
 
+const createSectionHeadingField = (id: string, title: string): CrudField => ({
+  id,
+  label: '',
+  type: 'custom',
+  layout: 'full',
+  component: () => (
+    <div className="mt-4 border-t border-border pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {title}
+    </div>
+  ),
+})
+
 export function DictionarySelectField({
   kind,
   value,
@@ -197,13 +209,12 @@ export function DictionarySelectField({
             <Button
               type="button"
               variant="outline"
+              size="icon"
               disabled={disabled}
               aria-label={labels.addLabel}
               title={labels.addLabel}
-              className="inline-flex items-center gap-1"
             >
               <Plus className="h-4 w-4" aria-hidden />
-              <span className="hidden sm:inline">{labels.addLabel}</span>
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-sm">
@@ -485,13 +496,12 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
             <Button
               type="button"
               variant="outline"
+              size="icon"
               disabled={disabled}
               aria-label={labels.addLabel}
               title={labels.addLabel}
-              className="inline-flex items-center gap-1"
             >
               <Plus className="h-4 w-4" aria-hidden />
-              <span className="hidden sm:inline">{labels.addLabel}</span>
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-sm">
@@ -671,129 +681,148 @@ export const createDisplayNameSection = (t: Translator) =>
     )
   }
 
-export const createPersonFormFields = (t: Translator): CrudField[] => [
-  { id: 'displayName', label: t('customers.people.form.displayName.label'), type: 'text', required: true },
-  { id: 'firstName', label: t('customers.people.form.firstName'), type: 'text', required: true, layout: 'half' },
-  { id: 'lastName', label: t('customers.people.form.lastName'), type: 'text', required: true, layout: 'half' },
-  { id: 'jobTitle', label: t('customers.people.form.jobTitle'), type: 'text', layout: 'half' },
-  {
-    id: 'companyEntityId',
-    label: t('customers.people.form.company'),
-    type: 'custom',
-    layout: 'half',
-    component: ({ value, setValue }) => (
-      <CompanySelectField
-        value={typeof value === 'string' ? value : undefined}
-        onChange={(next) => setValue(next)}
-        labels={{
-          placeholder: t('customers.people.form.company.placeholder'),
-          addLabel: t('customers.people.form.company.add'),
-          addPrompt: t('customers.people.form.company.prompt'),
-          dialogTitle: t('customers.people.form.company.dialogTitle'),
-          inputLabel: t('customers.people.form.company.inputLabel'),
-          inputPlaceholder: t('customers.people.form.company.inputPlaceholder'),
-          emptyError: t('customers.people.form.dictionary.errorRequired'),
-          cancelLabel: t('customers.people.form.dictionary.cancel'),
-          saveLabel: t('customers.people.form.dictionary.save'),
-          errorLoad: t('customers.people.form.dictionary.errorLoad'),
-          errorSave: t('customers.people.form.dictionary.error'),
-          loadingLabel: t('customers.people.form.company.loading'),
-        }}
-      />
-    ),
-  },
-  createPrimaryEmailField(t),
-  createPrimaryPhoneField(t),
-  {
-    id: 'status',
-    label: t('customers.people.form.status'),
-    type: 'custom',
-    layout: 'third',
-    component: ({ value, setValue }) => (
-      <DictionarySelectField
-        kind="statuses"
-        value={typeof value === 'string' ? value : undefined}
-        onChange={(next) => setValue(next)}
-        labels={{
-          placeholder: t('customers.people.form.status.placeholder'),
-          addLabel: t('customers.people.form.dictionary.addStatus'),
-          addPrompt: t('customers.people.form.dictionary.promptStatus'),
-          dialogTitle: t('customers.people.form.dictionary.dialogTitleStatus'),
-          inputLabel: t('customers.people.form.dictionary.valueLabel'),
-          inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-          emptyError: t('customers.people.form.dictionary.errorRequired'),
-          cancelLabel: t('customers.people.form.dictionary.cancel'),
-          saveLabel: t('customers.people.form.dictionary.save'),
-          errorLoad: t('customers.people.form.dictionary.errorLoad'),
-          errorSave: t('customers.people.form.dictionary.error'),
-          loadingLabel: t('customers.people.form.dictionary.loading'),
-        }}
-      />
-    ),
-  },
-  {
-    id: 'lifecycleStage',
-    label: t('customers.people.form.lifecycleStage'),
-    type: 'custom',
-    layout: 'third',
-    component: ({ value, setValue }) => (
-      <DictionarySelectField
-        kind="lifecycle-stages"
-        value={typeof value === 'string' ? value : undefined}
-        onChange={(next) => setValue(next)}
-        labels={{
-          placeholder: t('customers.people.form.lifecycleStage.placeholder'),
-          addLabel: t('customers.people.form.dictionary.addLifecycleStage'),
-          addPrompt: t('customers.people.form.dictionary.promptLifecycleStage'),
-          dialogTitle: t('customers.people.form.dictionary.dialogTitleLifecycleStage'),
-          inputLabel: t('customers.people.form.dictionary.valueLabel'),
-          inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-          emptyError: t('customers.people.form.dictionary.errorRequired'),
-          cancelLabel: t('customers.people.form.dictionary.cancel'),
-          saveLabel: t('customers.people.form.dictionary.save'),
-          errorLoad: t('customers.people.form.dictionary.errorLoad'),
-          errorSave: t('customers.people.form.dictionary.error'),
-          loadingLabel: t('customers.people.form.dictionary.loading'),
-        }}
-      />
-    ),
-  },
-  {
-    id: 'source',
-    label: t('customers.people.form.source'),
-    type: 'custom',
-    layout: 'third',
-    component: ({ value, setValue }) => (
-      <DictionarySelectField
-        kind="sources"
-        value={typeof value === 'string' ? value : undefined}
-        onChange={(next) => setValue(next)}
-        labels={{
-          placeholder: t('customers.people.form.source.placeholder'),
-          addLabel: t('customers.people.form.dictionary.addSource'),
-          addPrompt: t('customers.people.form.dictionary.promptSource'),
-          dialogTitle: t('customers.people.form.dictionary.dialogTitleSource'),
-          inputLabel: t('customers.people.form.dictionary.valueLabel'),
-          inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-          emptyError: t('customers.people.form.dictionary.errorRequired'),
-          cancelLabel: t('customers.people.form.dictionary.cancel'),
-          saveLabel: t('customers.people.form.dictionary.save'),
-          errorLoad: t('customers.people.form.dictionary.errorLoad'),
-          errorSave: t('customers.people.form.dictionary.error'),
-          loadingLabel: t('customers.people.form.dictionary.loading'),
-        }}
-      />
-    ),
-  },
-  { id: 'description', label: t('customers.people.form.description'), type: 'textarea' },
-]
+export const createPersonFormFields = (t: Translator): CrudField[] => {
+  const contactSection = createSectionHeadingField('__contactInformationSection', t('customers.people.form.sections.contactInformation'))
+  const companySection = createSectionHeadingField('__companyInformationSection', t('customers.people.form.sections.companyInformation'))
+
+  return [
+    { id: 'displayName', label: t('customers.people.form.displayName.label'), type: 'text', required: true },
+    { id: 'firstName', label: t('customers.people.form.firstName'), type: 'text', required: true, layout: 'half' },
+    { id: 'lastName', label: t('customers.people.form.lastName'), type: 'text', required: true, layout: 'half' },
+    contactSection,
+    createPrimaryEmailField(t),
+    createPrimaryPhoneField(t),
+    companySection,
+    { id: 'jobTitle', label: t('customers.people.form.jobTitle'), type: 'text', layout: 'half' },
+    {
+      id: 'companyEntityId',
+      label: t('customers.people.form.company'),
+      type: 'custom',
+      layout: 'half',
+      component: ({ value, setValue }) => (
+        <CompanySelectField
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(next) => setValue(next)}
+          labels={{
+            placeholder: t('customers.people.form.company.placeholder'),
+            addLabel: t('customers.people.form.company.add'),
+            addPrompt: t('customers.people.form.company.prompt'),
+            dialogTitle: t('customers.people.form.company.dialogTitle'),
+            inputLabel: t('customers.people.form.company.inputLabel'),
+            inputPlaceholder: t('customers.people.form.company.inputPlaceholder'),
+            emptyError: t('customers.people.form.dictionary.errorRequired'),
+            cancelLabel: t('customers.people.form.dictionary.cancel'),
+            saveLabel: t('customers.people.form.dictionary.save'),
+            errorLoad: t('customers.people.form.dictionary.errorLoad'),
+            errorSave: t('customers.people.form.dictionary.error'),
+            loadingLabel: t('customers.people.form.company.loading'),
+          }}
+        />
+      ),
+    },
+    {
+      id: 'status',
+      label: t('customers.people.form.status'),
+      type: 'custom',
+      layout: 'third',
+      component: ({ value, setValue }) => (
+        <DictionarySelectField
+          kind="statuses"
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(next) => setValue(next)}
+          labels={{
+            placeholder: t('customers.people.form.status.placeholder'),
+            addLabel: t('customers.people.form.dictionary.addStatus'),
+            addPrompt: t('customers.people.form.dictionary.promptStatus'),
+            dialogTitle: t('customers.people.form.dictionary.dialogTitleStatus'),
+            inputLabel: t('customers.people.form.dictionary.valueLabel'),
+            inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+            emptyError: t('customers.people.form.dictionary.errorRequired'),
+            cancelLabel: t('customers.people.form.dictionary.cancel'),
+            saveLabel: t('customers.people.form.dictionary.save'),
+            errorLoad: t('customers.people.form.dictionary.errorLoad'),
+            errorSave: t('customers.people.form.dictionary.error'),
+            loadingLabel: t('customers.people.form.dictionary.loading'),
+          }}
+        />
+      ),
+    },
+    {
+      id: 'lifecycleStage',
+      label: t('customers.people.form.lifecycleStage'),
+      type: 'custom',
+      layout: 'third',
+      component: ({ value, setValue }) => (
+        <DictionarySelectField
+          kind="lifecycle-stages"
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(next) => setValue(next)}
+          labels={{
+            placeholder: t('customers.people.form.lifecycleStage.placeholder'),
+            addLabel: t('customers.people.form.dictionary.addLifecycleStage'),
+            addPrompt: t('customers.people.form.dictionary.promptLifecycleStage'),
+            dialogTitle: t('customers.people.form.dictionary.dialogTitleLifecycleStage'),
+            inputLabel: t('customers.people.form.dictionary.valueLabel'),
+            inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+            emptyError: t('customers.people.form.dictionary.errorRequired'),
+            cancelLabel: t('customers.people.form.dictionary.cancel'),
+            saveLabel: t('customers.people.form.dictionary.save'),
+            errorLoad: t('customers.people.form.dictionary.errorLoad'),
+            errorSave: t('customers.people.form.dictionary.error'),
+            loadingLabel: t('customers.people.form.dictionary.loading'),
+          }}
+        />
+      ),
+    },
+    {
+      id: 'source',
+      label: t('customers.people.form.source'),
+      type: 'custom',
+      layout: 'third',
+      component: ({ value, setValue }) => (
+        <DictionarySelectField
+          kind="sources"
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(next) => setValue(next)}
+          labels={{
+            placeholder: t('customers.people.form.source.placeholder'),
+            addLabel: t('customers.people.form.dictionary.addSource'),
+            addPrompt: t('customers.people.form.dictionary.promptSource'),
+            dialogTitle: t('customers.people.form.dictionary.dialogTitleSource'),
+            inputLabel: t('customers.people.form.dictionary.valueLabel'),
+            inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+            emptyError: t('customers.people.form.dictionary.errorRequired'),
+            cancelLabel: t('customers.people.form.dictionary.cancel'),
+            saveLabel: t('customers.people.form.dictionary.save'),
+            errorLoad: t('customers.people.form.dictionary.errorLoad'),
+            errorSave: t('customers.people.form.dictionary.error'),
+            loadingLabel: t('customers.people.form.dictionary.loading'),
+          }}
+        />
+      ),
+    },
+    { id: 'description', label: t('customers.people.form.description'), type: 'textarea' },
+  ]
+}
 
 export const createPersonFormGroups = (t: Translator): CrudFormGroup[] => [
   {
     id: 'details',
     title: t('customers.people.form.groups.details'),
     column: 1,
-    fields: ['firstName', 'lastName', 'jobTitle', 'companyEntityId', 'primaryEmail', 'primaryPhone', 'status', 'lifecycleStage', 'source'],
+    fields: [
+      'firstName',
+      'lastName',
+      '__contactInformationSection',
+      'primaryEmail',
+      'primaryPhone',
+      '__companyInformationSection',
+      'jobTitle',
+      'companyEntityId',
+      'status',
+      'lifecycleStage',
+      'source',
+    ],
     component: createDisplayNameSection(t),
   },
   {

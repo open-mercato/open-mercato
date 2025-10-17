@@ -13,7 +13,7 @@ const postSchema = z.object({
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
-  POST: { requireAuth: true, requireFeatures: ['customers.people.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.settings.manage'] },
 }
 
 export async function GET(req: Request, ctx: { params?: { kind?: string } }) {

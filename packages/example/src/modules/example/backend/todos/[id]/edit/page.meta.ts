@@ -3,10 +3,10 @@ export const metadata = {
   requireFeatures: ['example.todos.manage'],
   pageTitle: 'Edit Todo',
   pageTitleKey: 'example.todos.edit.title',
-  pageGroup: 'Example',
-  pageGroupKey: 'example.nav.group',
+  pageGroup: 'Work plan',
+  pageGroupKey: 'example.workPlan.nav.group',
   breadcrumb: [
-    { label: 'Todos', labelKey: 'example.todos.page.title', href: '/backend/todos' },
+    { label: 'General tasks', labelKey: 'example.todos.page.title', href: '/backend/todos' },
     { label: 'Edit', labelKey: 'example.todos.edit.title' },
   ],
 }

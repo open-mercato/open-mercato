@@ -13,12 +13,12 @@ export const metadata = {
   requireFeatures: ['example.todos.manage'],
   pageTitle: 'Create Todo',
   pageTitleKey: 'example.todos.create.title',
-  pageGroup: 'Example',
-  pageGroupKey: 'example.nav.group',
-  pageOrder: 20001,
+  pageGroup: 'Work plan',
+  pageGroupKey: 'example.workPlan.nav.group',
+  pageOrder: 121,
   icon: filePlusIcon,
   breadcrumb: [
-    { label: 'Todos', labelKey: 'example.todos.page.title', href: '/backend/todos' },
+    { label: 'General tasks', labelKey: 'example.todos.page.title', href: '/backend/todos' },
     { label: 'Create', labelKey: 'example.todos.create.title' },
   ],
 }

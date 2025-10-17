@@ -104,6 +104,8 @@
   "customers.people.form.source": "Źródło",
   "customers.people.form.source.placeholder": "Wybierz źródło",
   "customers.people.form.description": "Opis",
+  "customers.people.form.sections.contactInformation": "Informacje kontaktowe",
+  "customers.people.form.sections.companyInformation": "Informacje o firmie",
   "customers.people.form.groups.details": "Szczegóły",
   "customers.people.form.groups.notes": "Notatki",
   "customers.people.form.groups.custom": "Pola niestandardowe",
