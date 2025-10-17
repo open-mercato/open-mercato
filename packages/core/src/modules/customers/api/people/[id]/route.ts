@@ -59,7 +59,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const person = await em.findOne(
     CustomerEntity,
     { id: parse.data.id, kind: 'person', deletedAt: null },
-    { populate: ['personProfile', 'personProfile.companyProfile', 'personProfile.company'] }
+    {
+      populate: [
+        'personProfile',
+        'personProfile.company',
+        'personProfile.company.companyProfile',
+      ],
+    }
   )
   if (!person) return notFound('Person not found')
 

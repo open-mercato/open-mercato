@@ -149,11 +149,7 @@ const CustomerNewCustomersWidget: React.FC<DashboardWidgetComponentProps<Custome
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold">{t('customers.widgets.newCustomers.title')}</p>
-          <p className="text-xs text-muted-foreground">{t('customers.widgets.newCustomers.subtitle')}</p>
-        </div>
+      <div className="flex items-center justify-end">
         <Button variant="outline" size="sm" onClick={() => refresh().catch(() => {})} disabled={loading}>
           {loading ? <Spinner className="h-4 w-4" /> : t('customers.widgets.newCustomers.actions.refresh')}
         </Button>

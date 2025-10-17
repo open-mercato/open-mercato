@@ -174,11 +174,7 @@ const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<Cus
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold">{t('customers.widgets.nextInteractions.title')}</p>
-          <p className="text-xs text-muted-foreground">{t('customers.widgets.nextInteractions.subtitle')}</p>
-        </div>
+      <div className="flex items-center justify-end">
         <Button variant="outline" size="sm" onClick={() => refresh().catch(() => {})} disabled={loading}>
           {loading ? <Spinner className="h-4 w-4" /> : t('customers.widgets.nextInteractions.actions.refresh')}
         </Button>

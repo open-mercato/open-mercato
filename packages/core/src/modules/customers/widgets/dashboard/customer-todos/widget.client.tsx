@@ -128,11 +128,7 @@ const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWi
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold">{t('customers.widgets.todos.title')}</p>
-          <p className="text-xs text-muted-foreground">{t('customers.widgets.todos.subtitle')}</p>
-        </div>
+      <div className="flex items-center justify-end">
         <Button variant="outline" size="sm" onClick={() => refresh().catch(() => {})} disabled={loading}>
           {loading ? <Spinner className="h-4 w-4" /> : t('customers.widgets.todos.actions.refresh')}
         </Button>

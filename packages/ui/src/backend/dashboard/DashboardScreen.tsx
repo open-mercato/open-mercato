@@ -160,6 +160,19 @@ export function DashboardScreen() {
     return widgetCatalog.filter((meta) => !currentIds.has(meta.id))
   }, [layout, widgetCatalog])
 
+  const resolveWidgetTitle = React.useCallback((meta: WidgetMeta): string => {
+    const key = `dashboard.widgets.${meta.id}.title`
+    const translated = t(key)
+    return translated === key ? meta.title : translated
+  }, [t])
+
+  const resolveWidgetDescription = React.useCallback((meta: WidgetMeta): string | null => {
+    if (!meta.description) return null
+    const key = `dashboard.widgets.${meta.id}.description`
+    const translated = t(key)
+    return translated === key ? meta.description : translated
+  }, [t])
+
   const queueLayoutSave = React.useCallback((items: LayoutItem[]) => {
     saveQueueRef.current = saveQueueRef.current.then(async () => {
       adjustSaving(1)
@@ -336,7 +349,7 @@ export function DashboardScreen() {
                 onClick={() => handleAddWidget(meta.id)}
               >
                 <Plus className="h-4 w-4" />
-                {meta.title}
+                {resolveWidgetTitle(meta)}
               </Button>
             ))}
           </div>
@@ -378,11 +391,15 @@ export function DashboardScreen() {
         {layout.map((item) => {
           const meta = metaById.get(item.widgetId)
           if (!meta) return null
+          const title = resolveWidgetTitle(meta)
+          const description = resolveWidgetDescription(meta)
           return (
             <DashboardWidgetCard
               key={item.id}
               item={item}
               meta={meta}
+              title={title}
+              description={description}
               context={context}
               editing={editing && canConfigure}
               activeSettings={settingsId === item.id}
@@ -416,6 +433,8 @@ export function DashboardScreen() {
 type DashboardWidgetCardProps = {
   item: LayoutItem
   meta: WidgetMeta
+  title: string
+  description: string | null
   context: LayoutContext | null
   editing: boolean
   activeSettings: boolean
@@ -433,6 +452,8 @@ type DashboardWidgetCardProps = {
 function DashboardWidgetCard({
   item,
   meta,
+  title,
+  description,
   context,
   editing,
   activeSettings,
@@ -548,8 +569,8 @@ function DashboardWidgetCard({
         <div className="flex items-center gap-2">
           {editing && <GripVertical className="h-4 w-4 text-muted-foreground" />}
           <div>
-            <div className="text-sm font-medium leading-none">{meta.title}</div>
-            {meta.description ? <div className="text-xs text-muted-foreground">{meta.description}</div> : null}
+            <div className="text-sm font-medium leading-none">{title}</div>
+            {description ? <div className="text-xs text-muted-foreground">{description}</div> : null}
           </div>
         </div>
         {editing && (

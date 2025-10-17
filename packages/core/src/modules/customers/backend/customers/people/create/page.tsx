@@ -33,6 +33,12 @@ type DictionarySelectFieldProps = {
   placeholder: string
   addLabel: string
   addPrompt: string
+  dialogTitle: string
+  inputLabel: string
+  inputPlaceholder: string
+  emptyError: string
+  cancelLabel: string
+  saveLabel: string
   errorLoad: string
   errorSave: string
   loadingLabel: string
@@ -45,6 +51,12 @@ function DictionarySelectField({
   placeholder,
   addLabel,
   addPrompt,
+  dialogTitle,
+  inputLabel,
+  inputPlaceholder,
+  emptyError,
+  cancelLabel,
+  saveLabel,
   errorLoad,
   errorSave,
   loadingLabel,
@@ -52,6 +64,9 @@ function DictionarySelectField({
   const [options, setOptions] = React.useState<DictionaryOption[]>([])
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [newOption, setNewOption] = React.useState('')
+  const [formError, setFormError] = React.useState<string | null>(null)
 
   const loadOptions = React.useCallback(async () => {
     setLoading(true)
@@ -87,16 +102,36 @@ function DictionarySelectField({
     loadOptions().catch(() => {})
   }, [loadOptions])
 
-  const handleAdd = React.useCallback(async () => {
-    const input = typeof window !== 'undefined' ? window.prompt(addPrompt) : null
-    const nextValue = input?.trim()
-    if (!nextValue) return
+  const resetDialogState = React.useCallback(() => {
+    setNewOption('')
+    setFormError(null)
+    setSaving(false)
+  }, [])
+
+  const handleDialogChange = React.useCallback(
+    (open: boolean) => {
+      setDialogOpen(open)
+      if (!open) {
+        resetDialogState()
+      }
+    },
+    [resetDialogState]
+  )
+
+  const handleAddSubmit = React.useCallback<React.FormEventHandler<HTMLFormElement>>(async (event) => {
+    event.preventDefault()
+    if (saving) return
+    const trimmed = newOption.trim()
+    if (!trimmed) {
+      setFormError(emptyError)
+      return
+    }
     setSaving(true)
     try {
       const res = await apiFetch(`/api/customers/dictionaries/${kind}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ value: nextValue }),
+        body: JSON.stringify({ value: trimmed }),
       })
       let payload: any = null
       try {
@@ -110,14 +145,16 @@ function DictionarySelectField({
         return
       }
       await loadOptions()
-      const createdValue = typeof payload?.value === 'string' ? payload.value : nextValue
+      const createdValue = typeof payload?.value === 'string' ? payload.value : trimmed
       onChange(createdValue || undefined)
+      setDialogOpen(false)
+      resetDialogState()
     } catch {
       flash(errorSave, 'error')
     } finally {
       setSaving(false)
     }
-  }, [addLabel, addPrompt, errorSave, kind, loadOptions, onChange])
+  }, [emptyError, errorSave, kind, loadOptions, newOption, onChange, resetDialogState, saving])
 
   const disabled = loading || saving
 
@@ -137,9 +174,47 @@ function DictionarySelectField({
             </option>
           ))}
         </select>
-        <Button type="button" variant="outline" onClick={handleAdd} disabled={saving}>
-          + {addLabel}
+        <Button type="button" variant="outline" onClick={() => onChange(undefined)} disabled={disabled}>
+          {placeholder}
         </Button>
+        <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
+          <DialogTrigger asChild>
+            <Button type="button" variant="outline" disabled={disabled}>
+              + {addLabel}
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>{dialogTitle}</DialogTitle>
+              {addPrompt ? <DialogDescription>{addPrompt}</DialogDescription> : null}
+            </DialogHeader>
+            <form onSubmit={handleAddSubmit} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">{inputLabel}</label>
+                <input
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={inputPlaceholder}
+                  value={newOption}
+                  onChange={(event) => {
+                    setNewOption(event.target.value)
+                    if (formError) setFormError(null)
+                  }}
+                  autoFocus
+                  disabled={saving}
+                />
+              </div>
+              {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
+                  {cancelLabel}
+                </Button>
+                <Button type="submit" disabled={saving || !newOption.trim()}>
+                  {saving ? `${saveLabel}…` : saveLabel}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
       {loading ? <div className="text-xs text-muted-foreground">{loadingLabel}</div> : null}
     </div>
@@ -207,6 +282,12 @@ export default function CreatePersonPage() {
           placeholder={t('customers.people.form.status.placeholder')}
           addLabel={t('customers.people.form.dictionary.addStatus')}
           addPrompt={t('customers.people.form.dictionary.promptStatus')}
+          dialogTitle={t('customers.people.form.dictionary.dialogTitleStatus')}
+          inputLabel={t('customers.people.form.dictionary.valueLabel')}
+          inputPlaceholder={t('customers.people.form.dictionary.valuePlaceholder')}
+          emptyError={t('customers.people.form.dictionary.errorRequired')}
+          cancelLabel={t('customers.people.form.dictionary.cancel')}
+          saveLabel={t('customers.people.form.dictionary.save')}
           errorLoad={t('customers.people.form.dictionary.errorLoad')}
           errorSave={t('customers.people.form.dictionary.error')}
           loadingLabel={t('customers.people.form.dictionary.loading')}
@@ -226,6 +307,12 @@ export default function CreatePersonPage() {
           placeholder={t('customers.people.form.source.placeholder')}
           addLabel={t('customers.people.form.dictionary.addSource')}
           addPrompt={t('customers.people.form.dictionary.promptSource')}
+          dialogTitle={t('customers.people.form.dictionary.dialogTitleSource')}
+          inputLabel={t('customers.people.form.dictionary.valueLabel')}
+          inputPlaceholder={t('customers.people.form.dictionary.valuePlaceholder')}
+          emptyError={t('customers.people.form.dictionary.errorRequired')}
+          cancelLabel={t('customers.people.form.dictionary.cancel')}
+          saveLabel={t('customers.people.form.dictionary.save')}
           errorLoad={t('customers.people.form.dictionary.errorLoad')}
           errorSave={t('customers.people.form.dictionary.error')}
           loadingLabel={t('customers.people.form.dictionary.loading')}

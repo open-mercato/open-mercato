@@ -29,7 +29,7 @@ export const entities = [
     description: 'Timeline events and touchpoints logged against people or companies.',
     labelField: 'subject',
     showInSidebar: false,
-    defaultEditor: 'false',
+    defaultEditor:  false,
     fields: [],
   },
 ]
