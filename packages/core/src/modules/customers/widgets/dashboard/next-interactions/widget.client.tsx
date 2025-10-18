@@ -11,6 +11,7 @@ import {
   hydrateNextInteractionsSettings,
   type CustomerNextInteractionsSettings,
 } from './config'
+import { renderDictionaryColor, renderDictionaryIcon } from '../../../components/dictionaryAppearance'
 
 type NextInteractionItem = {
   id: string
@@ -18,6 +19,8 @@ type NextInteractionItem = {
   kind: string | null
   nextInteractionAt: string | null
   nextInteractionName: string | null
+  nextInteractionIcon: string | null
+  nextInteractionColor: string | null
   organizationId: string | null
 }
 
@@ -36,18 +39,21 @@ async function loadNextInteractions(settings: CustomerNextInteractionsSettings):
     throw new Error(`Request failed with status ${response.status}`)
   }
   const payload = await response.json().catch(() => ({}))
-  const now = typeof (payload as any).now === 'string' ? (payload as any).now : undefined
-  const rawItems = Array.isArray((payload as any).items) ? (payload as any).items : []
+  const payloadData = payload as Record<string, unknown>
+  const now = typeof payloadData.now === 'string' ? payloadData.now : undefined
+  const rawItems = Array.isArray(payloadData.items) ? payloadData.items : []
   const items = rawItems
     .map((item): NextInteractionItem | null => {
       if (!item || typeof item !== 'object') return null
-      const data = item as any
+      const data = item as Record<string, unknown>
       return {
         id: typeof data.id === 'string' ? data.id : null,
         displayName: typeof data.displayName === 'string' ? data.displayName : null,
         kind: typeof data.kind === 'string' ? data.kind : null,
         nextInteractionAt: typeof data.nextInteractionAt === 'string' ? data.nextInteractionAt : null,
         nextInteractionName: typeof data.nextInteractionName === 'string' ? data.nextInteractionName : null,
+        nextInteractionIcon: typeof data.nextInteractionIcon === 'string' ? data.nextInteractionIcon : null,
+        nextInteractionColor: typeof data.nextInteractionColor === 'string' ? data.nextInteractionColor : null,
         organizationId: typeof data.organizationId === 'string' ? data.organizationId : null,
       }
     })
@@ -194,15 +200,27 @@ const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<Cus
             return (
               <li key={item.id} className="rounded-md border p-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium">{item.displayName ?? t('customers.widgets.common.unknown')}</p>
-                    {item.nextInteractionName ? (
-                      <p className="text-xs text-muted-foreground">{item.nextInteractionName}</p>
+                  <div className="flex items-start gap-3">
+                    {item.nextInteractionIcon ? (
+                      <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-card">
+                        {renderDictionaryIcon(item.nextInteractionIcon, 'h-4 w-4')}
+                      </span>
                     ) : null}
+                    <div>
+                      <p className="text-sm font-medium">{item.displayName ?? t('customers.widgets.common.unknown')}</p>
+                      {item.nextInteractionName ? (
+                        <p className="text-xs text-muted-foreground">{item.nextInteractionName}</p>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="text-right text-xs text-muted-foreground">
-                    <p>{absolute || t('customers.widgets.common.unknownDate')}</p>
-                    {relative ? <p>{relative}</p> : null}
+                  <div className="flex items-center gap-2 text-right text-xs text-muted-foreground">
+                    <div>
+                      <p>{absolute || t('customers.widgets.common.unknownDate')}</p>
+                      {relative ? <p>{relative}</p> : null}
+                    </div>
+                    {item.nextInteractionColor
+                      ? renderDictionaryColor(item.nextInteractionColor, 'h-3 w-3 rounded-full border border-border')
+                      : null}
                   </div>
                 </div>
                 {href ? (

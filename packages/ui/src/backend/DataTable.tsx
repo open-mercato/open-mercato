@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn } from '@tanstack/react-table'
+import { RefreshCw, Loader2 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
@@ -9,6 +10,7 @@ import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { fetchCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
+import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 
 let refreshScheduled = false
 function scheduleRouterRefresh(router: ReturnType<typeof useRouter>) {
@@ -32,6 +34,13 @@ export type PaginationProps = {
   onPageChange: (page: number) => void
 }
 
+export type DataTableRefreshButton = {
+  onRefresh: () => void
+  label: string
+  isRefreshing?: boolean
+  disabled?: boolean
+}
+
 // Helper function to extract edit action from RowActions items
 function extractEditAction(items: RowActionItem[]): RowActionItem | null {
   return items.find(item => 
@@ -40,12 +49,36 @@ function extractEditAction(items: RowActionItem[]): RowActionItem | null {
   ) || null
 }
 
+export type DataTableExportFormat = 'csv' | 'json' | 'xml' | 'markdown'
+
+export type DataTableExportSectionConfig = {
+  title?: string
+  description?: string
+  getUrl?: (format: DataTableExportFormat) => string
+  prepare?: (format: DataTableExportFormat) => Promise<PreparedExport | { prepared: PreparedExport; filename?: string } | null> | PreparedExport | { prepared: PreparedExport; filename?: string } | null
+  formats?: DataTableExportFormat[]
+  disabled?: boolean
+  filename?: (format: DataTableExportFormat) => string
+}
+
+export type DataTableExportConfig = {
+  label?: string
+  disabled?: boolean
+  formats?: DataTableExportFormat[]
+  getUrl?: (format: DataTableExportFormat) => string
+  sections?: DataTableExportSectionConfig[]
+  view?: DataTableExportSectionConfig
+  full?: DataTableExportSectionConfig
+  filename?: (format: DataTableExportFormat) => string
+}
+
 export type DataTableProps<T> = {
   columns: ColumnDef<T, any>[]
   data: T[]
   toolbar?: React.ReactNode
   title?: React.ReactNode
   actions?: React.ReactNode
+  refreshButton?: DataTableRefreshButton
   sortable?: boolean
   sorting?: SortingState
   onSortingChange?: (s: SortingState) => void
@@ -68,9 +101,199 @@ export type DataTableProps<T> = {
   onFiltersClear?: () => void
   // When provided, DataTable will fetch custom field definitions and append filter controls for filterable ones.
   entityId?: string
+  exporter?: DataTableExportConfig | false
 }
 
-export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId }: DataTableProps<T>) {
+const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
+const EXPORT_LABELS: Record<DataTableExportFormat, string> = {
+  csv: 'CSV',
+  json: 'JSON',
+  xml: 'XML',
+  markdown: 'Markdown',
+}
+
+type ResolvedExportSection = {
+  key: string
+  title: string
+  description?: string
+  formats: DataTableExportFormat[]
+  getUrl?: (format: DataTableExportFormat) => string
+  prepare?: (format: DataTableExportFormat) => Promise<{ prepared: PreparedExport; filename?: string } | null> | { prepared: PreparedExport; filename?: string } | null
+  filename?: (format: DataTableExportFormat) => string
+  disabled: boolean
+}
+
+function resolveExportSections(config: DataTableExportConfig | null | undefined): ResolvedExportSection[] {
+  if (!config) return []
+  const sections: ResolvedExportSection[] = []
+  const baseFormats = config.formats && config.formats.length > 0 ? config.formats : DEFAULT_EXPORT_FORMATS
+  const addSection = (key: string, section: DataTableExportSectionConfig | undefined | null, fallbackTitle: string) => {
+    if (!section || (!section.getUrl && !section.prepare)) return
+    const title = section.title?.trim().length ? section.title!.trim() : fallbackTitle
+    const seen = new Set<DataTableExportFormat>()
+    const formatsSource = section.formats && section.formats.length > 0 ? section.formats : baseFormats
+    const formats = formatsSource.filter((format) => {
+      if (seen.has(format)) return false
+      seen.add(format)
+      return true
+    })
+    if (formats.length === 0) return
+    sections.push({
+      key,
+      title,
+      description: section.description,
+      formats,
+      getUrl: section.getUrl,
+      prepare: section.prepare
+        ? async (format: DataTableExportFormat) => {
+            const result = await section.prepare!(format)
+            if (!result) return null
+            if ('prepared' in result) return result
+            return { prepared: result }
+          }
+        : undefined,
+      filename: section.filename,
+      disabled: Boolean(config.disabled || section.disabled),
+    })
+  }
+
+  // Allow legacy config (getUrl without sections/view)
+  const hasExplicitSections = Array.isArray(config.sections) && config.sections.length > 0
+  if (!config.view && !config.full && !hasExplicitSections && config.getUrl) {
+    addSection('view', { getUrl: config.getUrl, formats: config.formats }, 'Export what you view')
+  } else {
+    addSection('view', config.view, 'Export what you view')
+  }
+
+  if (hasExplicitSections) {
+    config.sections!.forEach((section, idx) => {
+      addSection(`section-${idx}`, section, section.title?.trim().length ? section.title! : `Export ${idx + 1}`)
+    })
+  }
+
+  addSection('full', config.full, 'Full data export')
+  return sections
+}
+
+function ExportMenu({ config, sections }: { config: DataTableExportConfig; sections: ResolvedExportSection[] }) {
+  if (!sections.length) return null
+  const { label = 'Export' } = config
+  const disabled = Boolean(config.disabled)
+  const [open, setOpen] = React.useState(false)
+  const buttonRef = React.useRef<HTMLButtonElement>(null)
+  const menuRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    if (!open) return
+    const onDocClick = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (menuRef.current && !menuRef.current.contains(target) && buttonRef.current && !buttonRef.current.contains(target)) {
+        setOpen(false)
+      }
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        buttonRef.current?.focus()
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const handleSelect = async (section: ResolvedExportSection, format: DataTableExportFormat) => {
+    try {
+      if (section.prepare) {
+        const preparedResult = await section.prepare(format)
+        if (!preparedResult) return
+        const prepared = preparedResult.prepared
+        const serialized = serializeExport(prepared, format)
+        const filename =
+          preparedResult.filename
+          ?? section.filename?.(format)
+          ?? config.filename?.(format)
+          ?? defaultExportFilename(section.title, format)
+        if (typeof window !== 'undefined') {
+          const blob = new Blob([serialized.body], { type: serialized.contentType })
+          const href = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = href
+          a.download = filename
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(href)
+        }
+      } else if (section.getUrl) {
+        const url = section.getUrl(format)
+        if (url && typeof window !== 'undefined') {
+          window.open(url, '_blank', 'noopener,noreferrer')
+        }
+      }
+    } catch {
+      // ignore export errors
+    } finally {
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div className="relative inline-block">
+      <Button
+        ref={buttonRef}
+        variant="outline"
+        size="sm"
+        type="button"
+        onClick={() => {
+          if (disabled) return
+          setOpen((prev) => !prev)
+        }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+      >
+        {label}
+      </Button>
+      {open ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="absolute right-0 mt-2 w-60 rounded-md border bg-background py-2 shadow z-20"
+        >
+          {sections.map((section, idx) => (
+            <div key={section.key} className={idx > 0 ? 'mt-2 border-t pt-3' : ''}>
+              <div className="px-3">
+                <div className="text-xs font-semibold uppercase text-muted-foreground">{section.title}</div>
+                {section.description ? (
+                  <p className="mt-1 text-xs text-muted-foreground leading-snug">{section.description}</p>
+                ) : null}
+              </div>
+              <div className="mt-2 space-y-1 px-2 pb-1">
+                {section.formats.map((format) => (
+                  <button
+                    key={`${section.key}-${format}`}
+                    type="button"
+                    className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                    onClick={() => void handleSelect(section, format)}
+                    disabled={section.disabled}
+                  >
+                    {EXPORT_LABELS[format]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+export function DataTable<T>({ columns, data, toolbar, title, actions, refreshButton, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId, exporter }: DataTableProps<T>) {
   const router = useRouter()
   React.useEffect(() => {
     return subscribeOrganizationScopeChanged(() => scheduleRouterRefresh(router))
@@ -258,21 +481,48 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
   const hasTitle = title != null
   const hasActions = actions !== undefined && actions !== null && actions !== false
   const shouldReserveActionsSpace = actions === null || actions === false
+  const exportConfig = exporter === false ? null : exporter || null
+  const resolvedExportSections = React.useMemo(() => resolveExportSections(exportConfig), [exportConfig])
+  const hasExport = resolvedExportSections.length > 0
+  const refreshButtonConfig = refreshButton
+  const hasRefreshButton = Boolean(refreshButtonConfig)
   const hasToolbar = builtToolbar != null
-  const shouldRenderHeader = hasTitle || hasToolbar || hasActions || shouldReserveActionsSpace
+  const shouldRenderActionsWrapper = hasActions || hasRefreshButton || shouldReserveActionsSpace || hasExport
+  const shouldRenderHeader = hasTitle || hasToolbar || shouldRenderActionsWrapper
 
   return (
     <div className="rounded-lg border bg-card">
       {shouldRenderHeader && (
         <div className="px-4 py-3 border-b">
-          {(hasTitle || hasActions || shouldReserveActionsSpace) && (
+          {(hasTitle || shouldRenderActionsWrapper) && (
             <div className="flex items-center justify-between">
               <div className="text-base font-semibold leading-tight min-h-[2.25rem] flex items-center">
                 {hasTitle ? (typeof title === 'string' ? <h2 className="text-base font-semibold">{title}</h2> : title) : null}
               </div>
-              <div className="flex items-center gap-2 min-h-[2.25rem]">
-                {hasActions ? actions : null}
-              </div>
+              {shouldRenderActionsWrapper ? (
+                <div className="flex items-center gap-2 min-h-[2.25rem]">
+                  {refreshButtonConfig ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={refreshButtonConfig.onRefresh}
+                      aria-label={refreshButtonConfig.label}
+                      title={refreshButtonConfig.label}
+                      disabled={refreshButtonConfig.disabled || refreshButtonConfig.isRefreshing}
+                    >
+                      {refreshButtonConfig.isRefreshing ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                      <span className="sr-only">{refreshButtonConfig.label}</span>
+                    </Button>
+                  ) : null}
+                  {exportConfig && hasExport ? <ExportMenu config={exportConfig} sections={resolvedExportSections} /> : null}
+                  {hasActions ? actions : null}
+                </div>
+              ) : null}
             </div>
           )}
           {hasToolbar ? <div className="mt-3 pt-3 border-t">{builtToolbar}</div> : null}

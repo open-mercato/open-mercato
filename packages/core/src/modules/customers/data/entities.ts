@@ -11,6 +11,7 @@ import {
 } from '@mikro-orm/core'
 
 export type CustomerEntityKind = 'person' | 'company'
+export type CustomerAddressFormat = 'line_first' | 'street_first'
 
 @Entity({ tableName: 'customer_entities' })
 @Index({ name: 'customer_entities_org_tenant_kind_idx', properties: ['organizationId', 'tenantId', 'kind'] })
@@ -59,6 +60,12 @@ export class CustomerEntity {
 
   @Property({ name: 'next_interaction_ref_id', type: 'text', nullable: true })
   nextInteractionRefId?: string | null
+
+  @Property({ name: 'next_interaction_icon', type: 'text', nullable: true })
+  nextInteractionIcon?: string | null
+
+  @Property({ name: 'next_interaction_color', type: 'text', nullable: true })
+  nextInteractionColor?: string | null
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
@@ -420,6 +427,12 @@ export class CustomerAddress {
   @Property({ name: 'country', type: 'text', nullable: true })
   country?: string | null
 
+  @Property({ name: 'building_number', type: 'text', nullable: true })
+  buildingNumber?: string | null
+
+  @Property({ name: 'flat_number', type: 'text', nullable: true })
+  flatNumber?: string | null
+
   @Property({ name: 'latitude', type: 'float', nullable: true })
   latitude?: number | null
 
@@ -437,6 +450,28 @@ export class CustomerAddress {
 
   @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
   entity!: CustomerEntity
+}
+
+@Entity({ tableName: 'customer_settings' })
+@Unique({ name: 'customer_settings_scope_unique', properties: ['organizationId', 'tenantId'] })
+export class CustomerSettings {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'address_format', type: 'text', default: 'line_first' })
+  addressFormat: CustomerAddressFormat = 'line_first'
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
 
 @Entity({ tableName: 'customer_tags' })

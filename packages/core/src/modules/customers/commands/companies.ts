@@ -52,6 +52,8 @@ type CompanySnapshot = {
     nextInteractionAt: Date | null
     nextInteractionName: string | null
     nextInteractionRefId: string | null
+    nextInteractionIcon: string | null
+    nextInteractionColor: string | null
     isActive: boolean
   }
   profile: {
@@ -101,6 +103,8 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
       nextInteractionAt: entity.nextInteractionAt ?? null,
       nextInteractionName: entity.nextInteractionName ?? null,
       nextInteractionRefId: entity.nextInteractionRefId ?? null,
+      nextInteractionIcon: entity.nextInteractionIcon ?? null,
+      nextInteractionColor: entity.nextInteractionColor ?? null,
       isActive: entity.isActive,
     },
     profile: {
@@ -138,6 +142,18 @@ async function setCompanyCustomFields(
   })
 }
 
+function normalizeOptionalString(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+function normalizeHexColor(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().toLowerCase()
+  return /^#([0-9a-f]{6})$/.test(trimmed) ? trimmed : null
+}
+
 const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: string; companyId: string }> = {
   id: 'customers.companies.create',
   async execute(rawInput, ctx) {
@@ -146,6 +162,10 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
+    const nextInteractionName = parsed.nextInteraction?.name ? parsed.nextInteraction.name.trim() : null
+    const nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction?.refId)
+    const nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction?.icon)
+    const nextInteractionColor = normalizeHexColor(parsed.nextInteraction?.color)
     const entity = em.create(CustomerEntity, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -159,8 +179,10 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       lifecycleStage: parsed.lifecycleStage ?? null,
       source: parsed.source ?? null,
       nextInteractionAt: parsed.nextInteraction?.at ?? null,
-      nextInteractionName: parsed.nextInteraction?.name ?? null,
-      nextInteractionRefId: parsed.nextInteraction?.refId ?? null,
+      nextInteractionName,
+      nextInteractionRefId,
+      nextInteractionIcon,
+      nextInteractionColor,
       isActive: parsed.isActive ?? true,
     })
 
@@ -264,12 +286,16 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
 
     if (parsed.nextInteraction) {
       record.nextInteractionAt = parsed.nextInteraction.at
-      record.nextInteractionName = parsed.nextInteraction.name
-      record.nextInteractionRefId = parsed.nextInteraction.refId ?? null
+      record.nextInteractionName = parsed.nextInteraction.name.trim()
+      record.nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction.refId) ?? null
+      record.nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction.icon)
+      record.nextInteractionColor = normalizeHexColor(parsed.nextInteraction.color)
     } else if (parsed.nextInteraction === null) {
       record.nextInteractionAt = null
       record.nextInteractionName = null
       record.nextInteractionRefId = null
+      record.nextInteractionIcon = null
+      record.nextInteractionColor = null
     }
 
     if (parsed.legalName !== undefined) profile.legalName = parsed.legalName ?? null
@@ -319,6 +345,8 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       'nextInteractionAt',
       'nextInteractionName',
       'nextInteractionRefId',
+      'nextInteractionIcon',
+      'nextInteractionColor',
       'isActive',
     ]
     const changes =
@@ -370,6 +398,8 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         nextInteractionAt: before.entity.nextInteractionAt,
         nextInteractionName: before.entity.nextInteractionName,
         nextInteractionRefId: before.entity.nextInteractionRefId,
+        nextInteractionIcon: before.entity.nextInteractionIcon,
+        nextInteractionColor: before.entity.nextInteractionColor,
         isActive: before.entity.isActive,
       })
       em.persist(entity)
@@ -385,6 +415,8 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       entity.nextInteractionAt = before.entity.nextInteractionAt
       entity.nextInteractionName = before.entity.nextInteractionName
       entity.nextInteractionRefId = before.entity.nextInteractionRefId
+      entity.nextInteractionIcon = before.entity.nextInteractionIcon
+      entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
     }
 
@@ -512,10 +544,27 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           nextInteractionAt: before.entity.nextInteractionAt,
           nextInteractionName: before.entity.nextInteractionName,
           nextInteractionRefId: before.entity.nextInteractionRefId,
+          nextInteractionIcon: before.entity.nextInteractionIcon,
+          nextInteractionColor: before.entity.nextInteractionColor,
           isActive: before.entity.isActive,
         })
         em.persist(entity)
       }
+
+      entity.displayName = before.entity.displayName
+      entity.description = before.entity.description
+      entity.ownerUserId = before.entity.ownerUserId
+      entity.primaryEmail = before.entity.primaryEmail
+      entity.primaryPhone = before.entity.primaryPhone
+      entity.status = before.entity.status
+      entity.lifecycleStage = before.entity.lifecycleStage
+      entity.source = before.entity.source
+      entity.nextInteractionAt = before.entity.nextInteractionAt
+      entity.nextInteractionName = before.entity.nextInteractionName
+      entity.nextInteractionRefId = before.entity.nextInteractionRefId
+      entity.nextInteractionIcon = before.entity.nextInteractionIcon
+      entity.nextInteractionColor = before.entity.nextInteractionColor
+      entity.isActive = before.entity.isActive
 
       let profile = await em.findOne(CustomerCompanyProfile, { entity })
       if (!profile) {

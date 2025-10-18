@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerEntity,
@@ -115,6 +114,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       nextInteractionAt: person.nextInteractionAt ? person.nextInteractionAt.toISOString() : null,
       nextInteractionName: person.nextInteractionName,
       nextInteractionRefId: person.nextInteractionRefId,
+      nextInteractionIcon: person.nextInteractionIcon,
+      nextInteractionColor: person.nextInteractionColor,
       organizationId: person.organizationId,
       tenantId: person.tenantId,
       isActive: person.isActive,
@@ -144,6 +145,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       purpose: address.purpose,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2,
+      buildingNumber: address.buildingNumber,
+      flatNumber: address.flatNumber,
       city: address.city,
       region: address.region,
       postalCode: address.postalCode,

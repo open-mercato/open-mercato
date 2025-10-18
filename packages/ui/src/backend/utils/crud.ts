@@ -8,6 +8,8 @@ export type ListResponse<T> = {
   totalPages: number
 }
 
+export type CrudExportFormat = 'csv' | 'json' | 'xml' | 'markdown'
+
 function toQuery(params: Record<string, any>) {
   const sp = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) {
@@ -35,9 +37,13 @@ export async function fetchCrudList<T>(apiPath: string, params: Record<string, a
   return res.json()
 }
 
-export function buildCrudCsvUrl(apiPath: string, params: Record<string, any>): string {
-  const qs = buildCrudQuery({ ...params, format: 'csv' })
+export function buildCrudExportUrl(apiPath: string, params: Record<string, any>, format: CrudExportFormat): string {
+  const qs = buildCrudQuery({ ...params, format })
   return `/api/${apiPath}?${qs}`
+}
+
+export function buildCrudCsvUrl(apiPath: string, params: Record<string, any>): string {
+  return buildCrudExportUrl(apiPath, params, 'csv')
 }
 
 export async function createCrud(apiPath: string, body: any, init?: RequestInit): Promise<Response> {

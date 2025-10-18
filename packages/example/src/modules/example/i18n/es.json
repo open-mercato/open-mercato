@@ -26,6 +26,8 @@
   "example.todos.table.confirm.delete": "¿Eliminar esta tarea?",
   "example.todos.table.error.delete": "No se pudo eliminar la tarea.",
   "example.todos.table.error.generic": "No se pudieron cargar las tareas. Inténtalo de nuevo.",
+  "example.todos.table.export.view": "Exporta la lista actual respetando filtros y columnas visibles.",
+  "example.todos.table.export.full": "Exporta todos los campos de la tarea, incluidos los campos personalizados ocultos.",
   "example.todos.form.fields.title.label": "Título",
   "example.todos.form.fields.title.placeholder": "Escribe un título claro",
   "example.todos.form.fields.isDone.label": "Completada",

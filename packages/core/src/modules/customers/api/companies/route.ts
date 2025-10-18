@@ -54,6 +54,8 @@ const crud = makeCrudRoute({
       'next_interaction_at',
       'next_interaction_name',
       'next_interaction_ref_id',
+      'next_interaction_icon',
+      'next_interaction_color',
       'organization_id',
       'tenant_id',
       'kind',

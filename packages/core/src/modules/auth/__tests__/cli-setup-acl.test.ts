@@ -5,8 +5,12 @@ import cli from '@open-mercato/core/modules/auth/cli'
 const persistAndFlush = jest.fn()
 const findOne = jest.fn()
 const findOneOrFail = jest.fn()
-const create = jest.fn((entity: any, data: any) => ({ ...data }))
-const find = jest.fn()
+const create = jest.fn((entity: any, data: any) => {
+  if (entity?.name === 'Tenant') return { id: 'tenant-1', ...data }
+  if (entity?.name === 'Organization') return { id: 'org-1', ...data }
+  return { ...data }
+})
+const find = jest.fn(async () => [])
 const persist = jest.fn()
 const flush = jest.fn()
 
@@ -52,26 +56,30 @@ describe('auth CLI setup seeds ACLs', () => {
     expect(Array.isArray(superadminAcl?.featuresJson)).toBe(true)
     expect(superadminAcl?.featuresJson).toEqual(expect.arrayContaining(['directory.tenants.*']))
 
-    const adminAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('directory.organizations.*'))
+    const adminAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('directory.organizations.manage'))
     expect(adminAcl).toBeDefined()
     expect(adminAcl?.featuresJson).toEqual(expect.arrayContaining([
       'auth.*',
       'entities.*',
       'attachments.*',
       'query_index.*',
-      'directory.organizations.*',
+      'directory.organizations.manage',
+      'directory.organizations.view',
       'customers.*',
       'example.*',
     ]))
+    expect(adminAcl?.featuresJson).not.toContain('directory.organizations.*')
 
-    const employeeAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('example.*'))
+    const employeeAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('example.widgets.*'))
     expect(employeeAcl).toBeDefined()
     expect(employeeAcl?.featuresJson).toEqual(expect.arrayContaining([
-      'customers.people.view',
-      'customers.companies.view',
-      'customers.deals.view',
-      'customers.activities.view',
-      'customers.widgets.*',
+      'customers.*',
+      'customers.people.manage',
+      'example.*',
+      'example.widgets.*',
+      'dashboards.view',
+      'dashboards.configure',
+      'audit_logs.undo_self',
     ]))
   })
 })

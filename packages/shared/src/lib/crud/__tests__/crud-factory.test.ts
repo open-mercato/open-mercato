@@ -104,7 +104,13 @@ describe('CRUD Factory', () => {
     accessLogService.log.mockClear()
   })
 
-  const querySchema = z.object({ page: z.coerce.number().default(1), pageSize: z.coerce.number().default(50), sortField: z.string().default('id'), sortDir: z.enum(['asc','desc']).default('asc'), format: z.enum(['json','csv']).optional() })
+  const querySchema = z.object({
+    page: z.coerce.number().default(1),
+    pageSize: z.coerce.number().default(50),
+    sortField: z.string().default('id'),
+    sortDir: z.enum(['asc','desc']).default('asc'),
+    format: z.enum(['csv', 'json', 'xml', 'markdown']).optional(),
+  })
   const createSchema = z.object({ title: z.string().min(1), is_done: z.boolean().optional().default(false), cf_priority: z.number().optional() })
   const updateSchema = z.object({ id: z.string(), title: z.string().optional(), is_done: z.boolean().optional(), cf_priority: z.number().optional() })
 
@@ -167,6 +173,53 @@ describe('CRUD Factory', () => {
     const text = await res.text()
     expect(text.split('\n')[0]).toBe('id,title,is_done')
     expect(accessLogService.log).toHaveBeenCalledTimes(1)
+  })
+
+  it('GET returns JSON export when format=json', async () => {
+    const res = await route.GET(new Request('http://x/api/example/todos?format=json'))
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect(res.headers.get('content-disposition')).toContain('todo.json')
+    const text = await res.text()
+    const parsed = JSON.parse(text)
+    expect(Array.isArray(parsed)).toBe(true)
+    expect(parsed[0]).toEqual({ id: 'id-1', title: 'A', is_done: '0' })
+  })
+
+  it('GET returns XML export when format=xml', async () => {
+    const res = await route.GET(new Request('http://x/api/example/todos?format=xml'))
+    expect(res.headers.get('content-type')).toContain('application/xml')
+    expect(res.headers.get('content-disposition')).toContain('todo.xml')
+    const text = await res.text()
+    expect(text).toContain('<records>')
+    expect(text).toContain('<id>id-1</id>')
+    expect(text).toContain('<title>A</title>')
+  })
+
+  it('GET returns Markdown export when format=markdown', async () => {
+    const res = await route.GET(new Request('http://x/api/example/todos?format=markdown'))
+    expect(res.headers.get('content-type')).toContain('text/markdown')
+    expect(res.headers.get('content-disposition')).toContain('todo.md')
+    const text = await res.text()
+    const lines = text.split('\n')
+    expect(lines[0]).toBe('| id | title | is_done |')
+    expect(lines[2]).toContain('id-1')
+  })
+
+  it('GET returns full export when exportScope=full', async () => {
+    const res = await route.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect(res.headers.get('content-disposition')).toContain('todo_full.json')
+    const text = await res.text()
+    const parsed = JSON.parse(text)
+    expect(Array.isArray(parsed)).toBe(true)
+    const row = parsed[0]
+    expect(row).toMatchObject({
+      Id: 'id-1',
+      Title: 'A',
+      'Is Done': false,
+      'Organization Id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'Tenant Id': '123e4567-e89b-12d3-a456-426614174000',
+    })
   })
 
   it('POST creates entity, saves custom fields, emits created event', async () => {

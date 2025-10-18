@@ -94,6 +94,10 @@ export default function CreatePersonPage() {
                 if (purpose !== undefined) body.purpose = purpose
                 const line2 = normalize(entry.addressLine2)
                 if (line2 !== undefined) body.addressLine2 = line2
+                const buildingNumber = normalize(entry.buildingNumber)
+                if (buildingNumber !== undefined) body.buildingNumber = buildingNumber
+                const flatNumber = normalize(entry.flatNumber)
+                if (flatNumber !== undefined) body.flatNumber = flatNumber
                 const city = normalize(entry.city)
                 if (city !== undefined) body.city = city
                 const region = normalize(entry.region)
@@ -101,7 +105,7 @@ export default function CreatePersonPage() {
                 const postalCode = normalize(entry.postalCode)
                 if (postalCode !== undefined) body.postalCode = postalCode
                 const country = normalize(entry.country)
-                if (country !== undefined) body.country = country
+                if (country !== undefined) body.country = country.toUpperCase()
                 try {
                   const addressRes = await apiFetch('/api/customers/addresses', {
                     method: 'POST',

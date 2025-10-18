@@ -8,6 +8,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import Link from 'next/link'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { buildCountryOptions } from '@open-mercato/shared/lib/location/countries'
+import { AddressView, formatAddressJson, formatAddressString, type AddressFormatStrategy } from '../utils/addressFormat'
 import {
   Dialog,
   DialogContent,
@@ -25,6 +27,8 @@ export type CustomerAddressInput = {
   purpose?: string
   addressLine1: string
   addressLine2?: string
+  buildingNumber?: string
+  flatNumber?: string
   city?: string
   region?: string
   postalCode?: string
@@ -45,6 +49,7 @@ type CustomerAddressTilesProps = {
   t: Translator
   emptyLabel: string
   isSubmitting?: boolean
+  gridClassName?: string
 }
 
 type DraftAddressState = {
@@ -52,6 +57,8 @@ type DraftAddressState = {
   purpose: string
   addressLine1: string
   addressLine2: string
+  buildingNumber: string
+  flatNumber: string
   city: string
   region: string
   postalCode: string
@@ -75,6 +82,8 @@ const defaultDraft: DraftAddressState = {
   purpose: '',
   addressLine1: '',
   addressLine2: '',
+  buildingNumber: '',
+  flatNumber: '',
   city: '',
   region: '',
   postalCode: '',
@@ -87,6 +96,8 @@ const serverFieldMap: Record<string, DraftFieldKey> = {
   purpose: 'purpose',
   addressLine1: 'addressLine1',
   addressLine2: 'addressLine2',
+  buildingNumber: 'buildingNumber',
+  flatNumber: 'flatNumber',
   city: 'city',
   region: 'region',
   postalCode: 'postalCode',
@@ -138,6 +149,7 @@ export function CustomerAddressTiles({
   t,
   emptyLabel,
   isSubmitting = false,
+  gridClassName = 'grid gap-4 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
 }: CustomerAddressTilesProps) {
   const scopeVersion = useOrganizationScopeVersion()
   const [isFormOpen, setIsFormOpen] = React.useState(false)
@@ -155,6 +167,10 @@ export function CustomerAddressTiles({
   const [typeFormError, setTypeFormError] = React.useState<string | null>(null)
   const [typeMap, setTypeMap] = React.useState<Map<string, string>>(new Map())
   const [typeError, setTypeError] = React.useState<string | null>(null)
+  const [format, setFormat] = React.useState<AddressFormatStrategy>('line_first')
+  const [formatLoading, setFormatLoading] = React.useState(false)
+  const [countryDialogOpen, setCountryDialogOpen] = React.useState(false)
+  const [countryQuery, setCountryQuery] = React.useState('')
 
   const fieldLabels = React.useMemo(
     () => ({
@@ -162,6 +178,9 @@ export function CustomerAddressTiles({
       purpose: t('customers.people.detail.addresses.fields.type'),
       addressLine1: t('customers.people.detail.addresses.fields.line1'),
       addressLine2: t('customers.people.detail.addresses.fields.line2'),
+      street: t('customers.people.detail.addresses.fields.street', 'Street'),
+      buildingNumber: t('customers.people.detail.addresses.fields.buildingNumber', 'Building number'),
+      flatNumber: t('customers.people.detail.addresses.fields.flatNumber', 'Flat number'),
       city: t('customers.people.detail.addresses.fields.city'),
       region: t('customers.people.detail.addresses.fields.region'),
       postalCode: t('customers.people.detail.addresses.fields.postalCode'),
@@ -170,6 +189,28 @@ export function CustomerAddressTiles({
     }),
     [t]
   )
+
+  const countryOptions = React.useMemo(
+    () =>
+      buildCountryOptions({
+        transformLabel: (code, fallback) => t(`customers.countries.${code.toLowerCase()}`, fallback ?? code),
+      }),
+    [t]
+  )
+
+  const filteredCountryOptions = React.useMemo(() => {
+    const query = countryQuery.trim().toLowerCase()
+    if (!query.length) return countryOptions
+    return countryOptions.filter((option) =>
+      option.label.toLowerCase().includes(query) || option.code.toLowerCase().includes(query)
+    )
+  }, [countryOptions, countryQuery])
+
+  const selectedCountry = React.useMemo(() => {
+    const code = draft.country?.toUpperCase() ?? ''
+    if (!code.length) return null
+    return countryOptions.find((option) => option.code === code) ?? null
+  }, [countryOptions, draft.country])
 
   const getInputClass = React.useCallback(
     (key: DraftFieldKey) =>
@@ -238,6 +279,45 @@ export function CustomerAddressTiles({
     loadAddressTypes().catch(() => {})
   }, [loadAddressTypes, scopeVersion])
 
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadFormat() {
+      setFormatLoading(true)
+      try {
+        const res = await apiFetch('/api/customers/settings/address-format')
+        const payload = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          if (!cancelled) {
+            const message =
+              typeof payload?.error === 'string'
+                ? payload.error
+                : t('customers.people.detail.addresses.formatLoadError', 'Failed to load address configuration')
+            flash(message, 'error')
+          }
+          return
+        }
+        const value = typeof payload?.addressFormat === 'string' ? payload.addressFormat : null
+        if (!cancelled && (value === 'street_first' || value === 'line_first')) {
+          setFormat(value)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const message =
+            err instanceof Error && err.message
+              ? err.message
+              : t('customers.people.detail.addresses.formatLoadError', 'Failed to load address configuration')
+          flash(message, 'error')
+        }
+      } finally {
+        if (!cancelled) setFormatLoading(false)
+      }
+    }
+    loadFormat().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [scopeVersion, t])
+
   const handleTypeDialogChange = React.useCallback((open: boolean) => {
     setTypeDialogOpen(open)
     if (!open) {
@@ -286,7 +366,11 @@ export function CustomerAddressTiles({
 
   const handleFieldChange = React.useCallback(
     (key: DraftFieldKey, value: string | boolean) => {
-      setDraft((prev) => ({ ...prev, [key]: value } as DraftAddressState))
+      const nextValue =
+        typeof value === 'string' && key === 'country'
+          ? value.toUpperCase()
+          : value
+      setDraft((prev) => ({ ...prev, [key]: nextValue } as DraftAddressState))
       setFieldErrors((prev) => {
         if (!prev[key]) return prev
         const next = { ...prev }
@@ -309,10 +393,12 @@ export function CustomerAddressTiles({
         purpose: address.purpose ?? '',
         addressLine1: address.addressLine1,
         addressLine2: address.addressLine2 ?? '',
+        buildingNumber: address.buildingNumber ?? '',
+        flatNumber: address.flatNumber ?? '',
         city: address.city ?? '',
         region: address.region ?? '',
         postalCode: address.postalCode ?? '',
-        country: address.country ?? '',
+        country: address.country ? address.country.toUpperCase() : '',
         isPrimary: address.isPrimary ?? false,
       })
       setFieldErrors({})
@@ -350,6 +436,10 @@ export function CustomerAddressTiles({
     if (name !== undefined) payload.name = name
     const line2 = normalizeOptional(draft.addressLine2)
     if (line2 !== undefined) payload.addressLine2 = line2
+    const buildingNumber = normalizeOptional(draft.buildingNumber)
+    if (buildingNumber !== undefined) payload.buildingNumber = buildingNumber
+    const flatNumber = normalizeOptional(draft.flatNumber)
+    if (flatNumber !== undefined) payload.flatNumber = flatNumber
     const city = normalizeOptional(draft.city)
     if (city !== undefined) payload.city = city
     const region = normalizeOptional(draft.region)
@@ -357,7 +447,7 @@ export function CustomerAddressTiles({
     const postal = normalizeOptional(draft.postalCode)
     if (postal !== undefined) payload.postalCode = postal
     const country = normalizeOptional(draft.country)
-    if (country !== undefined) payload.country = country
+    if (country !== undefined) payload.country = country.toUpperCase()
 
     setSaving(true)
     setGeneralError(null)
@@ -540,33 +630,103 @@ export function CustomerAddressTiles({
             {typeError ? <p className="text-xs text-red-600">{typeError}</p> : null}
             {fieldErrors.purpose ? <p className="text-xs text-red-600">{fieldErrors.purpose}</p> : null}
           </div>
-          <div className="space-y-1">
-            <label className="text-sm font-medium required">{fieldLabels.addressLine1}</label>
-            <input
-              className={getInputClass('addressLine1')}
-              value={draft.addressLine1}
-              onChange={(event) => handleFieldChange('addressLine1', event.target.value)}
-              disabled={disableActions}
-              aria-invalid={fieldErrors.addressLine1 ? 'true' : undefined}
-            />
-            {fieldErrors.addressLine1 ? (
-              <p className="text-xs text-red-600">{fieldErrors.addressLine1}</p>
-            ) : null}
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm font-medium">{fieldLabels.addressLine2}</label>
-            <input
-              className={getInputClass('addressLine2')}
-              value={draft.addressLine2}
-              onChange={(event) => handleFieldChange('addressLine2', event.target.value)}
-              disabled={disableActions}
-              aria-invalid={fieldErrors.addressLine2 ? 'true' : undefined}
-            />
-            {fieldErrors.addressLine2 ? (
-              <p className="text-xs text-red-600">{fieldErrors.addressLine2}</p>
-            ) : null}
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          {formatLoading ? (
+            <p className="text-xs text-muted-foreground">{t('customers.people.detail.addresses.formatLoading', 'Loading address preferences…')}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {format === 'street_first'
+                ? t('customers.people.detail.addresses.streetFormatHint', 'Using street-first layout')
+                : t('customers.people.detail.addresses.lineFormatHint', 'Using address-line layout')}
+            </p>
+          )}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-sm font-medium required">
+                {format === 'street_first' ? fieldLabels.street : fieldLabels.addressLine1}
+              </label>
+              <input
+                className={getInputClass('addressLine1')}
+                value={draft.addressLine1}
+                onChange={(event) => handleFieldChange('addressLine1', event.target.value)}
+                disabled={disableActions}
+                aria-invalid={fieldErrors.addressLine1 ? 'true' : undefined}
+              />
+              {fieldErrors.addressLine1 ? (
+                <p className="text-xs text-red-600">{fieldErrors.addressLine1}</p>
+              ) : null}
+            </div>
+            {format === 'street_first' ? (
+              <>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">{fieldLabels.buildingNumber}</label>
+                  <input
+                    className={getInputClass('buildingNumber')}
+                    value={draft.buildingNumber}
+                    onChange={(event) => handleFieldChange('buildingNumber', event.target.value)}
+                    disabled={disableActions}
+                    aria-invalid={fieldErrors.buildingNumber ? 'true' : undefined}
+                  />
+                  {fieldErrors.buildingNumber ? (
+                    <p className="text-xs text-red-600">{fieldErrors.buildingNumber}</p>
+                  ) : null}
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">{fieldLabels.flatNumber}</label>
+                  <input
+                    className={getInputClass('flatNumber')}
+                    value={draft.flatNumber}
+                    onChange={(event) => handleFieldChange('flatNumber', event.target.value)}
+                    disabled={disableActions}
+                    aria-invalid={fieldErrors.flatNumber ? 'true' : undefined}
+                  />
+                  {fieldErrors.flatNumber ? (
+                    <p className="text-xs text-red-600">{fieldErrors.flatNumber}</p>
+                  ) : null}
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="text-sm font-medium">
+                    {t('customers.people.detail.addresses.fields.streetExtra', fieldLabels.addressLine2)}
+                  </label>
+                  <input
+                    className={getInputClass('addressLine2')}
+                    value={draft.addressLine2}
+                    onChange={(event) => handleFieldChange('addressLine2', event.target.value)}
+                    disabled={disableActions}
+                    aria-invalid={fieldErrors.addressLine2 ? 'true' : undefined}
+                  />
+                  {fieldErrors.addressLine2 ? (
+                    <p className="text-xs text-red-600">{fieldErrors.addressLine2}</p>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-sm font-medium">{fieldLabels.addressLine2}</label>
+                <input
+                  className={getInputClass('addressLine2')}
+                  value={draft.addressLine2}
+                  onChange={(event) => handleFieldChange('addressLine2', event.target.value)}
+                  disabled={disableActions}
+                  aria-invalid={fieldErrors.addressLine2 ? 'true' : undefined}
+                />
+                {fieldErrors.addressLine2 ? (
+                  <p className="text-xs text-red-600">{fieldErrors.addressLine2}</p>
+                ) : null}
+              </div>
+            )}
+            <div className="space-y-1">
+              <label className="text-sm font-medium">{fieldLabels.postalCode}</label>
+              <input
+                className={getInputClass('postalCode')}
+                value={draft.postalCode}
+                onChange={(event) => handleFieldChange('postalCode', event.target.value)}
+                disabled={disableActions}
+                aria-invalid={fieldErrors.postalCode ? 'true' : undefined}
+              />
+              {fieldErrors.postalCode ? (
+                <p className="text-xs text-red-600">{fieldErrors.postalCode}</p>
+              ) : null}
+            </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">{fieldLabels.city}</label>
               <input
@@ -589,30 +749,99 @@ export function CustomerAddressTiles({
               />
               {fieldErrors.region ? <p className="text-xs text-red-600">{fieldErrors.region}</p> : null}
             </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <label className="text-sm font-medium">{fieldLabels.postalCode}</label>
-              <input
-                className={getInputClass('postalCode')}
-                value={draft.postalCode}
-                onChange={(event) => handleFieldChange('postalCode', event.target.value)}
-                disabled={disableActions}
-                aria-invalid={fieldErrors.postalCode ? 'true' : undefined}
-              />
-              {fieldErrors.postalCode ? (
-                <p className="text-xs text-red-600">{fieldErrors.postalCode}</p>
-              ) : null}
-            </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">{fieldLabels.country}</label>
-              <input
-                className={getInputClass('country')}
-                value={draft.country}
-                onChange={(event) => handleFieldChange('country', event.target.value)}
-                disabled={disableActions}
-                aria-invalid={fieldErrors.country ? 'true' : undefined}
-              />
+              <Dialog
+                open={countryDialogOpen}
+                onOpenChange={(open) => {
+                  setCountryDialogOpen(open)
+                  if (!open) setCountryQuery('')
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={clsx(
+                      'h-9 w-full justify-between truncate',
+                      fieldErrors.country ? 'border-red-500 text-red-600' : undefined
+                    )}
+                    disabled={disableActions}
+                    aria-invalid={fieldErrors.country ? 'true' : undefined}
+                  >
+                    <span className="truncate text-left">
+                      {selectedCountry
+                        ? `${selectedCountry.label}`
+                        : t('customers.people.detail.addresses.countryPlaceholder', 'Select country')}
+                    </span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {selectedCountry ? selectedCountry.code : null}
+                    </span>
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>{t('customers.people.detail.addresses.countryDialogTitle', 'Select country')}</DialogTitle>
+                    <DialogDescription>
+                      {t('customers.people.detail.addresses.countryDialogDescription', 'Search and choose an ISO country code.')}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <input
+                      className="w-full rounded border px-3 py-2 text-sm"
+                      placeholder={t('customers.people.detail.addresses.countrySearch', 'Search country')}
+                      value={countryQuery}
+                      onChange={(event) => setCountryQuery(event.target.value)}
+                    />
+                    <div className="max-h-64 overflow-y-auto rounded border divide-y">
+                      {filteredCountryOptions.length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-muted-foreground">
+                          {t('customers.people.detail.addresses.countryEmpty', 'No matches found')}
+                        </p>
+                      ) : (
+                        filteredCountryOptions.map((option) => {
+                          const isActive = option.code === (draft.country?.toUpperCase() ?? '')
+                          return (
+                            <button
+                              type="button"
+                              key={option.code}
+                              className={clsx(
+                                'flex w-full items-center justify-between gap-3 px-3 py-2 text-sm text-left hover:bg-muted',
+                                isActive ? 'bg-muted' : undefined
+                              )}
+                              onClick={() => {
+                                handleFieldChange('country', option.code)
+                                setCountryDialogOpen(false)
+                                setCountryQuery('')
+                              }}
+                            >
+                              <span className="truncate">{option.label}</span>
+                              <span className="text-xs text-muted-foreground">{option.code}</span>
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          handleFieldChange('country', '')
+                          setCountryDialogOpen(false)
+                          setCountryQuery('')
+                        }}
+                        disabled={disableActions}
+                      >
+                        {t('customers.people.detail.addresses.countryClear', 'Clear')}
+                      </Button>
+                      <Button type="button" onClick={() => setCountryDialogOpen(false)}>
+                        {t('customers.people.detail.addresses.countryClose', 'Done')}
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
               {fieldErrors.country ? <p className="text-xs text-red-600">{fieldErrors.country}</p> : null}
             </div>
           </div>
@@ -658,12 +887,18 @@ export function CustomerAddressTiles({
       editingId,
       fieldErrors,
       fieldLabels,
+      filteredCountryOptions,
+      format,
+      formatLoading,
       getInputClass,
       handleCancel,
       handleFieldChange,
       handleSave,
       handleTypeDialogChange,
       handleTypeSubmit,
+      countryDialogOpen,
+      countryQuery,
+      selectedCountry,
       generalError,
       saving,
       t,
@@ -697,12 +932,22 @@ export function CustomerAddressTiles({
           {t('customers.people.detail.addresses.add')}
         </Button>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {addresses.map((address) =>
-          isFormOpen && editingId === address.id ? (
-            renderFormTile(address.id)
-          ) : (
-            <div key={address.id} className="rounded-lg border bg-background p-4 text-sm shadow-sm">
+      <div className={gridClassName}>
+        {addresses.map((address) => {
+          if (isFormOpen && editingId === address.id) {
+            return renderFormTile(address.id)
+          }
+          const formattedJson = formatAddressJson(address, format)
+          const formattedString = formatAddressString(address, format)
+
+          return (
+            <div
+              key={address.id}
+              className="rounded-lg border bg-background p-4 text-sm shadow-sm"
+              title={formattedString}
+              data-address-json={JSON.stringify(formattedJson)}
+              data-address-string={formattedString}
+            >
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <span className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -751,14 +996,11 @@ export function CustomerAddressTiles({
                     {typeMap.get(address.purpose) ?? address.purpose}
                   </p>
                 ) : null}
-                <p>{address.addressLine1}</p>
-                {address.addressLine2 ? <p>{address.addressLine2}</p> : null}
-                <p>{[address.city, address.region, address.postalCode].filter(Boolean).join(', ')}</p>
-                {address.country ? <p>{address.country}</p> : null}
+                <AddressView address={address} format={format} className="space-y-1" lineClassName="text-sm" />
               </div>
             </div>
           )
-        )}
+        })}
         {isFormOpen && !editingId ? renderFormTile('__new') : null}
       </div>
     </div>

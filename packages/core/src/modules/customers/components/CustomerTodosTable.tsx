@@ -5,12 +5,14 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -73,6 +75,48 @@ export function CustomerTodosTable(): JSX.Element {
     if (doneValue === 'true' || doneValue === 'false') usp.set('isDone', doneValue)
     return usp.toString()
   }, [page, pageSize, search, filters])
+
+  const viewExportColumns = React.useMemo(() => {
+    return (columns || [])
+      .map((col) => {
+        const accessorKey = (col as any).accessorKey
+        if (!accessorKey || typeof accessorKey !== 'string') return null
+        if ((col as any).meta?.hidden) return null
+        const header = typeof col.header === 'string'
+          ? col.header
+          : accessorKey
+        return { field: accessorKey, header }
+      })
+      .filter((col): col is { field: string; header: string } => !!col)
+  }, [columns])
+
+  const rows = data?.items ?? []
+
+  const exportConfig = React.useMemo(() => ({
+    view: {
+      description: t('customers.workPlan.customerTodos.table.export.view'),
+      prepare: async (): Promise<{ prepared: PreparedExport; filename: string }> => {
+        const rowsForExport = rows.map((row) => {
+          const out: Record<string, unknown> = {}
+          for (const col of viewExportColumns) {
+            out[col.field] = (row as Record<string, unknown>)[col.field]
+          }
+          return out
+        })
+        const prepared: PreparedExport = {
+          columns: viewExportColumns.map((col) => ({ field: col.field, header: col.header })),
+          rows: rowsForExport,
+        }
+        return { prepared, filename: 'customer_todos_view' }
+      },
+    },
+    full: {
+      description: t('customers.workPlan.customerTodos.table.export.full'),
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('customers/todos', { exportScope: 'full', all: 'true' }, format),
+      filename: () => 'customer_todos_full',
+    },
+  }), [rows, t, viewExportColumns])
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<CustomerTodosResponse>({
     queryKey: ['customers-todos', params, scopeVersion],
@@ -171,8 +215,6 @@ export function CustomerTodosTable(): JSX.Element {
     }
   }, [refetch, t])
 
-  const rows = data?.items ?? []
-
   const handleNavigate = React.useCallback((item: CustomerTodoItem) => {
     const href = buildCustomerHref(item)
     if (!href) return
@@ -193,6 +235,7 @@ export function CustomerTodosTable(): JSX.Element {
       )}
       columns={columns}
       data={rows}
+      exporter={exportConfig}
       searchValue={search}
       onSearchChange={(value) => {
         setSearch(value)

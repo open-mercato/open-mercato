@@ -1,10 +1,17 @@
 import * as React from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
+  AlarmClock,
   Award,
+  Bell,
   Briefcase,
+  Calendar,
+  CalendarCheck,
+  CalendarClock,
+  CalendarDays,
   CheckCircle,
   Circle,
+  ClipboardList,
   Compass,
   Flag,
   Flame,
@@ -12,7 +19,12 @@ import {
   Handshake,
   Heart,
   Lightbulb,
+  Mail,
+  MessageSquare,
+  Phone,
+  PhoneCall,
   Rocket,
+  Send,
   Shield,
   ShoppingBag,
   Sparkles,
@@ -22,6 +34,7 @@ import {
   Trophy,
   Users,
   Zap,
+  Clock,
 } from 'lucide-react'
 
 const LUCIDE_ICON_MAP: Record<string, LucideIcon> = {
@@ -46,6 +59,19 @@ const LUCIDE_ICON_MAP: Record<string, LucideIcon> = {
   'check-circle': CheckCircle,
   shield: Shield,
   globe: Globe,
+  calendar: Calendar,
+  'calendar-check': CalendarCheck,
+  'calendar-clock': CalendarClock,
+  'calendar-days': CalendarDays,
+  bell: Bell,
+  'clipboard-list': ClipboardList,
+  phone: Phone,
+  'phone-call': PhoneCall,
+  'message-square': MessageSquare,
+  send: Send,
+  mail: Mail,
+  'alarm-clock': AlarmClock,
+  clock: Clock,
 }
 
 export type CustomerDictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types'
@@ -81,6 +107,19 @@ export const ICON_SUGGESTIONS: Array<{ value: string; label: string }> = [
   { value: 'lucide:check-circle', label: 'Check circle' },
   { value: 'lucide:shield', label: 'Shield' },
   { value: 'lucide:globe', label: 'Globe' },
+  { value: 'lucide:calendar', label: 'Calendar' },
+  { value: 'lucide:calendar-check', label: 'Calendar check' },
+  { value: 'lucide:calendar-clock', label: 'Calendar clock' },
+  { value: 'lucide:calendar-days', label: 'Calendar days' },
+  { value: 'lucide:clock', label: 'Clock' },
+  { value: 'lucide:alarm-clock', label: 'Alarm clock' },
+  { value: 'lucide:bell', label: 'Bell' },
+  { value: 'lucide:message-square', label: 'Message' },
+  { value: 'lucide:clipboard-list', label: 'Checklist' },
+  { value: 'lucide:phone', label: 'Phone' },
+  { value: 'lucide:phone-call', label: 'Phone call' },
+  { value: 'lucide:send', label: 'Send' },
+  { value: 'lucide:mail', label: 'Mail' },
   { value: '⭐️', label: 'Star emoji' },
   { value: '🔥', label: 'Fire emoji' },
   { value: '🚀', label: 'Rocket emoji' },
@@ -90,6 +129,11 @@ export const ICON_SUGGESTIONS: Array<{ value: string; label: string }> = [
   { value: '💡', label: 'Idea emoji' },
   { value: '🤝', label: 'Handshake emoji' },
   { value: '🌍', label: 'Globe emoji' },
+  { value: '🗓️', label: 'Calendar emoji' },
+  { value: '☎️', label: 'Telephone emoji' },
+  { value: '💬', label: 'Speech bubble emoji' },
+  { value: '🔔', label: 'Bell emoji' },
+  { value: '⏰', label: 'Alarm clock emoji' },
 ]
 
 export function extractLucideSlug(icon: string | null | undefined): string | null {
@@ -124,15 +168,18 @@ export function renderDictionaryColor(color: string | null | undefined, classNam
 export function normalizeCustomerDictionaryEntries(items: unknown): CustomerDictionaryDisplayEntry[] {
   if (!Array.isArray(items)) return []
   return items
-    .map((item: any) => {
-      const rawValue = typeof item?.value === 'string' ? item.value.trim() : ''
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const candidate = item as Record<string, unknown>
+      const rawValue = typeof candidate.value === 'string' ? candidate.value.trim() : ''
       if (!rawValue) return null
-      const label = typeof item?.label === 'string' && item.label.trim().length ? item.label.trim() : rawValue
+      const label =
+        typeof candidate.label === 'string' && candidate.label.trim().length ? candidate.label.trim() : rawValue
       const color =
-        typeof item?.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(item.color)
-          ? `#${item.color.slice(1).toLowerCase()}`
+        typeof candidate.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(candidate.color)
+          ? `#${candidate.color.slice(1).toLowerCase()}`
           : null
-      const icon = typeof item?.icon === 'string' && item.icon.trim().length ? item.icon.trim() : null
+      const icon = typeof candidate.icon === 'string' && candidate.icon.trim().length ? candidate.icon.trim() : null
       return { value: rawValue, label, color, icon }
     })
     .filter((entry): entry is CustomerDictionaryDisplayEntry => !!entry)

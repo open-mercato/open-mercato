@@ -39,11 +39,41 @@ function readSelectedOrganizationCookie(): string {
   return ''
 }
 
+function findFirstSelectable(nodes: OrganizationMenuNode[] | undefined): string | null {
+  if (!Array.isArray(nodes)) return null
+  for (const node of nodes) {
+    if (!node) continue
+    if (node.selectable !== false && typeof node.id === 'string' && node.id) return node.id
+    const child = findFirstSelectable(node.children)
+    if (child) return child
+  }
+  return null
+}
+
 export default function OrganizationSwitcher() {
   const router = useRouter()
   const t = useT()
   const [state, setState] = React.useState<SwitcherState>({ status: 'loading' })
   const [value, setValue] = React.useState<string>(() => readSelectedOrganizationCookie())
+
+  const persistSelection = React.useCallback((next: string | null, options?: { refresh?: boolean }) => {
+    const resolved = next ?? ''
+    setValue(resolved)
+    const maxAge = 60 * 60 * 24 * 30 // 30 days
+    if (!resolved) {
+      document.cookie = 'om_selected_org=; path=/; max-age=0; samesite=lax'
+    } else {
+      document.cookie = `om_selected_org=${encodeURIComponent(resolved)}; path=/; max-age=${maxAge}; samesite=lax`
+    }
+    emitOrganizationScopeChanged({ organizationId: resolved || null })
+    if (options?.refresh !== false) {
+      try { router.refresh() } catch {}
+    }
+  }, [router])
+
+  const handleChange = React.useCallback((next: string | null) => {
+    persistSelection(next, { refresh: true })
+  }, [persistSelection])
 
   React.useEffect(() => {
     let cancelled = false
@@ -63,20 +93,25 @@ export default function OrganizationSwitcher() {
         const rawItems = Array.isArray(json.items) ? json.items : []
         const selected = typeof json.selectedId === 'string' ? json.selectedId : null
         const manage = Boolean(json.canManage)
+        const fallbackSelected = selected ?? findFirstSelectable(rawItems)
         if (!rawItems.length && !manage) {
           setState({ status: 'hidden' })
-          setValue(selected ?? '')
+          setValue(fallbackSelected ?? '')
           return
         }
-        setState({ status: 'ready', nodes: rawItems as OrganizationMenuNode[], selectedId: selected, canManage: manage })
-        setValue(selected ?? '')
+        setState({ status: 'ready', nodes: rawItems as OrganizationMenuNode[], selectedId: fallbackSelected, canManage: manage })
+        if (fallbackSelected) {
+          persistSelection(fallbackSelected, { refresh: false })
+        } else {
+          setValue('')
+        }
       } catch {
         if (!cancelled) setState({ status: 'error' })
       }
     }
     load()
     return () => { cancelled = true }
-  }, [])
+  }, [persistSelection])
 
   const nodes = React.useMemo<OrganizationTreeNode[]>(() => {
     if (state.status !== 'ready') return []
@@ -97,19 +132,6 @@ export default function OrganizationSwitcher() {
 
   const hasOptions = nodes.length > 0 && state.status === 'ready'
   const canManage = state.status === 'ready' && state.canManage
-
-  const handleChange = (next: string | null) => {
-    const resolved = next ?? ''
-    setValue(resolved)
-    const maxAge = 60 * 60 * 24 * 30 // 30 days
-    if (!resolved) {
-      document.cookie = `om_selected_org=; path=/; max-age=0; samesite=lax`
-    } else {
-      document.cookie = `om_selected_org=${encodeURIComponent(resolved)}; path=/; max-age=${maxAge}; samesite=lax`
-    }
-    emitOrganizationScopeChanged({ organizationId: resolved || null })
-    try { router.refresh() } catch {}
-  }
 
   if (state.status === 'hidden') {
     return null

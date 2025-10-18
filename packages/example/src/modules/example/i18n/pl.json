@@ -26,6 +26,8 @@
   "example.todos.table.confirm.delete": "Usunąć to zadanie?",
   "example.todos.table.error.delete": "Nie udało się usunąć zadania.",
   "example.todos.table.error.generic": "Nie udało się wczytać zadań. Spróbuj ponownie.",
+  "example.todos.table.export.view": "Eksportuje bieżącą listę z uwzględnieniem filtrów i widocznych kolumn.",
+  "example.todos.table.export.full": "Eksportuje wszystkie pola zadania, w tym ukryte pola własne.",
   "example.todos.form.fields.title.label": "Tytuł",
   "example.todos.form.fields.title.placeholder": "Wpisz jasny tytuł",
   "example.todos.form.fields.isDone.label": "Zakończone",

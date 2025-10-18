@@ -32,6 +32,10 @@ export const metadata = {
   navHidden: true,
 } as const
 
+function cn(...values: Array<string | null | undefined | false>) {
+  return values.filter(Boolean).join(' ')
+}
+
 export type Translator = (key: string, fallback?: string) => string
 
 export type PersonFormValues = {
@@ -72,6 +76,7 @@ type DictionarySelectFieldProps = {
   value?: string
   onChange: (value: string | undefined) => void
   labels: DictionarySelectLabels
+  selectClassName?: string
 }
 
 const emailValidationSchema = z.string().email()
@@ -94,6 +99,7 @@ export function DictionarySelectField({
   value,
   onChange,
   labels,
+  selectClassName,
 }: DictionarySelectFieldProps) {
   const [options, setOptions] = React.useState<DictionaryOption[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -216,7 +222,7 @@ export function DictionarySelectField({
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <select
-          className="w-full h-9 rounded border px-2 text-sm"
+          className={cn('h-9 w-full rounded border px-2 text-sm', selectClassName)}
           value={value ?? ''}
           onChange={(event) => onChange(event.target.value ? event.target.value : undefined)}
           disabled={disabled}
@@ -853,6 +859,7 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
             addresses={addresses}
             t={t}
             emptyLabel={t('customers.people.detail.empty.addresses')}
+            gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
             onCreate={async (payload: CustomerAddressInput) => {
               const nextId =
                 typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -864,6 +871,8 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
                 purpose: payload.purpose ?? null,
                 addressLine1: payload.addressLine1,
                 addressLine2: payload.addressLine2 ?? null,
+                buildingNumber: payload.buildingNumber ?? null,
+                flatNumber: payload.flatNumber ?? null,
                 city: payload.city ?? null,
                 region: payload.region ?? null,
                 postalCode: payload.postalCode ?? null,
@@ -889,6 +898,8 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
                   purpose: payload.purpose ?? null,
                   addressLine1: payload.addressLine1,
                   addressLine2: payload.addressLine2 ?? null,
+                  buildingNumber: payload.buildingNumber ?? null,
+                  flatNumber: payload.flatNumber ?? null,
                   city: payload.city ?? null,
                   region: payload.region ?? null,
                   postalCode: payload.postalCode ?? null,

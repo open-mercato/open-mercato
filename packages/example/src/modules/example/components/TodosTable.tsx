@@ -3,12 +3,13 @@ import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { fetchCrudList, buildCrudCsvUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { fetchCrudList, buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { fetchCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
@@ -117,21 +118,81 @@ export default function TodosTable() {
     return params.toString()
   }, [page, sorting, title, values])
 
-  const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
-    queryKey: ['todos', queryParams, scopeVersion],
-    queryFn: async () => fetchCrudList<TodoListItem>('example/todos', Object.fromEntries(new URLSearchParams(queryParams))),
-  })
-
   const { data: cfDefs } = useQuery({
     queryKey: ['cf-defs', 'example:todo'],
     queryFn: async () => fetchCustomFieldDefs('example:todo'),
   })
 
-  const columns = React.useMemo(() => {
+  const [columns, setColumns] = React.useState<ColumnDef<TodoRow>[]>([])
+  const computedColumns = React.useMemo(() => {
     const base = buildBaseColumns(t)
     if (!cfDefs) return base
     return applyCustomFieldVisibility(base, cfDefs)
   }, [cfDefs, t])
+
+  React.useEffect(() => {
+    setColumns(computedColumns)
+  }, [computedColumns])
+
+  const viewExportColumns = React.useMemo(() => {
+    const sourceColumns = columns.length ? columns : computedColumns
+    return sourceColumns
+      .map((col) => {
+        const accessorKey = (col as any).accessorKey
+        if (!accessorKey || typeof accessorKey !== 'string') return null
+        if ((col as any).meta?.hidden) return null
+        const header = typeof col.header === 'string'
+          ? col.header
+          : accessorKey.startsWith('cf_')
+            ? accessorKey.slice(3)
+            : accessorKey
+        return { field: accessorKey, header }
+      })
+      .filter((col): col is { field: string; header: string } => !!col)
+  }, [columns, computedColumns])
+
+  const fullExportParams = React.useMemo(() => {
+    const params: Record<string, string> = { exportScope: 'full', all: 'true' }
+    const sort = sorting[0]
+    if (sort?.id) {
+      params.sortField = sort.id
+      params.sortDir = sort.desc ? 'desc' : 'asc'
+    }
+    return params
+  }, [sorting])
+
+  const effectiveColumns = columns.length ? columns : computedColumns
+
+  const exportConfig = React.useMemo(() => ({
+    view: {
+      description: t('example.todos.table.export.view'),
+      prepare: async (): Promise<{ prepared: PreparedExport; filename: string }> => {
+        const rows = todosWithOrgNames.map((row) => {
+          const out: Record<string, unknown> = {}
+          for (const col of viewExportColumns) {
+            out[col.field] = (row as Record<string, unknown>)[col.field]
+          }
+          return out
+        })
+        const prepared: PreparedExport = {
+          columns: viewExportColumns.map((col) => ({ field: col.field, header: col.header })),
+          rows,
+        }
+        return { prepared, filename: 'todos_view' }
+      },
+    },
+    full: {
+      description: t('example.todos.table.export.full'),
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('example/todos', fullExportParams, format),
+      filename: () => 'todos_full',
+    },
+  }), [fullExportParams, viewExportColumns, t, JSON.stringify(todosWithOrgNames)])
+
+  const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
+    queryKey: ['todos', queryParams, scopeVersion],
+    queryFn: async () => fetchCrudList<TodoListItem>('example/todos', Object.fromEntries(new URLSearchParams(queryParams))),
+  })
 
   const organizationIds = React.useMemo(() => {
     if (!todosData?.items) return []
@@ -191,23 +252,13 @@ export default function TodosTable() {
     <DataTable
       title={t('example.todos.table.title')}
       actions={(
-        <>
-          <Button
-            variant="outline"
-            onClick={() => {
-              const url = buildCrudCsvUrl('example/todos', Object.fromEntries(new URLSearchParams(queryParams)))
-              window.open(url, '_blank')
-            }}
-          >
-            {t('example.todos.table.actions.export')}
-          </Button>
-          <Button asChild>
-            <Link href="/backend/todos/create">{t('example.todos.table.actions.create')}</Link>
-          </Button>
-        </>
+        <Button asChild>
+          <Link href="/backend/todos/create">{t('example.todos.table.actions.create')}</Link>
+        </Button>
       )}
-      columns={columns}
+      columns={effectiveColumns}
       data={todosWithOrgNames}
+      exporter={exportConfig}
       searchValue={title}
       onSearchChange={(v) => {
         setTitle(v)

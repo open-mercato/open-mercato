@@ -14,7 +14,8 @@ import type {
   CrudIndexerConfig,
   CrudIdentifierResolver,
 } from './types'
-import { extractCustomFieldValuesFromPayload } from './custom-fields'
+import { extractCustomFieldValuesFromPayload, extractAllCustomFieldEntries } from './custom-fields'
+import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
 import { CrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 
@@ -69,8 +70,178 @@ export type ListConfig<TList> = {
     row: (item: any) => (string | number | boolean | null | undefined)[]
     filename?: string
   }
+  export?: CrudExportOptions
 }
 
+export type CrudExportColumnConfig = {
+  field: string
+  header?: string
+  resolve?: (item: any) => unknown
+}
+
+export type CrudExportOptions = {
+  enabled?: boolean
+  formats?: CrudExportFormat[]
+  filename?: string | ((format: CrudExportFormat) => string)
+  columns?: CrudExportColumnConfig[]
+  batchSize?: number
+}
+
+const DEFAULT_EXPORT_FORMATS: CrudExportFormat[] = ['csv', 'json', 'xml', 'markdown']
+const DEFAULT_EXPORT_BATCH_SIZE = 1000
+const MIN_EXPORT_BATCH_SIZE = 100
+const MAX_EXPORT_BATCH_SIZE = 10000
+
+type ColumnResolver = {
+  field: string
+  header: string
+  resolve: (item: any) => unknown
+}
+
+function resolveAvailableExportFormats(list?: ListConfig<any>): CrudExportFormat[] {
+  if (!list) return []
+  if (list.export?.enabled === false) return []
+  const formats = list.export?.formats && list.export.formats.length > 0
+    ? [...list.export.formats]
+    : [...DEFAULT_EXPORT_FORMATS]
+  if (!list.export?.formats && list.allowCsv && !formats.includes('csv')) formats.push('csv')
+  return Array.from(new Set(formats))
+}
+
+function resolveExportBatchSize(list: ListConfig<any> | undefined, requestedPageSize: number): number {
+  const fallback = Math.max(requestedPageSize, DEFAULT_EXPORT_BATCH_SIZE)
+  const raw = list?.export?.batchSize ?? fallback
+  return Math.min(Math.max(raw, MIN_EXPORT_BATCH_SIZE), MAX_EXPORT_BATCH_SIZE)
+}
+
+function sanitizeFieldName(base: string, used: Set<string>, fallbackIndex: number): string {
+  const trimmed = base.trim()
+  const sanitized = trimmed.replace(/[^a-zA-Z0-9_\-]/g, '_') || `field_${fallbackIndex}`
+  const normalized = /^[A-Za-z_]/.test(sanitized) ? sanitized : `f_${sanitized}`
+  let candidate = normalized
+  let counter = 1
+  while (used.has(candidate)) {
+    candidate = `${normalized}_${counter++}`
+  }
+  used.add(candidate)
+  return candidate
+}
+
+function buildExportFromColumns(items: any[], columnsConfig: CrudExportColumnConfig[]): PreparedExport {
+  const used = new Set<string>()
+  const columns: ColumnResolver[] = columnsConfig.map((col, idx) => {
+    const fieldName = sanitizeFieldName(col.field || `field_${idx}`, used, idx)
+    const header = col.header?.trim().length ? col.header!.trim() : col.field || `Field ${idx + 1}`
+    const resolver = col.resolve
+      ? col.resolve
+      : ((item: any) => (item != null ? (item as any)[col.field] : undefined))
+    return { field: fieldName, header, resolve: resolver }
+  })
+  const rows = items.map((item) => {
+    const row: Record<string, unknown> = {}
+    columns.forEach((column) => {
+      try {
+        row[column.field] = column.resolve(item)
+      } catch {
+        row[column.field] = undefined
+      }
+    })
+    return row
+  })
+  return {
+    columns: columns.map(({ field, header }) => ({ field, header })),
+    rows,
+  }
+}
+
+function buildExportFromCsv(items: any[], csv: NonNullable<ListConfig<any>['csv']>): PreparedExport {
+  const used = new Set<string>()
+  const columns = csv.headers.map((header, idx) => ({
+    field: sanitizeFieldName(header || `column_${idx + 1}`, used, idx),
+    header: header || `Column ${idx + 1}`,
+  }))
+  const rows = items.map((item) => {
+    const values = csv.row(item) || []
+    const row: Record<string, unknown> = {}
+    columns.forEach((column, idx) => {
+      row[column.field] = values[idx]
+    })
+    return row
+  })
+  return { columns, rows }
+}
+
+function buildDefaultExport(items: any[]): PreparedExport {
+  const rows = items.map((item) => {
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      return { ...(item as Record<string, unknown>) }
+    }
+    return { value: item }
+  })
+  return {
+    columns: ensureColumns(rows),
+    rows,
+  }
+}
+
+function prepareExportData(items: any[], list: ListConfig<any>): PreparedExport {
+  if (list.export?.columns && list.export.columns.length > 0) {
+    return buildExportFromColumns(items, list.export.columns)
+  }
+  if (list.csv && list.csv.headers && list.csv.row) {
+    return buildExportFromCsv(items, list.csv)
+  }
+  const prepared = buildDefaultExport(items)
+  return {
+    columns: ensureColumns(prepared.rows, prepared.columns),
+    rows: prepared.rows,
+  }
+}
+
+function finalizeExportFilename(list: ListConfig<any>, format: CrudExportFormat, fallbackBase: string): string {
+  const extension = format === 'markdown' ? 'md' : format
+  const fromExport = list.export?.filename
+  const apply = (value: string | null | undefined): string | null => {
+    if (!value) return null
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    const sanitized = trimmed.replace(/[^a-z0-9_\-\.]/gi, '_')
+    const lower = sanitized.toLowerCase()
+    if (lower.endsWith(`.${extension}`)) return sanitized
+    const withoutExtension = sanitized.includes('.') ? sanitized.replace(/\.[^.]+$/, '') : sanitized
+    const base = withoutExtension.trim().length > 0 ? withoutExtension : sanitized
+    return `${base}.${extension}`
+  }
+  if (typeof fromExport === 'function') {
+    const computed = apply(fromExport(format))
+    if (computed) return computed
+  } else {
+    const computed = apply(fromExport)
+    if (computed) return computed
+  }
+  if (format === 'csv' && list.csv?.filename) {
+    const csvName = apply(list.csv.filename)
+    if (csvName) return csvName
+  }
+  return defaultExportFilename(fallbackBase, format)
+}
+
+function normalizeFullRecordForExport(input: any): any {
+  if (!input || typeof input !== 'object') return input
+  if (Array.isArray(input)) return input.map((item) => normalizeFullRecordForExport(item))
+  const record: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(input)) {
+    if (key.startsWith('cf_') || key.startsWith('cf:')) continue
+    record[key] = value
+  }
+  const custom = extractAllCustomFieldEntries(input)
+  for (const [rawKey, value] of Object.entries(custom)) {
+    const sanitizedKey = rawKey.replace(/^cf_/, '')
+    record[sanitizedKey] = value
+  }
+  return record
+}
 export type CreateConfig<TCreate> = {
   schema: z.ZodType<TCreate>
   mapToEntity: (input: TCreate, ctx: CrudCtx) => Record<string, any>
@@ -208,6 +379,13 @@ function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLi
     } catch {}
   }
   return null
+}
+
+function logForbidden(details: Record<string, unknown>) {
+  try {
+    // eslint-disable-next-line no-console
+    console.warn('[crud] Forbidden request', details)
+  } catch {}
 }
 
 function collectFieldNames(items: any[]): string[] {
@@ -376,21 +554,39 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       await opts.hooks?.beforeList?.(validated as any, ctx)
 
+      const availableFormats = resolveAvailableExportFormats(opts.list)
+      const requestedExport = normalizeExportFormat((queryParams as any).format)
+      const exportRequested = requestedExport != null && availableFormats.includes(requestedExport)
+      const requestedPage = Number((queryParams as any).page ?? 1) || 1
+      const requestedPageSize = Math.min(Math.max(Number((queryParams as any).pageSize ?? 50) || 50, 1), 100)
+      const exportPageSize = exportRequested ? resolveExportBatchSize(opts.list, requestedPageSize) : requestedPageSize
+      const exportScopeParam = (queryParams as any).exportScope ?? (queryParams as any).export_scope
+      const exportScope = typeof exportScopeParam === 'string' ? exportScopeParam.toLowerCase() : null
+      const exportFullRequested = exportRequested && (exportScope === 'full' || String((queryParams as any).full || 'false').toLowerCase() === 'true')
+
       // Prefer query engine when configured
-      let result: any
       if (opts.list.entityId && opts.list.fields) {
         const qe = ctx.container.resolve<QueryEngine>('queryEngine')
         const sortFieldRaw = (queryParams as any).sortField || 'id'
         const sortDirRaw = ((queryParams as any).sortDir || 'asc').toLowerCase() === 'desc' ? SortDir.Desc : SortDir.Asc
         const sortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
         const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
-        const page: Page = {
-          page: Number((queryParams as any).page ?? 1) || 1,
-          pageSize: Math.min(Math.max(Number((queryParams as any).pageSize ?? 50) || 50, 1), 100),
-        }
-        const filters = opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>)
+        const page: Page = exportRequested
+          ? { page: 1, pageSize: exportPageSize }
+          : { page: requestedPage, pageSize: requestedPageSize }
+        const filters = exportFullRequested
+          ? ({} as Where<any>)
+          : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
         const withDeleted = String((queryParams as any).withDeleted || 'false') === 'true'
         if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+          logForbidden({
+            resourceKind,
+            action: 'list',
+            reason: 'organization_scope_empty',
+            userId: ctx.auth?.sub ?? null,
+            tenantId: ctx.auth?.tenantId ?? null,
+            organizationIds: ctx.organizationIds,
+          })
           const emptyPayload = { items: [], total: 0, page: page.page, pageSize: page.pageSize, totalPages: 0 }
           await opts.hooks?.afterList?.(emptyPayload, { ...ctx, query: validated as any })
           return json(emptyPayload)
@@ -409,13 +605,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           queryOpts.organizationIds = ctx.organizationIds ?? undefined
         }
         const res = await qe.query(opts.list.entityId as any, queryOpts)
-        const items = (res.items || []).map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+        const rawItems = res.items || []
+        const transformedItems = rawItems.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
 
         await logCrudAccess({
           container: ctx.container,
           auth: ctx.auth,
           request,
-          items,
+          items: transformedItems,
           idField: ormCfg.idField!,
           resourceKind,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
@@ -423,21 +620,55 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           query: validated,
         })
 
-        // CSV
-        const format = (queryParams as any).format
-        if (opts.list.allowCsv && format === 'csv' && opts.list.csv) {
-          const head = opts.list.csv.headers
-          const rows = items.map((x: any) => opts.list!.csv!.row(x).map(String))
-          const csv = [head.join(','), ...rows.map(r => r.map(s => (/[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s)).join(','))].join('\n')
-          return new Response(csv, {
+        if (exportRequested && requestedExport) {
+          const total = typeof res.total === 'number' ? res.total : rawItems.length
+          const initialExportItems = exportFullRequested
+            ? rawItems.map(normalizeFullRecordForExport)
+            : transformedItems
+          let exportItems = [...initialExportItems]
+          if (total > exportItems.length) {
+            const exportPageSizeNumber = typeof page.pageSize === 'number' ? page.pageSize : exportPageSize
+            const queryBase: any = { ...queryOpts }
+            delete queryBase.page
+            let nextPage = 2
+            while (exportItems.length < total) {
+              const nextRes = await qe.query(opts.list.entityId as any, {
+                ...queryBase,
+                page: { page: nextPage, pageSize: exportPageSizeNumber },
+              })
+              const nextItemsRaw = nextRes.items || []
+              if (!nextItemsRaw.length) break
+              const nextTransformed = nextItemsRaw.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+              const nextExportItems = exportFullRequested
+                ? nextItemsRaw.map(normalizeFullRecordForExport)
+                : nextTransformed
+              exportItems.push(...nextExportItems)
+              if (nextExportItems.length < exportPageSizeNumber) break
+              nextPage += 1
+            }
+          }
+          const prepared = exportFullRequested
+            ? { columns: ensureColumns(exportItems), rows: exportItems }
+            : prepareExportData(exportItems, opts.list)
+          const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
+          const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
+          const serialized = serializeExport(prepared, requestedExport)
+          await opts.hooks?.afterList?.({ items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
+          return new Response(serialized.body, {
             headers: {
-              'content-type': 'text/csv; charset=utf-8',
-              'content-disposition': `attachment; filename="${opts.list.csv.filename || opts.events?.entity || 'list'}.csv"`,
+              'content-type': serialized.contentType,
+              'content-disposition': `attachment; filename="${filename}"`,
             },
           })
         }
 
-        const payload = { items, total: res.total, page: page.page, pageSize: page.pageSize, totalPages: Math.ceil(res.total / (page.pageSize || 1)) }
+        const payload = {
+          items: transformedItems,
+          total: res.total,
+          page: page.page || requestedPage,
+          pageSize: page.pageSize || requestedPageSize,
+          totalPages: Math.ceil(res.total / (Number(page.pageSize) || 1)),
+        }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
         return json(payload)
       }
@@ -446,6 +677,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const em = ctx.container.resolve<any>('em')
       const repo = em.getRepository(ormCfg.entity)
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        logForbidden({
+          resourceKind,
+          action: 'list',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
         await opts.hooks?.afterList?.({ items: [], total: 0 }, { ...ctx, query: validated as any })
         return json({ items: [], total: 0 })
       }
@@ -472,6 +711,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         tenantId: ctx.auth.tenantId ?? null,
         query: validated,
       })
+      if (exportRequested && requestedExport) {
+        const exportItems = exportFullRequested ? list.map(normalizeFullRecordForExport) : list
+        const prepared = exportFullRequested
+          ? { columns: ensureColumns(exportItems), rows: exportItems }
+          : prepareExportData(exportItems, opts.list)
+        const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
+        const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
+        const serialized = serializeExport(prepared, requestedExport)
+        await opts.hooks?.afterList?.({ items: exportItems, total: exportItems.length, page: 1, pageSize: exportItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
+        return new Response(serialized.body, {
+          headers: {
+            'content-type': serialized.contentType,
+            'content-disposition': `attachment; filename="${filename}"`,
+          },
+        })
+      }
       await opts.hooks?.afterList?.({ items: list, total: list.length }, { ...ctx, query: validated as any })
       return json({ items: list, total: list.length })
     } catch (e) {
@@ -485,7 +740,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.create && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        logForbidden({
+          resourceKind,
+          action: 'create',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
       const body = await request.json().catch(() => ({}))
 
       if (useCommand) {
@@ -562,7 +827,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.update && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        logForbidden({
+          resourceKind,
+          action: 'update',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
       const body = await request.json().catch(() => ({}))
 
       if (useCommand) {
@@ -643,7 +918,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     try {
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        logForbidden({
+          resourceKind,
+          action: 'delete',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
       const useCommand = !!opts.actions?.delete
       const url = new URL(request.url)
 

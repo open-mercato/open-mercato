@@ -3,6 +3,19 @@ import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import Link from 'next/link'
+import { hasFeature, matchFeature } from '@open-mercato/shared/security/features'
+
+function toTitleCase(value: string): string {
+  return value.replace(/[-_.]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function formatWildcardLabel(moduleId: string, wildcard: string): string {
+  if (!wildcard.endsWith('.*')) return wildcard
+  const prefix = `${moduleId}.`
+  const suffix = wildcard.startsWith(prefix) ? wildcard.slice(prefix.length, -2) : wildcard.slice(0, -2)
+  if (!suffix) return 'All features'
+  return `All ${suffix.split('.').map(toTitleCase).join(' / ')}`
+}
 
 type Feature = { id: string; title: string; module: string }
 type ModuleInfo = { id: string; title: string }
@@ -127,24 +140,28 @@ export function AclEditor({
     granted.length === 0
 
   
-  const toggleModuleWildcard = (moduleId: string, enable: boolean) => {
-    const wildcard = `${moduleId}.*`
-    if (enable) {
-      setGranted((prev) => Array.from(new Set([...prev, wildcard])))
-    } else {
-      setGranted((prev) => prev.filter((x) => x !== wildcard))
-    }
-  }
+  const toggleWildcard = React.useCallback((wildcard: string, enable: boolean) => {
+    setGranted((prev) => {
+      if (enable) {
+        if (prev.includes(wildcard)) return prev
+        return [...prev, wildcard]
+      }
+      return prev.filter((feature) => feature !== wildcard)
+    })
+  }, [])
+
+  const toggleModuleWildcard = React.useCallback((moduleId: string, enable: boolean) => {
+    toggleWildcard(`${moduleId}.*`, enable)
+  }, [toggleWildcard])
 
   const isModuleWildcardEnabled = (moduleId: string) => {
     return granted.includes(`${moduleId}.*`)
   }
 
-  const isFeatureChecked = (featureId: string, moduleId: string) => {
-    if (hasGlobalWildcard) return true
-    if (isModuleWildcardEnabled(moduleId)) return true
-    return granted.includes(featureId)
-  }
+  const isFeatureCoveredByWildcard = (featureId: string) =>
+    granted.some((feature) => (feature === '*' || feature.endsWith('.*')) && matchFeature(featureId, feature))
+
+  const isFeatureChecked = (featureId: string) => hasFeature(granted, featureId)
 
   if (loading) return <div className="text-sm text-muted-foreground">Loading ACL…</div>
 
@@ -215,6 +232,27 @@ export function AclEditor({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {grouped.map((group) => {
               const moduleWildcard = isModuleWildcardEnabled(group.moduleId)
+              const nestedWildcards = Array.from(
+                new Set(
+                  granted.filter(
+                    (feature) =>
+                      feature !== '*' &&
+                      feature.endsWith('.*') &&
+                      feature.startsWith(`${group.moduleId}.`) &&
+                      feature !== `${group.moduleId}.*`,
+                  ),
+                ),
+              )
+                .map((wildcard) => {
+                  const prefix = wildcard.slice(0, -1)
+                  const relatedFeatures = group.features.filter((feature) => feature.id.startsWith(prefix))
+                  return { wildcard, features: relatedFeatures }
+                })
+                .sort((a, b) => a.wildcard.localeCompare(b.wildcard))
+              const nestedCoveredIds = new Set<string>()
+              for (const entry of nestedWildcards) {
+                for (const feature of entry.features) nestedCoveredIds.add(feature.id)
+              }
               return (
                 <div key={group.moduleId} className="rounded border p-3">
                   <div className="flex items-center justify-between mb-3 pb-2 border-b">
@@ -228,30 +266,73 @@ export function AclEditor({
                         disabled={hasGlobalWildcard}
                         onChange={(e) => toggleModuleWildcard(group.moduleId, e.target.checked)} 
                       />
-                      <label htmlFor={`module-${group.moduleId}`} className="text-xs text-muted-foreground">
+                      <label htmlFor={`module-${group.moduleId}`} className="text-sm text-muted-foreground">
                         All {moduleWildcard && !hasGlobalWildcard ? <span className="font-medium text-blue-600">({group.moduleId}.*)</span> : ''}
                       </label>
                     </div>
                   </div>
+                  {nestedWildcards.length > 0 && (
+                    <div className="space-y-3 mb-3">
+                      {nestedWildcards.map(({ wildcard, features: wildcardFeatures }) => {
+                        const checked = granted.includes(wildcard) || hasGlobalWildcard || moduleWildcard
+                        const disabled = hasGlobalWildcard || moduleWildcard
+                        return (
+                          <div key={wildcard} className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                id={`wildcard-${wildcard}`}
+                                type="checkbox"
+                                className="h-4 w-4"
+                                checked={checked}
+                                disabled={disabled}
+                                onChange={(e) => toggleWildcard(wildcard, !!e.target.checked)}
+                              />
+                              <label
+                                htmlFor={`wildcard-${wildcard}`}
+                                className={`text-sm ${disabled ? 'text-muted-foreground' : ''}`}
+                              >
+                                {formatWildcardLabel(group.moduleId, wildcard)}{' '}
+                                <span className="text-muted-foreground text-xs font-mono">({wildcard})</span>
+                              </label>
+                            </div>
+                            {wildcardFeatures.length > 0 && (
+                              <div className="relative ml-6 pl-4 text-sm text-muted-foreground space-y-1">
+                                <div className="absolute left-0 top-1 bottom-1 w-px bg-border" aria-hidden />
+                                {wildcardFeatures.map((wf) => (
+                                  <div key={`${wildcard}-${wf.id}`} className="pl-2">
+                                    <span>
+                                      {wf.title}{' '}
+                                      <span className="text-xs font-mono text-muted-foreground">({wf.id})</span>
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                   <div className="space-y-2">
                     {group.features.map((f) => {
-                      const checked = isFeatureChecked(f.id, group.moduleId)
-                      const isWildcardCovered = hasGlobalWildcard || moduleWildcard
+                      if (nestedCoveredIds.has(f.id)) return null
+                      const checked = isFeatureChecked(f.id)
+                      const isWildcardCovered = isFeatureCoveredByWildcard(f.id)
                       return (
                         <div key={f.id} className="flex items-center gap-2">
-                          <input 
-                            id={`f-${f.id}`} 
-                            type="checkbox" 
-                            className="h-4 w-4" 
-                            checked={checked} 
+                          <input
+                            id={`f-${f.id}`}
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={checked}
                             disabled={isWildcardCovered}
                             onChange={(e) => {
                               const on = !!e.target.checked
                               setGranted((prev) => on ? Array.from(new Set([...prev, f.id])) : prev.filter((x) => x !== f.id))
-                            }} 
+                            }}
                           />
-                          <label 
-                            htmlFor={`f-${f.id}`} 
+                          <label
+                            htmlFor={`f-${f.id}`}
                             className={`text-sm ${isWildcardCovered ? 'text-muted-foreground' : ''}`}
                           >
                             {f.title} <span className="text-muted-foreground text-xs">({f.id})</span>

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerEntity } from '../../../../data/entities'
+import type { FilterQuery } from '@mikro-orm/core'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
 
 const querySchema = z.object({
@@ -51,24 +52,22 @@ export async function GET(req: Request) {
   const { translate } = await resolveTranslations()
   try {
     const { em, tenantId, organizationIds, limit, includePast } = await resolveContext(req, translate)
-    const whereOrganization =
+    const organizationFilter: string | { $in: string[] } =
       organizationIds.length === 1 ? organizationIds[0] : { $in: Array.from(new Set(organizationIds)) }
 
     const now = new Date()
 
-    const entities = await em.find(
-      CustomerEntity,
-      {
-        tenantId,
-        organizationId: whereOrganization as any,
-        deletedAt: null,
-        nextInteractionAt: includePast ? { $ne: null } : { $gte: now },
-      } as any,
-      {
-        limit,
-        orderBy: { nextInteractionAt: 'asc' as const },
-      }
-    )
+    const filters: FilterQuery<CustomerEntity> = {
+      tenantId,
+      organizationId: organizationFilter,
+      deletedAt: null,
+      nextInteractionAt: includePast ? { $ne: null } : { $gte: now },
+    }
+
+    const entities = await em.find(CustomerEntity, filters, {
+      limit,
+      orderBy: { nextInteractionAt: 'asc' as const },
+    })
 
     const items = entities.map((entity) => ({
       id: entity.id,
@@ -77,6 +76,8 @@ export async function GET(req: Request) {
       organizationId: entity.organizationId,
       nextInteractionAt: entity.nextInteractionAt ? entity.nextInteractionAt.toISOString() : null,
       nextInteractionName: entity.nextInteractionName ?? null,
+      nextInteractionIcon: entity.nextInteractionIcon ?? null,
+      nextInteractionColor: entity.nextInteractionColor ?? null,
       ownerUserId: entity.ownerUserId ?? null,
     }))
 

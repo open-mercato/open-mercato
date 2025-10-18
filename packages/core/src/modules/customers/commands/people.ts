@@ -10,7 +10,7 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerAddress,
   CustomerComment,
@@ -84,6 +84,8 @@ type PersonSnapshot = {
     nextInteractionAt: Date | null
     nextInteractionName: string | null
     nextInteractionRefId: string | null
+    nextInteractionIcon: string | null
+    nextInteractionColor: string | null
     isActive: boolean
   }
   profile: {
@@ -116,6 +118,12 @@ function normalizeOptionalString(value: string | null | undefined): string | nul
   return trimmed.length ? trimmed : null
 }
 
+function normalizeHexColor(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().toLowerCase()
+  return /^#([0-9a-f]{6})$/.test(trimmed) ? trimmed : null
+}
+
 function normalizeEmail(value: string | null | undefined): string | null {
   const normalized = normalizeOptionalString(value)
   return normalized ? normalized.toLowerCase() : null
@@ -145,6 +153,8 @@ function serializePersonSnapshot(
       nextInteractionAt: entity.nextInteractionAt ?? null,
       nextInteractionName: entity.nextInteractionName ?? null,
       nextInteractionRefId: entity.nextInteractionRefId ?? null,
+      nextInteractionIcon: entity.nextInteractionIcon ?? null,
+      nextInteractionColor: entity.nextInteractionColor ?? null,
       isActive: entity.isActive,
     },
     profile: {
@@ -274,6 +284,10 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const linkedInUrl = normalizeOptionalString(parsed.linkedInUrl)
     const twitterUrl = normalizeOptionalString(parsed.twitterUrl)
     const displayName = parsed.displayName.trim()
+    const nextInteractionName = parsed.nextInteraction?.name ? parsed.nextInteraction.name.trim() : null
+    const nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction?.refId)
+    const nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction?.icon)
+    const nextInteractionColor = normalizeHexColor(parsed.nextInteraction?.color)
     if (!displayName) {
       throw new CrudHttpError(400, { error: 'Display name is required' })
     }
@@ -291,8 +305,10 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       lifecycleStage,
       source,
       nextInteractionAt: parsed.nextInteraction?.at ?? null,
-      nextInteractionName: parsed.nextInteraction?.name ?? null,
-      nextInteractionRefId: parsed.nextInteraction?.refId ?? null,
+      nextInteractionName,
+      nextInteractionRefId,
+      nextInteractionIcon,
+      nextInteractionColor,
       isActive: parsed.isActive ?? true,
     })
 
@@ -442,12 +458,16 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     if (parsed.nextInteraction) {
       record.nextInteractionAt = parsed.nextInteraction.at
-      record.nextInteractionName = parsed.nextInteraction.name
-      record.nextInteractionRefId = parsed.nextInteraction.refId ?? null
+      record.nextInteractionName = parsed.nextInteraction.name.trim()
+      record.nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction.refId) ?? null
+      record.nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction.icon)
+      record.nextInteractionColor = normalizeHexColor(parsed.nextInteraction.color)
     } else if (parsed.nextInteraction === null) {
       record.nextInteractionAt = null
       record.nextInteractionName = null
       record.nextInteractionRefId = null
+      record.nextInteractionIcon = null
+      record.nextInteractionColor = null
     }
 
     if (parsed.firstName !== undefined) profile.firstName = normalizeOptionalString(parsed.firstName)
@@ -491,7 +511,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
 
     return { entityId: record.id }
   },
-  buildLog: async ({ ctx, snapshots, input }) => {
+  buildLog: async ({ ctx, snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as PersonSnapshot | undefined
     if (!before) return null
@@ -509,6 +529,8 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       'nextInteractionAt',
       'nextInteractionName',
       'nextInteractionRefId',
+      'nextInteractionIcon',
+      'nextInteractionColor',
       'isActive',
     ]
     const changes =
@@ -560,6 +582,8 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         nextInteractionAt: before.entity.nextInteractionAt,
         nextInteractionName: before.entity.nextInteractionName,
         nextInteractionRefId: before.entity.nextInteractionRefId,
+        nextInteractionIcon: before.entity.nextInteractionIcon,
+        nextInteractionColor: before.entity.nextInteractionColor,
         isActive: before.entity.isActive,
       })
       em.persist(newEntity)
@@ -602,6 +626,8 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       entity.nextInteractionAt = before.entity.nextInteractionAt
       entity.nextInteractionName = before.entity.nextInteractionName
       entity.nextInteractionRefId = before.entity.nextInteractionRefId
+      entity.nextInteractionIcon = before.entity.nextInteractionIcon
+      entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
       const profile = await em.findOne(CustomerPersonProfile, { entity })
       if (profile) {
@@ -724,10 +750,27 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           nextInteractionAt: before.entity.nextInteractionAt,
           nextInteractionName: before.entity.nextInteractionName,
           nextInteractionRefId: before.entity.nextInteractionRefId,
+          nextInteractionIcon: before.entity.nextInteractionIcon,
+          nextInteractionColor: before.entity.nextInteractionColor,
           isActive: before.entity.isActive,
         })
         em.persist(entity)
       }
+
+      entity.displayName = before.entity.displayName
+      entity.description = before.entity.description
+      entity.ownerUserId = before.entity.ownerUserId
+      entity.primaryEmail = before.entity.primaryEmail
+      entity.primaryPhone = before.entity.primaryPhone
+      entity.status = before.entity.status
+      entity.lifecycleStage = before.entity.lifecycleStage
+      entity.source = before.entity.source
+      entity.nextInteractionAt = before.entity.nextInteractionAt
+      entity.nextInteractionName = before.entity.nextInteractionName
+      entity.nextInteractionRefId = before.entity.nextInteractionRefId
+      entity.nextInteractionIcon = before.entity.nextInteractionIcon
+      entity.nextInteractionColor = before.entity.nextInteractionColor
+      entity.isActive = before.entity.isActive
 
       let profile = await em.findOne(CustomerPersonProfile, { entity })
       if (!profile) {

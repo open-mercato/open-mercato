@@ -4,11 +4,12 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -17,6 +18,8 @@ import {
   DictionaryValue,
   createDictionaryMap,
   normalizeCustomerDictionaryEntries,
+  renderDictionaryColor,
+  renderDictionaryIcon,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
 } from '../../../components/dictionaryAppearance'
@@ -31,6 +34,8 @@ type PersonRow = {
   lifecycleStage?: string | null
   nextInteractionAt?: string | null
   nextInteractionName?: string | null
+  nextInteractionIcon?: string | null
+  nextInteractionColor?: string | null
   organizationId?: string | null
   source?: string | null
 } & Record<string, unknown>
@@ -43,6 +48,7 @@ type PeopleResponse = {
 }
 
 type DictionaryKindKey = CustomerDictionaryKind
+type DictionaryMap = CustomerDictionaryMap
 
 function formatDate(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback
@@ -62,6 +68,8 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
   const lifecycleStage = typeof item.lifecycle_stage === 'string' ? item.lifecycle_stage : null
   const nextInteractionAt = typeof item.next_interaction_at === 'string' ? item.next_interaction_at : null
   const nextInteractionName = typeof item.next_interaction_name === 'string' ? item.next_interaction_name : null
+  const nextInteractionIcon = typeof item.next_interaction_icon === 'string' ? item.next_interaction_icon : null
+  const nextInteractionColor = typeof item.next_interaction_color === 'string' ? item.next_interaction_color : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
   const customFields: Record<string, unknown> = {}
@@ -80,6 +88,8 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
     lifecycleStage,
     nextInteractionAt,
     nextInteractionName,
+    nextInteractionIcon,
+    nextInteractionColor,
     organizationId,
     source,
     ...customFields,
@@ -222,6 +232,18 @@ export default function CustomersPeoplePage() {
     return params.toString()
   }, [filterValues, page, pageSize, search])
 
+  const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
+  const exportConfig = React.useMemo(() => ({
+    view: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('customers/people', { ...currentParams, exportScope: 'view' }, format),
+    },
+    full: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('customers/people', { ...currentParams, exportScope: 'full', all: 'true' }, format),
+    },
+  }), [currentParams])
+
   React.useEffect(() => {
     let cancelled = false
     async function load() {
@@ -325,16 +347,28 @@ export default function CustomersPeoplePage() {
         accessorKey: 'nextInteractionAt',
         header: t('customers.people.list.columns.nextInteraction'),
         cell: ({ row }) =>
-        row.original.nextInteractionAt
-          ? (
-            <span className="flex flex-col text-sm">
-              <span>{formatDate(row.original.nextInteractionAt, t('customers.people.list.noValue'))}</span>
-              {row.original.nextInteractionName && (
-                <span className="text-xs text-muted-foreground">{row.original.nextInteractionName}</span>
-              )}
-            </span>
-          )
-          : <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
+          row.original.nextInteractionAt
+            ? (
+              <div className="flex items-start gap-2 text-sm">
+                {row.original.nextInteractionIcon ? (
+                  <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card">
+                    {renderDictionaryIcon(row.original.nextInteractionIcon, 'h-4 w-4')}
+                  </span>
+                ) : null}
+                <div className="flex flex-col">
+                  <span>{formatDate(row.original.nextInteractionAt, t('customers.people.list.noValue'))}</span>
+                  {row.original.nextInteractionName ? (
+                    <span className="text-xs text-muted-foreground">{row.original.nextInteractionName}</span>
+                  ) : null}
+                </div>
+                {row.original.nextInteractionColor ? (
+                  <span className="mt-1">
+                    {renderDictionaryColor(row.original.nextInteractionColor, 'h-3 w-3 rounded-full border border-border')}
+                  </span>
+                ) : null}
+              </div>
+            )
+            : <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
       },
       {
         accessorKey: 'source',
@@ -349,20 +383,20 @@ export default function CustomersPeoplePage() {
       <PageBody>
         <DataTable<PersonRow>
           title={t('customers.people.list.title')}
+          refreshButton={{
+            label: t('customers.people.list.actions.refresh'),
+            onRefresh: () => { setSearch(''); setPage(1); handleRefresh() },
+          }}
           actions={(
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" onClick={() => { setSearch(''); setPage(1); handleRefresh() }}>
-                {t('customers.people.list.actions.refresh')}
-              </Button>
-              <Button asChild>
-                <Link href="/backend/customers/people/create">
-                  {t('customers.people.list.actions.new')}
-                </Link>
-              </Button>
-            </div>
+            <Button asChild>
+              <Link href="/backend/customers/people/create">
+                {t('customers.people.list.actions.new')}
+              </Link>
+            </Button>
           )}
           columns={columns}
           data={rows}
+          exporter={exportConfig}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('customers.people.list.searchPlaceholder')}

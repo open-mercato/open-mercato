@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useT } from '@/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
 
 function extractErrorMessage(payload: unknown): string | null {
   if (!payload) return null
@@ -64,6 +65,7 @@ export default function LoginPage() {
       if (requiredRoles.length) form.set('requireRole', requiredRoles.join(','))
       const res = await fetch('/api/auth/login', { method: 'POST', body: form })
       if (res.redirected) {
+        clearAllOperations()
         // NextResponse.redirect from API
         router.replace(res.url)
         return
@@ -115,6 +117,7 @@ export default function LoginPage() {
       }
       // In case API returns 200 with JSON
       const data = await res.json().catch(() => null)
+      clearAllOperations()
       if (data && data.redirect) {
         router.replace(data.redirect)
       }
