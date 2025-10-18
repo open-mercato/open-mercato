@@ -349,17 +349,16 @@ export default function CustomersPeoplePage() {
       <PageBody>
         <DataTable<PersonRow>
           title={t('customers.people.list.title')}
+          refreshButton={{
+            label: t('customers.people.list.actions.refresh'),
+            onRefresh: () => { setSearch(''); setPage(1); handleRefresh() },
+          }}
           actions={(
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" onClick={() => { setSearch(''); setPage(1); handleRefresh() }}>
-                {t('customers.people.list.actions.refresh')}
-              </Button>
-              <Button asChild>
-                <Link href="/backend/customers/people/create">
-                  {t('customers.people.list.actions.new')}
-                </Link>
-              </Button>
-            </div>
+            <Button asChild>
+              <Link href="/backend/customers/people/create">
+                {t('customers.people.list.actions.new')}
+              </Link>
+            </Button>
           )}
           columns={columns}
           data={rows}

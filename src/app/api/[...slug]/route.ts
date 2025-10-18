@@ -26,13 +26,43 @@ async function checkAuthorization(
     }
     const container = await createRequestContainer()
     const rbac = container.resolve<RbacService>('rbacService')
-    const { organizationId } = await resolveFeatureCheckContext({ container, auth, request: req })
+    const featureContext = await resolveFeatureCheckContext({ container, auth, request: req })
+    const { organizationId } = featureContext
     const ok = await rbac.userHasAllFeatures(
       auth.sub,
       methodMetadata.requireFeatures,
       { tenantId: auth.tenantId, organizationId }
     )
     if (!ok) {
+      try {
+        const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId })
+        // eslint-disable-next-line no-console
+        console.warn('[api] Forbidden - missing required features', {
+          path: req.nextUrl.pathname,
+          method: req.method,
+          userId: auth.sub,
+          tenantId: auth.tenantId ?? null,
+          selectedOrganizationId: featureContext.scope.selectedId,
+          organizationId,
+          requiredFeatures: methodMetadata.requireFeatures,
+          grantedFeatures: acl.features,
+          isSuperAdmin: acl.isSuperAdmin,
+          allowedOrganizations: acl.organizations,
+        })
+      } catch (err) {
+        try {
+          // eslint-disable-next-line no-console
+          console.warn('[api] Forbidden - could not resolve ACL for logging', {
+            path: req.nextUrl.pathname,
+            method: req.method,
+            userId: auth.sub,
+            tenantId: auth.tenantId ?? null,
+            organizationId,
+            requiredFeatures: methodMetadata.requireFeatures,
+            error: err instanceof Error ? err.message : err,
+          })
+        } catch {}
+      }
       return NextResponse.json({ error: 'Forbidden', requiredFeatures: methodMetadata.requireFeatures }, { status: 403 })
     }
   }

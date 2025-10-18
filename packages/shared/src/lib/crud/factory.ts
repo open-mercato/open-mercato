@@ -210,6 +210,13 @@ function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLi
   return null
 }
 
+function logForbidden(details: Record<string, unknown>) {
+  try {
+    // eslint-disable-next-line no-console
+    console.warn('[crud] Forbidden request', details)
+  } catch {}
+}
+
 function collectFieldNames(items: any[]): string[] {
   const set = new Set<string>()
   for (const item of items) {
@@ -391,6 +398,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const filters = opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>)
         const withDeleted = String((queryParams as any).withDeleted || 'false') === 'true'
         if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+          logForbidden({
+            resourceKind,
+            action: 'list',
+            reason: 'organization_scope_empty',
+            userId: ctx.auth?.sub ?? null,
+            tenantId: ctx.auth?.tenantId ?? null,
+            organizationIds: ctx.organizationIds,
+          })
           const emptyPayload = { items: [], total: 0, page: page.page, pageSize: page.pageSize, totalPages: 0 }
           await opts.hooks?.afterList?.(emptyPayload, { ...ctx, query: validated as any })
           return json(emptyPayload)
@@ -446,6 +461,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const em = ctx.container.resolve<any>('em')
       const repo = em.getRepository(ormCfg.entity)
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        logForbidden({
+          resourceKind,
+          action: 'list',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
         await opts.hooks?.afterList?.({ items: [], total: 0 }, { ...ctx, query: validated as any })
         return json({ items: [], total: 0 })
       }
@@ -485,7 +508,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.create && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        logForbidden({
+          resourceKind,
+          action: 'create',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
       const body = await request.json().catch(() => ({}))
 
       if (useCommand) {
@@ -562,7 +595,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.update && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        logForbidden({
+          resourceKind,
+          action: 'update',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
       const body = await request.json().catch(() => ({}))
 
       if (useCommand) {
@@ -643,7 +686,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     try {
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) return json({ error: 'Forbidden' }, { status: 403 })
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        logForbidden({
+          resourceKind,
+          action: 'delete',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
       const useCommand = !!opts.actions?.delete
       const url = new URL(request.url)
 

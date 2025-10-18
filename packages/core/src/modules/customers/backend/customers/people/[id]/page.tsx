@@ -33,6 +33,8 @@ type AddressSummary = {
   purpose?: string | null
   addressLine1: string
   addressLine2?: string | null
+  buildingNumber?: string | null
+  flatNumber?: string | null
   city?: string | null
   region?: string | null
   postalCode?: string | null
@@ -711,6 +713,8 @@ function AddressesTab({ addresses, onCreate, onUpdate, onDelete, isSubmitting, e
       purpose: address.purpose ?? null,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? null,
+      buildingNumber: address.buildingNumber ?? null,
+      flatNumber: address.flatNumber ?? null,
       city: address.city ?? null,
       region: address.region ?? null,
       postalCode: address.postalCode ?? null,

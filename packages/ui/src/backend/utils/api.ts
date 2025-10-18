@@ -82,14 +82,34 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     // Try to read requiredRoles from JSON body; ignore if not JSON
     let roles: string[] | null = null
     let features: string[] | null = null
+    let payload: unknown = null
     try {
       const clone = res.clone()
       const data = await clone.json()
       if (Array.isArray(data?.requiredRoles)) roles = data.requiredRoles.map((r: any) => String(r))
       if (Array.isArray(data?.requiredFeatures)) features = data.requiredFeatures.map((f: any) => String(f))
+      if (data && typeof data === 'object') payload = data
     } catch {}
     // Only redirect if not already on login page
     if (!onLoginPage) {
+      const target =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (typeof Request !== 'undefined' && input instanceof Request)
+              ? input.url
+              : 'unknown'
+      try {
+        // eslint-disable-next-line no-console
+        console.warn('[apiFetch] Forbidden response', {
+          url: target,
+          status: res.status,
+          requiredRoles: roles,
+          requiredFeatures: features,
+          details: payload,
+        })
+      } catch {}
       redirectToForbiddenLogin({ requiredRoles: roles, requiredFeatures: features })
       const msg = await res.text().catch(() => 'Forbidden')
       throw new ForbiddenError(msg)

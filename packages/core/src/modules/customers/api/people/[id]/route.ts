@@ -144,6 +144,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       purpose: address.purpose,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2,
+      buildingNumber: address.buildingNumber,
+      flatNumber: address.flatNumber,
       city: address.city,
       region: address.region,
       postalCode: address.postalCode,

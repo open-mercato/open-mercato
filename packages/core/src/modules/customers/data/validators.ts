@@ -147,6 +147,8 @@ export const addressCreateSchema = scopedSchema.extend({
   purpose: z.string().max(150).optional(),
   addressLine1: z.string().min(1).max(300),
   addressLine2: z.string().max(300).optional(),
+  buildingNumber: z.string().max(50).optional(),
+  flatNumber: z.string().max(50).optional(),
   city: z.string().max(150).optional(),
   region: z.string().max(150).optional(),
   postalCode: z.string().max(30).optional(),
@@ -202,6 +204,12 @@ export const todoLinkWithTodoCreateSchema = scopedSchema.extend({
   custom: z.record(z.any()).optional(),
 })
 
+export const customerAddressFormatSchema = z.enum(['line_first', 'street_first'])
+
+export const customerSettingsUpsertSchema = scopedSchema.extend({
+  addressFormat: customerAddressFormatSchema,
+})
+
 export type PersonCreateInput = z.infer<typeof personCreateSchema>
 export type PersonUpdateInput = z.infer<typeof personUpdateSchema>
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>
@@ -219,3 +227,5 @@ export type TagUpdateInput = z.infer<typeof tagUpdateSchema>
 export type TagAssignmentInput = z.infer<typeof tagAssignmentSchema>
 export type TodoLinkCreateInput = z.infer<typeof todoLinkCreateSchema>
 export type TodoLinkWithTodoCreateInput = z.infer<typeof todoLinkWithTodoCreateSchema>
+export type CustomerSettingsUpsertInput = z.infer<typeof customerSettingsUpsertSchema>
+export type CustomerAddressFormatInput = z.infer<typeof customerAddressFormatSchema>

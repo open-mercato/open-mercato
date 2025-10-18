@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn } from '@tanstack/react-table'
+import { RefreshCw, Loader2 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
@@ -32,6 +33,13 @@ export type PaginationProps = {
   onPageChange: (page: number) => void
 }
 
+export type DataTableRefreshButton = {
+  onRefresh: () => void
+  label: string
+  isRefreshing?: boolean
+  disabled?: boolean
+}
+
 // Helper function to extract edit action from RowActions items
 function extractEditAction(items: RowActionItem[]): RowActionItem | null {
   return items.find(item => 
@@ -46,6 +54,7 @@ export type DataTableProps<T> = {
   toolbar?: React.ReactNode
   title?: React.ReactNode
   actions?: React.ReactNode
+  refreshButton?: DataTableRefreshButton
   sortable?: boolean
   sorting?: SortingState
   onSortingChange?: (s: SortingState) => void
@@ -70,7 +79,7 @@ export type DataTableProps<T> = {
   entityId?: string
 }
 
-export function DataTable<T>({ columns, data, toolbar, title, actions, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId }: DataTableProps<T>) {
+export function DataTable<T>({ columns, data, toolbar, title, actions, refreshButton, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId }: DataTableProps<T>) {
   const router = useRouter()
   React.useEffect(() => {
     return subscribeOrganizationScopeChanged(() => scheduleRouterRefresh(router))
@@ -258,21 +267,44 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, sortable,
   const hasTitle = title != null
   const hasActions = actions !== undefined && actions !== null && actions !== false
   const shouldReserveActionsSpace = actions === null || actions === false
+  const refreshButtonConfig = refreshButton
+  const hasRefreshButton = Boolean(refreshButtonConfig)
   const hasToolbar = builtToolbar != null
-  const shouldRenderHeader = hasTitle || hasToolbar || hasActions || shouldReserveActionsSpace
+  const shouldRenderActionsWrapper = hasActions || hasRefreshButton || shouldReserveActionsSpace
+  const shouldRenderHeader = hasTitle || hasToolbar || shouldRenderActionsWrapper
 
   return (
     <div className="rounded-lg border bg-card">
       {shouldRenderHeader && (
         <div className="px-4 py-3 border-b">
-          {(hasTitle || hasActions || shouldReserveActionsSpace) && (
+          {(hasTitle || shouldRenderActionsWrapper) && (
             <div className="flex items-center justify-between">
               <div className="text-base font-semibold leading-tight min-h-[2.25rem] flex items-center">
                 {hasTitle ? (typeof title === 'string' ? <h2 className="text-base font-semibold">{title}</h2> : title) : null}
               </div>
-              <div className="flex items-center gap-2 min-h-[2.25rem]">
-                {hasActions ? actions : null}
-              </div>
+              {shouldRenderActionsWrapper ? (
+                <div className="flex items-center gap-2 min-h-[2.25rem]">
+                  {refreshButtonConfig ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={refreshButtonConfig.onRefresh}
+                      aria-label={refreshButtonConfig.label}
+                      title={refreshButtonConfig.label}
+                      disabled={refreshButtonConfig.disabled || refreshButtonConfig.isRefreshing}
+                    >
+                      {refreshButtonConfig.isRefreshing ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                      <span className="sr-only">{refreshButtonConfig.label}</span>
+                    </Button>
+                  ) : null}
+                  {hasActions ? actions : null}
+                </div>
+              ) : null}
             </div>
           )}
           {hasToolbar ? <div className="mt-3 pt-3 border-t">{builtToolbar}</div> : null}

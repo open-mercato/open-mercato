@@ -3,6 +3,7 @@ import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import Link from 'next/link'
+import { hasFeature, matchFeature } from '@open-mercato/shared/security/features'
 
 type Feature = { id: string; title: string; module: string }
 type ModuleInfo = { id: string; title: string }
@@ -140,11 +141,10 @@ export function AclEditor({
     return granted.includes(`${moduleId}.*`)
   }
 
-  const isFeatureChecked = (featureId: string, moduleId: string) => {
-    if (hasGlobalWildcard) return true
-    if (isModuleWildcardEnabled(moduleId)) return true
-    return granted.includes(featureId)
-  }
+  const isFeatureCoveredByWildcard = (featureId: string) =>
+    granted.some((feature) => (feature === '*' || feature.endsWith('.*')) && matchFeature(featureId, feature))
+
+  const isFeatureChecked = (featureId: string) => hasFeature(granted, featureId)
 
   if (loading) return <div className="text-sm text-muted-foreground">Loading ACL…</div>
 
@@ -235,8 +235,8 @@ export function AclEditor({
                   </div>
                   <div className="space-y-2">
                     {group.features.map((f) => {
-                      const checked = isFeatureChecked(f.id, group.moduleId)
-                      const isWildcardCovered = hasGlobalWildcard || moduleWildcard
+                      const checked = isFeatureChecked(f.id)
+                      const isWildcardCovered = isFeatureCoveredByWildcard(f.id)
                       return (
                         <div key={f.id} className="flex items-center gap-2">
                           <input 

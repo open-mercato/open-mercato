@@ -24,6 +24,8 @@ type AddressSnapshot = {
   purpose: string | null
   addressLine1: string
   addressLine2: string | null
+  buildingNumber: string | null
+  flatNumber: string | null
   city: string | null
   region: string | null
   postalCode: string | null
@@ -50,6 +52,8 @@ async function loadAddressSnapshot(em: EntityManager, id: string): Promise<Addre
     purpose: address.purpose ?? null,
     addressLine1: address.addressLine1,
     addressLine2: address.addressLine2 ?? null,
+    buildingNumber: address.buildingNumber ?? null,
+    flatNumber: address.flatNumber ?? null,
     city: address.city ?? null,
     region: address.region ?? null,
     postalCode: address.postalCode ?? null,
@@ -87,6 +91,8 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       purpose: parsed.purpose ?? null,
       addressLine1: parsed.addressLine1,
       addressLine2: parsed.addressLine2 ?? null,
+      buildingNumber: parsed.buildingNumber ?? null,
+      flatNumber: parsed.flatNumber ?? null,
       city: parsed.city ?? null,
       region: parsed.region ?? null,
       postalCode: parsed.postalCode ?? null,
@@ -176,6 +182,8 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
     if (parsed.purpose !== undefined) address.purpose = parsed.purpose ?? null
     if (parsed.addressLine1 !== undefined) address.addressLine1 = parsed.addressLine1
     if (parsed.addressLine2 !== undefined) address.addressLine2 = parsed.addressLine2 ?? null
+    if (parsed.buildingNumber !== undefined) address.buildingNumber = parsed.buildingNumber ?? null
+    if (parsed.flatNumber !== undefined) address.flatNumber = parsed.flatNumber ?? null
     if (parsed.city !== undefined) address.city = parsed.city ?? null
     if (parsed.region !== undefined) address.region = parsed.region ?? null
     if (parsed.postalCode !== undefined) address.postalCode = parsed.postalCode ?? null
@@ -222,6 +230,8 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
               'purpose',
               'addressLine1',
               'addressLine2',
+              'buildingNumber',
+              'flatNumber',
               'city',
               'region',
               'postalCode',
@@ -266,6 +276,8 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         purpose: before.purpose,
         addressLine1: before.addressLine1,
         addressLine2: before.addressLine2,
+        buildingNumber: before.buildingNumber,
+        flatNumber: before.flatNumber,
         city: before.city,
         region: before.region,
         postalCode: before.postalCode,
@@ -281,6 +293,8 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
       address.purpose = before.purpose
       address.addressLine1 = before.addressLine1
       address.addressLine2 = before.addressLine2
+      address.buildingNumber = before.buildingNumber
+      address.flatNumber = before.flatNumber
       address.city = before.city
       address.region = before.region
       address.postalCode = before.postalCode
@@ -374,9 +388,11 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           entity,
           name: before.name,
           purpose: before.purpose,
-          addressLine1: before.addressLine1,
-          addressLine2: before.addressLine2,
-          city: before.city,
+        addressLine1: before.addressLine1,
+        addressLine2: before.addressLine2,
+        buildingNumber: before.buildingNumber,
+        flatNumber: before.flatNumber,
+        city: before.city,
           region: before.region,
           postalCode: before.postalCode,
           country: before.country,
@@ -389,8 +405,10 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
         address.entity = entity
         address.name = before.name
         address.purpose = before.purpose
-        address.addressLine1 = before.addressLine1
-        address.addressLine2 = before.addressLine2
+      address.addressLine1 = before.addressLine1
+      address.addressLine2 = before.addressLine2
+      address.buildingNumber = before.buildingNumber
+      address.flatNumber = before.flatNumber
         address.city = before.city
         address.region = before.region
         address.postalCode = before.postalCode

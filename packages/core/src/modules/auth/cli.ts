@@ -130,7 +130,13 @@ const setupApp: ModuleCli = {
 
     // If user already exists, reuse existing org/tenant and ensure roles
     const existingUser = await em.findOne(User, { email })
+    let seedTenantId: string | undefined
+    let seedOrgId: string | undefined
+    let reusedExistingUser = false
     if (existingUser) {
+      reusedExistingUser = true
+      seedTenantId = existingUser.tenantId ? String(existingUser.tenantId) : undefined
+      seedOrgId = existingUser.organizationId ? String(existingUser.organizationId) : undefined
       await em.transactional(async (tem: any) => {
         if (roleNames.length) {
           const currentUserRoles = await tem.find(UserRole, { user: existingUser.id }, { populate: ['role'] })
@@ -148,73 +154,69 @@ const setupApp: ModuleCli = {
         'Existing initial user detected during setup.',
         `Email: ${existingUser.email}`,
         'Updated roles if missing and reused tenant/organization.',
-        'No new user created.',
+        'Ensuring default ACLs for roles.',
       ])
-      console.log('Setup complete:', { tenantId: existingUser.tenantId, organizationId: existingUser.organizationId, userId: existingUser.id })
-      return
+    } else {
+      await em.transactional(async (tem: any) => {
+        // 1) Create tenant and organization
+        const tenant = tem.create(Tenant, { name: `${orgName} Tenant` })
+        tem.persist(tenant)
+        await tem.flush()
+        const org = tem.create(Organization, { name: orgName, tenant })
+        tem.persist(org)
+        await tem.flush()
+        seedTenantId = (tenant as any).id
+        seedOrgId = (org as any).id
+
+        // 2) Create or update users (superadmin + optionally admin/employee) idempotently
+        // Derivation rule: if the provided email local part is exactly 'superadmin',
+        // derive admin and employee emails by replacing it. Otherwise, only create the provided superadmin.
+        const [local, domain] = String(email).split('@')
+        const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin'
+        const adminEmailDerived = isSuperadminLocal && domain ? `admin@${domain}` : null
+        const employeeEmailDerived = isSuperadminLocal && domain ? `employee@${domain}` : null
+
+        const users: Array<{ email: string; password: string; roles: string[] }> = [
+          { email, password, roles: ['superadmin'] },
+        ]
+        if (adminEmailDerived) users.push({ email: adminEmailDerived, password, roles: ['admin'] })
+        if (employeeEmailDerived) users.push({ email: employeeEmailDerived, password, roles: ['employee'] })
+        for (const udef of users) {
+          let u = await tem.findOne(User, { email: udef.email })
+          if (u) {
+            u.passwordHash = await hash(udef.password, 10)
+            u.isConfirmed = true
+            u.organizationId = org.id
+            u.tenantId = tenant.id
+            tem.persist(u)
+            console.log('Updated user', udef.email)
+            warnBox([
+              'Existing user updated (idempotent setup).',
+              `Email: ${udef.email}`,
+              'Password reset and organization/tenant synchronized with current setup.',
+            ])
+          } else {
+            u = tem.create(User, { email: udef.email, passwordHash: await hash(udef.password, 10), isConfirmed: true, organizationId: org.id, tenantId: tenant.id })
+            tem.persist(u)
+            console.log('Created user', udef.email, 'password:', password)
+          }
+          await tem.flush()
+          // Ensure role links exist (idempotent)
+          for (const name of udef.roles) {
+            const role = await tem.findOneOrFail(Role, { name })
+            const existingLink = await tem.findOne(UserRole, { user: u as any, role: role as any } as any)
+            if (!existingLink) {
+              tem.persist(tem.create(UserRole, { user: u as any, role: role as any }))
+            }
+          }
+          await tem.flush()
+        }
+
+        // Transaction complete; tenant/org ids captured above
+      })
     }
 
-    let seedTenantId: string | undefined
-    let seedOrgId: string | undefined
-    await em.transactional(async (tem: any) => {
-      // 1) Create tenant and organization
-      const tenant = tem.create(Tenant, { name: `${orgName} Tenant` })
-      tem.persist(tenant)
-      await tem.flush()
-      const org = tem.create(Organization, { name: orgName, tenant })
-      tem.persist(org)
-      await tem.flush()
-      seedTenantId = (tenant as any).id
-      seedOrgId = (org as any).id
-
-      // 2) Create or update users (superadmin + optionally admin/employee) idempotently
-      // Derivation rule: if the provided email local part is exactly 'superadmin',
-      // derive admin and employee emails by replacing it. Otherwise, only create the provided superadmin.
-      const [local, domain] = String(email).split('@')
-      const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin'
-      const adminEmailDerived = isSuperadminLocal && domain ? `admin@${domain}` : null
-      const employeeEmailDerived = isSuperadminLocal && domain ? `employee@${domain}` : null
-
-      const users: Array<{ email: string; password: string; roles: string[] }> = [
-        { email, password, roles: ['superadmin'] },
-      ]
-      if (adminEmailDerived) users.push({ email: adminEmailDerived, password, roles: ['admin'] })
-      if (employeeEmailDerived) users.push({ email: employeeEmailDerived, password, roles: ['employee'] })
-      for (const udef of users) {
-        let u = await tem.findOne(User, { email: udef.email })
-        if (u) {
-          u.passwordHash = await hash(udef.password, 10)
-          u.isConfirmed = true
-          u.organizationId = org.id
-          u.tenantId = tenant.id
-          tem.persist(u)
-          console.log('Updated user', udef.email)
-          warnBox([
-            'Existing user updated (idempotent setup).',
-            `Email: ${udef.email}`,
-            'Password reset and organization/tenant synchronized with current setup.',
-          ])
-        } else {
-          u = tem.create(User, { email: udef.email, passwordHash: await hash(udef.password, 10), isConfirmed: true, organizationId: org.id, tenantId: tenant.id })
-          tem.persist(u)
-          console.log('Created user', udef.email, 'password:', password)
-        }
-        await tem.flush()
-        // Ensure role links exist (idempotent)
-        for (const name of udef.roles) {
-          const role = await tem.findOneOrFail(Role, { name })
-          const existingLink = await tem.findOne(UserRole, { user: u as any, role: role as any } as any)
-          if (!existingLink) {
-            tem.persist(tem.create(UserRole, { user: u as any, role: role as any }))
-          }
-        }
-        await tem.flush()
-      }
-
-      // Transaction complete; tenant/org ids captured above
-    })
-
-    if (seedTenantId) {
+    if (!reusedExistingUser && seedTenantId) {
       await rebuildHierarchyForTenant(em, seedTenantId)
     }
 
@@ -222,13 +224,42 @@ const setupApp: ModuleCli = {
     const superadminRole = await em.findOne(Role, { name: 'superadmin' })
     const adminRole = await em.findOne(Role, { name: 'admin' })
     const employeeRole = await em.findOne(Role, { name: 'employee' })
+
+    async function ensureRoleAclFor(
+      role: Role | null,
+      tenantId: string | undefined,
+      features: string[],
+      options: { isSuperAdmin?: boolean; remove?: string[] } = {},
+    ) {
+      if (!role || !tenantId) return
+      const existingAcl = await em.findOne(RoleAcl, { role, tenantId })
+      if (!existingAcl) {
+        const acl = em.create(RoleAcl, {
+          role,
+          tenantId,
+          isSuperAdmin: !!options.isSuperAdmin,
+          featuresJson: features,
+        })
+        await em.persistAndFlush(acl)
+        return
+      }
+      const currentFeatures = Array.isArray(existingAcl.featuresJson) ? existingAcl.featuresJson : []
+      const mergedFeatures = Array.from(new Set([...currentFeatures, ...features]))
+      const removeSet = new Set(options.remove || [])
+      const sanitizedFeatures = removeSet.size ? mergedFeatures.filter((feature) => !removeSet.has(feature)) : mergedFeatures
+      let changed =
+        sanitizedFeatures.length !== currentFeatures.length ||
+        sanitizedFeatures.some((f, idx) => f !== currentFeatures[idx])
+      if (changed) existingAcl.featuresJson = sanitizedFeatures
+      if (options.isSuperAdmin && !existingAcl.isSuperAdmin) {
+        existingAcl.isSuperAdmin = true
+        changed = true
+      }
+      if (changed) await em.persistAndFlush(existingAcl)
+    }
+
     if (superadminRole) {
-      await em.persistAndFlush(em.create(RoleAcl, {
-        role: superadminRole,
-        tenantId: seedTenantId,
-        isSuperAdmin: true,
-        featuresJson: ['directory.tenants.*'],
-      }))
+      await ensureRoleAclFor(superadminRole, seedTenantId, ['directory.tenants.*'], { isSuperAdmin: true })
     }
     if (adminRole) {
       const adminFeatures = [
@@ -237,19 +268,18 @@ const setupApp: ModuleCli = {
         'attachments.*',
         'query_index.*',
         'audit_logs.undo_self',
-        'directory.organizations.*',
+        'directory.organizations.view',
+        'directory.organizations.manage',
         'customers.*',
         'example.*',
         'dashboards.*',
         'dashboards.admin.assign-widgets',
         'api_keys.*',
       ]
-      await em.persistAndFlush(em.create(RoleAcl, { role: adminRole, tenantId: seedTenantId, featuresJson: adminFeatures }))
+      await ensureRoleAclFor(adminRole, seedTenantId, adminFeatures, { remove: ['directory.organizations.*'] })
     }
-    if (employeeRole) await em.persistAndFlush(em.create(RoleAcl, {
-      role: employeeRole,
-      tenantId: seedTenantId,
-      featuresJson: [
+    if (employeeRole) {
+      await ensureRoleAclFor(employeeRole, seedTenantId, [
         'example.*',
         'customers.people.view',
         'customers.companies.view',
@@ -260,8 +290,8 @@ const setupApp: ModuleCli = {
         'dashboards.configure',
         'audit_logs.undo_self',
         'example.widgets.*',
-      ],
-    }))
+      ])
+    }
 
     console.log('Setup complete:', { tenantId: seedTenantId, organizationId: seedOrgId })
   },

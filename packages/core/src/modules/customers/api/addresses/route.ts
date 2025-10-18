@@ -47,6 +47,8 @@ const crud = makeCrudRoute({
       'purpose',
       'address_line1',
       'address_line2',
+      'building_number',
+      'flat_number',
       'city',
       'region',
       'postal_code',
