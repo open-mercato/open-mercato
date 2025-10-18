@@ -48,6 +48,15 @@ function extractEditAction(items: RowActionItem[]): RowActionItem | null {
   ) || null
 }
 
+export type DataTableExportFormat = 'csv' | 'json' | 'xml' | 'markdown'
+
+export type DataTableExportConfig = {
+  getUrl: (format: DataTableExportFormat) => string
+  formats?: DataTableExportFormat[]
+  label?: string
+  disabled?: boolean
+}
+
 export type DataTableProps<T> = {
   columns: ColumnDef<T, any>[]
   data: T[]
@@ -77,9 +86,106 @@ export type DataTableProps<T> = {
   onFiltersClear?: () => void
   // When provided, DataTable will fetch custom field definitions and append filter controls for filterable ones.
   entityId?: string
+  exporter?: DataTableExportConfig | false
 }
 
-export function DataTable<T>({ columns, data, toolbar, title, actions, refreshButton, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId }: DataTableProps<T>) {
+const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
+const EXPORT_LABELS: Record<DataTableExportFormat, string> = {
+  csv: 'CSV',
+  json: 'JSON',
+  xml: 'XML',
+  markdown: 'Markdown',
+}
+
+function ExportMenu({ config }: { config: DataTableExportConfig }) {
+  const { formats = DEFAULT_EXPORT_FORMATS, getUrl, label = 'Export', disabled } = config
+  const formatList = React.useMemo(() => {
+    const seen = new Set<DataTableExportFormat>()
+    return formats.filter((format) => {
+      if (seen.has(format)) return false
+      seen.add(format)
+      return true
+    })
+  }, [formats])
+  const [open, setOpen] = React.useState(false)
+  const buttonRef = React.useRef<HTMLButtonElement>(null)
+  const menuRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    if (!open) return
+    const onDocClick = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (menuRef.current && !menuRef.current.contains(target) && buttonRef.current && !buttonRef.current.contains(target)) {
+        setOpen(false)
+      }
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        buttonRef.current?.focus()
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const handleSelect = (format: DataTableExportFormat) => {
+    try {
+      const url = getUrl(format)
+      if (url && typeof window !== 'undefined') {
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }
+    } catch {
+      // ignore malformed urls
+    } finally {
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div className="relative inline-block">
+      <Button
+        ref={buttonRef}
+        variant="outline"
+        size="sm"
+        type="button"
+        onClick={() => {
+          if (disabled) return
+          setOpen((prev) => !prev)
+        }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+      >
+        {label}
+      </Button>
+      {open ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="absolute right-0 mt-2 w-40 rounded-md border bg-background p-1 shadow z-20"
+        >
+          {formatList.map((format) => (
+            <button
+              key={format}
+              type="button"
+              className="block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent"
+              onClick={() => handleSelect(format)}
+            >
+              {EXPORT_LABELS[format]}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+export function DataTable<T>({ columns, data, toolbar, title, actions, refreshButton, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId, exporter }: DataTableProps<T>) {
   const router = useRouter()
   React.useEffect(() => {
     return subscribeOrganizationScopeChanged(() => scheduleRouterRefresh(router))
@@ -267,10 +373,12 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, refreshBu
   const hasTitle = title != null
   const hasActions = actions !== undefined && actions !== null && actions !== false
   const shouldReserveActionsSpace = actions === null || actions === false
+  const exportConfig = exporter === false ? null : exporter || null
+  const hasExport = Boolean(exportConfig)
   const refreshButtonConfig = refreshButton
   const hasRefreshButton = Boolean(refreshButtonConfig)
   const hasToolbar = builtToolbar != null
-  const shouldRenderActionsWrapper = hasActions || hasRefreshButton || shouldReserveActionsSpace
+  const shouldRenderActionsWrapper = hasActions || hasRefreshButton || shouldReserveActionsSpace || hasExport
   const shouldRenderHeader = hasTitle || hasToolbar || shouldRenderActionsWrapper
 
   return (
@@ -302,6 +410,7 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, refreshBu
                       <span className="sr-only">{refreshButtonConfig.label}</span>
                     </Button>
                   ) : null}
+                  {exportConfig ? <ExportMenu config={exportConfig} /> : null}
                   {hasActions ? actions : null}
                 </div>
               ) : null}

@@ -4,11 +4,12 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -222,6 +223,11 @@ export default function CustomersPeoplePage() {
     return params.toString()
   }, [filterValues, page, pageSize, search])
 
+  const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
+  const exportConfig = React.useMemo(() => ({
+    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('customers/people', currentParams, format),
+  }), [currentParams])
+
   React.useEffect(() => {
     let cancelled = false
     async function load() {
@@ -362,6 +368,7 @@ export default function CustomersPeoplePage() {
           )}
           columns={columns}
           data={rows}
+          exporter={exportConfig}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('customers.people.list.searchPlaceholder')}

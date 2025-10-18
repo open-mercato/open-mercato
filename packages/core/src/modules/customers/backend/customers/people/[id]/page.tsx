@@ -142,15 +142,23 @@ function randomId() {
   return `tmp-${Math.random().toString(36).slice(2)}`
 }
 
+type InlineFieldType = 'text' | 'email' | 'tel' | 'url'
+
 type InlineFieldProps = {
   label: string
   value: string | null | undefined
   placeholder: string
   emptyLabel: string
-  type?: 'text' | 'email' | 'tel'
+  type?: InlineFieldType
   validator?: (value: string) => string | null
   onSave: (value: string | null) => Promise<void>
   recordId?: string
+  variant?: 'default' | 'muted' | 'plain'
+  activateOnClick?: boolean
+  containerClassName?: string
+  triggerClassName?: string
+  hideLabel?: boolean
+  renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string; type: InlineFieldType }) => React.ReactNode
 }
 
 function InlineTextEditor({
@@ -162,6 +170,12 @@ function InlineTextEditor({
   validator,
   onSave,
   recordId,
+  variant = 'default',
+  activateOnClick = false,
+  containerClassName,
+  triggerClassName,
+  hideLabel = false,
+  renderDisplay,
 }: InlineFieldProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -181,6 +195,42 @@ function InlineTextEditor({
     disabled: !editing || !isEmailField || !!error || saving || !isValidEmailForLookup,
     matchMode: 'prefix',
   })
+  const containerClasses = cn(
+    'group',
+    variant === 'muted'
+      ? 'relative rounded border bg-muted/20 p-3'
+      : variant === 'plain'
+        ? 'relative flex items-center gap-3 rounded-none border-0 p-0'
+        : 'rounded-lg border p-4',
+    containerClassName || null
+  )
+  const readOnlyWrapperClasses = cn(
+    'flex-1 min-w-0',
+    activateOnClick && !editing ? 'cursor-pointer' : null,
+    variant === 'plain' ? 'flex items-center gap-2' : null
+  )
+  const triggerSize = variant === 'plain' ? 'icon' : 'sm'
+  const triggerClasses = cn(
+    'shrink-0',
+    variant === 'muted' ? 'h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100' : null,
+    variant === 'plain' ? 'mt-1' : null,
+    triggerClassName || null
+  )
+
+  const handleActivate = React.useCallback(() => {
+    if (!editing) setEditing(true)
+  }, [editing])
+
+  const handleContainerKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        handleActivate()
+      }
+    },
+    [activateOnClick, editing, handleActivate]
+  )
 
   React.useEffect(() => {
     if (!editing) {
@@ -211,13 +261,71 @@ function InlineTextEditor({
     }
   }, [draft, onSave, t, validator])
 
+  const displayContent = React.useMemo(() => {
+    if (renderDisplay) {
+      return renderDisplay({ value, emptyLabel, type })
+    }
+    const baseValue = value && typeof value === 'string' ? value : ''
+    const anchorClass = variant === 'plain' ? 'inline-flex items-center gap-2 text-xl font-semibold leading-tight text-primary hover:text-primary/90 hover:underline' : 'flex items-center gap-2 text-sm text-primary hover:text-primary/90 hover:underline'
+    const textClass = variant === 'plain' ? 'text-2xl font-semibold leading-tight' : 'text-sm break-words'
+    if (type === 'email') {
+      if (!baseValue.length) {
+        return (
+          <p className={variant === 'plain' ? 'text-base text-muted-foreground' : 'text-sm text-muted-foreground'}>
+            {emptyLabel}
+          </p>
+        )
+      }
+      return (
+        <a className={anchorClass} href={`mailto:${baseValue}`}>
+          <Mail aria-hidden className={variant === 'plain' ? 'h-5 w-5' : 'h-4 w-4'} />
+          <span className="truncate">{baseValue}</span>
+        </a>
+      )
+    }
+    if (!baseValue.length) {
+      return (
+        <p className={variant === 'plain' ? 'text-base text-muted-foreground' : 'text-sm text-muted-foreground'}>
+          {emptyLabel}
+        </p>
+      )
+    }
+    if (type === 'url') {
+      return (
+        <a
+          className={textClass}
+          href={baseValue}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {baseValue}
+        </a>
+      )
+    }
+    return <p className={textClass}>{baseValue}</p>
+  }, [emptyLabel, renderDisplay, type, value, variant])
+
+  const editingContainerClass = variant === 'plain' ? 'mt-0 w-full max-w-sm space-y-3' : 'mt-2 space-y-3'
+
+  const activateListeners =
+    activateOnClick && !editing
+      ? {
+          role: 'button' as const,
+          tabIndex: 0,
+          onClick: handleActivate,
+          onKeyDown: handleContainerKeyDown,
+        }
+      : {}
+
   return (
-    <div className="rounded-lg border p-4">
+    <div className={containerClasses}>
       <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+        <div className={readOnlyWrapperClasses} {...activateListeners}>
+          {hideLabel ? null : (
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          )}
           {editing ? (
-            <div className="mt-2 space-y-3">
+            <div className={editingContainerClass}>
               <input
                 className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={draft}
@@ -257,26 +365,19 @@ function InlineTextEditor({
               </div>
             </div>
           ) : (
-            <div className="mt-1">
-              {value ? (
-                type === 'email' ? (
-                  <a
-                    className="flex items-center gap-2 text-sm text-primary hover:text-primary/90 hover:underline"
-                    href={`mailto:${value}`}
-                  >
-                    <Mail aria-hidden className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{value}</span>
-                  </a>
-                ) : (
-                  <p className="text-sm break-words">{value}</p>
-                )
-              ) : (
-                <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-              )}
-            </div>
+            <div className={variant === 'plain' ? '' : 'mt-1'}>{displayContent}</div>
           )}
         </div>
-        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing((state) => !state)}>
+        <Button
+          type="button"
+          variant="ghost"
+          size={triggerSize}
+          className={triggerClasses}
+          onClick={(event) => {
+            event.stopPropagation()
+            setEditing((state) => !state)
+          }}
+        >
           {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
         </Button>
       </div>
@@ -284,7 +385,7 @@ function InlineTextEditor({
   )
 }
 
-type StatusEditorProps = {
+type DictionaryEditorProps = {
   label: string
   value: string | null | undefined
   emptyLabel: string
@@ -292,13 +393,63 @@ type StatusEditorProps = {
   onSave: (value: string | null) => Promise<void>
   dictionaryMap?: CustomerDictionaryMap | null
   onAfterSave?: () => void | Promise<void>
+  kind: CustomerDictionaryKind
+  variant?: 'default' | 'muted'
+  activateOnClick?: boolean
+  containerClassName?: string
+  triggerClassName?: string
+  selectClassName?: string
 }
 
-function InlineStatusEditor({ label, value, emptyLabel, labels, onSave, dictionaryMap, onAfterSave }: StatusEditorProps) {
+function InlineDictionaryEditor({
+  label,
+  value,
+  emptyLabel,
+  labels,
+  onSave,
+  dictionaryMap,
+  onAfterSave,
+  kind,
+  variant = 'default',
+  activateOnClick = false,
+  containerClassName,
+  triggerClassName,
+  selectClassName,
+}: DictionaryEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState<string | undefined>(value && value.length ? value : undefined)
   const [saving, setSaving] = React.useState(false)
+  const containerClasses = cn(
+    'group',
+    variant === 'muted' ? 'relative rounded border bg-muted/20 p-3' : 'rounded-lg border p-4',
+    containerClassName || null
+  )
+  const readOnlyWrapperClasses = cn(
+    'flex-1',
+    activateOnClick && !editing ? 'cursor-pointer' : null
+  )
+  const triggerClasses = cn(
+    'shrink-0',
+    variant === 'muted' ? 'h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100' : null,
+    triggerClassName || null
+  )
+  const triggerSize: React.ComponentProps<typeof Button>['size'] = 'sm'
+
+  const handleActivate = React.useCallback(() => {
+    if (!editing) setEditing(true)
+  }, [editing])
+
+  const handleContainerKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        handleActivate()
+      }
+    },
+    [activateOnClick, editing, handleActivate]
+  )
 
   React.useEffect(() => {
     if (!editing) setDraft(value && value.length ? value : undefined)
@@ -320,18 +471,30 @@ function InlineStatusEditor({ label, value, emptyLabel, labels, onSave, dictiona
     }
   }, [draft, onAfterSave, onSave, t])
 
+  const editingContainerClass = 'mt-2 space-y-3'
+  const activateListeners =
+    activateOnClick && !editing
+      ? {
+          role: 'button' as const,
+          tabIndex: 0,
+          onClick: handleActivate,
+          onKeyDown: handleContainerKeyDown,
+        }
+      : {}
+
   return (
-    <div className="rounded-lg border p-4">
+    <div className={containerClasses}>
       <div className="flex items-start justify-between gap-2">
-        <div className="flex-1">
+        <div className={readOnlyWrapperClasses} {...activateListeners}>
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
           {editing ? (
-            <div className="mt-2 space-y-3">
+            <div className={editingContainerClass}>
               <DictionarySelectField
-                kind="statuses"
+                kind={kind}
                 value={draft}
                 onChange={setDraft}
                 labels={labels}
+                selectClassName={selectClassName}
               />
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
@@ -357,13 +520,50 @@ function InlineStatusEditor({ label, value, emptyLabel, labels, onSave, dictiona
             </div>
           )}
         </div>
-        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing((state) => !state)}>
+        <Button
+          type="button"
+          variant="ghost"
+          size={triggerSize}
+          className={triggerClasses}
+          onClick={(event) => {
+            event.stopPropagation()
+            setEditing((state) => !state)
+          }}
+        >
           {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
         </Button>
       </div>
     </div>
   )
 }
+
+type DetailFieldConfig =
+  | {
+      key: string
+      kind: 'text'
+      label: string
+      value: string | null | undefined
+      placeholder: string
+      emptyLabel: string
+      onSave: (value: string | null) => Promise<void>
+      inputType?: InlineFieldType
+      validator?: (value: string) => string | null
+    }
+  | {
+      key: string
+      kind: 'dictionary'
+      label: string
+      value: string | null | undefined
+      emptyLabel: string
+      dictionaryKind: CustomerDictionaryKind
+      labels: Parameters<typeof DictionarySelectField>[0]['labels']
+      onSave: (value: string | null) => Promise<void>
+      dictionaryMap?: CustomerDictionaryMap | null
+      onAfterSave?: () => void | Promise<void>
+      selectClassName?: string
+    }
+
+type ProfileEditableField = 'firstName' | 'lastName' | 'jobTitle' | 'department' | 'linkedInUrl' | 'twitterUrl'
 
 type NextInteractionEditorProps = {
   label: string
@@ -950,6 +1150,10 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       if (!value) return null
       return value.length >= 3 ? null : t('customers.people.detail.inline.phoneInvalid')
     },
+    displayName: (value: string) => {
+      const trimmed = value.trim()
+      return trimmed.length ? null : t('customers.people.form.displayName.error')
+    },
   }), [t])
 
   const personName = React.useMemo(
@@ -1038,20 +1242,52 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     [data, t]
   )
 
-  const statusLabels = React.useMemo(() => ({
-    placeholder: t('customers.people.form.status.placeholder'),
-    addLabel: t('customers.people.form.dictionary.addStatus'),
-    addPrompt: t('customers.people.form.dictionary.promptStatus'),
-    dialogTitle: t('customers.people.form.dictionary.dialogTitleStatus'),
-    inputLabel: t('customers.people.form.dictionary.valueLabel'),
-    inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-    emptyError: t('customers.people.form.dictionary.errorRequired'),
-    cancelLabel: t('customers.people.form.dictionary.cancel'),
-    saveLabel: t('customers.people.form.dictionary.save'),
-    errorLoad: t('customers.people.form.dictionary.errorLoad'),
-    errorSave: t('customers.people.form.dictionary.error'),
-    loadingLabel: t('customers.people.form.dictionary.loading'),
-    manageTitle: t('customers.people.form.dictionary.manage'),
+  const dictionaryLabels = React.useMemo(() => ({
+    statuses: {
+      placeholder: t('customers.people.form.status.placeholder'),
+      addLabel: t('customers.people.form.dictionary.addStatus'),
+      addPrompt: t('customers.people.form.dictionary.promptStatus'),
+      dialogTitle: t('customers.people.form.dictionary.dialogTitleStatus'),
+      inputLabel: t('customers.people.form.dictionary.valueLabel'),
+      inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+      emptyError: t('customers.people.form.dictionary.errorRequired'),
+      cancelLabel: t('customers.people.form.dictionary.cancel'),
+      saveLabel: t('customers.people.form.dictionary.save'),
+      errorLoad: t('customers.people.form.dictionary.errorLoad'),
+      errorSave: t('customers.people.form.dictionary.error'),
+      loadingLabel: t('customers.people.form.dictionary.loading'),
+      manageTitle: t('customers.people.form.dictionary.manage'),
+    },
+    lifecycleStages: {
+      placeholder: t('customers.people.form.lifecycleStage.placeholder'),
+      addLabel: t('customers.people.form.dictionary.addLifecycleStage'),
+      addPrompt: t('customers.people.form.dictionary.promptLifecycleStage'),
+      dialogTitle: t('customers.people.form.dictionary.dialogTitleLifecycleStage'),
+      inputLabel: t('customers.people.form.dictionary.valueLabel'),
+      inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+      emptyError: t('customers.people.form.dictionary.errorRequired'),
+      cancelLabel: t('customers.people.form.dictionary.cancel'),
+      saveLabel: t('customers.people.form.dictionary.save'),
+      errorLoad: t('customers.people.form.dictionary.errorLoad'),
+      errorSave: t('customers.people.form.dictionary.error'),
+      loadingLabel: t('customers.people.form.dictionary.loading'),
+      manageTitle: t('customers.people.form.dictionary.manage'),
+    },
+    sources: {
+      placeholder: t('customers.people.form.source.placeholder'),
+      addLabel: t('customers.people.form.dictionary.addSource'),
+      addPrompt: t('customers.people.form.dictionary.promptSource'),
+      dialogTitle: t('customers.people.form.dictionary.dialogTitleSource'),
+      inputLabel: t('customers.people.form.dictionary.valueLabel'),
+      inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+      emptyError: t('customers.people.form.dictionary.errorRequired'),
+      cancelLabel: t('customers.people.form.dictionary.cancel'),
+      saveLabel: t('customers.people.form.dictionary.save'),
+      errorLoad: t('customers.people.form.dictionary.errorLoad'),
+      errorSave: t('customers.people.form.dictionary.error'),
+      loadingLabel: t('customers.people.form.dictionary.loading'),
+      manageTitle: t('customers.people.form.dictionary.manage'),
+    },
   }), [t])
 
   const tabs = React.useMemo(
@@ -1391,43 +1627,165 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
 
   const { person, profile } = data
 
-  const detailFields: Array<{ label: string; value: React.ReactNode }> = [
-    { label: t('customers.people.detail.fields.displayName'), value: person.displayName || t('customers.people.detail.noValue') },
-    { label: t('customers.people.form.firstName'), value: profile?.firstName || t('customers.people.detail.noValue') },
-    { label: t('customers.people.form.lastName'), value: profile?.lastName || t('customers.people.detail.noValue') },
-    { label: t('customers.people.form.jobTitle'), value: profile?.jobTitle || t('customers.people.detail.noValue') },
+  const updateDisplayName = React.useCallback(
+    async (next: string | null) => {
+      const send = typeof next === 'string' ? next : ''
+      await savePerson(
+        { displayName: send },
+        (prev) => {
+          if (!prev) return prev
+          const nextValue = next && next.length ? next : prev.person.displayName
+          return { ...prev, person: { ...prev.person, displayName: nextValue } }
+        }
+      )
+    },
+    [savePerson]
+  )
+
+  const updateProfileField = React.useCallback(
+    async (field: ProfileEditableField, next: string | null) => {
+      const send = typeof next === 'string' ? next : ''
+      await savePerson(
+        { [field]: send },
+        (prev) => {
+          if (!prev || !prev.profile) return prev
+          const nextValue = next && next.length ? next : null
+          return { ...prev, profile: { ...prev.profile, [field]: nextValue } }
+        }
+      )
+    },
+    [savePerson]
+  )
+
+  const detailFields: DetailFieldConfig[] = [
     {
+      key: 'displayName',
+      kind: 'text',
+      label: t('customers.people.detail.fields.displayName'),
+      value: person.displayName,
+      placeholder: t('customers.people.form.displayName.placeholder'),
+      emptyLabel: t('customers.people.detail.noValue'),
+      validator: validators.displayName,
+      onSave: updateDisplayName,
+    },
+    {
+      key: 'firstName',
+      kind: 'text',
+      label: t('customers.people.form.firstName'),
+      value: profile?.firstName ?? null,
+      placeholder: t('customers.people.form.firstName'),
+      emptyLabel: t('customers.people.detail.noValue'),
+      onSave: (next) => updateProfileField('firstName', next),
+    },
+    {
+      key: 'lastName',
+      kind: 'text',
+      label: t('customers.people.form.lastName'),
+      value: profile?.lastName ?? null,
+      placeholder: t('customers.people.form.lastName'),
+      emptyLabel: t('customers.people.detail.noValue'),
+      onSave: (next) => updateProfileField('lastName', next),
+    },
+    {
+      key: 'jobTitle',
+      kind: 'text',
+      label: t('customers.people.form.jobTitle'),
+      value: profile?.jobTitle ?? null,
+      placeholder: t('customers.people.form.jobTitle'),
+      emptyLabel: t('customers.people.detail.noValue'),
+      onSave: (next) => updateProfileField('jobTitle', next),
+    },
+    {
+      key: 'lifecycleStage',
+      kind: 'dictionary',
       label: t('customers.people.detail.fields.lifecycleStage'),
-      value: (
-        <DictionaryValue
-          value={person.lifecycleStage}
-          map={dictionaryMaps['lifecycle-stages']}
-          fallback={<span className="text-sm text-muted-foreground">{t('customers.people.detail.noValue')}</span>}
-          className="text-sm"
-          iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
-          iconClassName="h-4 w-4"
-          colorClassName="h-3 w-3 rounded-full"
-        />
-      ),
+      value: person.lifecycleStage ?? null,
+      emptyLabel: t('customers.people.detail.noValue'),
+      dictionaryKind: 'lifecycle-stages',
+      labels: dictionaryLabels.lifecycleStages,
+      dictionaryMap: dictionaryMaps['lifecycle-stages'],
+      onSave: async (next) => {
+        const send = typeof next === 'string' ? next : ''
+        await savePerson(
+          { lifecycleStage: send },
+          (prev) => ({
+            ...prev,
+            person: { ...prev.person, lifecycleStage: next && next.length ? next : null },
+          })
+        )
+      },
+      onAfterSave: () => loadDictionaryEntries('lifecycle-stages'),
+      selectClassName: 'h-9 w-full rounded border px-3 text-sm',
     },
     {
+      key: 'source',
+      kind: 'dictionary',
       label: t('customers.people.form.source'),
-      value: (
-        <DictionaryValue
-          value={person.source}
-          map={dictionaryMaps.sources}
-          fallback={<span className="text-sm text-muted-foreground">{t('customers.people.detail.noValue')}</span>}
-          className="text-sm"
-          iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
-          iconClassName="h-4 w-4"
-          colorClassName="h-3 w-3 rounded-full"
-        />
-      ),
+      value: person.source ?? null,
+      emptyLabel: t('customers.people.detail.noValue'),
+      dictionaryKind: 'sources',
+      labels: dictionaryLabels.sources,
+      dictionaryMap: dictionaryMaps.sources,
+      onSave: async (next) => {
+        const send = typeof next === 'string' ? next : ''
+        await savePerson(
+          { source: send },
+          (prev) => ({
+            ...prev,
+            person: { ...prev.person, source: next && next.length ? next : null },
+          })
+        )
+      },
+      onAfterSave: () => loadDictionaryEntries('sources'),
+      selectClassName: 'h-9 w-full rounded border px-3 text-sm',
     },
-    { label: t('customers.people.form.description'), value: person.description || t('customers.people.detail.noValue') },
-    { label: t('customers.people.detail.fields.department'), value: profile?.department || t('customers.people.detail.noValue') },
-    { label: t('customers.people.detail.fields.linkedIn'), value: profile?.linkedInUrl || t('customers.people.detail.noValue') },
-    { label: t('customers.people.detail.fields.twitter'), value: profile?.twitterUrl || t('customers.people.detail.noValue') },
+    {
+      key: 'description',
+      kind: 'text',
+      label: t('customers.people.form.description'),
+      value: person.description ?? null,
+      placeholder: t('customers.people.form.description'),
+      emptyLabel: t('customers.people.detail.noValue'),
+      onSave: async (next) => {
+        const send = typeof next === 'string' ? next : ''
+        await savePerson(
+          { description: send },
+          (prev) => ({
+            ...prev,
+            person: { ...prev.person, description: next && next.length ? next : null },
+          })
+        )
+      },
+    },
+    {
+      key: 'department',
+      kind: 'text',
+      label: t('customers.people.detail.fields.department'),
+      value: profile?.department ?? null,
+      placeholder: t('customers.people.detail.fields.department'),
+      emptyLabel: t('customers.people.detail.noValue'),
+      onSave: (next) => updateProfileField('department', next),
+    },
+    {
+      key: 'linkedInUrl',
+      kind: 'text',
+      label: t('customers.people.detail.fields.linkedIn'),
+      value: profile?.linkedInUrl ?? null,
+      placeholder: t('customers.people.detail.fields.linkedIn'),
+      emptyLabel: t('customers.people.detail.noValue'),
+      onSave: (next) => updateProfileField('linkedInUrl', next),
+      inputType: 'url',
+    },
+    {
+      key: 'twitterUrl',
+      kind: 'text',
+      label: t('customers.people.detail.fields.twitter'),
+      value: profile?.twitterUrl ?? null,
+      placeholder: t('customers.people.detail.fields.twitter'),
+      emptyLabel: t('customers.people.detail.noValue'),
+      onSave: (next) => updateProfileField('twitterUrl', next),
+      inputType: 'url',
+    },
   ]
 
   const customFieldEntries = Object.entries(data.customFields ?? {})
@@ -1444,7 +1802,19 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               <span aria-hidden className="mr-1 text-base">←</span>
               <span className="sr-only">{t('customers.people.detail.actions.backToList')}</span>
             </Link>
-            <h1 className="text-2xl font-semibold">{person.displayName}</h1>
+            <InlineTextEditor
+              label={t('customers.people.form.displayName.label')}
+              value={person.displayName}
+              placeholder={t('customers.people.form.displayName.placeholder')}
+              emptyLabel={t('customers.people.detail.noValue')}
+              validator={validators.displayName}
+              onSave={updateDisplayName}
+              hideLabel
+              variant="plain"
+              activateOnClick
+              triggerClassName="opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+              containerClassName="max-w-full"
+            />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -1499,11 +1869,11 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               )
             }}
           />
-          <InlineStatusEditor
+          <InlineDictionaryEditor
             label={t('customers.people.detail.highlights.status')}
             value={person.status ?? null}
             emptyLabel={t('customers.people.detail.noValue')}
-            labels={statusLabels}
+            labels={dictionaryLabels.statuses}
             onSave={async (next) => {
               const send = typeof next === 'string' ? next : ''
               await savePerson(
@@ -1516,6 +1886,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             }}
             dictionaryMap={dictionaryMaps.statuses}
             onAfterSave={() => loadDictionaryEntries('statuses')}
+            kind="statuses"
+            selectClassName="h-9 w-full min-w-[14rem] rounded border px-3 text-sm"
           />
           <InlineNextInteractionEditor
             label={t('customers.people.detail.highlights.nextInteraction')}
@@ -1608,12 +1980,44 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           <div className="space-y-3">
             <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.details')}</h2>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {detailFields.map((field) => (
-                <div key={field.label} className="rounded border bg-muted/20 p-3">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{field.label}</p>
-                  <div className="mt-1 text-sm break-words">{field.value}</div>
-                </div>
-              ))}
+              {detailFields.map((field) => {
+                if (field.kind === 'text') {
+                  return (
+                    <InlineTextEditor
+                      key={field.key}
+                      label={field.label}
+                      value={field.value}
+                      placeholder={field.placeholder}
+                      emptyLabel={field.emptyLabel}
+                      onSave={field.onSave}
+                      type={field.inputType}
+                      validator={field.validator}
+                      variant="muted"
+                      activateOnClick
+                      containerClassName="rounded border bg-muted/20 p-3"
+                      triggerClassName="h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+                    />
+                  )
+                }
+                return (
+                  <InlineDictionaryEditor
+                    key={field.key}
+                    label={field.label}
+                    value={field.value}
+                    emptyLabel={field.emptyLabel}
+                    labels={field.labels}
+                    onSave={field.onSave}
+                    dictionaryMap={field.dictionaryMap}
+                    onAfterSave={field.onAfterSave}
+                    kind={field.dictionaryKind}
+                    variant="muted"
+                    activateOnClick
+                    containerClassName="rounded border bg-muted/20 p-3"
+                    triggerClassName="h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+                    selectClassName={field.selectClassName}
+                  />
+                )
+              })}
             </div>
           </div>
 

@@ -5,12 +5,13 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -73,6 +74,11 @@ export function CustomerTodosTable(): JSX.Element {
     if (doneValue === 'true' || doneValue === 'false') usp.set('isDone', doneValue)
     return usp.toString()
   }, [page, pageSize, search, filters])
+
+  const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(params)), [params])
+  const exportConfig = React.useMemo(() => ({
+    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('customers/todos', currentParams, format),
+  }), [currentParams])
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<CustomerTodosResponse>({
     queryKey: ['customers-todos', params, scopeVersion],
@@ -193,6 +199,7 @@ export function CustomerTodosTable(): JSX.Element {
       )}
       columns={columns}
       data={rows}
+      exporter={exportConfig}
       searchValue={search}
       onSearchChange={(value) => {
         setSearch(value)

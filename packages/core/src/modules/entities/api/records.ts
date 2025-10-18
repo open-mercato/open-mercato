@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import type { QueryEngine, QueryOptions, Where, Sort } from '@open-mercato/shared/lib/query/types'
+import { normalizeExportFormat, serializeExport, defaultExportFilename, ensureColumns } from '@open-mercato/shared/lib/crud/exporters'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { setRecordCustomFields } from '../lib/helpers'
@@ -21,6 +22,8 @@ function parseBool(v: string | null, d = false) {
   return s === '1' || s === 'true' || s === 'yes'
 }
 
+const DEFAULT_EXPORT_PAGE_SIZE = 1000
+
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const entityId = url.searchParams.get('entityId') || ''
@@ -29,10 +32,12 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const format = (url.searchParams.get('format') || '').toLowerCase()
+  const requestedExport = normalizeExportFormat(url.searchParams.get('format'))
   const exportAll = parseBool(url.searchParams.get('all'), false)
-  const page = exportAll ? 1 : Math.max(parseInt(url.searchParams.get('page') || '1', 10) || 1, 1)
-  const pageSize = exportAll ? 100000 : Math.min(Math.max(parseInt(url.searchParams.get('pageSize') || '50', 10) || 50, 1), 100)
+  const noPagination = exportAll || requestedExport != null
+  const page = noPagination ? 1 : Math.max(parseInt(url.searchParams.get('page') || '1', 10) || 1, 1)
+  const basePageSize = Math.min(Math.max(parseInt(url.searchParams.get('pageSize') || '50', 10) || 50, 1), 100)
+  const pageSize = noPagination ? Math.max(basePageSize, DEFAULT_EXPORT_PAGE_SIZE) : basePageSize
   const sortField = url.searchParams.get('sortField') || 'id'
   const sortDir = (url.searchParams.get('sortDir') || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc'
   const withDeleted = parseBool(url.searchParams.get('withDeleted'), false)
@@ -58,6 +63,15 @@ export async function GET(req: Request) {
     } catch {}
     if (organizationIds && organizationIds.length === 0) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 0 })
+    }
+    const mapRow = (row: any) => {
+      if (!isCustomEntity || !row || typeof row !== 'object') return row
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(row)) {
+        if (k.startsWith('cf_')) out[k.replace(/^cf_/, '')] = v
+        else out[k] = v
+      }
+      return out
     }
     // Build filters with awareness of custom-entity mode
     const filtersObj: Where<any> = {}
@@ -110,75 +124,49 @@ export async function GET(req: Request) {
     for (const [k, v] of qpEntries) buildFilter(k, v, isCustomEntity)
     const res = await qe.query(entityId as any, qopts)
 
+    const firstItems = (res.items || []).map(mapRow)
     const payload = {
-      items: (res.items || []).map((row: any) => {
-        if (!isCustomEntity || !row || typeof row !== 'object') return row
-        const out: any = {}
-        for (const [k, v] of Object.entries(row)) {
-          if (k.startsWith('cf_')) out[k.replace(/^cf_/, '')] = v
-          else out[k] = v
-        }
-        return out
-      }),
+      items: firstItems,
       total: res.total || 0,
       page: res.page || page,
       pageSize: res.pageSize || pageSize,
       totalPages: Math.ceil((res.total || 0) / (res.pageSize || pageSize)),
     }
 
-    if (format === 'csv') {
-      const items = payload.items as any[]
-      const headers = Array.from(new Set(items.flatMap((it) => Object.keys(it || {}))))
-      const esc = (s: any) => {
-        const str = Array.isArray(s) ? s.join('; ') : (s == null ? '' : String(s))
-        return /[",\n\r]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str
-      }
-      const lines = [headers.join(','), ...items.map((it) => headers.map((h) => esc((it as any)[h])).join(','))]
-      return new Response(lines.join('\n'), {
-        headers: {
-          'content-type': 'text/csv; charset=utf-8',
-          'content-disposition': `attachment; filename="${(entityId || 'records').replace(/[^a-z0-9_\-]/gi, '_')}.csv"`,
-        },
-      })
-    }
-
-    if (format === 'json') {
-      const body = JSON.stringify(payload.items || [])
-      return new Response(body, {
-        headers: {
-          'content-type': 'application/json; charset=utf-8',
-          'content-disposition': `attachment; filename="${(entityId || 'records').replace(/[^a-z0-9_\-]/gi, '_')}.json"`,
-        },
-      })
-    }
-
-    if (format === 'xml') {
-      const items = (payload.items || []) as any[]
-      const escapeXml = (s: any) => String(s == null ? '' : s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;')
-      const toXml = (obj: Record<string, any>) => {
-        const parts: string[] = []
-        for (const [k, v] of Object.entries(obj)) {
-          const tag = k.replace(/[^a-zA-Z0-9_:-]/g, '_')
-          if (Array.isArray(v)) {
-            for (const vv of v) parts.push(`<${tag}>${escapeXml(vv)}</${tag}>`)
-          } else if (v != null && typeof v === 'object') {
-            parts.push(`<${tag}>${toXml(v)}</${tag}>`)
-          } else {
-            parts.push(`<${tag}>${escapeXml(v)}</${tag}>`)
-          }
+    if (requestedExport) {
+      const exportTotal = payload.total
+      const exportPageSize = pageSize
+      const allItems: any[] = [...firstItems]
+      if (exportTotal > allItems.length) {
+        let nextPage = 2
+        while (allItems.length < exportTotal) {
+          const nextRes = await qe.query(entityId as any, {
+            ...qopts,
+            page: { page: nextPage, pageSize: exportPageSize },
+          })
+          const nextItems = (nextRes.items || []).map(mapRow)
+          if (!nextItems.length) break
+          allItems.push(...nextItems)
+          if (nextItems.length < exportPageSize) break
+          nextPage += 1
         }
-        return parts.join('')
       }
-      const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<records>${items.map((it) => `<record>${toXml(it || {})}</record>`).join('')}</records>`
-      return new Response(xml, {
+      const normalizedRows = allItems.map((item) => {
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          return { ...(item as Record<string, unknown>) }
+        }
+        return { value: item }
+      })
+      const prepared = {
+        columns: ensureColumns(normalizedRows),
+        rows: normalizedRows,
+      }
+      const serialized = serializeExport(prepared, requestedExport)
+      const filename = defaultExportFilename(entityId || 'records', requestedExport)
+      return new Response(serialized.body, {
         headers: {
-          'content-type': 'application/xml; charset=utf-8',
-          'content-disposition': `attachment; filename="${(entityId || 'records').replace(/[^a-z0-9_\-]/gi, '_')}.xml"`,
+          'content-type': serialized.contentType,
+          'content-disposition': `attachment; filename="${filename}"`,
         },
       })
     }

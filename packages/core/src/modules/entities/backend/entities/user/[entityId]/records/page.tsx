@@ -4,10 +4,10 @@ import { useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { filterCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef } from '@open-mercato/ui/backend/FilterBar'
 import { ContextHelp } from '@open-mercato/ui/backend/ContextHelp'
-import { Button, buttonVariants } from '@open-mercato/ui/primitives/button'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import Link from 'next/link'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -148,106 +148,29 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     })
   }, [rawData, search])
 
-  function ExportDropdown() {
-    const buildExportUrl = (format: 'csv' | 'json' | 'xml') => {
-      const qp = new URLSearchParams({
-        entityId,
-        sortField: String(sorting?.[0]?.id || 'id'),
-        sortDir: sorting?.[0]?.desc ? 'desc' : 'asc',
-        format,
-        all: 'true',
-      })
-      for (const [k, v] of Object.entries(filterValues)) {
-        if (v == null) continue
-        if (Array.isArray(v)) {
-          if (v.length) qp.set(k, v.join(','))
-        } else if (typeof v !== 'object') qp.set(k, String(v))
+  const buildExportUrl = React.useCallback((format: DataTableExportFormat) => {
+    const qp = new URLSearchParams({
+      entityId,
+      sortField: String(sorting?.[0]?.id || 'id'),
+      sortDir: sorting?.[0]?.desc ? 'desc' : 'asc',
+      format,
+    })
+    for (const [k, v] of Object.entries(filterValues)) {
+      if (v == null) continue
+      if (Array.isArray(v)) {
+        if (v.length) qp.set(k, v.join(','))
+      } else if (typeof v !== 'object') {
+        qp.set(k, String(v))
       }
-      return `/api/entities/records?${qp.toString()}`
     }
+    return `/api/entities/records?${qp.toString()}`
+  }, [entityId, sorting, filterValues])
 
-    const [open, setOpen] = React.useState(false)
-    const btnRef = React.useRef<HTMLButtonElement>(null)
-    const menuRef = React.useRef<HTMLDivElement>(null)
-
-    React.useEffect(() => {
-      if (!open) return
-      const onDocClick = (e: MouseEvent) => {
-        const t = e.target as Node
-        if (menuRef.current && !menuRef.current.contains(t) && btnRef.current && !btnRef.current.contains(t)) {
-          setOpen(false)
-        }
-      }
-      const onKey = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') {
-          setOpen(false)
-          btnRef.current?.focus()
-        }
-      }
-      document.addEventListener('mousedown', onDocClick)
-      document.addEventListener('keydown', onKey)
-      return () => {
-        document.removeEventListener('mousedown', onDocClick)
-        document.removeEventListener('keydown', onKey)
-      }
-    }, [open])
-
-    return (
-      <div className="relative inline-block">
-        <button
-          ref={btnRef}
-          className={buttonVariants({ variant: 'outline' })}
-          onClick={() => setOpen((v) => !v)}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          type="button"
-        >
-          Export
-        </button>
-        {open ? (
-          <div
-            ref={menuRef}
-            role="menu"
-            className="absolute right-0 mt-2 w-40 rounded-md border bg-background p-1 shadow z-20"
-          >
-            <a
-              className="block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent"
-              href={buildExportUrl('csv')}
-              target="_blank"
-              rel="noreferrer"
-              onClick={() => setOpen(false)}
-            >
-              CSV
-            </a>
-            <a
-              className="block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent"
-              href={buildExportUrl('json')}
-              target="_blank"
-              rel="noreferrer"
-              onClick={() => setOpen(false)}
-            >
-              JSON
-            </a>
-            <a
-              className="block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent"
-              href={buildExportUrl('xml')}
-              target="_blank"
-              rel="noreferrer"
-              onClick={() => setOpen(false)}
-            >
-              XML
-            </a>
-          </div>
-        ) : null}
-      </div>
-    )
-  }
+  const exportConfig = React.useMemo(() => ({ getUrl: buildExportUrl }), [buildExportUrl])
 
   const hasAnyFormFields = React.useMemo(() => filterCustomFieldDefs(cfDefs as any, 'form').length > 0, [cfDefs])
   const actions = (
     <>
-      {/* Keep Export and Edit buttons outlined; primary Create on the right */}
-      <ExportDropdown />
       <Button asChild variant="outline" size="sm">
         <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}`}>
           Edit Entity Definition
@@ -370,6 +293,7 @@ export RECORD_ID="<record uuid>"`}</code></pre>
           actions={actions}
           columns={columns}
           data={data}
+          exporter={exportConfig}
           filters={baseFilters}
           filterValues={filterValues}
           rowActions={(row) => (

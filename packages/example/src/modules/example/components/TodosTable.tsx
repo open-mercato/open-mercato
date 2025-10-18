@@ -3,12 +3,12 @@ import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { fetchCrudList, buildCrudCsvUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { fetchCrudList, buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { fetchCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
@@ -117,6 +117,11 @@ export default function TodosTable() {
     return params.toString()
   }, [page, sorting, title, values])
 
+  const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
+  const exportConfig = React.useMemo(() => ({
+    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('example/todos', currentParams, format),
+  }), [currentParams])
+
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
     queryKey: ['todos', queryParams, scopeVersion],
     queryFn: async () => fetchCrudList<TodoListItem>('example/todos', Object.fromEntries(new URLSearchParams(queryParams))),
@@ -191,23 +196,13 @@ export default function TodosTable() {
     <DataTable
       title={t('example.todos.table.title')}
       actions={(
-        <>
-          <Button
-            variant="outline"
-            onClick={() => {
-              const url = buildCrudCsvUrl('example/todos', Object.fromEntries(new URLSearchParams(queryParams)))
-              window.open(url, '_blank')
-            }}
-          >
-            {t('example.todos.table.actions.export')}
-          </Button>
-          <Button asChild>
-            <Link href="/backend/todos/create">{t('example.todos.table.actions.create')}</Link>
-          </Button>
-        </>
+        <Button asChild>
+          <Link href="/backend/todos/create">{t('example.todos.table.actions.create')}</Link>
+        </Button>
       )}
       columns={columns}
       data={todosWithOrgNames}
+      exporter={exportConfig}
       searchValue={title}
       onSearchChange={(v) => {
         setTitle(v)

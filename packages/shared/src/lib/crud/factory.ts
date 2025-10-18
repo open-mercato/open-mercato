@@ -15,6 +15,7 @@ import type {
   CrudIdentifierResolver,
 } from './types'
 import { extractCustomFieldValuesFromPayload } from './custom-fields'
+import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
 import { CrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 
@@ -69,8 +70,158 @@ export type ListConfig<TList> = {
     row: (item: any) => (string | number | boolean | null | undefined)[]
     filename?: string
   }
+  export?: CrudExportOptions
 }
 
+export type CrudExportColumnConfig = {
+  field: string
+  header?: string
+  resolve?: (item: any) => unknown
+}
+
+export type CrudExportOptions = {
+  enabled?: boolean
+  formats?: CrudExportFormat[]
+  filename?: string | ((format: CrudExportFormat) => string)
+  columns?: CrudExportColumnConfig[]
+  batchSize?: number
+}
+
+const DEFAULT_EXPORT_FORMATS: CrudExportFormat[] = ['csv', 'json', 'xml', 'markdown']
+const DEFAULT_EXPORT_BATCH_SIZE = 1000
+const MIN_EXPORT_BATCH_SIZE = 100
+const MAX_EXPORT_BATCH_SIZE = 10000
+
+type ColumnResolver = {
+  field: string
+  header: string
+  resolve: (item: any) => unknown
+}
+
+function resolveAvailableExportFormats(list?: ListConfig<any>): CrudExportFormat[] {
+  if (!list) return []
+  if (list.export?.enabled === false) return []
+  const formats = list.export?.formats && list.export.formats.length > 0
+    ? [...list.export.formats]
+    : [...DEFAULT_EXPORT_FORMATS]
+  if (!list.export?.formats && list.allowCsv && !formats.includes('csv')) formats.push('csv')
+  return Array.from(new Set(formats))
+}
+
+function resolveExportBatchSize(list: ListConfig<any> | undefined, requestedPageSize: number): number {
+  const fallback = Math.max(requestedPageSize, DEFAULT_EXPORT_BATCH_SIZE)
+  const raw = list?.export?.batchSize ?? fallback
+  return Math.min(Math.max(raw, MIN_EXPORT_BATCH_SIZE), MAX_EXPORT_BATCH_SIZE)
+}
+
+function sanitizeFieldName(base: string, used: Set<string>, fallbackIndex: number): string {
+  const trimmed = base.trim()
+  const sanitized = trimmed.replace(/[^a-zA-Z0-9_\-]/g, '_') || `field_${fallbackIndex}`
+  const normalized = /^[A-Za-z_]/.test(sanitized) ? sanitized : `f_${sanitized}`
+  let candidate = normalized
+  let counter = 1
+  while (used.has(candidate)) {
+    candidate = `${normalized}_${counter++}`
+  }
+  used.add(candidate)
+  return candidate
+}
+
+function buildExportFromColumns(items: any[], columnsConfig: CrudExportColumnConfig[]): PreparedExport {
+  const used = new Set<string>()
+  const columns: ColumnResolver[] = columnsConfig.map((col, idx) => {
+    const fieldName = sanitizeFieldName(col.field || `field_${idx}`, used, idx)
+    const header = col.header?.trim().length ? col.header!.trim() : col.field || `Field ${idx + 1}`
+    const resolver = col.resolve
+      ? col.resolve
+      : ((item: any) => (item != null ? (item as any)[col.field] : undefined))
+    return { field: fieldName, header, resolve: resolver }
+  })
+  const rows = items.map((item) => {
+    const row: Record<string, unknown> = {}
+    columns.forEach((column) => {
+      try {
+        row[column.field] = column.resolve(item)
+      } catch {
+        row[column.field] = undefined
+      }
+    })
+    return row
+  })
+  return {
+    columns: columns.map(({ field, header }) => ({ field, header })),
+    rows,
+  }
+}
+
+function buildExportFromCsv(items: any[], csv: NonNullable<ListConfig<any>['csv']>): PreparedExport {
+  const used = new Set<string>()
+  const columns = csv.headers.map((header, idx) => ({
+    field: sanitizeFieldName(header || `column_${idx + 1}`, used, idx),
+    header: header || `Column ${idx + 1}`,
+  }))
+  const rows = items.map((item) => {
+    const values = csv.row(item) || []
+    const row: Record<string, unknown> = {}
+    columns.forEach((column, idx) => {
+      row[column.field] = values[idx]
+    })
+    return row
+  })
+  return { columns, rows }
+}
+
+function buildDefaultExport(items: any[]): PreparedExport {
+  const rows = items.map((item) => {
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      return { ...(item as Record<string, unknown>) }
+    }
+    return { value: item }
+  })
+  return {
+    columns: ensureColumns(rows),
+    rows,
+  }
+}
+
+function prepareExportData(items: any[], list: ListConfig<any>): PreparedExport {
+  if (list.export?.columns && list.export.columns.length > 0) {
+    return buildExportFromColumns(items, list.export.columns)
+  }
+  if (list.csv && list.csv.headers && list.csv.row) {
+    return buildExportFromCsv(items, list.csv)
+  }
+  const prepared = buildDefaultExport(items)
+  return {
+    columns: ensureColumns(prepared.rows, prepared.columns),
+    rows: prepared.rows,
+  }
+}
+
+function finalizeExportFilename(list: ListConfig<any>, format: CrudExportFormat, fallbackBase: string): string {
+  const extension = format === 'markdown' ? 'md' : format
+  const fromExport = list.export?.filename
+  const apply = (value: string | null | undefined): string | null => {
+    if (!value) return null
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    const sanitized = trimmed.replace(/[^a-z0-9_\-\.]/gi, '_')
+    if (sanitized.toLowerCase().endsWith(`.${extension}`)) return sanitized
+    return `${sanitized}.${extension}`
+  }
+  if (typeof fromExport === 'function') {
+    const computed = apply(fromExport(format))
+    if (computed) return computed
+  } else {
+    const computed = apply(fromExport)
+    if (computed) return computed
+  }
+  if (format === 'csv' && list.csv?.filename) {
+    const csvName = apply(list.csv.filename)
+    if (csvName) return csvName
+  }
+  return defaultExportFilename(fallbackBase, format)
+}
 export type CreateConfig<TCreate> = {
   schema: z.ZodType<TCreate>
   mapToEntity: (input: TCreate, ctx: CrudCtx) => Record<string, any>
@@ -383,6 +534,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       await opts.hooks?.beforeList?.(validated as any, ctx)
 
+      const availableFormats = resolveAvailableExportFormats(opts.list)
+      const requestedExport = normalizeExportFormat((queryParams as any).format)
+      const exportRequested = requestedExport != null && availableFormats.includes(requestedExport)
+      const requestedPage = Number((queryParams as any).page ?? 1) || 1
+      const requestedPageSize = Math.min(Math.max(Number((queryParams as any).pageSize ?? 50) || 50, 1), 100)
+      const exportPageSize = exportRequested ? resolveExportBatchSize(opts.list, requestedPageSize) : requestedPageSize
+
       // Prefer query engine when configured
       let result: any
       if (opts.list.entityId && opts.list.fields) {
@@ -391,10 +549,15 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const sortDirRaw = ((queryParams as any).sortDir || 'asc').toLowerCase() === 'desc' ? SortDir.Desc : SortDir.Asc
         const sortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
         const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
-        const page: Page = {
-          page: Number((queryParams as any).page ?? 1) || 1,
-          pageSize: Math.min(Math.max(Number((queryParams as any).pageSize ?? 50) || 50, 1), 100),
-        }
+        const availableFormats = resolveAvailableExportFormats(opts.list)
+        const requestedExport = normalizeExportFormat((queryParams as any).format)
+        const exportRequested = requestedExport != null && availableFormats.includes(requestedExport)
+        const requestedPage = Number((queryParams as any).page ?? 1) || 1
+        const requestedPageSize = Math.min(Math.max(Number((queryParams as any).pageSize ?? 50) || 50, 1), 100)
+        const exportPageSize = exportRequested ? resolveExportBatchSize(opts.list, requestedPageSize) : requestedPageSize
+        const page: Page = exportRequested
+          ? { page: 1, pageSize: exportPageSize }
+          : { page: requestedPage, pageSize: requestedPageSize }
         const filters = opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>)
         const withDeleted = String((queryParams as any).withDeleted || 'false') === 'true'
         if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
@@ -438,21 +601,46 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           query: validated,
         })
 
-        // CSV
-        const format = (queryParams as any).format
-        if (opts.list.allowCsv && format === 'csv' && opts.list.csv) {
-          const head = opts.list.csv.headers
-          const rows = items.map((x: any) => opts.list!.csv!.row(x).map(String))
-          const csv = [head.join(','), ...rows.map(r => r.map(s => (/[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s)).join(','))].join('\n')
-          return new Response(csv, {
+        if (exportRequested && requestedExport) {
+          const total = typeof res.total === 'number' ? res.total : items.length
+          let allItems = [...items]
+          if (total > allItems.length) {
+            const exportPageSizeNumber = typeof page.pageSize === 'number' ? page.pageSize : exportPageSize
+            const queryBase: any = { ...queryOpts }
+            delete queryBase.page
+            let nextPage = 2
+            while (allItems.length < total) {
+              const nextRes = await qe.query(opts.list.entityId as any, {
+                ...queryBase,
+                page: { page: nextPage, pageSize: exportPageSizeNumber },
+              })
+              const nextItemsRaw = nextRes.items || []
+              if (!nextItemsRaw.length) break
+              const transformed = nextItemsRaw.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+              allItems.push(...transformed)
+              if (transformed.length < exportPageSizeNumber) break
+              nextPage += 1
+            }
+          }
+          const prepared = prepareExportData(allItems, opts.list)
+          const filename = finalizeExportFilename(opts.list, requestedExport, opts.events?.entity || resourceKind || 'list')
+          const serialized = serializeExport(prepared, requestedExport)
+          await opts.hooks?.afterList?.({ items: allItems, total, page: 1, pageSize: allItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
+          return new Response(serialized.body, {
             headers: {
-              'content-type': 'text/csv; charset=utf-8',
-              'content-disposition': `attachment; filename="${opts.list.csv.filename || opts.events?.entity || 'list'}.csv"`,
+              'content-type': serialized.contentType,
+              'content-disposition': `attachment; filename="${filename}"`,
             },
           })
         }
 
-        const payload = { items, total: res.total, page: page.page, pageSize: page.pageSize, totalPages: Math.ceil(res.total / (page.pageSize || 1)) }
+        const payload = {
+          items,
+          total: res.total,
+          page: page.page || requestedPage,
+          pageSize: page.pageSize || requestedPageSize,
+          totalPages: Math.ceil(res.total / (Number(page.pageSize) || 1)),
+        }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
         return json(payload)
       }
@@ -495,6 +683,18 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         tenantId: ctx.auth.tenantId ?? null,
         query: validated,
       })
+      if (exportRequested && requestedExport) {
+        const prepared = prepareExportData(list, opts.list)
+        const filename = finalizeExportFilename(opts.list, requestedExport, opts.events?.entity || resourceKind || 'list')
+        const serialized = serializeExport(prepared, requestedExport)
+        await opts.hooks?.afterList?.({ items: list, total: list.length, page: 1, pageSize: list.length, totalPages: 1 }, { ...ctx, query: validated as any })
+        return new Response(serialized.body, {
+          headers: {
+            'content-type': serialized.contentType,
+            'content-disposition': `attachment; filename="${filename}"`,
+          },
+        })
+      }
       await opts.hooks?.afterList?.({ items: list, total: list.length }, { ...ctx, query: validated as any })
       return json({ items: list, total: list.length })
     } catch (e) {
