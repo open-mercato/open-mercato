@@ -118,10 +118,25 @@ export default function TodosTable() {
     return params.toString()
   }, [page, sorting, title, values])
 
+  const { data: cfDefs } = useQuery({
+    queryKey: ['cf-defs', 'example:todo'],
+    queryFn: async () => fetchCustomFieldDefs('example:todo'),
+  })
+
   const [columns, setColumns] = React.useState<ColumnDef<TodoRow>[]>([])
+  const computedColumns = React.useMemo(() => {
+    const base = buildBaseColumns(t)
+    if (!cfDefs) return base
+    return applyCustomFieldVisibility(base, cfDefs)
+  }, [cfDefs, t])
+
+  React.useEffect(() => {
+    setColumns(computedColumns)
+  }, [computedColumns])
 
   const viewExportColumns = React.useMemo(() => {
-    return (columns || [])
+    const sourceColumns = columns.length ? columns : computedColumns
+    return sourceColumns
       .map((col) => {
         const accessorKey = (col as any).accessorKey
         if (!accessorKey || typeof accessorKey !== 'string') return null
@@ -134,7 +149,7 @@ export default function TodosTable() {
         return { field: accessorKey, header }
       })
       .filter((col): col is { field: string; header: string } => !!col)
-  }, [columns])
+  }, [columns, computedColumns])
 
   const fullExportParams = React.useMemo(() => {
     const params: Record<string, string> = { exportScope: 'full', all: 'true' }
@@ -145,6 +160,8 @@ export default function TodosTable() {
     }
     return params
   }, [sorting])
+
+  const effectiveColumns = columns.length ? columns : computedColumns
 
   const exportConfig = React.useMemo(() => ({
     view: {
@@ -176,17 +193,6 @@ export default function TodosTable() {
     queryKey: ['todos', queryParams, scopeVersion],
     queryFn: async () => fetchCrudList<TodoListItem>('example/todos', Object.fromEntries(new URLSearchParams(queryParams))),
   })
-
-  const { data: cfDefs } = useQuery({
-    queryKey: ['cf-defs', 'example:todo'],
-    queryFn: async () => fetchCustomFieldDefs('example:todo'),
-  })
-
-  const columns = React.useMemo(() => {
-    const base = buildBaseColumns(t)
-    if (!cfDefs) return base
-    return applyCustomFieldVisibility(base, cfDefs)
-  }, [cfDefs, t])
 
   const organizationIds = React.useMemo(() => {
     if (!todosData?.items) return []
@@ -250,7 +256,7 @@ export default function TodosTable() {
           <Link href="/backend/todos/create">{t('example.todos.table.actions.create')}</Link>
         </Button>
       )}
-      columns={columns}
+      columns={effectiveColumns}
       data={todosWithOrgNames}
       exporter={exportConfig}
       searchValue={title}
