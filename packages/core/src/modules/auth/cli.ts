@@ -280,16 +280,13 @@ const setupApp: ModuleCli = {
     }
     if (employeeRole) {
       await ensureRoleAclFor(employeeRole, seedTenantId, [
+        'customers.*',
+        'customers.people.manage',
         'example.*',
-        'customers.people.view',
-        'customers.companies.view',
-        'customers.deals.view',
-        'customers.activities.view',
-        'customers.widgets.*',
+        'example.widgets.*',
         'dashboards.view',
         'dashboards.configure',
         'audit_logs.undo_self',
-        'example.widgets.*',
       ])
     }
 

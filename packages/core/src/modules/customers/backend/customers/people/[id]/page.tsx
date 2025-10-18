@@ -1149,10 +1149,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         if (typeof payload.name === 'string') bodyPayload.name = payload.name
         if (typeof payload.purpose === 'string') bodyPayload.purpose = payload.purpose
         if (typeof payload.addressLine2 === 'string') bodyPayload.addressLine2 = payload.addressLine2
+        if (typeof payload.buildingNumber === 'string') bodyPayload.buildingNumber = payload.buildingNumber
+        if (typeof payload.flatNumber === 'string') bodyPayload.flatNumber = payload.flatNumber
         if (typeof payload.city === 'string') bodyPayload.city = payload.city
         if (typeof payload.region === 'string') bodyPayload.region = payload.region
         if (typeof payload.postalCode === 'string') bodyPayload.postalCode = payload.postalCode
-        if (typeof payload.country === 'string') bodyPayload.country = payload.country
+        if (typeof payload.country === 'string') bodyPayload.country = payload.country.toUpperCase()
 
         const res = await apiFetch('/api/customers/addresses', {
           method: 'POST',
@@ -1191,10 +1193,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           purpose: payload.purpose ?? null,
           addressLine1: payload.addressLine1,
           addressLine2: payload.addressLine2 ?? null,
+          buildingNumber: payload.buildingNumber ?? null,
+          flatNumber: payload.flatNumber ?? null,
           city: payload.city ?? null,
           region: payload.region ?? null,
           postalCode: payload.postalCode ?? null,
-          country: payload.country ?? null,
+          country: payload.country ? payload.country.toUpperCase() : null,
           isPrimary: payload.isPrimary ?? false,
         }
         setData((prev) => {
@@ -1225,10 +1229,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         if (typeof payload.name === 'string') bodyPayload.name = payload.name
         if (typeof payload.purpose === 'string') bodyPayload.purpose = payload.purpose
         if (typeof payload.addressLine2 === 'string') bodyPayload.addressLine2 = payload.addressLine2
+        if (typeof payload.buildingNumber === 'string') bodyPayload.buildingNumber = payload.buildingNumber
+        if (typeof payload.flatNumber === 'string') bodyPayload.flatNumber = payload.flatNumber
         if (typeof payload.city === 'string') bodyPayload.city = payload.city
         if (typeof payload.region === 'string') bodyPayload.region = payload.region
         if (typeof payload.postalCode === 'string') bodyPayload.postalCode = payload.postalCode
-        if (typeof payload.country === 'string') bodyPayload.country = payload.country
+        if (typeof payload.country === 'string') bodyPayload.country = payload.country.toUpperCase()
 
         const res = await apiFetch('/api/customers/addresses', {
           method: 'PUT',
@@ -1271,10 +1277,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               purpose: payload.purpose ?? null,
               addressLine1: payload.addressLine1,
               addressLine2: payload.addressLine2 ?? null,
+              buildingNumber: payload.buildingNumber ?? null,
+              flatNumber: payload.flatNumber ?? null,
               city: payload.city ?? null,
               region: payload.region ?? null,
               postalCode: payload.postalCode ?? null,
-              country: payload.country ?? null,
+              country: payload.country ? payload.country.toUpperCase() : null,
               isPrimary: payload.isPrimary ?? false,
             }
           })

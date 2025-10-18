@@ -70,14 +70,16 @@ describe('auth CLI setup seeds ACLs', () => {
     ]))
     expect(adminAcl?.featuresJson).not.toContain('directory.organizations.*')
 
-    const employeeAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('customers.people.view'))
+    const employeeAcl = roleAclCreates.find((row) => Array.isArray(row.featuresJson) && row.featuresJson.includes('example.widgets.*'))
     expect(employeeAcl).toBeDefined()
     expect(employeeAcl?.featuresJson).toEqual(expect.arrayContaining([
-      'customers.people.view',
-      'customers.companies.view',
-      'customers.deals.view',
-      'customers.activities.view',
-      'customers.widgets.*',
+      'customers.*',
+      'customers.people.manage',
+      'example.*',
+      'example.widgets.*',
+      'dashboards.view',
+      'dashboards.configure',
+      'audit_logs.undo_self',
     ]))
   })
 })
