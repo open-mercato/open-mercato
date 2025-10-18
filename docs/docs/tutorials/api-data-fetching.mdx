@@ -89,12 +89,13 @@ Highlights:
 
 ## 3) Client fetching with UI helpers
 
-In your React component, use fetchCrudList for typed fetching and buildCrudCsvUrl for exports.
+In your React component, use `fetchCrudList` for typed fetching and `buildCrudExportUrl` together with the DataTable `exporter` prop for exports.
 
 ```tsx
+import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import { fetchCrudList, buildCrudCsvUrl } from '@open-mercato/ui/backend/utils/crud'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import { fetchCrudList, buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 
 type ProductRow = { id: string; created_at?: string; cf_sku?: string; cf_price?: number }
 
@@ -105,14 +106,16 @@ export function ProductsTable() {
     queryFn: () => fetchCrudList<ProductRow>('inventory/products', params),
   })
 
+  const exportConfig = React.useMemo(() => ({
+    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('inventory/products', params, format),
+  }), [params])
+
   return (
     <DataTable
       title="Products"
       data={data?.items || []}
       columns={[{ accessorKey: 'id', header: 'ID' }, { accessorKey: 'cf_sku', header: 'SKU' }, { accessorKey: 'cf_price', header: 'Price' }]}
-      actions={(
-        <button onClick={() => window.open(buildCrudCsvUrl('inventory/products', params), '_blank')}>Export</button>
-      )}
+      exporter={exportConfig}
       isLoading={isLoading}
     />
   )

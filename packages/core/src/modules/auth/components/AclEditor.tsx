@@ -272,12 +272,12 @@ export function AclEditor({
                     </div>
                   </div>
                   {nestedWildcards.length > 0 && (
-                    <div className="space-y-3 mb-3 pl-4 ml-1 border-l">
+                    <div className="space-y-3 mb-3">
                       {nestedWildcards.map(({ wildcard, features: wildcardFeatures }) => {
                         const checked = granted.includes(wildcard) || hasGlobalWildcard || moduleWildcard
                         const disabled = hasGlobalWildcard || moduleWildcard
                         return (
-                          <div key={wildcard} className="space-y-1">
+                          <div key={wildcard} className="space-y-2">
                             <div className="flex items-center gap-2">
                               <input
                                 id={`wildcard-${wildcard}`}
@@ -296,10 +296,10 @@ export function AclEditor({
                               </label>
                             </div>
                             {wildcardFeatures.length > 0 && (
-                              <div className="pl-6 space-y-1">
+                              <div className="relative ml-6 pl-4 text-sm text-muted-foreground space-y-1">
+                                <div className="absolute left-0 top-1 bottom-1 w-px bg-border" aria-hidden />
                                 {wildcardFeatures.map((wf) => (
-                                  <div key={`${wildcard}-${wf.id}`} className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <span aria-hidden>•</span>
+                                  <div key={`${wildcard}-${wf.id}`} className="pl-2">
                                     <span>
                                       {wf.title}{' '}
                                       <span className="text-xs font-mono text-muted-foreground">({wf.id})</span>

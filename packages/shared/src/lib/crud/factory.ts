@@ -206,8 +206,11 @@ function finalizeExportFilename(list: ListConfig<any>, format: CrudExportFormat,
     const trimmed = value.trim()
     if (!trimmed) return null
     const sanitized = trimmed.replace(/[^a-z0-9_\-\.]/gi, '_')
-    if (sanitized.toLowerCase().endsWith(`.${extension}`)) return sanitized
-    return `${sanitized}.${extension}`
+    const lower = sanitized.toLowerCase()
+    if (lower.endsWith(`.${extension}`)) return sanitized
+    const withoutExtension = sanitized.includes('.') ? sanitized.replace(/\.[^.]+$/, '') : sanitized
+    const base = withoutExtension.trim().length > 0 ? withoutExtension : sanitized
+    return `${base}.${extension}`
   }
   if (typeof fromExport === 'function') {
     const computed = apply(fromExport(format))

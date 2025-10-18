@@ -87,7 +87,8 @@ This exports `metadata` and HTTP handlers, which the modules registry auto-disco
   - sortFieldMap: map UI sort keys to datamodel fields (e.g. `cf_priority -> 'cf:priority'`)
   - buildFilters(query, ctx): produce typed QueryEngine filters
   - transformItem: post-process each item
-  - allowCsv + csv: enable CSV export with headers/row() + optional filename
+  - export: configure export formats (CSV/JSON/XML/Markdown), filename, and optional column mappings
+  - csv: legacy helper for specifying export columns/rows; still used to infer export data when `export` is omitted
 - create: CreateConfig
   - schema: zod
   - mapToEntity: input -> entity data (org/tenant injected automatically)

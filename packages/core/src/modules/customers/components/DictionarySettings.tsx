@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
 import { ICON_SUGGESTIONS, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
+import { AppearanceSelector } from './AppearanceSelector'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -392,97 +393,26 @@ function DictionarySection({
   }, [deleteConfirmTemplate, errorDelete, kind, loadEntries, successDelete])
 
   const AppearanceInputs = () => {
-    const hasAppearance = Boolean(formState.icon || formState.color)
     return (
       <>
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 text-sm font-medium">
-            {dialogColorLabel}
-            {renderDictionaryColor(formState.color, 'h-4 w-4 rounded-sm')}
-          </label>
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              type="color"
-              value={formState.color || '#4f46e5'}
-              onChange={(event) => handleInputChange('color', event.target.value)}
-              className="h-9 w-12 cursor-pointer rounded border bg-background p-1"
-              aria-label={dialogColorLabel}
-              disabled={saving}
-            />
-            <span className="min-w-[160px] flex-1 text-xs text-muted-foreground">{dialogColorHelp}</span>
-            {formState.color ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => handleInputChange('color', '')}
-                disabled={saving}
-              >
-                {dialogColorClearLabel}
-              </Button>
-            ) : null}
-          </div>
-        </div>
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 text-sm font-medium">
-            {dialogIconLabel}
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded border border-dashed">
-              {renderDictionaryIcon(formState.icon, 'h-4 w-4')}
-            </span>
-          </label>
-          <input
-            type="text"
-            value={formState.icon}
-            onChange={(event) => handleInputChange('icon', event.target.value)}
-            placeholder={dialogIconPlaceholder}
-            className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            disabled={saving}
-          />
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <div className="inline-flex items-center gap-2 rounded border border-dashed px-2 py-1">
-              {renderDictionaryIcon(formState.icon, 'h-4 w-4')}
-              {renderDictionaryColor(formState.color, 'h-4 w-4 rounded-sm')}
-            </div>
-            <span>{hasAppearance ? '' : appearanceEmptyLabel}</span>
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {dialogIconSuggestionsLabel}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {ICON_SUGGESTIONS.map((suggestion) => {
-                const isSelected = formState.icon === suggestion.value
-                return (
-                  <button
-                    key={suggestion.value}
-                    type="button"
-                    className={`flex h-8 w-8 items-center justify-center rounded border text-sm transition ${
-                      isSelected ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary'
-                    }`}
-                    onClick={() => handleInputChange('icon', suggestion.value)}
-                    title={suggestion.label}
-                    aria-label={suggestion.label}
-                    aria-pressed={isSelected}
-                    disabled={saving}
-                  >
-                    {renderDictionaryIcon(suggestion.value, 'h-4 w-4')}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-          {formState.icon ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => handleInputChange('icon', '')}
-              disabled={saving}
-            >
-              {dialogIconClearLabel}
-            </Button>
-          ) : null}
-        </div>
+        <AppearanceSelector
+          icon={formState.icon || null}
+          color={formState.color || null}
+          onIconChange={(next) => handleInputChange('icon', next ?? '')}
+          onColorChange={(next) => handleInputChange('color', next ?? '')}
+          iconSuggestions={ICON_SUGGESTIONS}
+          disabled={saving}
+          labels={{
+            colorLabel: dialogColorLabel,
+            colorHelp: dialogColorHelp,
+            colorClearLabel: dialogColorClearLabel,
+            iconLabel: dialogIconLabel,
+            iconPlaceholder: dialogIconPlaceholder,
+            iconSuggestionsLabel: dialogIconSuggestionsLabel,
+            iconClearLabel: dialogIconClearLabel,
+            previewEmptyLabel: appearanceEmptyLabel,
+          }}
+        />
       </>
     )
   }

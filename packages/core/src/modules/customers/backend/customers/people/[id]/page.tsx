@@ -91,6 +91,8 @@ type PersonOverview = {
     nextInteractionAt?: string | null
     nextInteractionName?: string | null
     nextInteractionRefId?: string | null
+    nextInteractionIcon?: string | null
+    nextInteractionColor?: string | null
     organizationId?: string | null
   }
   profile: {
@@ -565,13 +567,23 @@ type DetailFieldConfig =
 
 type ProfileEditableField = 'firstName' | 'lastName' | 'jobTitle' | 'department' | 'linkedInUrl' | 'twitterUrl'
 
+type NextInteractionPayload = {
+  at: string
+  name: string
+  refId?: string | null
+  icon?: string | null
+  color?: string | null
+}
+
 type NextInteractionEditorProps = {
   label: string
   valueAt: string | null | undefined
   valueName: string | null | undefined
   valueRefId: string | null | undefined
+  valueIcon: string | null | undefined
+  valueColor: string | null | undefined
   emptyLabel: string
-  onSave: (next: { at: string; name: string; refId?: string | null } | null) => Promise<void>
+  onSave: (next: NextInteractionPayload | null) => Promise<void>
 }
 
 function InlineNextInteractionEditor({
