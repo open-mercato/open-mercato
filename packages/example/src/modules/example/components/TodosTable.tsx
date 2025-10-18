@@ -118,6 +118,8 @@ export default function TodosTable() {
     return params.toString()
   }, [page, sorting, title, values])
 
+  const [columns, setColumns] = React.useState<ColumnDef<TodoRow>[]>([])
+
   const viewExportColumns = React.useMemo(() => {
     return (columns || [])
       .map((col) => {

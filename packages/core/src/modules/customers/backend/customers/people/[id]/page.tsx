@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -29,6 +30,7 @@ import {
 import { AppearanceSelector } from '../../../../components/AppearanceSelector'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../../../../components/AddressTiles'
 import { useEmailDuplicateCheck } from '../../../hooks/useEmailDuplicateCheck'
+import { lookupPhoneDuplicate } from '../../../../utils/phoneDuplicates'
 
 type TagSummary = { id: string; label: string; color?: string | null }
 type AddressSummary = {
@@ -190,6 +192,8 @@ function InlineTextEditor({
   const [saving, setSaving] = React.useState(false)
   const trimmedDraft = React.useMemo(() => draft.trim(), [draft])
   const isEmailField = type === 'email'
+  const isPhoneField = type === 'tel'
+  const currentRecordId = React.useMemo(() => (typeof recordId === 'string' ? recordId : null), [recordId])
   const isValidEmailForLookup = React.useMemo(() => {
     if (!isEmailField) return false
     if (!trimmedDraft.length) return false
@@ -197,10 +201,17 @@ function InlineTextEditor({
     return validator(trimmedDraft) === null
   }, [isEmailField, trimmedDraft, validator])
   const { duplicate, checking } = useEmailDuplicateCheck(draft, {
-    recordId,
+    recordId: currentRecordId,
     disabled: !editing || !isEmailField || !!error || saving || !isValidEmailForLookup,
     matchMode: 'prefix',
   })
+  const handlePhoneDuplicateLookup = React.useCallback(
+    async (digits: string) => {
+      if (!isPhoneField || !editing || !!error || saving) return null
+      return lookupPhoneDuplicate(digits, { recordId: currentRecordId })
+    },
+    [currentRecordId, editing, error, isPhoneField, saving]
+  )
   const containerClasses = cn(
     'group',
     variant === 'muted'
@@ -332,19 +343,37 @@ function InlineTextEditor({
           )}
           {editing ? (
             <div className={editingContainerClass}>
-              <input
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={draft}
-                onChange={(event) => {
-                  if (error) setError(null)
-                  setDraft(event.target.value)
-                }}
-                placeholder={placeholder}
-                type={type}
-                autoFocus
-              />
+              {isPhoneField ? (
+                <PhoneNumberField
+                  value={draft.length ? draft : undefined}
+                  onValueChange={(next) => {
+                    if (error) setError(null)
+                    setDraft(next ?? '')
+                  }}
+                  placeholder={placeholder}
+                  autoFocus
+                  disabled={saving}
+                  minDigits={7}
+                  checkingLabel={t('customers.people.form.phoneChecking')}
+                  duplicateLabel={(match) => t('customers.people.form.phoneDuplicateNotice', { name: match.label })}
+                  duplicateLinkLabel={t('customers.people.form.phoneDuplicateLink')}
+                  onDuplicateLookup={handlePhoneDuplicateLookup}
+                />
+              ) : (
+                <input
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft}
+                  onChange={(event) => {
+                    if (error) setError(null)
+                    setDraft(event.target.value)
+                  }}
+                  placeholder={placeholder}
+                  type={type}
+                  autoFocus
+                />
+              )}
               {error ? <p className="text-xs text-red-600">{error}</p> : null}
-              {!error && duplicate ? (
+              {!error && isEmailField && duplicate ? (
                 <p className="text-xs text-muted-foreground">
                   {t('customers.people.detail.inline.emailDuplicate', { name: duplicate.displayName })}{' '}
                   <Link
@@ -355,7 +384,7 @@ function InlineTextEditor({
                   </Link>
                 </p>
               ) : null}
-              {!error && !duplicate && checking && type === 'email' ? (
+              {!error && isEmailField && !duplicate && checking ? (
                 <p className="text-xs text-muted-foreground">
                   {t('customers.people.detail.inline.emailChecking')}
                 </p>
@@ -1940,6 +1969,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             emptyLabel={t('customers.people.detail.noValue')}
             type="tel"
             validator={validators.phone}
+            recordId={person.id}
             onSave={async (next) => {
               const send = typeof next === 'string' ? next : ''
               await savePerson(
@@ -1969,7 +1999,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             dictionaryMap={dictionaryMaps.statuses}
             onAfterSave={() => loadDictionaryEntries('statuses')}
             kind="statuses"
-            selectClassName="h-9 w-full min-w-[14rem] rounded border px-3 text-sm"
+            selectClassName="px-3"
           />
           <InlineNextInteractionEditor
             label={t('customers.people.detail.highlights.nextInteraction')}
@@ -1998,25 +2028,33 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           />
         </div>
 
-        <div>
-          <div className="flex flex-wrap items-center gap-2 border-b">
+          <div>
+          <div className="mb-2">
+            <nav
+              className="flex items-center gap-4 text-sm"
+              role="tablist"
+              aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}
+            >
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  'rounded-t-md px-3 py-2 text-sm font-medium transition',
+                  'relative -mb-px border-b-2 px-0 pb-1 pt-1 font-medium transition-colors',
                   activeTab === tab.id
-                    ? 'bg-background text-foreground shadow-inner'
-                    : 'text-muted-foreground hover:text-foreground'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 )}
               >
                 {tab.label}
               </button>
             ))}
+            </nav>
           </div>
-          <div className="rounded-b-md border border-t-0 p-6">
+          <div className="p-3 sm:p-4">
             <SectionLoader isLoading={sectionPending[activeTab as SectionKey]} />
             {activeTab === 'notes' && (
               <NotesTab

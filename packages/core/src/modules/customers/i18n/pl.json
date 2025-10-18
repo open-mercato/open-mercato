@@ -246,6 +246,7 @@
   "customers.people.detail.inline.nextInteractionIconSuggestions": "Sugestie",
   "customers.people.detail.inline.nextInteractionIconClear": "Usuń ikonę",
   "customers.people.detail.inline.nextInteractionAppearanceEmpty": "Brak wyróżnienia",
+  "customers.people.detail.tabs.label": "Sekcje szczegółów osoby",
   "customers.people.detail.inline.required": "To pole jest wymagane",
   "customers.people.detail.inline.urlInvalid": "Podaj poprawny adres URL",
   "customers.people.detail.anonymous": "Anonimowy",

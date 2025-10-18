@@ -201,6 +201,7 @@
   "customers.people.detail.tabs.deals": "Deals",
   "customers.people.detail.tabs.addresses": "Adressen",
   "customers.people.detail.tabs.tasks": "Aufgaben",
+  "customers.people.detail.tabs.label": "Bereiche der Personendetails",
   "customers.people.detail.highlights.primaryEmail": "E-Mail",
   "customers.people.detail.highlights.primaryPhone": "Telefon",
   "customers.people.detail.highlights.status": "Status",

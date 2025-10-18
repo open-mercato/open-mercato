@@ -209,6 +209,7 @@
   "customers.people.detail.tabs.deals": "Oportunidades",
   "customers.people.detail.tabs.addresses": "Direcciones",
   "customers.people.detail.tabs.tasks": "Tareas",
+  "customers.people.detail.tabs.label": "Secciones de detalles de la persona",
   "customers.people.detail.highlights.primaryEmail": "Correo electrónico",
   "customers.people.detail.highlights.primaryPhone": "Teléfono",
   "customers.people.detail.highlights.status": "Estado",

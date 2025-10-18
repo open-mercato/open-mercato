@@ -246,6 +246,7 @@
   "customers.people.detail.inline.nextInteractionIconSuggestions": "Suggestions",
   "customers.people.detail.inline.nextInteractionIconClear": "Remove icon",
   "customers.people.detail.inline.nextInteractionAppearanceEmpty": "No appearance selected",
+  "customers.people.detail.tabs.label": "Person detail sections",
   "customers.people.detail.inline.required": "This field is required",
   "customers.people.detail.inline.urlInvalid": "Enter a valid URL",
   "customers.people.detail.anonymous": "Anonymous",

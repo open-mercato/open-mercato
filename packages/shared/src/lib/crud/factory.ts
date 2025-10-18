@@ -574,7 +574,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const page: Page = exportRequested
           ? { page: 1, pageSize: exportPageSize }
           : { page: requestedPage, pageSize: requestedPageSize }
-        const filters = opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>)
+        const filters = exportFullRequested
+          ? ({} as Where<any>)
+          : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
         const withDeleted = String((queryParams as any).withDeleted || 'false') === 'true'
         if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
           logForbidden({
