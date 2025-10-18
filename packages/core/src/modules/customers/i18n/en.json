@@ -134,6 +134,8 @@
   "customers.people.list.filters.hasEmail": "Has email",
   "customers.people.list.filters.hasPhone": "Has phone",
   "customers.people.list.filters.hasNextInteraction": "Has next interaction",
+  "customers.people.list.export.view": "Exports the current list with filters and visible columns.",
+  "customers.people.list.export.full": "Exports every customer field, including hidden custom fields.",
   "customers.people.create.title": "Create Person",
   "customers.people.form.displayName": "Display name",
   "customers.people.form.firstName": "First name",
@@ -405,5 +407,7 @@
   "customers.workPlan.customerTodos.table.flash.refreshed": "Tasks refreshed",
   "customers.workPlan.customerTodos.table.state.noMatches": "No tasks match your filters.",
   "customers.workPlan.customerTodos.table.state.empty": "No customer tasks yet.",
-  "customers.workPlan.customerTodos.table.error.load": "Failed to load customer tasks."
+  "customers.workPlan.customerTodos.table.error.load": "Failed to load customer tasks.",
+  "customers.workPlan.customerTodos.table.export.view": "Exports the current list with filters and visible columns.",
+  "customers.workPlan.customerTodos.table.export.full": "Exports every linked task field, including hidden attributes."
 }

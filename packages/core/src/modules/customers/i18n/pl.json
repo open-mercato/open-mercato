@@ -134,6 +134,8 @@
   "customers.people.list.filters.hasEmail": "Ma e-mail",
   "customers.people.list.filters.hasPhone": "Ma telefon",
   "customers.people.list.filters.hasNextInteraction": "Ma zaplanowaną interakcję",
+  "customers.people.list.export.view": "Eksportuje bieżącą listę z uwzględnieniem filtrów i widocznych kolumn.",
+  "customers.people.list.export.full": "Eksportuje wszystkie pola klienta, w tym ukryte pola własne.",
   "customers.people.create.title": "Utwórz osobę",
   "customers.people.form.displayName": "Nazwa",
   "customers.people.form.firstName": "Imię",
@@ -405,5 +407,7 @@
   "customers.workPlan.customerTodos.table.flash.refreshed": "Zadania odświeżone",
   "customers.workPlan.customerTodos.table.state.noMatches": "Brak zadań spełniających filtry.",
   "customers.workPlan.customerTodos.table.state.empty": "Brak zadań klientów.",
-  "customers.workPlan.customerTodos.table.error.load": "Nie udało się wczytać zadań klientów."
+  "customers.workPlan.customerTodos.table.error.load": "Nie udało się wczytać zadań klientów.",
+  "customers.workPlan.customerTodos.table.export.view": "Eksportuje bieżącą listę z uwzględnieniem filtrów i widocznych kolumn.",
+  "customers.workPlan.customerTodos.table.export.full": "Eksportuje wszystkie pola powiązanego zadania, w tym ukryte atrybuty."
 }

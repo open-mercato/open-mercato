@@ -10,6 +10,7 @@ import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { fetchCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
+import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 
 let refreshScheduled = false
 function scheduleRouterRefresh(router: ReturnType<typeof useRouter>) {
@@ -53,9 +54,11 @@ export type DataTableExportFormat = 'csv' | 'json' | 'xml' | 'markdown'
 export type DataTableExportSectionConfig = {
   title?: string
   description?: string
-  getUrl: (format: DataTableExportFormat) => string
+  getUrl?: (format: DataTableExportFormat) => string
+  prepare?: (format: DataTableExportFormat) => Promise<PreparedExport | { prepared: PreparedExport; filename?: string } | null> | PreparedExport | { prepared: PreparedExport; filename?: string } | null
   formats?: DataTableExportFormat[]
   disabled?: boolean
+  filename?: (format: DataTableExportFormat) => string
 }
 
 export type DataTableExportConfig = {
@@ -66,6 +69,7 @@ export type DataTableExportConfig = {
   sections?: DataTableExportSectionConfig[]
   view?: DataTableExportSectionConfig
   full?: DataTableExportSectionConfig
+  filename?: (format: DataTableExportFormat) => string
 }
 
 export type DataTableProps<T> = {
@@ -113,7 +117,9 @@ type ResolvedExportSection = {
   title: string
   description?: string
   formats: DataTableExportFormat[]
-  getUrl: (format: DataTableExportFormat) => string
+  getUrl?: (format: DataTableExportFormat) => string
+  prepare?: (format: DataTableExportFormat) => Promise<{ prepared: PreparedExport; filename?: string } | null> | { prepared: PreparedExport; filename?: string } | null
+  filename?: (format: DataTableExportFormat) => string
   disabled: boolean
 }
 
@@ -122,7 +128,7 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
   const sections: ResolvedExportSection[] = []
   const baseFormats = config.formats && config.formats.length > 0 ? config.formats : DEFAULT_EXPORT_FORMATS
   const addSection = (key: string, section: DataTableExportSectionConfig | undefined | null, fallbackTitle: string) => {
-    if (!section || typeof section.getUrl !== 'function') return
+    if (!section || (!section.getUrl && !section.prepare)) return
     const title = section.title?.trim().length ? section.title!.trim() : fallbackTitle
     const seen = new Set<DataTableExportFormat>()
     const formatsSource = section.formats && section.formats.length > 0 ? section.formats : baseFormats
@@ -138,6 +144,15 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
       description: section.description,
       formats,
       getUrl: section.getUrl,
+      prepare: section.prepare
+        ? async (format: DataTableExportFormat) => {
+            const result = await section.prepare!(format)
+            if (!result) return null
+            if ('prepared' in result) return result
+            return { prepared: result }
+          }
+        : undefined,
+      filename: section.filename,
       disabled: Boolean(config.disabled || section.disabled),
     })
   }
@@ -190,14 +205,37 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
     }
   }, [open])
 
-  const handleSelect = (section: ResolvedExportSection, format: DataTableExportFormat) => {
+  const handleSelect = async (section: ResolvedExportSection, format: DataTableExportFormat) => {
     try {
-      const url = section.getUrl(format)
-      if (url && typeof window !== 'undefined') {
-        window.open(url, '_blank', 'noopener,noreferrer')
+      if (section.prepare) {
+        const preparedResult = await section.prepare(format)
+        if (!preparedResult) return
+        const prepared = preparedResult.prepared
+        const serialized = serializeExport(prepared, format)
+        const filename =
+          preparedResult.filename
+          ?? section.filename?.(format)
+          ?? config.filename?.(format)
+          ?? defaultExportFilename(section.title, format)
+        if (typeof window !== 'undefined') {
+          const blob = new Blob([serialized.body], { type: serialized.contentType })
+          const href = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = href
+          a.download = filename
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(href)
+        }
+      } else if (section.getUrl) {
+        const url = section.getUrl(format)
+        if (url && typeof window !== 'undefined') {
+          window.open(url, '_blank', 'noopener,noreferrer')
+        }
       }
     } catch {
-      // ignore malformed urls
+      // ignore export errors
     } finally {
       setOpen(false)
     }
@@ -240,7 +278,7 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
                     key={`${section.key}-${format}`}
                     type="button"
                     className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-accent"
-                    onClick={() => handleSelect(section, format)}
+                    onClick={() => void handleSelect(section, format)}
                     disabled={section.disabled}
                   >
                     {EXPORT_LABELS[format]}

@@ -164,8 +164,9 @@ export function defaultExportFilename(base: string | undefined | null, format: C
   return `${safeBase}.${suffix}`
 }
 
-function toHeaderLabel(key: string): string {
-  const normalized = key.replace(/[_\-\s]+/g, ' ').trim()
+export function toHeaderLabel(key: string): string {
+  const withoutPrefix = key.replace(/^cf[:_\-\s]+/i, '')
+  const normalized = withoutPrefix.replace(/[_\-\s]+/g, ' ').trim()
   if (!normalized) return 'Field'
   return normalized.replace(/\b\w/g, (char) => char.toUpperCase())
 }

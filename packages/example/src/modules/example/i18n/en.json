@@ -26,6 +26,8 @@
   "example.todos.table.confirm.delete": "Delete this todo?",
   "example.todos.table.error.delete": "Failed to delete todo.",
   "example.todos.table.error.generic": "Unable to load todos. Please try again.",
+  "example.todos.table.export.view": "Exports the current list with filters and visible columns.",
+  "example.todos.table.export.full": "Exports all todo fields, including hidden custom fields.",
   "example.todos.form.fields.title.label": "Title",
   "example.todos.form.fields.title.placeholder": "Write a clear title",
   "example.todos.form.fields.isDone.label": "Done",

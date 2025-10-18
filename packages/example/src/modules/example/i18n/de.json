@@ -26,6 +26,8 @@
   "example.todos.table.confirm.delete": "Dieses To-do löschen?",
   "example.todos.table.error.delete": "To-do konnte nicht gelöscht werden.",
   "example.todos.table.error.generic": "To-dos konnten nicht geladen werden. Bitte erneut versuchen.",
+  "example.todos.table.export.view": "Exportiert die aktuelle Liste mit Filtern und sichtbaren Spalten.",
+  "example.todos.table.export.full": "Exportiert alle To-do-Felder, einschließlich versteckter benutzerdefinierter Felder.",
   "example.todos.form.fields.title.label": "Titel",
   "example.todos.form.fields.title.placeholder": "Geben Sie einen aussagekräftigen Titel ein",
   "example.todos.form.fields.isDone.label": "Erledigt",

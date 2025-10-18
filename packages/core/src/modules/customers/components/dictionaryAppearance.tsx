@@ -168,15 +168,18 @@ export function renderDictionaryColor(color: string | null | undefined, classNam
 export function normalizeCustomerDictionaryEntries(items: unknown): CustomerDictionaryDisplayEntry[] {
   if (!Array.isArray(items)) return []
   return items
-    .map((item: any) => {
-      const rawValue = typeof item?.value === 'string' ? item.value.trim() : ''
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const candidate = item as Record<string, unknown>
+      const rawValue = typeof candidate.value === 'string' ? candidate.value.trim() : ''
       if (!rawValue) return null
-      const label = typeof item?.label === 'string' && item.label.trim().length ? item.label.trim() : rawValue
+      const label =
+        typeof candidate.label === 'string' && candidate.label.trim().length ? candidate.label.trim() : rawValue
       const color =
-        typeof item?.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(item.color)
-          ? `#${item.color.slice(1).toLowerCase()}`
+        typeof candidate.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(candidate.color)
+          ? `#${candidate.color.slice(1).toLowerCase()}`
           : null
-      const icon = typeof item?.icon === 'string' && item.icon.trim().length ? item.icon.trim() : null
+      const icon = typeof candidate.icon === 'string' && candidate.icon.trim().length ? candidate.icon.trim() : null
       return { value: rawValue, label, color, icon }
     })
     .filter((entry): entry is CustomerDictionaryDisplayEntry => !!entry)

@@ -1324,6 +1324,36 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     [data, t]
   )
 
+  const updateDisplayName = React.useCallback(
+    async (next: string | null) => {
+      const send = typeof next === 'string' ? next : ''
+      await savePerson(
+        { displayName: send },
+        (prev) => {
+          if (!prev) return prev
+          const nextValue = next && next.length ? next : prev.person.displayName
+          return { ...prev, person: { ...prev.person, displayName: nextValue } }
+        }
+      )
+    },
+    [savePerson]
+  )
+
+  const updateProfileField = React.useCallback(
+    async (field: ProfileEditableField, next: string | null) => {
+      const send = typeof next === 'string' ? next : ''
+      await savePerson(
+        { [field]: send },
+        (prev) => {
+          if (!prev || !prev.profile) return prev
+          const nextValue = next && next.length ? next : null
+          return { ...prev, profile: { ...prev.profile, [field]: nextValue } }
+        }
+      )
+    },
+    [savePerson]
+  )
+
   const dictionaryLabels = React.useMemo(() => ({
     statuses: {
       placeholder: t('customers.people.form.status.placeholder'),
@@ -1708,36 +1738,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   }
 
   const { person, profile } = data
-
-  const updateDisplayName = React.useCallback(
-    async (next: string | null) => {
-      const send = typeof next === 'string' ? next : ''
-      await savePerson(
-        { displayName: send },
-        (prev) => {
-          if (!prev) return prev
-          const nextValue = next && next.length ? next : prev.person.displayName
-          return { ...prev, person: { ...prev.person, displayName: nextValue } }
-        }
-      )
-    },
-    [savePerson]
-  )
-
-  const updateProfileField = React.useCallback(
-    async (field: ProfileEditableField, next: string | null) => {
-      const send = typeof next === 'string' ? next : ''
-      await savePerson(
-        { [field]: send },
-        (prev) => {
-          if (!prev || !prev.profile) return prev
-          const nextValue = next && next.length ? next : null
-          return { ...prev, profile: { ...prev.profile, [field]: nextValue } }
-        }
-      )
-    },
-    [savePerson]
-  )
 
   const detailFields: DetailFieldConfig[] = [
     {

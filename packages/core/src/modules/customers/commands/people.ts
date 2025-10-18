@@ -10,7 +10,7 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerAddress,
   CustomerComment,
@@ -511,7 +511,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
 
     return { entityId: record.id }
   },
-  buildLog: async ({ ctx, snapshots, input }) => {
+  buildLog: async ({ ctx, snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as PersonSnapshot | undefined
     if (!before) return null

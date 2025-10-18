@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
@@ -117,17 +118,57 @@ export default function TodosTable() {
     return params.toString()
   }, [page, sorting, title, values])
 
-  const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
+  const viewExportColumns = React.useMemo(() => {
+    return (columns || [])
+      .map((col) => {
+        const accessorKey = (col as any).accessorKey
+        if (!accessorKey || typeof accessorKey !== 'string') return null
+        if ((col as any).meta?.hidden) return null
+        const header = typeof col.header === 'string'
+          ? col.header
+          : accessorKey.startsWith('cf_')
+            ? accessorKey.slice(3)
+            : accessorKey
+        return { field: accessorKey, header }
+      })
+      .filter((col): col is { field: string; header: string } => !!col)
+  }, [columns])
+
+  const fullExportParams = React.useMemo(() => {
+    const params: Record<string, string> = { exportScope: 'full', all: 'true' }
+    const sort = sorting[0]
+    if (sort?.id) {
+      params.sortField = sort.id
+      params.sortDir = sort.desc ? 'desc' : 'asc'
+    }
+    return params
+  }, [sorting])
+
   const exportConfig = React.useMemo(() => ({
     view: {
-      getUrl: (format: DataTableExportFormat) =>
-        buildCrudExportUrl('example/todos', { ...currentParams, exportScope: 'view' }, format),
+      description: t('example.todos.table.export.view'),
+      prepare: async (): Promise<{ prepared: PreparedExport; filename: string }> => {
+        const rows = todosWithOrgNames.map((row) => {
+          const out: Record<string, unknown> = {}
+          for (const col of viewExportColumns) {
+            out[col.field] = (row as Record<string, unknown>)[col.field]
+          }
+          return out
+        })
+        const prepared: PreparedExport = {
+          columns: viewExportColumns.map((col) => ({ field: col.field, header: col.header })),
+          rows,
+        }
+        return { prepared, filename: 'todos_view' }
+      },
     },
     full: {
+      description: t('example.todos.table.export.full'),
       getUrl: (format: DataTableExportFormat) =>
-        buildCrudExportUrl('example/todos', { ...currentParams, exportScope: 'full', all: 'true' }, format),
+        buildCrudExportUrl('example/todos', fullExportParams, format),
+      filename: () => 'todos_full',
     },
-  }), [currentParams])
+  }), [fullExportParams, t, todosWithOrgNames, viewExportColumns])
 
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
     queryKey: ['todos', queryParams, scopeVersion],

@@ -134,6 +134,8 @@
   "customers.people.list.filters.hasEmail": "Tiene correo electrónico",
   "customers.people.list.filters.hasPhone": "Tiene teléfono",
   "customers.people.list.filters.hasNextInteraction": "Próxima interacción programada",
+  "customers.people.list.export.view": "Exporta la lista actual respetando filtros y columnas visibles.",
+  "customers.people.list.export.full": "Exporta todos los campos del cliente, incluidos los campos personalizados ocultos.",
   "customers.people.create.title": "Crear persona",
   "customers.people.form.displayName": "Nombre para mostrar",
   "customers.people.form.firstName": "Nombre",
@@ -399,5 +401,7 @@
   "customers.workPlan.customerTodos.table.flash.refreshed": "Tareas actualizadas",
   "customers.workPlan.customerTodos.table.state.noMatches": "Ninguna tarea coincide con tus filtros.",
   "customers.workPlan.customerTodos.table.state.empty": "Aún no hay tareas de clientes.",
-  "customers.workPlan.customerTodos.table.error.load": "No se pudieron cargar las tareas de clientes."
+  "customers.workPlan.customerTodos.table.error.load": "No se pudieron cargar las tareas de clientes.",
+  "customers.workPlan.customerTodos.table.export.view": "Exporta la lista actual respetando filtros y columnas visibles.",
+  "customers.workPlan.customerTodos.table.export.full": "Exporta todos los campos de la tarea vinculada, incluidos los atributos personalizados ocultos."
 }

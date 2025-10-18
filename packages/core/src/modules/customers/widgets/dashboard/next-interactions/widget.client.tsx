@@ -39,12 +39,13 @@ async function loadNextInteractions(settings: CustomerNextInteractionsSettings):
     throw new Error(`Request failed with status ${response.status}`)
   }
   const payload = await response.json().catch(() => ({}))
-  const now = typeof (payload as any).now === 'string' ? (payload as any).now : undefined
-  const rawItems = Array.isArray((payload as any).items) ? (payload as any).items : []
+  const payloadData = payload as Record<string, unknown>
+  const now = typeof payloadData.now === 'string' ? payloadData.now : undefined
+  const rawItems = Array.isArray(payloadData.items) ? payloadData.items : []
   const items = rawItems
     .map((item): NextInteractionItem | null => {
       if (!item || typeof item !== 'object') return null
-      const data = item as any
+      const data = item as Record<string, unknown>
       return {
         id: typeof data.id === 'string' ? data.id : null,
         displayName: typeof data.displayName === 'string' ? data.displayName : null,

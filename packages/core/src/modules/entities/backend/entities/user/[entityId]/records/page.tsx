@@ -5,6 +5,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { filterCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import type { FilterDef } from '@open-mercato/ui/backend/FilterBar'
 import { ContextHelp } from '@open-mercato/ui/backend/ContextHelp'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -148,36 +149,64 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     })
   }, [rawData, search])
 
-  const buildExportUrl = React.useCallback((format: DataTableExportFormat, scope: 'view' | 'full') => {
+  const viewExportColumns = React.useMemo(() => {
+    return (columns || [])
+      .map((col) => {
+        const accessorKey = (col as any).accessorKey
+        if (!accessorKey || typeof accessorKey !== 'string') return null
+        if ((col as any).meta?.hidden) return null
+        const header = typeof col.header === 'string'
+          ? col.header
+          : accessorKey.startsWith('cf_')
+            ? accessorKey.slice(3)
+            : accessorKey
+        return { field: accessorKey, header }
+      })
+      .filter((col): col is { field: string; header: string } => !!col)
+  }, [columns])
+
+  const buildFullExportUrl = React.useCallback((format: DataTableExportFormat) => {
     const qp = new URLSearchParams({
       entityId,
-      sortField: String(sorting?.[0]?.id || 'id'),
-      sortDir: sorting?.[0]?.desc ? 'desc' : 'asc',
       format,
-      exportScope: scope,
+      exportScope: 'full',
       all: 'true',
     })
-    for (const [k, v] of Object.entries(filterValues)) {
-      if (v == null) continue
-      if (Array.isArray(v)) {
-        if (v.length) qp.set(k, v.join(','))
-      } else if (typeof v !== 'object') {
-        qp.set(k, String(v))
-      }
+    const sort = sorting?.[0]
+    if (sort?.id) {
+      qp.set('sortField', String(sort.id))
+      qp.set('sortDir', sort.desc ? 'desc' : 'asc')
     }
     return `/api/entities/records?${qp.toString()}`
-  }, [entityId, sorting, filterValues])
+  }, [entityId, sorting])
 
-  const exportConfig = React.useMemo(() => ({
-    view: {
-      getUrl: (format: DataTableExportFormat) => buildExportUrl(format, 'view'),
-      description: 'Exports the current list respecting filters and column visibility.',
-    },
-    full: {
-      getUrl: (format: DataTableExportFormat) => buildExportUrl(format, 'full'),
-      description: 'Exports raw records with every field and custom field included.',
-    },
-  }), [buildExportUrl])
+  const exportConfig = React.useMemo(() => {
+    const safeEntityId = entityId.replace(/[^a-z0-9_-]/gi, '_') || 'records'
+    return {
+      view: {
+        description: 'Exports the current list respecting filters and column visibility.',
+        prepare: async (): Promise<{ prepared: PreparedExport; filename: string }> => {
+          const rowsForExport = data.map((row) => {
+            const out: Record<string, unknown> = {}
+            for (const col of viewExportColumns) {
+              out[col.field] = (row as Record<string, unknown>)[col.field]
+            }
+            return out
+          })
+          const prepared: PreparedExport = {
+            columns: viewExportColumns.map((col) => ({ field: col.field, header: col.header })),
+            rows: rowsForExport,
+          }
+          return { prepared, filename: `${safeEntityId}_view` }
+        },
+      },
+      full: {
+        description: 'Exports raw records with every field and custom field included.',
+        getUrl: (format: DataTableExportFormat) => buildFullExportUrl(format),
+        filename: () => `${safeEntityId}_full`,
+      },
+    }
+  }, [buildFullExportUrl, data, entityId, viewExportColumns])
 
   const hasAnyFormFields = React.useMemo(() => filterCustomFieldDefs(cfDefs as any, 'form').length > 0, [cfDefs])
   const actions = (

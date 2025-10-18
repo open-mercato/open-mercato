@@ -14,7 +14,7 @@ import type {
   CrudIndexerConfig,
   CrudIdentifierResolver,
 } from './types'
-import { extractCustomFieldValuesFromPayload } from './custom-fields'
+import { extractCustomFieldValuesFromPayload, extractAllCustomFieldEntries } from './custom-fields'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
 import { CrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
@@ -232,11 +232,13 @@ function normalizeFullRecordForExport(input: any): any {
   const record: Record<string, unknown> = {}
 
   for (const [key, value] of Object.entries(input)) {
-    if (key.startsWith('cf:')) {
-      record[`cf_${key.slice(3)}`] = value
-    } else {
-      record[key] = value
-    }
+    if (key.startsWith('cf_') || key.startsWith('cf:')) continue
+    record[key] = value
+  }
+  const custom = extractAllCustomFieldEntries(input)
+  for (const [rawKey, value] of Object.entries(custom)) {
+    const sanitizedKey = rawKey.replace(/^cf_/, '')
+    record[sanitizedKey] = value
   }
   return record
 }

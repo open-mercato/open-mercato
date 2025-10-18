@@ -18,6 +18,8 @@ import {
   DictionaryValue,
   createDictionaryMap,
   normalizeCustomerDictionaryEntries,
+  renderDictionaryColor,
+  renderDictionaryIcon,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
 } from '../../../components/dictionaryAppearance'
@@ -32,6 +34,8 @@ type PersonRow = {
   lifecycleStage?: string | null
   nextInteractionAt?: string | null
   nextInteractionName?: string | null
+  nextInteractionIcon?: string | null
+  nextInteractionColor?: string | null
   organizationId?: string | null
   source?: string | null
 } & Record<string, unknown>
@@ -44,6 +48,7 @@ type PeopleResponse = {
 }
 
 type DictionaryKindKey = CustomerDictionaryKind
+type DictionaryMap = CustomerDictionaryMap
 
 function formatDate(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback
@@ -63,6 +68,8 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
   const lifecycleStage = typeof item.lifecycle_stage === 'string' ? item.lifecycle_stage : null
   const nextInteractionAt = typeof item.next_interaction_at === 'string' ? item.next_interaction_at : null
   const nextInteractionName = typeof item.next_interaction_name === 'string' ? item.next_interaction_name : null
+  const nextInteractionIcon = typeof item.next_interaction_icon === 'string' ? item.next_interaction_icon : null
+  const nextInteractionColor = typeof item.next_interaction_color === 'string' ? item.next_interaction_color : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
   const customFields: Record<string, unknown> = {}
@@ -81,6 +88,8 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
     lifecycleStage,
     nextInteractionAt,
     nextInteractionName,
+    nextInteractionIcon,
+    nextInteractionColor,
     organizationId,
     source,
     ...customFields,
@@ -338,16 +347,28 @@ export default function CustomersPeoplePage() {
         accessorKey: 'nextInteractionAt',
         header: t('customers.people.list.columns.nextInteraction'),
         cell: ({ row }) =>
-        row.original.nextInteractionAt
-          ? (
-            <span className="flex flex-col text-sm">
-              <span>{formatDate(row.original.nextInteractionAt, t('customers.people.list.noValue'))}</span>
-              {row.original.nextInteractionName && (
-                <span className="text-xs text-muted-foreground">{row.original.nextInteractionName}</span>
-              )}
-            </span>
-          )
-          : <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
+          row.original.nextInteractionAt
+            ? (
+              <div className="flex items-start gap-2 text-sm">
+                {row.original.nextInteractionIcon ? (
+                  <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card">
+                    {renderDictionaryIcon(row.original.nextInteractionIcon, 'h-4 w-4')}
+                  </span>
+                ) : null}
+                <div className="flex flex-col">
+                  <span>{formatDate(row.original.nextInteractionAt, t('customers.people.list.noValue'))}</span>
+                  {row.original.nextInteractionName ? (
+                    <span className="text-xs text-muted-foreground">{row.original.nextInteractionName}</span>
+                  ) : null}
+                </div>
+                {row.original.nextInteractionColor ? (
+                  <span className="mt-1">
+                    {renderDictionaryColor(row.original.nextInteractionColor, 'h-3 w-3 rounded-full border border-border')}
+                  </span>
+                ) : null}
+              </div>
+            )
+            : <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
       },
       {
         accessorKey: 'source',

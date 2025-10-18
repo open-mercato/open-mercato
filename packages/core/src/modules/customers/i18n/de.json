@@ -134,6 +134,8 @@
   "customers.people.list.filters.hasEmail": "E-Mail vorhanden",
   "customers.people.list.filters.hasPhone": "Telefon vorhanden",
   "customers.people.list.filters.hasNextInteraction": "Nächste Interaktion geplant",
+  "customers.people.list.export.view": "Exportiert die aktuelle Liste mit Filtern und sichtbaren Spalten.",
+  "customers.people.list.export.full": "Exportiert alle Kundenfelder, einschließlich versteckter benutzerdefinierter Felder.",
   "customers.people.create.title": "Person erstellen",
   "customers.people.form.displayName": "Anzeigename",
   "customers.people.form.firstName": "Vorname",
@@ -389,5 +391,7 @@
   "customers.workPlan.customerTodos.table.flash.refreshed": "Aufgaben aktualisiert",
   "customers.workPlan.customerTodos.table.state.noMatches": "Keine Aufgaben entsprechen den Filtern.",
   "customers.workPlan.customerTodos.table.state.empty": "Noch keine Kundenaufgaben.",
-  "customers.workPlan.customerTodos.table.error.load": "Kundentasks konnten nicht geladen werden."
+  "customers.workPlan.customerTodos.table.error.load": "Kundentasks konnten nicht geladen werden.",
+  "customers.workPlan.customerTodos.table.export.view": "Exportiert die aktuelle Liste mit Filtern und sichtbaren Spalten.",
+  "customers.workPlan.customerTodos.table.export.full": "Exportiert alle Felder der verknüpften Aufgabe, einschließlich versteckter Attribute."
 }

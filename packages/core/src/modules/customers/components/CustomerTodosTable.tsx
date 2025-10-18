@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
@@ -75,17 +76,47 @@ export function CustomerTodosTable(): JSX.Element {
     return usp.toString()
   }, [page, pageSize, search, filters])
 
-  const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(params)), [params])
+  const viewExportColumns = React.useMemo(() => {
+    return (columns || [])
+      .map((col) => {
+        const accessorKey = (col as any).accessorKey
+        if (!accessorKey || typeof accessorKey !== 'string') return null
+        if ((col as any).meta?.hidden) return null
+        const header = typeof col.header === 'string'
+          ? col.header
+          : accessorKey
+        return { field: accessorKey, header }
+      })
+      .filter((col): col is { field: string; header: string } => !!col)
+  }, [columns])
+
+  const rows = data?.items ?? []
+
   const exportConfig = React.useMemo(() => ({
     view: {
-      getUrl: (format: DataTableExportFormat) =>
-        buildCrudExportUrl('customers/todos', { ...currentParams, exportScope: 'view' }, format),
+      description: t('customers.workPlan.customerTodos.table.export.view'),
+      prepare: async (): Promise<{ prepared: PreparedExport; filename: string }> => {
+        const rowsForExport = rows.map((row) => {
+          const out: Record<string, unknown> = {}
+          for (const col of viewExportColumns) {
+            out[col.field] = (row as Record<string, unknown>)[col.field]
+          }
+          return out
+        })
+        const prepared: PreparedExport = {
+          columns: viewExportColumns.map((col) => ({ field: col.field, header: col.header })),
+          rows: rowsForExport,
+        }
+        return { prepared, filename: 'customer_todos_view' }
+      },
     },
     full: {
+      description: t('customers.workPlan.customerTodos.table.export.full'),
       getUrl: (format: DataTableExportFormat) =>
-        buildCrudExportUrl('customers/todos', { ...currentParams, exportScope: 'full', all: 'true' }, format),
+        buildCrudExportUrl('customers/todos', { exportScope: 'full', all: 'true' }, format),
+      filename: () => 'customer_todos_full',
     },
-  }), [currentParams])
+  }), [rows, t, viewExportColumns])
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<CustomerTodosResponse>({
     queryKey: ['customers-todos', params, scopeVersion],
@@ -183,8 +214,6 @@ export function CustomerTodosTable(): JSX.Element {
       flash(message, 'error')
     }
   }, [refetch, t])
-
-  const rows = data?.items ?? []
 
   const handleNavigate = React.useCallback((item: CustomerTodoItem) => {
     const href = buildCustomerHref(item)
