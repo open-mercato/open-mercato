@@ -2028,10 +2028,10 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           />
         </div>
 
-          <div>
-          <div className="mb-2">
+        <div className="space-y-4">
+          <div className="mb-1">
             <nav
-              className="flex items-center gap-4 text-sm"
+              className="flex items-center gap-3 text-sm"
               role="tablist"
               aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}
             >
@@ -2043,7 +2043,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 aria-selected={activeTab === tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  'relative -mb-px border-b-2 px-0 pb-1 pt-1 font-medium transition-colors',
+                  'relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors',
                   activeTab === tab.id
                     ? 'border-primary text-foreground'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -2054,7 +2054,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             ))}
             </nav>
           </div>
-          <div className="p-3 sm:p-4">
+          <div>
             <SectionLoader isLoading={sectionPending[activeTab as SectionKey]} />
             {activeTab === 'notes' && (
               <NotesTab

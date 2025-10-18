@@ -187,7 +187,7 @@ export default function TodosTable() {
         buildCrudExportUrl('example/todos', fullExportParams, format),
       filename: () => 'todos_full',
     },
-  }), [fullExportParams, t, todosWithOrgNames, viewExportColumns])
+  }), [fullExportParams, viewExportColumns, t, JSON.stringify(todosWithOrgNames)])
 
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
     queryKey: ['todos', queryParams, scopeVersion],
