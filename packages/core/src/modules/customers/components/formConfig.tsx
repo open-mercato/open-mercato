@@ -853,6 +853,7 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
             addresses={addresses}
             t={t}
             emptyLabel={t('customers.people.detail.empty.addresses')}
+            gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
             onCreate={async (payload: CustomerAddressInput) => {
               const nextId =
                 typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'

@@ -49,6 +49,7 @@ type CustomerAddressTilesProps = {
   t: Translator
   emptyLabel: string
   isSubmitting?: boolean
+  gridClassName?: string
 }
 
 type DraftAddressState = {
@@ -148,6 +149,7 @@ export function CustomerAddressTiles({
   t,
   emptyLabel,
   isSubmitting = false,
+  gridClassName = 'grid gap-4 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
 }: CustomerAddressTilesProps) {
   const scopeVersion = useOrganizationScopeVersion()
   const [isFormOpen, setIsFormOpen] = React.useState(false)
@@ -930,7 +932,7 @@ export function CustomerAddressTiles({
           {t('customers.people.detail.addresses.add')}
         </Button>
       </div>
-      <div className="grid gap-4 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      <div className={gridClassName}>
         {addresses.map((address) => {
           if (isFormOpen && editingId === address.id) {
             return renderFormTile(address.id)
