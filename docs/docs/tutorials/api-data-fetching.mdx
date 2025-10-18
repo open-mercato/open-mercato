@@ -122,6 +122,14 @@ export function ProductsTable() {
 }
 ```
 
+### Export what you view
+
+The DataTable-driven export mirrors the slice of data your users see: current filters, search, sort, and column transforms (including any `transformItem` logic) carry over into the CSV / JSON / XML / Markdown download. Use this when you want the export to be a faithful capture of the on-screen report.
+
+### Full data export
+
+If you need a canonical dump—every base column plus every custom field—define `list.export` in your CRUD factory. By omitting `columns`, the factory falls back to the raw entity payload (with custom fields resolved) and streams all pages server-side. Alternatively, provide an explicit `columns` array when you need to control header ordering or include fields that are hidden in the UI. This pattern is ideal for integrations or compliance workflows where consumers expect the entire record, not just the curated view.
+
 ## 4) Forms with CrudForm
 
 Use `CrudForm` to create/edit entities. Submit to `/api/<module>/<route>` using `createCrud`/`updateCrud` helpers.

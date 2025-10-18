@@ -115,6 +115,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       nextInteractionAt: person.nextInteractionAt ? person.nextInteractionAt.toISOString() : null,
       nextInteractionName: person.nextInteractionName,
       nextInteractionRefId: person.nextInteractionRefId,
+      nextInteractionIcon: person.nextInteractionIcon,
+      nextInteractionColor: person.nextInteractionColor,
       organizationId: person.organizationId,
       tenantId: person.tenantId,
       isActive: person.isActive,

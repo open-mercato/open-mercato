@@ -225,6 +225,21 @@ function finalizeExportFilename(list: ListConfig<any>, format: CrudExportFormat,
   }
   return defaultExportFilename(fallbackBase, format)
 }
+
+function normalizeFullRecordForExport(input: any): any {
+  if (!input || typeof input !== 'object') return input
+  if (Array.isArray(input)) return input.map((item) => normalizeFullRecordForExport(item))
+  const record: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(input)) {
+    if (key.startsWith('cf:')) {
+      record[`cf_${key.slice(3)}`] = value
+    } else {
+      record[key] = value
+    }
+  }
+  return record
+}
 export type CreateConfig<TCreate> = {
   schema: z.ZodType<TCreate>
   mapToEntity: (input: TCreate, ctx: CrudCtx) => Record<string, any>
@@ -543,21 +558,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const requestedPage = Number((queryParams as any).page ?? 1) || 1
       const requestedPageSize = Math.min(Math.max(Number((queryParams as any).pageSize ?? 50) || 50, 1), 100)
       const exportPageSize = exportRequested ? resolveExportBatchSize(opts.list, requestedPageSize) : requestedPageSize
+      const exportScopeParam = (queryParams as any).exportScope ?? (queryParams as any).export_scope
+      const exportScope = typeof exportScopeParam === 'string' ? exportScopeParam.toLowerCase() : null
+      const exportFullRequested = exportRequested && (exportScope === 'full' || String((queryParams as any).full || 'false').toLowerCase() === 'true')
 
       // Prefer query engine when configured
-      let result: any
       if (opts.list.entityId && opts.list.fields) {
         const qe = ctx.container.resolve<QueryEngine>('queryEngine')
         const sortFieldRaw = (queryParams as any).sortField || 'id'
         const sortDirRaw = ((queryParams as any).sortDir || 'asc').toLowerCase() === 'desc' ? SortDir.Desc : SortDir.Asc
         const sortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
         const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
-        const availableFormats = resolveAvailableExportFormats(opts.list)
-        const requestedExport = normalizeExportFormat((queryParams as any).format)
-        const exportRequested = requestedExport != null && availableFormats.includes(requestedExport)
-        const requestedPage = Number((queryParams as any).page ?? 1) || 1
-        const requestedPageSize = Math.min(Math.max(Number((queryParams as any).pageSize ?? 50) || 50, 1), 100)
-        const exportPageSize = exportRequested ? resolveExportBatchSize(opts.list, requestedPageSize) : requestedPageSize
         const page: Page = exportRequested
           ? { page: 1, pageSize: exportPageSize }
           : { page: requestedPage, pageSize: requestedPageSize }
@@ -590,13 +601,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           queryOpts.organizationIds = ctx.organizationIds ?? undefined
         }
         const res = await qe.query(opts.list.entityId as any, queryOpts)
-        const items = (res.items || []).map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+        const rawItems = res.items || []
+        const transformedItems = rawItems.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
 
         await logCrudAccess({
           container: ctx.container,
           auth: ctx.auth,
           request,
-          items,
+          items: transformedItems,
           idField: ormCfg.idField!,
           resourceKind,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
@@ -605,30 +617,39 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
 
         if (exportRequested && requestedExport) {
-          const total = typeof res.total === 'number' ? res.total : items.length
-          let allItems = [...items]
-          if (total > allItems.length) {
+          const total = typeof res.total === 'number' ? res.total : rawItems.length
+          const initialExportItems = exportFullRequested
+            ? rawItems.map(normalizeFullRecordForExport)
+            : transformedItems
+          let exportItems = [...initialExportItems]
+          if (total > exportItems.length) {
             const exportPageSizeNumber = typeof page.pageSize === 'number' ? page.pageSize : exportPageSize
             const queryBase: any = { ...queryOpts }
             delete queryBase.page
             let nextPage = 2
-            while (allItems.length < total) {
+            while (exportItems.length < total) {
               const nextRes = await qe.query(opts.list.entityId as any, {
                 ...queryBase,
                 page: { page: nextPage, pageSize: exportPageSizeNumber },
               })
               const nextItemsRaw = nextRes.items || []
               if (!nextItemsRaw.length) break
-              const transformed = nextItemsRaw.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
-              allItems.push(...transformed)
-              if (transformed.length < exportPageSizeNumber) break
+              const nextTransformed = nextItemsRaw.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+              const nextExportItems = exportFullRequested
+                ? nextItemsRaw.map(normalizeFullRecordForExport)
+                : nextTransformed
+              exportItems.push(...nextExportItems)
+              if (nextExportItems.length < exportPageSizeNumber) break
               nextPage += 1
             }
           }
-          const prepared = prepareExportData(allItems, opts.list)
-          const filename = finalizeExportFilename(opts.list, requestedExport, opts.events?.entity || resourceKind || 'list')
+          const prepared = exportFullRequested
+            ? { columns: ensureColumns(exportItems), rows: exportItems }
+            : prepareExportData(exportItems, opts.list)
+          const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
+          const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
           const serialized = serializeExport(prepared, requestedExport)
-          await opts.hooks?.afterList?.({ items: allItems, total, page: 1, pageSize: allItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
+          await opts.hooks?.afterList?.({ items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
           return new Response(serialized.body, {
             headers: {
               'content-type': serialized.contentType,
@@ -638,7 +659,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
 
         const payload = {
-          items,
+          items: transformedItems,
           total: res.total,
           page: page.page || requestedPage,
           pageSize: page.pageSize || requestedPageSize,
@@ -687,10 +708,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         query: validated,
       })
       if (exportRequested && requestedExport) {
-        const prepared = prepareExportData(list, opts.list)
-        const filename = finalizeExportFilename(opts.list, requestedExport, opts.events?.entity || resourceKind || 'list')
+        const exportItems = exportFullRequested ? list.map(normalizeFullRecordForExport) : list
+        const prepared = exportFullRequested
+          ? { columns: ensureColumns(exportItems), rows: exportItems }
+          : prepareExportData(exportItems, opts.list)
+        const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
+        const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
         const serialized = serializeExport(prepared, requestedExport)
-        await opts.hooks?.afterList?.({ items: list, total: list.length, page: 1, pageSize: list.length, totalPages: 1 }, { ...ctx, query: validated as any })
+        await opts.hooks?.afterList?.({ items: exportItems, total: exportItems.length, page: 1, pageSize: exportItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
         return new Response(serialized.body, {
           headers: {
             'content-type': serialized.contentType,

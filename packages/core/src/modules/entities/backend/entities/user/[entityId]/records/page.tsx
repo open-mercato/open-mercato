@@ -148,12 +148,14 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     })
   }, [rawData, search])
 
-  const buildExportUrl = React.useCallback((format: DataTableExportFormat) => {
+  const buildExportUrl = React.useCallback((format: DataTableExportFormat, scope: 'view' | 'full') => {
     const qp = new URLSearchParams({
       entityId,
       sortField: String(sorting?.[0]?.id || 'id'),
       sortDir: sorting?.[0]?.desc ? 'desc' : 'asc',
       format,
+      exportScope: scope,
+      all: 'true',
     })
     for (const [k, v] of Object.entries(filterValues)) {
       if (v == null) continue
@@ -166,7 +168,16 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     return `/api/entities/records?${qp.toString()}`
   }, [entityId, sorting, filterValues])
 
-  const exportConfig = React.useMemo(() => ({ getUrl: buildExportUrl }), [buildExportUrl])
+  const exportConfig = React.useMemo(() => ({
+    view: {
+      getUrl: (format: DataTableExportFormat) => buildExportUrl(format, 'view'),
+      description: 'Exports the current list respecting filters and column visibility.',
+    },
+    full: {
+      getUrl: (format: DataTableExportFormat) => buildExportUrl(format, 'full'),
+      description: 'Exports raw records with every field and custom field included.',
+    },
+  }), [buildExportUrl])
 
   const hasAnyFormFields = React.useMemo(() => filterCustomFieldDefs(cfDefs as any, 'form').length > 0, [cfDefs])
   const actions = (

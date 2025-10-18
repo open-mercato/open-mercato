@@ -77,6 +77,8 @@ export async function GET(req: Request) {
       organizationId: entity.organizationId,
       nextInteractionAt: entity.nextInteractionAt ? entity.nextInteractionAt.toISOString() : null,
       nextInteractionName: entity.nextInteractionName ?? null,
+      nextInteractionIcon: entity.nextInteractionIcon ?? null,
+      nextInteractionColor: entity.nextInteractionColor ?? null,
       ownerUserId: entity.ownerUserId ?? null,
     }))
 

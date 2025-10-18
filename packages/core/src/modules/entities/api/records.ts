@@ -33,6 +33,8 @@ export async function GET(req: Request) {
   if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const requestedExport = normalizeExportFormat(url.searchParams.get('format'))
+  const exportScopeRaw = (url.searchParams.get('exportScope') || url.searchParams.get('export_scope') || '').toLowerCase()
+  const exportFullRequested = requestedExport != null && (exportScopeRaw === 'full' || parseBool(url.searchParams.get('full'), false))
   const exportAll = parseBool(url.searchParams.get('all'), false)
   const noPagination = exportAll || requestedExport != null
   const page = noPagination ? 1 : Math.max(parseInt(url.searchParams.get('page') || '1', 10) || 1, 1)
@@ -44,7 +46,7 @@ export async function GET(req: Request) {
 
   const qpEntries: Array<[string, string]> = []
   for (const [key, val] of url.searchParams.entries()) {
-    if (['entityId','page','pageSize','sortField','sortDir','withDeleted','format'].includes(key)) continue
+    if (['entityId','page','pageSize','sortField','sortDir','withDeleted','format','exportScope','export_scope','all','full'].includes(key)) continue
     qpEntries.push([key, val])
   }
 
@@ -72,6 +74,10 @@ export async function GET(req: Request) {
         else out[k] = v
       }
       return out
+    }
+    const mapFullRow = (row: any) => {
+      if (!row || typeof row !== 'object') return row
+      return { ...(row as Record<string, unknown>) }
     }
     // Build filters with awareness of custom-entity mode
     const filtersObj: Where<any> = {}
@@ -123,46 +129,45 @@ export async function GET(req: Request) {
     }
     for (const [k, v] of qpEntries) buildFilter(k, v, isCustomEntity)
     const res = await qe.query(entityId as any, qopts)
-
-    const firstItems = (res.items || []).map(mapRow)
+    const rawItems = res.items || []
+    const viewPageItems = rawItems.map(mapRow)
+    const fullPageItems = rawItems.map(mapFullRow)
+    const total = typeof res.total === 'number' ? res.total : rawItems.length
+    const effectivePageSize = res.pageSize || pageSize
     const payload = {
-      items: firstItems,
-      total: res.total || 0,
+      items: viewPageItems,
+      total,
       page: res.page || page,
-      pageSize: res.pageSize || pageSize,
-      totalPages: Math.ceil((res.total || 0) / (res.pageSize || pageSize)),
+      pageSize: effectivePageSize,
+      totalPages: Math.ceil(total / (effectivePageSize || 1)),
     }
 
     if (requestedExport) {
-      const exportTotal = payload.total
-      const exportPageSize = pageSize
-      const allItems: any[] = [...firstItems]
-      if (exportTotal > allItems.length) {
+      let exportItems: any[] = exportFullRequested ? [...fullPageItems] : [...viewPageItems]
+      if (total > exportItems.length) {
         let nextPage = 2
-        while (allItems.length < exportTotal) {
+        while (exportItems.length < total) {
           const nextRes = await qe.query(entityId as any, {
             ...qopts,
-            page: { page: nextPage, pageSize: exportPageSize },
+            page: { page: nextPage, pageSize },
           })
-          const nextItems = (nextRes.items || []).map(mapRow)
-          if (!nextItems.length) break
-          allItems.push(...nextItems)
-          if (nextItems.length < exportPageSize) break
+          const nextRawItems = nextRes.items || []
+          if (!nextRawItems.length) break
+          const nextViewItems = nextRawItems.map(mapRow)
+          const nextFullItems = nextRawItems.map(mapFullRow)
+          const nextBatch = exportFullRequested ? nextFullItems : nextViewItems
+          exportItems.push(...nextBatch)
+          if (nextBatch.length < pageSize) break
           nextPage += 1
         }
       }
-      const normalizedRows = allItems.map((item) => {
-        if (item && typeof item === 'object' && !Array.isArray(item)) {
-          return { ...(item as Record<string, unknown>) }
-        }
-        return { value: item }
-      })
       const prepared = {
-        columns: ensureColumns(normalizedRows),
-        rows: normalizedRows,
+        columns: ensureColumns(exportItems),
+        rows: exportItems,
       }
+      const filenameBase = exportFullRequested ? `${entityId || 'records'}_full` : entityId || 'records'
       const serialized = serializeExport(prepared, requestedExport)
-      const filename = defaultExportFilename(entityId || 'records', requestedExport)
+      const filename = defaultExportFilename(filenameBase, requestedExport)
       return new Response(serialized.body, {
         headers: {
           'content-type': serialized.contentType,

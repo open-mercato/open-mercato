@@ -205,6 +205,23 @@ describe('CRUD Factory', () => {
     expect(lines[2]).toContain('id-1')
   })
 
+  it('GET returns full export when exportScope=full', async () => {
+    const res = await route.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect(res.headers.get('content-disposition')).toContain('todo_full.json')
+    const text = await res.text()
+    const parsed = JSON.parse(text)
+    expect(Array.isArray(parsed)).toBe(true)
+    const row = parsed[0]
+    expect(row).toMatchObject({
+      Id: 'id-1',
+      Title: 'A',
+      'Is Done': false,
+      'Organization Id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'Tenant Id': '123e4567-e89b-12d3-a456-426614174000',
+    })
+  })
+
   it('POST creates entity, saves custom fields, emits created event', async () => {
     const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'B', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))
     expect(res.status).toBe(201)

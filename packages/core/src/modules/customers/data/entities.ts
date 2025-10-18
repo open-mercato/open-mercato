@@ -61,6 +61,12 @@ export class CustomerEntity {
   @Property({ name: 'next_interaction_ref_id', type: 'text', nullable: true })
   nextInteractionRefId?: string | null
 
+  @Property({ name: 'next_interaction_icon', type: 'text', nullable: true })
+  nextInteractionIcon?: string | null
+
+  @Property({ name: 'next_interaction_color', type: 'text', nullable: true })
+  nextInteractionColor?: string | null
+
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 

@@ -77,7 +77,14 @@ export function CustomerTodosTable(): JSX.Element {
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(params)), [params])
   const exportConfig = React.useMemo(() => ({
-    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('customers/todos', currentParams, format),
+    view: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('customers/todos', { ...currentParams, exportScope: 'view' }, format),
+    },
+    full: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('customers/todos', { ...currentParams, exportScope: 'full', all: 'true' }, format),
+    },
   }), [currentParams])
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<CustomerTodosResponse>({

@@ -50,11 +50,22 @@ function extractEditAction(items: RowActionItem[]): RowActionItem | null {
 
 export type DataTableExportFormat = 'csv' | 'json' | 'xml' | 'markdown'
 
-export type DataTableExportConfig = {
+export type DataTableExportSectionConfig = {
+  title?: string
+  description?: string
   getUrl: (format: DataTableExportFormat) => string
   formats?: DataTableExportFormat[]
+  disabled?: boolean
+}
+
+export type DataTableExportConfig = {
   label?: string
   disabled?: boolean
+  formats?: DataTableExportFormat[]
+  getUrl?: (format: DataTableExportFormat) => string
+  sections?: DataTableExportSectionConfig[]
+  view?: DataTableExportSectionConfig
+  full?: DataTableExportSectionConfig
 }
 
 export type DataTableProps<T> = {
@@ -97,16 +108,62 @@ const EXPORT_LABELS: Record<DataTableExportFormat, string> = {
   markdown: 'Markdown',
 }
 
-function ExportMenu({ config }: { config: DataTableExportConfig }) {
-  const { formats = DEFAULT_EXPORT_FORMATS, getUrl, label = 'Export', disabled } = config
-  const formatList = React.useMemo(() => {
+type ResolvedExportSection = {
+  key: string
+  title: string
+  description?: string
+  formats: DataTableExportFormat[]
+  getUrl: (format: DataTableExportFormat) => string
+  disabled: boolean
+}
+
+function resolveExportSections(config: DataTableExportConfig | null | undefined): ResolvedExportSection[] {
+  if (!config) return []
+  const sections: ResolvedExportSection[] = []
+  const baseFormats = config.formats && config.formats.length > 0 ? config.formats : DEFAULT_EXPORT_FORMATS
+  const addSection = (key: string, section: DataTableExportSectionConfig | undefined | null, fallbackTitle: string) => {
+    if (!section || typeof section.getUrl !== 'function') return
+    const title = section.title?.trim().length ? section.title!.trim() : fallbackTitle
     const seen = new Set<DataTableExportFormat>()
-    return formats.filter((format) => {
+    const formatsSource = section.formats && section.formats.length > 0 ? section.formats : baseFormats
+    const formats = formatsSource.filter((format) => {
       if (seen.has(format)) return false
       seen.add(format)
       return true
     })
-  }, [formats])
+    if (formats.length === 0) return
+    sections.push({
+      key,
+      title,
+      description: section.description,
+      formats,
+      getUrl: section.getUrl,
+      disabled: Boolean(config.disabled || section.disabled),
+    })
+  }
+
+  // Allow legacy config (getUrl without sections/view)
+  const hasExplicitSections = Array.isArray(config.sections) && config.sections.length > 0
+  if (!config.view && !config.full && !hasExplicitSections && config.getUrl) {
+    addSection('view', { getUrl: config.getUrl, formats: config.formats }, 'Export what you view')
+  } else {
+    addSection('view', config.view, 'Export what you view')
+  }
+
+  if (hasExplicitSections) {
+    config.sections!.forEach((section, idx) => {
+      addSection(`section-${idx}`, section, section.title?.trim().length ? section.title! : `Export ${idx + 1}`)
+    })
+  }
+
+  addSection('full', config.full, 'Full data export')
+  return sections
+}
+
+function ExportMenu({ config, sections }: { config: DataTableExportConfig; sections: ResolvedExportSection[] }) {
+  if (!sections.length) return null
+  const { label = 'Export' } = config
+  const disabled = Boolean(config.disabled)
   const [open, setOpen] = React.useState(false)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
@@ -133,9 +190,9 @@ function ExportMenu({ config }: { config: DataTableExportConfig }) {
     }
   }, [open])
 
-  const handleSelect = (format: DataTableExportFormat) => {
+  const handleSelect = (section: ResolvedExportSection, format: DataTableExportFormat) => {
     try {
-      const url = getUrl(format)
+      const url = section.getUrl(format)
       if (url && typeof window !== 'undefined') {
         window.open(url, '_blank', 'noopener,noreferrer')
       }
@@ -167,17 +224,30 @@ function ExportMenu({ config }: { config: DataTableExportConfig }) {
         <div
           ref={menuRef}
           role="menu"
-          className="absolute right-0 mt-2 w-40 rounded-md border bg-background p-1 shadow z-20"
+          className="absolute right-0 mt-2 w-60 rounded-md border bg-background py-2 shadow z-20"
         >
-          {formatList.map((format) => (
-            <button
-              key={format}
-              type="button"
-              className="block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent"
-              onClick={() => handleSelect(format)}
-            >
-              {EXPORT_LABELS[format]}
-            </button>
+          {sections.map((section, idx) => (
+            <div key={section.key} className={idx > 0 ? 'mt-2 border-t pt-3' : ''}>
+              <div className="px-3">
+                <div className="text-xs font-semibold uppercase text-muted-foreground">{section.title}</div>
+                {section.description ? (
+                  <p className="mt-1 text-xs text-muted-foreground leading-snug">{section.description}</p>
+                ) : null}
+              </div>
+              <div className="mt-2 space-y-1 px-2 pb-1">
+                {section.formats.map((format) => (
+                  <button
+                    key={`${section.key}-${format}`}
+                    type="button"
+                    className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                    onClick={() => handleSelect(section, format)}
+                    disabled={section.disabled}
+                  >
+                    {EXPORT_LABELS[format]}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       ) : null}
@@ -374,7 +444,8 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, refreshBu
   const hasActions = actions !== undefined && actions !== null && actions !== false
   const shouldReserveActionsSpace = actions === null || actions === false
   const exportConfig = exporter === false ? null : exporter || null
-  const hasExport = Boolean(exportConfig)
+  const resolvedExportSections = React.useMemo(() => resolveExportSections(exportConfig), [exportConfig])
+  const hasExport = resolvedExportSections.length > 0
   const refreshButtonConfig = refreshButton
   const hasRefreshButton = Boolean(refreshButtonConfig)
   const hasToolbar = builtToolbar != null
@@ -410,7 +481,7 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, refreshBu
                       <span className="sr-only">{refreshButtonConfig.label}</span>
                     </Button>
                   ) : null}
-                  {exportConfig ? <ExportMenu config={exportConfig} /> : null}
+                  {exportConfig && hasExport ? <ExportMenu config={exportConfig} sections={resolvedExportSections} /> : null}
                   {hasActions ? actions : null}
                 </div>
               ) : null}

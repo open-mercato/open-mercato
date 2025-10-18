@@ -225,7 +225,14 @@ export default function CustomersPeoplePage() {
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
   const exportConfig = React.useMemo(() => ({
-    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('customers/people', currentParams, format),
+    view: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('customers/people', { ...currentParams, exportScope: 'view' }, format),
+    },
+    full: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('customers/people', { ...currentParams, exportScope: 'full', all: 'true' }, format),
+    },
   }), [currentParams])
 
   React.useEffect(() => {

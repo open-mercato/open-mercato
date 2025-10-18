@@ -119,7 +119,14 @@ export default function TodosTable() {
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
   const exportConfig = React.useMemo(() => ({
-    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('example/todos', currentParams, format),
+    view: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('example/todos', { ...currentParams, exportScope: 'view' }, format),
+    },
+    full: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('example/todos', { ...currentParams, exportScope: 'full', all: 'true' }, format),
+    },
   }), [currentParams])
 
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({

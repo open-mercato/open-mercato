@@ -10,8 +10,15 @@ const scopedSchema = z.object({
 const nextInteractionSchema = z
   .object({
     at: z.coerce.date(),
-    name: z.string().min(1).max(200),
-    refId: z.string().min(1).max(191).optional(),
+    name: z.string().trim().min(1).max(200),
+    refId: z.string().trim().max(191).optional().nullable(),
+    icon: z.string().trim().max(100).optional().nullable(),
+    color: z
+      .string()
+      .trim()
+      .regex(/^#([0-9a-fA-F]{6})$/)
+      .optional()
+      .nullable(),
   })
   .strict()
 

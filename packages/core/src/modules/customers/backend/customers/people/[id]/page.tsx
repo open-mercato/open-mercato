@@ -17,12 +17,16 @@ import {
   DictionarySelectField,
 } from '../../../../components/formConfig'
 import {
+  ICON_SUGGESTIONS,
   DictionaryValue,
   createDictionaryMap,
   normalizeCustomerDictionaryEntries,
+  renderDictionaryColor,
+  renderDictionaryIcon,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
 } from '../../../../components/dictionaryAppearance'
+import { AppearanceSelector } from '../../../../components/AppearanceSelector'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../../../../components/AddressTiles'
 import { useEmailDuplicateCheck } from '../../../hooks/useEmailDuplicateCheck'
 
@@ -591,6 +595,8 @@ function InlineNextInteractionEditor({
   valueAt,
   valueName,
   valueRefId,
+  valueIcon,
+  valueColor,
   emptyLabel,
   onSave,
 }: NextInteractionEditorProps) {
@@ -599,7 +605,10 @@ function InlineNextInteractionEditor({
   const [draftDate, setDraftDate] = React.useState<string>(() => (valueAt ? valueAt.slice(0, 16) : ''))
   const [draftName, setDraftName] = React.useState(valueName ?? '')
   const [draftRefId, setDraftRefId] = React.useState(valueRefId ?? '')
-  const [error, setError] = React.useState<string | null>(null)
+  const [draftIcon, setDraftIcon] = React.useState(valueIcon ?? '')
+  const [draftColor, setDraftColor] = React.useState<string | null>(valueColor ?? null)
+  const [dateError, setDateError] = React.useState<string | null>(null)
+  const [submitError, setSubmitError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
 
   React.useEffect(() => {
@@ -607,10 +616,26 @@ function InlineNextInteractionEditor({
       setDraftDate(valueAt ? valueAt.slice(0, 16) : '')
       setDraftName(valueName ?? '')
       setDraftRefId(valueRefId ?? '')
+      setDraftIcon(valueIcon ?? '')
+      setDraftColor(valueColor ?? null)
+      setDateError(null)
+      setSubmitError(null)
     }
-  }, [editing, valueAt, valueName, valueRefId])
+  }, [editing, valueAt, valueName, valueRefId, valueIcon, valueColor])
+
+  const appearanceLabels = React.useMemo(() => ({
+    colorLabel: t('customers.people.detail.inline.nextInteractionColorLabel'),
+    colorHelp: t('customers.people.detail.inline.nextInteractionColorHelp'),
+    colorClearLabel: t('customers.people.detail.inline.nextInteractionColorClear'),
+    iconLabel: t('customers.people.detail.inline.nextInteractionIconLabel'),
+    iconPlaceholder: t('customers.people.detail.inline.nextInteractionIconPlaceholder'),
+    iconSuggestionsLabel: t('customers.people.detail.inline.nextInteractionIconSuggestions'),
+    iconClearLabel: t('customers.people.detail.inline.nextInteractionIconClear'),
+    previewEmptyLabel: t('customers.people.detail.inline.nextInteractionAppearanceEmpty'),
+  }), [t])
 
   const handleSave = React.useCallback(async () => {
+    setSubmitError(null)
     if (!draftDate) {
       await onSave(null)
       setEditing(false)
@@ -618,25 +643,35 @@ function InlineNextInteractionEditor({
     }
     const iso = new Date(draftDate).toISOString()
     if (Number.isNaN(new Date(iso).getTime())) {
-      setError(t('customers.people.detail.inline.nextInteractionInvalid'))
+      setDateError(t('customers.people.detail.inline.nextInteractionInvalid'))
       return
     }
-    setError(null)
+    setDateError(null)
+    const trimmedName = draftName.trim()
+    const trimmedRef = draftRefId.trim()
+    const trimmedIcon = draftIcon.trim()
+    const normalizedColor = (() => {
+      if (!draftColor) return null
+      const trimmed = draftColor.trim().toLowerCase()
+      return /^#([0-9a-f]{6})$/.test(trimmed) ? trimmed : null
+    })()
     setSaving(true)
     try {
       await onSave({
         at: iso,
-        name: draftName.trim(),
-        refId: draftRefId.trim() || null,
+        name: trimmedName,
+        refId: trimmedRef.length ? trimmedRef : null,
+        icon: trimmedIcon.length ? trimmedIcon : null,
+        color: normalizedColor,
       })
       setEditing(false)
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customers.people.detail.inline.error')
-      flash(message, 'error')
+      setSubmitError(message)
     } finally {
       setSaving(false)
     }
-  }, [draftDate, draftName, draftRefId, onSave, t])
+  }, [draftColor, draftDate, draftIcon, draftName, draftRefId, onSave, t])
 
   return (
     <div className="rounded-lg border p-4">
@@ -644,13 +679,14 @@ function InlineNextInteractionEditor({
         <div className="flex-1">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
           {editing ? (
-            <div className="mt-2 space-y-3">
+            <div className="mt-2 space-y-4">
               <input
                 type="datetime-local"
                 className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={draftDate}
                 onChange={(event) => {
-                  if (error) setError(null)
+                  if (dateError) setDateError(null)
+                  if (submitError) setSubmitError(null)
                   setDraftDate(event.target.value)
                 }}
               />
@@ -658,15 +694,37 @@ function InlineNextInteractionEditor({
                 placeholder={t('customers.people.detail.inline.nextInteractionName')}
                 className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={draftName}
-                onChange={(event) => setDraftName(event.target.value)}
+                onChange={(event) => {
+                  if (submitError) setSubmitError(null)
+                  setDraftName(event.target.value)
+                }}
               />
               <input
                 placeholder={t('customers.people.detail.inline.nextInteractionRef')}
                 className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={draftRefId}
-                onChange={(event) => setDraftRefId(event.target.value)}
+                onChange={(event) => {
+                  if (submitError) setSubmitError(null)
+                  setDraftRefId(event.target.value)
+                }}
               />
-              {error ? <p className="text-xs text-red-600">{error}</p> : null}
+              <AppearanceSelector
+                icon={draftIcon || null}
+                color={draftColor}
+                onIconChange={(next) => {
+                  if (submitError) setSubmitError(null)
+                  setDraftIcon(next ?? '')
+                }}
+                onColorChange={(next) => {
+                  if (submitError) setSubmitError(null)
+                  setDraftColor(next)
+                }}
+                iconSuggestions={ICON_SUGGESTIONS}
+                disabled={saving}
+                labels={appearanceLabels}
+              />
+              {dateError ? <p className="text-xs text-red-600">{dateError}</p> : null}
+              {submitError && !dateError ? <p className="text-xs text-red-600">{submitError}</p> : null}
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
@@ -689,7 +747,10 @@ function InlineNextInteractionEditor({
                     setDraftDate('')
                     setDraftName('')
                     setDraftRefId('')
-                    setError(null)
+                    setDraftIcon('')
+                    setDraftColor(null)
+                    setDateError(null)
+                    setSubmitError(null)
                   }}
                   disabled={saving}
                 >
@@ -700,9 +761,18 @@ function InlineNextInteractionEditor({
           ) : (
             <div className="mt-1 text-sm">
               {valueAt ? (
-                <div className="flex flex-col">
-                  <span>{formatDateTime(valueAt)}</span>
-                  {valueName ? <span className="text-xs text-muted-foreground">{valueName}</span> : null}
+                <div className="flex items-start gap-3">
+                  {valueIcon ? (
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded border border-border bg-card">
+                      {renderDictionaryIcon(valueIcon, 'h-4 w-4')}
+                    </span>
+                  ) : null}
+                  <div className="flex-1">
+                    <span className="block">{formatDateTime(valueAt)}</span>
+                    {valueName ? <span className="text-xs text-muted-foreground">{valueName}</span> : null}
+                    {valueRefId ? <span className="text-xs text-muted-foreground">#{valueRefId}</span> : null}
+                  </div>
+                  {valueColor ? renderDictionaryColor(valueColor, 'h-3 w-3 rounded-full border border-border') : null}
                 </div>
               ) : (
                 <span>{emptyLabel}</span>
@@ -1906,6 +1976,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             valueAt={person.nextInteractionAt || null}
             valueName={person.nextInteractionName || null}
             valueRefId={person.nextInteractionRefId || null}
+            valueIcon={person.nextInteractionIcon || null}
+            valueColor={person.nextInteractionColor || null}
             emptyLabel={t('customers.people.detail.noValue')}
             onSave={async (next) => {
               await savePerson(
@@ -1917,6 +1989,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                     nextInteractionAt: next ? next.at : null,
                     nextInteractionName: next ? next.name || null : null,
                     nextInteractionRefId: next ? next.refId || null : null,
+                    nextInteractionIcon: next ? next.icon || null : null,
+                    nextInteractionColor: next ? next.color || null : null,
                   },
                 })
               )
