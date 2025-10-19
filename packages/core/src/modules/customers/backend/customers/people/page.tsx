@@ -17,12 +17,12 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import {
   DictionaryValue,
   createDictionaryMap,
-  normalizeCustomerDictionaryEntries,
+  normalizeDictionaryEntries,
   renderDictionaryColor,
   renderDictionaryIcon,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
-} from '../../../components/dictionaryAppearance'
+} from '../../../lib/dictionaries'
 
 type PersonRow = {
   id: string
@@ -120,7 +120,7 @@ export default function CustomersPeoplePage() {
       const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
       const payload = await res.json().catch(() => ({}))
       if (!res.ok) return []
-      const normalized = normalizeCustomerDictionaryEntries(payload.items)
+      const normalized = normalizeDictionaryEntries(payload.items)
       setDictionaryMaps((prev) => ({
         ...prev,
         [kind]: createDictionaryMap(normalized),

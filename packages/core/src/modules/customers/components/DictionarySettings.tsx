@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
-import { ICON_SUGGESTIONS, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
-import { AppearanceSelector } from './AppearanceSelector'
+import { ICON_SUGGESTIONS, renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,

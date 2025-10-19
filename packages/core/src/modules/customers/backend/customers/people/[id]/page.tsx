@@ -9,7 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Loader2, Mail, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Loader2, Mail, Pencil, Phone, Plus, Trash2, X } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -21,13 +21,13 @@ import {
   ICON_SUGGESTIONS,
   DictionaryValue,
   createDictionaryMap,
-  normalizeCustomerDictionaryEntries,
+  normalizeDictionaryEntries,
   renderDictionaryColor,
   renderDictionaryIcon,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
-} from '../../../../components/dictionaryAppearance'
-import { AppearanceSelector } from '../../../../components/AppearanceSelector'
+} from '../../../../lib/dictionaries'
+import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../../../../components/AddressTiles'
 import { useEmailDuplicateCheck } from '../../../hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../../../../utils/phoneDuplicates'
@@ -305,6 +305,16 @@ function InlineTextEditor({
         <p className={variant === 'plain' ? 'text-base text-muted-foreground' : 'text-sm text-muted-foreground'}>
           {emptyLabel}
         </p>
+      )
+    }
+    if (type === 'tel') {
+      const sanitizedValue = baseValue.replace(/[^+\d]/g, '')
+      const hrefValue = sanitizedValue.length ? sanitizedValue : baseValue
+      return (
+        <a className={anchorClass} href={`tel:${hrefValue}`}>
+          <Phone aria-hidden className={variant === 'plain' ? 'h-5 w-5' : 'h-4 w-4'} />
+          <span className="truncate">{baseValue}</span>
+        </a>
       )
     }
     if (type === 'url') {
@@ -706,8 +716,17 @@ function InlineNextInteractionEditor({
   }, [draftColor, draftDate, draftIcon, draftName, draftRefId, onSave, t])
 
   return (
-    <div className="rounded-lg border p-4">
-      <div className="flex items-start justify-between gap-2">
+    <div className="relative rounded-lg border p-4">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="absolute right-3 top-3"
+        onClick={() => setEditing((state) => !state)}
+      >
+        {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+      </Button>
+      <div className="flex items-start gap-2">
         <div className="flex-1">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
           {editing ? (
@@ -812,9 +831,6 @@ function InlineNextInteractionEditor({
             </div>
           )}
         </div>
-        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing((state) => !state)}>
-          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
-        </Button>
       </div>
     </div>
   )
@@ -1225,7 +1241,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
       const payload = await res.json().catch(() => ({}))
       if (!res.ok) return []
-      const normalized = normalizeCustomerDictionaryEntries(payload.items)
+      const normalized = normalizeDictionaryEntries(payload.items)
       if (signal?.aborted) return normalized
       setDictionaryMaps((prev) => ({
         ...prev,

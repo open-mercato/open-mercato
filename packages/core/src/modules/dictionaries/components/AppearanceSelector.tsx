@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Ellipsis } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { ICON_LIBRARY, type IconOption, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
+import { ICON_LIBRARY, ICON_SUGGESTIONS, type IconOption, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 
 export type AppearanceSelectorLabels = {
   colorLabel: string
@@ -40,7 +40,7 @@ export function AppearanceSelector({
   onColorChange,
   labels,
   disabled = false,
-  iconSuggestions = [],
+  iconSuggestions = ICON_SUGGESTIONS,
   iconLibrary,
   className,
 }: AppearanceSelectorProps) {
@@ -63,7 +63,7 @@ export function AppearanceSelector({
       onIconChange(next)
       closePicker()
     },
-    [closePicker, onIconChange]
+    [closePicker, onIconChange],
   )
 
   React.useEffect(() => {
@@ -74,9 +74,7 @@ export function AppearanceSelector({
       closePicker()
     }
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closePicker()
-      }
+      if (event.key === 'Escape') closePicker()
     }
     document.addEventListener('pointerdown', handlePointerDown)
     document.addEventListener('keydown', handleKeyDown)
@@ -187,10 +185,8 @@ export function AppearanceSelector({
                           <button
                             key={option.value}
                             type="button"
-                            className={`flex h-9 w-9 items-center justify-center rounded border text-sm transition ${
-                              isSelected
-                                ? 'border-primary bg-primary/10 text-primary'
-                                : 'border-border hover:border-primary'
+                            className={`flex h-9 w-9 items-center justify-center rounded text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                              isSelected ? 'bg-primary/10 text-primary ring-1 ring-primary/60' : 'hover:bg-muted'
                             }`}
                             onClick={() => handleIconSelection(option.value)}
                             title={option.label}
@@ -203,61 +199,72 @@ export function AppearanceSelector({
                       })}
                     </div>
                   ) : (
-                    <p className="py-6 text-center text-sm text-muted-foreground">{labels.iconSearchEmptyLabel}</p>
+                    <p className="text-sm text-muted-foreground">{labels.iconSearchEmptyLabel}</p>
                   )}
+                </div>
+                {iconSuggestions.length ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {labels.iconSuggestionsLabel}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {iconSuggestions.map((suggestion) => {
+                        const isSelected = normalizedIcon === suggestion.value
+                        return (
+                          <button
+                            key={suggestion.value}
+                            type="button"
+                            className={`inline-flex items-center gap-2 rounded border px-3 py-1 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                              isSelected ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'
+                            }`}
+                            onClick={() => handleIconSelection(suggestion.value)}
+                          >
+                            {renderDictionaryIcon(suggestion.value, 'h-3 w-3')}
+                            {suggestion.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+                <div className="flex justify-end">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => onIconChange(null)}>
+                    {labels.iconClearLabel}
+                  </Button>
                 </div>
               </div>
             </div>
           ) : null}
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <div className="inline-flex items-center gap-2 rounded border border-dashed px-2 py-1">
-            {renderDictionaryIcon(icon, 'h-4 w-4')}
-            {renderDictionaryColor(color, 'h-4 w-4 rounded-sm')}
-          </div>
-          <span>{hasAppearance ? '' : labels.previewEmptyLabel}</span>
+      </div>
+
+      <div>
+        <label className="text-sm font-medium">Preview</label>
+        <div className="flex items-center gap-3 rounded border border-dashed border-border px-3 py-2">
+          {hasAppearance ? (
+            <>
+              {renderDictionaryIcon(icon, 'h-5 w-5')}
+              {renderDictionaryColor(color, 'h-4 w-4 rounded-full')}
+            </>
+          ) : (
+            <span className="text-sm text-muted-foreground">{labels.previewEmptyLabel}</span>
+          )}
         </div>
-        {iconSuggestions.length ? (
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {labels.iconSuggestionsLabel}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {iconSuggestions.map((suggestion) => {
-                const isSelected = normalizedIcon === suggestion.value
-                return (
-                  <button
-                    key={suggestion.value}
-                    type="button"
-                    className={`flex h-8 w-8 items-center justify-center rounded border text-sm transition ${
-                      isSelected ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary'
-                    }`}
-                    onClick={() => handleIconSelection(suggestion.value)}
-                    title={suggestion.label}
-                    aria-label={suggestion.label}
-                    aria-pressed={isSelected}
-                    disabled={disabled}
-                  >
-                    {renderDictionaryIcon(suggestion.value, 'h-4 w-4')}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            onIconChange(null)
-            closePicker()
-          }}
-          disabled={disabled || !icon}
-        >
-          {labels.iconClearLabel}
-        </Button>
       </div>
     </div>
+  )
+}
+
+export function useAppearanceState(initialIcon: string | null, initialColor: string | null) {
+  const [icon, setIcon] = React.useState<string | null>(initialIcon)
+  const [color, setColor] = React.useState<string | null>(initialColor)
+  return React.useMemo(
+    () => ({
+      icon,
+      color,
+      setIcon,
+      setColor,
+    }),
+    [icon, color],
   )
 }

@@ -11,7 +11,7 @@ import {
   hydrateNextInteractionsSettings,
   type CustomerNextInteractionsSettings,
 } from './config'
-import { renderDictionaryColor, renderDictionaryIcon } from '../../../components/dictionaryAppearance'
+import { renderDictionaryColor, renderDictionaryIcon } from '../../../lib/dictionaries'
 
 type NextInteractionItem = {
   id: string

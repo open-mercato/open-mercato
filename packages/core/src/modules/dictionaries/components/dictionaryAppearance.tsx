@@ -1,3 +1,5 @@
+"use client"
+
 import * as React from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -194,16 +196,14 @@ const LUCIDE_ICON_MAP: Record<string, LucideIcon> = {
   zap: Zap,
 }
 
-export type CustomerDictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types'
-
-export type CustomerDictionaryDisplayEntry = {
+export type DictionaryDisplayEntry = {
   value: string
   label: string
   color?: string | null
   icon?: string | null
 }
 
-export type CustomerDictionaryMap = Record<string, CustomerDictionaryDisplayEntry>
+export type DictionaryMap = Record<string, DictionaryDisplayEntry>
 
 export type IconOption = {
   value: string
@@ -277,52 +277,51 @@ const EXTRA_LUCIDE_ICON_LIBRARY: Array<{ slug: string; label: string; keywords?:
   { slug: 'camera', label: 'Camera', keywords: ['photo', 'media'] },
   { slug: 'chart-line', label: 'Line chart', keywords: ['growth', 'analytics'] },
   { slug: 'chart-pie', label: 'Pie chart', keywords: ['distribution', 'analytics'] },
-  { slug: 'check', label: 'Check', keywords: ['done', 'complete'] },
-  { slug: 'check-square', label: 'Check square', keywords: ['done', 'task'] },
-  { slug: 'clipboard', label: 'Clipboard', keywords: ['tasks', 'notes'] },
-  { slug: 'clock-3', label: 'Clock quarter', keywords: ['time', 'schedule'] },
-  { slug: 'cloud', label: 'Cloud', keywords: ['storage', 'weather'] },
-  { slug: 'code-2', label: 'Code', keywords: ['developer', 'engineering'] },
-  { slug: 'coins', label: 'Coins', keywords: ['finance', 'money'] },
-  { slug: 'cpu', label: 'CPU', keywords: ['hardware', 'tech'] },
-  { slug: 'database', label: 'Database', keywords: ['data', 'storage'] },
-  { slug: 'dollar-sign', label: 'Dollar sign', keywords: ['money', 'finance'] },
-  { slug: 'download', label: 'Download', keywords: ['export'] },
+  { slug: 'check', label: 'Check', keywords: ['done'] },
+  { slug: 'check-square', label: 'Check square', keywords: ['done'] },
+  { slug: 'circle', label: 'Circle', keywords: ['shape'] },
+  { slug: 'clipboard', label: 'Clipboard', keywords: ['tasks'] },
+  { slug: 'clock-3', label: 'Clock three', keywords: ['time'] },
+  { slug: 'cloud', label: 'Cloud', keywords: ['storage'] },
+  { slug: 'code-2', label: 'Code', keywords: ['dev'] },
+  { slug: 'coins', label: 'Coins', keywords: ['money'] },
+  { slug: 'compass', label: 'Compass', keywords: ['direction'] },
+  { slug: 'cpu', label: 'CPU', keywords: ['tech'] },
+  { slug: 'database', label: 'Database', keywords: ['storage'] },
+  { slug: 'dollar-sign', label: 'Dollar sign', keywords: ['money'] },
+  { slug: 'download', label: 'Download', keywords: ['save'] },
   { slug: 'edit', label: 'Edit', keywords: ['pencil'] },
   { slug: 'file-text', label: 'File text', keywords: ['document'] },
-  { slug: 'filter', label: 'Filter', keywords: ['narrow', 'segment'] },
+  { slug: 'filter', label: 'Filter', keywords: ['refine'] },
   { slug: 'folder', label: 'Folder', keywords: ['files'] },
-  { slug: 'git-branch', label: 'Git branch', keywords: ['version control'] },
-  { slug: 'git-commit', label: 'Git commit', keywords: ['version control'] },
-  { slug: 'git-merge', label: 'Git merge', keywords: ['version control'] },
-  { slug: 'glasses', label: 'Glasses', keywords: ['view', 'insight'] },
-  { slug: 'hammer', label: 'Hammer', keywords: ['build', 'tools'] },
-  { slug: 'headphones', label: 'Headphones', keywords: ['support', 'audio'] },
-  { slug: 'help-circle', label: 'Help circle', keywords: ['support'] },
-  { slug: 'image', label: 'Image', keywords: ['picture'] },
-  { slug: 'inbox', label: 'Inbox', keywords: ['messages', 'mail'] },
-  { slug: 'layers', label: 'Layers', keywords: ['stack', 'levels'] },
-  { slug: 'life-buoy', label: 'Life buoy', keywords: ['support', 'rescue'] },
-  { slug: 'link', label: 'Link', keywords: ['connect', 'url'] },
-  { slug: 'lock', label: 'Lock', keywords: ['security', 'private'] },
+  { slug: 'git-branch', label: 'Git branch', keywords: ['git', 'source control'] },
+  { slug: 'git-commit', label: 'Git commit', keywords: ['git'] },
+  { slug: 'git-merge', label: 'Git merge', keywords: ['git'] },
+  { slug: 'glasses', label: 'Glasses', keywords: ['review'] },
+  { slug: 'life-buoy', label: 'Life buoy', keywords: ['support'] },
+  { slug: 'link', label: 'Link', keywords: ['url'] },
+  { slug: 'lock', label: 'Lock', keywords: ['security'] },
   { slug: 'map-pin', label: 'Map pin', keywords: ['location'] },
-  { slug: 'megaphone', label: 'Megaphone', keywords: ['announcement', 'marketing'] },
-  { slug: 'notebook', label: 'Notebook', keywords: ['notes', 'journal'] },
-  { slug: 'package', label: 'Package', keywords: ['shipment', 'box'] },
-  { slug: 'palette', label: 'Palette', keywords: ['design', 'color'] },
+  { slug: 'megaphone', label: 'Megaphone', keywords: ['announcement'] },
+  { slug: 'notebook', label: 'Notebook', keywords: ['notes'] },
+  { slug: 'package', label: 'Package', keywords: ['shipment'] },
+  { slug: 'palette', label: 'Palette', keywords: ['design'] },
   { slug: 'pie-chart', label: 'Pie chart', keywords: ['analytics'] },
-  { slug: 'search', label: 'Search', keywords: ['find'] },
+  { slug: 'search', label: 'Search', keywords: ['lookup'] },
   { slug: 'server', label: 'Server', keywords: ['infrastructure'] },
-  { slug: 'settings', label: 'Settings', keywords: ['gear', 'preferences'] },
-  { slug: 'shopping-cart', label: 'Shopping cart', keywords: ['ecommerce'] },
-  { slug: 'sliders', label: 'Sliders', keywords: ['settings', 'controls'] },
+  { slug: 'settings', label: 'Settings', keywords: ['configuration'] },
+  { slug: 'shopping-cart', label: 'Shopping cart', keywords: ['orders'] },
+  { slug: 'sliders', label: 'Sliders', keywords: ['settings'] },
+  { slug: 'sparkles', label: 'Sparkles', keywords: ['new'] },
+  { slug: 'star', label: 'Star', keywords: ['favorite'] },
   { slug: 'tag', label: 'Tag', keywords: ['label'] },
   { slug: 'trending-up', label: 'Trending up', keywords: ['growth'] },
-  { slug: 'truck', label: 'Truck', keywords: ['logistics', 'delivery'] },
-  { slug: 'user-check', label: 'User check', keywords: ['verified user'] },
-  { slug: 'wallet', label: 'Wallet', keywords: ['payment', 'finance'] },
-  { slug: 'wand', label: 'Wand', keywords: ['magic', 'automation'] },
-  { slug: 'wrench', label: 'Wrench', keywords: ['tools', 'maintenance'] },
+  { slug: 'truck', label: 'Truck', keywords: ['logistics'] },
+  { slug: 'user-check', label: 'User check', keywords: ['verified'] },
+  { slug: 'wallet', label: 'Wallet', keywords: ['finance'] },
+  { slug: 'wand', label: 'Wand', keywords: ['magic'] },
+  { slug: 'wrench', label: 'Wrench', keywords: ['tools'] },
+  { slug: 'zap', label: 'Zap', keywords: ['lightning'] },
 ]
 
 const EXTRA_EMOJI_ICON_LIBRARY: IconOption[] = [
@@ -420,7 +419,7 @@ export const ICON_LIBRARY: IconOption[] = mergeIconOptions(
       ...rest,
     })),
     ...EXTRA_EMOJI_ICON_LIBRARY,
-  ]
+  ],
 )
 
 export function extractLucideSlug(icon: string | null | undefined): string | null {
@@ -452,7 +451,7 @@ export function renderDictionaryColor(color: string | null | undefined, classNam
   )
 }
 
-export function normalizeCustomerDictionaryEntries(items: unknown): CustomerDictionaryDisplayEntry[] {
+export function normalizeDictionaryEntries(items: unknown): DictionaryDisplayEntry[] {
   if (!Array.isArray(items)) return []
   return items
     .map((item) => {
@@ -469,12 +468,12 @@ export function normalizeCustomerDictionaryEntries(items: unknown): CustomerDict
       const icon = typeof candidate.icon === 'string' && candidate.icon.trim().length ? candidate.icon.trim() : null
       return { value: rawValue, label, color, icon }
     })
-    .filter((entry): entry is CustomerDictionaryDisplayEntry => !!entry)
+    .filter((entry): entry is DictionaryDisplayEntry => !!entry)
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
 }
 
-export function createDictionaryMap(entries: CustomerDictionaryDisplayEntry[]): CustomerDictionaryMap {
-  return entries.reduce<CustomerDictionaryMap>((acc, entry) => {
+export function createDictionaryMap(entries: DictionaryDisplayEntry[]): DictionaryMap {
+  return entries.reduce<DictionaryMap>((acc, entry) => {
     acc[entry.value] = entry
     return acc
   }, {})
@@ -482,8 +481,8 @@ export function createDictionaryMap(entries: CustomerDictionaryDisplayEntry[]): 
 
 type DictionaryValueProps = {
   value: string | null | undefined
-  map?: CustomerDictionaryMap | null
-  fallback: React.ReactNode
+  map?: DictionaryMap | null
+  fallback?: React.ReactNode
   className?: string
   iconWrapperClassName?: string
   iconClassName?: string
@@ -493,13 +492,13 @@ type DictionaryValueProps = {
 export function DictionaryValue({
   value,
   map,
-  fallback,
+  fallback = null,
   className,
   iconWrapperClassName = 'inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card',
   iconClassName = 'h-4 w-4',
   colorClassName = 'h-3 w-3 rounded-full',
 }: DictionaryValueProps): React.ReactNode {
-  if (!value) return fallback
+  if (!value) return fallback ?? null
   const entry = map?.[value]
   if (!entry) {
     return <span className={className}>{value}</span>
@@ -517,3 +516,4 @@ export function DictionaryValue({
     </span>
   )
 }
+

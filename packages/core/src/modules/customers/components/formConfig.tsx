@@ -25,7 +25,7 @@ import type {
 } from '@open-mercato/ui/backend/CrudForm'
 import { useEmailDuplicateCheck } from '../backend/hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../utils/phoneDuplicates'
-import { renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
+import { renderDictionaryColor, renderDictionaryIcon } from '../lib/dictionaries'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from './AddressTiles'
 
 export const metadata = {
