@@ -1759,6 +1759,71 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     [personId, t]
   )
 
+  const customFieldInitialValues = React.useMemo(() => {
+    if (!data) return {}
+    const base: Record<string, unknown> = {}
+    if (data?.profile?.id) base.id = data.profile.id
+    for (const [key, value] of Object.entries(data?.customFields ?? {})) {
+      if (key.startsWith('cf_')) base[key] = value
+    }
+    return base
+  }, [data])
+
+  const handleCustomFieldsSubmit = React.useCallback(
+    async (values: Record<string, unknown>) => {
+      if (!data) {
+        throw new Error(t('customers.people.detail.inline.error'))
+      }
+      const customPayload: Record<string, unknown> = {}
+      const prefixed: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(values)) {
+        if (!key.startsWith('cf_')) continue
+        const normalizedValue = value === undefined ? null : value
+        customPayload[key.slice(3)] = normalizedValue
+        prefixed[key] = normalizedValue
+      }
+      if (!Object.keys(customPayload).length) {
+        flash(t('ui.forms.flash.saveSuccess'), 'success')
+        return
+      }
+      const res = await apiFetch('/api/customers/people', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: data.person.id,
+          customFields: customPayload,
+        }),
+      })
+      if (!res.ok) {
+        let message = t('customers.people.detail.inline.error')
+        let fieldErrors: Record<string, string> | null = null
+        try {
+          const details = await res.clone().json()
+          if (details && typeof details.error === 'string') message = details.error
+          if (details && typeof details.fields === 'object' && details.fields !== null) {
+            fieldErrors = {}
+            for (const [rawKey, rawValue] of Object.entries(details.fields as Record<string, unknown>)) {
+              const formKey = rawKey.startsWith('cf_') ? rawKey : `cf_${rawKey}`
+              fieldErrors[formKey] = typeof rawValue === 'string' ? rawValue : message
+            }
+          }
+        } catch {
+          // ignore json parsing errors
+        }
+        const err: any = new Error(message)
+        if (fieldErrors) err.fieldErrors = fieldErrors
+        throw err
+      }
+      setData((prev) => {
+        if (!prev) return prev
+        const nextCustomFields = { ...prefixed }
+        return { ...prev, customFields: nextCustomFields }
+      })
+      flash(t('ui.forms.flash.saveSuccess'), 'success')
+    },
+    [data, t]
+  )
+
   if (isLoading) {
     return (
       <Page>

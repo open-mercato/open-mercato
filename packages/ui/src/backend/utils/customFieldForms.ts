@@ -4,10 +4,6 @@ import { filterCustomFieldDefs } from './customFieldDefs'
 import { apiFetch } from './api'
 import { FieldRegistry } from '../fields/registry'
 
-if (typeof window !== 'undefined') {
-  import('@open-mercato/core/modules/dictionaries/fields/dictionary').catch(() => {})
-}
-
 function buildOptionsUrl(base: string, query?: string): string {
   if (!query) return base
   try {

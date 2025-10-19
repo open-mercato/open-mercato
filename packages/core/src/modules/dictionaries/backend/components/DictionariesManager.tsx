@@ -4,7 +4,6 @@ import * as React from 'react'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -254,19 +253,21 @@ export function DictionariesManager() {
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('dictionaries.config.dialog.keyLabel', 'Key')}</label>
-              <Input
+              <input
                 value={form.key}
                 onChange={(event) => setForm((prev) => ({ ...prev, key: event.target.value }))}
                 placeholder={t('dictionaries.config.dialog.keyPlaceholder', 'slug_name')}
                 disabled={dialog?.mode === 'edit'}
+                className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:bg-muted"
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('dictionaries.config.dialog.nameLabel', 'Name')}</label>
-              <Input
+              <input
                 value={form.name}
                 onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
                 placeholder={t('dictionaries.config.dialog.namePlaceholder', 'Display name')}
+                className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               />
             </div>
             <div className="space-y-2">
