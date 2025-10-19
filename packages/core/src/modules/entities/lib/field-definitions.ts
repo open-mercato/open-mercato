@@ -35,6 +35,8 @@ const CONFIG_PASSTHROUGH_KEYS: Array<keyof CustomFieldDefinition> = [
   'editor',
   'input',
   'relatedEntityId',
+  'dictionaryId',
+  'dictionaryInlineCreate',
   'validation',
   'maxAttachmentSizeMb',
   'acceptExtensions',

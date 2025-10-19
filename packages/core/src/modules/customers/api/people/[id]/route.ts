@@ -91,14 +91,20 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     if (deal && typeof deal !== 'string') deals.push(deal)
   }
 
-  const customFieldValues = await loadCustomFieldValues({
-    em,
-    entityId: E.customers.customer_entity,
-    recordIds: [person.id],
-    tenantIdByRecord: { [person.id]: person.tenantId ?? null },
-    organizationIdByRecord: { [person.id]: person.organizationId ?? null },
-    tenantFallbacks: [person.tenantId ?? auth.tenantId ?? null].filter((v): v is string => !!v),
-  })
+  let customFieldValues: Record<string, Record<string, unknown>> = {}
+  const profileId = profile?.id ?? null
+  if (profileId) {
+    customFieldValues = await loadCustomFieldValues({
+      em,
+      entityId: E.customers.customer_person_profile,
+      recordIds: [profileId],
+      tenantIdByRecord: { [profileId]: profile?.tenantId ?? null },
+      organizationIdByRecord: { [profileId]: profile?.organizationId ?? null },
+      tenantFallbacks: [
+        profile?.tenantId ?? person.tenantId ?? auth.tenantId ?? null,
+      ].filter((v): v is string => !!v),
+    })
+  }
 
   return NextResponse.json({
     person: {
@@ -137,7 +143,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           companyEntityId: profile.company ? (typeof profile.company === 'string' ? profile.company : profile.company.id) : null,
         }
       : null,
-    customFields: customFieldValues?.[person.id] ?? {},
+    customFields: profileId ? customFieldValues?.[profileId] ?? {} : {},
     tags: serializeTags(tagAssignments),
     addresses: addresses.map((address) => ({
       id: address.id,

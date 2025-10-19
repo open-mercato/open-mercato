@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
@@ -12,6 +13,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Loader2, Mail, Pencil, Phone, Plus, Trash2, X } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import {
@@ -1918,7 +1920,70 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     },
   ]
 
-  const customFieldEntries = Object.entries(data.customFields ?? {})
+  const customFieldInitialValues = React.useMemo(() => {
+    if (!data) return {}
+    const base: Record<string, unknown> = {}
+    if (data.profile?.id) base.id = data.profile.id
+    for (const [key, value] of Object.entries(data.customFields ?? {})) {
+      if (key.startsWith('cf_')) base[key] = value
+    }
+    return base
+  }, [data])
+
+  const handleCustomFieldsSubmit = React.useCallback(
+    async (values: Record<string, unknown>) => {
+      if (!data) {
+        throw new Error(t('customers.people.detail.inline.error'))
+      }
+      const customPayload: Record<string, unknown> = {}
+      const prefixed: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(values)) {
+        if (!key.startsWith('cf_')) continue
+        const normalizedValue = value === undefined ? null : value
+        customPayload[key.slice(3)] = normalizedValue
+        prefixed[key] = normalizedValue
+      }
+      if (!Object.keys(customPayload).length) {
+        flash(t('ui.forms.flash.saveSuccess'), 'success')
+        return
+      }
+      const res = await apiFetch('/api/customers/people', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: data.person.id,
+          customFields: customPayload,
+        }),
+      })
+      if (!res.ok) {
+        let message = t('customers.people.detail.inline.error')
+        let fieldErrors: Record<string, string> | null = null
+        try {
+          const details = await res.clone().json()
+          if (details && typeof details.error === 'string') message = details.error
+          if (details && typeof details.fields === 'object' && details.fields !== null) {
+            fieldErrors = {}
+            for (const [rawKey, rawValue] of Object.entries(details.fields as Record<string, unknown>)) {
+              const formKey = rawKey.startsWith('cf_') ? rawKey : `cf_${rawKey}`
+              fieldErrors[formKey] = typeof rawValue === 'string' ? rawValue : message
+            }
+          }
+        } catch {
+          // ignore json parsing errors
+        }
+        const err: any = new Error(message)
+        if (fieldErrors) err.fieldErrors = fieldErrors
+        throw err
+      }
+      setData((prev) => {
+        if (!prev) return prev
+        const nextCustomFields = { ...prefixed }
+        return { ...prev, customFields: nextCustomFields }
+      })
+      flash(t('ui.forms.flash.saveSuccess'), 'success')
+    },
+    [data, t]
+  )
 
   return (
     <Page>
@@ -2164,19 +2229,21 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             </div>
           </div>
 
-          {customFieldEntries.length ? (
-            <div className="space-y-3">
-              <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.customFields')}</h2>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {customFieldEntries.map(([key, value]) => (
-                  <div key={key} className="rounded border bg-muted/20 p-3">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{key.replace(/^cf_/, '')}</p>
-                    <div className="mt-1 text-sm break-words">{String(value ?? t('customers.people.detail.noValue'))}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
+          <div className="space-y-3">
+            <CrudForm
+              key={data.profile?.id ? `person-custom-fields-${data.profile.id}` : `person-custom-fields-${person.id}`}
+              title={t('customers.people.detail.sections.customFields')}
+              entityId={E.customers.customer_person_profile}
+              fields={[]}
+              groups={[
+                { id: 'person_custom_fields', kind: 'customFields', column: 1 },
+              ]}
+              initialValues={customFieldInitialValues}
+              isLoading={isLoading}
+              submitLabel={t('customers.people.detail.inline.save')}
+              onSubmit={handleCustomFieldsSubmit}
+            />
+          </div>
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">

@@ -20,6 +20,7 @@ function columnFromKind(kind: string): keyof CustomFieldValue {
   switch (kind) {
     case 'text':
     case 'select':
+    case 'dictionary':
       return 'valueText'
     case 'multiline':
       return 'valueMultiline'

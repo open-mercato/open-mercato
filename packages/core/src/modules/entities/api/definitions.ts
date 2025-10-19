@@ -74,7 +74,11 @@ export async function GET(req: Request) {
     description: d.configJson?.description || undefined,
     multi: Boolean(d.configJson?.multi),
     options: Array.isArray(d.configJson?.options) ? d.configJson.options : undefined,
-    optionsUrl: typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined,
+    optionsUrl: (() => {
+      const dictionaryId = typeof d.configJson?.dictionaryId === 'string' ? d.configJson.dictionaryId : undefined
+      if (dictionaryId) return `/api/dictionaries/${dictionaryId}/entries`
+      return typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined
+    })(),
     filterable: Boolean(d.configJson?.filterable),
     formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
     listVisible: d.configJson?.listVisible !== undefined ? Boolean(d.configJson.listVisible) : true,
@@ -82,6 +86,10 @@ export async function GET(req: Request) {
       ? d.configJson.editor
       : (d.kind === 'multiline' ? entityDefaultEditor : undefined),
     input: typeof d.configJson?.input === 'string' ? d.configJson.input : undefined,
+    dictionaryId: typeof d.configJson?.dictionaryId === 'string' ? d.configJson.dictionaryId : undefined,
+    dictionaryInlineCreate: d.configJson?.dictionaryInlineCreate !== undefined
+      ? Boolean(d.configJson.dictionaryInlineCreate)
+      : undefined,
     priority: typeof d.configJson?.priority === 'number' ? d.configJson.priority : 0,
     validation: Array.isArray(d.configJson?.validation) ? d.configJson.validation : undefined,
     // attachments config passthrough
@@ -102,6 +110,13 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   const input = parsed.data
 
+  if (input.kind === 'dictionary') {
+    const dictionaryId = input.configJson?.dictionaryId
+    if (typeof dictionaryId !== 'string' || dictionaryId.trim().length === 0) {
+      return NextResponse.json({ error: 'dictionaryId is required for dictionary custom fields' }, { status: 400 })
+    }
+  }
+
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
 
@@ -114,6 +129,11 @@ export async function POST(req: Request) {
   if (cfg.label == null || String(cfg.label).trim() === '') cfg.label = input.key
   if (cfg.formEditable === undefined) cfg.formEditable = true
   if (cfg.listVisible === undefined) cfg.listVisible = true
+  if (input.kind === 'dictionary') {
+    const dictionaryId = typeof cfg.dictionaryId === 'string' ? cfg.dictionaryId.trim() : ''
+    cfg.dictionaryId = dictionaryId
+    cfg.dictionaryInlineCreate = cfg.dictionaryInlineCreate !== false
+  }
   if (input.kind === 'multiline' && (cfg.editor == null || String(cfg.editor).trim() === '')) {
     cfg.editor = 'markdown'
   }

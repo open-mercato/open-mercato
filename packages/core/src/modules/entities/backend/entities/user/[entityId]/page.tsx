@@ -203,9 +203,42 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
             </div>
             <div className="md:col-span-2">
               <label className="inline-flex items-center gap-2 text-xs">
-                <input type="checkbox" checked={!!local.configJson?.multi} onChange={(e) => { apply({ configJson: { ...(local.configJson||{}), multi: e.target.checked } }, true) }} /> Multiple
+                <input
+                  type="checkbox"
+                  checked={!!local.configJson?.multi}
+                  onChange={(e) => {
+                    const multi = e.target.checked
+                    const nextConfig = { ...(local.configJson || {}), multi }
+                    if (!multi && nextConfig.input === 'listbox') {
+                      delete nextConfig.input
+                    }
+                    apply({ configJson: nextConfig }, true)
+                  }}
+                /> Multiple
               </label>
             </div>
+            {!!local.configJson?.multi && (
+              <div className="md:col-span-2">
+                <label className="text-xs">Multi-select input style</label>
+                <select
+                  className="border rounded w-full px-2 py-1 text-sm"
+                  value={local.configJson?.input === 'listbox' ? 'listbox' : 'default'}
+                  onChange={(e) => {
+                    const { value } = e.target
+                    const nextConfig = { ...(local.configJson || {}) }
+                    if (value === 'listbox') {
+                      nextConfig.input = 'listbox'
+                    } else {
+                      delete nextConfig.input
+                    }
+                    apply({ configJson: nextConfig }, true)
+                  }}
+                >
+                  <option value="default">Default</option>
+                  <option value="listbox">Listbox (searchable)</option>
+                </select>
+              </div>
+            )}
           </>
         )}
 

@@ -35,7 +35,7 @@ export default function CreatePersonPage() {
           fields={fields}
           groups={groups}
           initialValues={{ addresses: [] as PersonFormValues['addresses'] }}
-          entityId={E.customers.customer_entity}
+          entityId={E.customers.customer_person_profile}
           submitLabel={t('customers.people.form.submit')}
           cancelHref="/backend/customers/people"
           schema={formSchema}

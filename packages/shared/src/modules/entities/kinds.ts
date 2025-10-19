@@ -7,6 +7,7 @@ export const CUSTOM_FIELD_KINDS = [
   'select',
   'relation',
   'attachment',
+  'dictionary',
 ] as const
 
 export type CustomFieldKind = typeof CUSTOM_FIELD_KINDS[number]

@@ -298,7 +298,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: Dictio
         </Table>
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={(open) => (open ? openDialog(formState.id ? entries.find((e) => e.id === formState.id) ?? undefined : undefined) : closeDialog())}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => (!open ? closeDialog() : undefined)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
@@ -380,4 +380,3 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: Dictio
     </div>
   )
 }
-

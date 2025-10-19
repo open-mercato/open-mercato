@@ -27,6 +27,8 @@ export type CustomFieldDefDto = {
     | { rule: 'eq' | 'ne'; param: any; message: string }
     | { rule: 'regex'; param: string; message: string }
   >
+  dictionaryId?: string
+  dictionaryInlineCreate?: boolean
 }
 
 export async function fetchCustomFieldDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<CustomFieldDefDto[]> {

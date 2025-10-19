@@ -33,7 +33,7 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
     const label = d.label || d.key
     if (d.kind === 'boolean') {
       f.push({ id, label, type: 'checkbox' })
-    } else if (d.kind === 'select' || d.kind === 'relation') {
+    } else if (d.kind === 'select' || d.kind === 'relation' || d.kind === 'dictionary') {
       const options = (d.options || []).map((o) => ({ value: String(o), label: String(o).charAt(0).toUpperCase() + String(o).slice(1) }))
       const base: FilterDef = { id: d.multi ? `${id}In` : id, label, type: 'select', multiple: !!d.multi, options }
       // When optionsUrl is provided, allow async options loading for filters too

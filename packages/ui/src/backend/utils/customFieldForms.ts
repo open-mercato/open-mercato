@@ -4,6 +4,10 @@ import { filterCustomFieldDefs } from './customFieldDefs'
 import { apiFetch } from './api'
 import { FieldRegistry } from '../fields/registry'
 
+if (typeof window !== 'undefined') {
+  import('@open-mercato/core/modules/dictionaries/fields/dictionary').catch(() => {})
+}
+
 function buildOptionsUrl(base: string, query?: string): string {
   if (!query) return base
   try {
@@ -113,7 +117,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?
           // Try registry-provided input for custom kind
           const input = FieldRegistry.getInput(d.kind)
           if (input) {
-            fields.push({ id, label, type: 'custom', component: (props) => input({ ...props, def: d }) })
+            fields.push({ id, label, type: 'custom', required, description: d.description, component: (props) => input({ ...props, def: d }) })
           } else {
             fields.push({ id, label, type: 'text', description: d.description, required })
           }

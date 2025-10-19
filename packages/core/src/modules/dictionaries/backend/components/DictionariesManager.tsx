@@ -3,7 +3,6 @@
 import * as React from 'react'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Card } from '@open-mercato/ui/primitives/card'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -166,7 +165,7 @@ export function DictionariesManager() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-      <Card className="p-4">
+      <div className="rounded-lg border bg-card p-4 shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">
             {t('dictionaries.config.list.title', 'Dictionaries')}
@@ -232,7 +231,7 @@ export function DictionariesManager() {
             </ul>
           )}
         </div>
-      </Card>
+      </div>
       <div>
         {selectedDictionary ? (
           <DictionaryEntriesEditor dictionaryId={selectedDictionary.id} dictionaryName={selectedDictionary.name} />
@@ -294,4 +293,3 @@ export function DictionariesManager() {
     </div>
   )
 }
-

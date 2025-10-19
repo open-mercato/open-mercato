@@ -36,6 +36,8 @@ export const upsertCustomFieldDefSchema = z.object({
       listVisible: z.boolean().optional(),
       priority: z.number().optional(),
       relatedEntityId: z.string().optional(),
+      dictionaryId: z.string().uuid().optional(),
+      dictionaryInlineCreate: z.boolean().optional(),
       // validation rules
       validation: validationRulesArraySchema.optional(),
     })
