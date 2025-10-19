@@ -53,6 +53,9 @@ type DictionarySectionProps = {
   dialogColorHelp: string
   dialogIconLabel: string
   dialogIconPlaceholder: string
+  dialogIconPickerTriggerLabel: string
+  dialogIconSearchPlaceholder: string
+  dialogIconSearchEmptyLabel: string
   dialogIconSuggestionsLabel: string
   dialogIconClearLabel: string
   dialogColorClearLabel: string
@@ -90,6 +93,9 @@ export function DictionarySettings() {
     dialogColorClearLabel: t('customers.config.dictionaries.dialog.colorClear', 'Remove color'),
     dialogIconLabel: t('customers.config.dictionaries.dialog.iconLabel', 'Icon'),
     dialogIconPlaceholder: t('customers.config.dictionaries.dialog.iconPlaceholder', 'Type an emoji or pick one of the suggestions.'),
+    dialogIconPickerTriggerLabel: t('customers.config.dictionaries.dialog.iconBrowse', 'Browse icons and emojis'),
+    dialogIconSearchPlaceholder: t('customers.config.dictionaries.dialog.iconSearchPlaceholder', 'Search icons or emojis…'),
+    dialogIconSearchEmptyLabel: t('customers.config.dictionaries.dialog.iconSearchEmpty', 'No icons match your search.'),
     dialogIconSuggestionsLabel: t('customers.config.dictionaries.dialog.iconSuggestions', 'Suggestions'),
     dialogIconClearLabel: t('customers.config.dictionaries.dialog.iconClear', 'Remove icon'),
     appearanceEmptyLabel: t('customers.config.dictionaries.appearance.empty', 'None'),
@@ -181,6 +187,9 @@ function DictionarySection({
   dialogColorHelp,
   dialogIconLabel,
   dialogIconPlaceholder,
+  dialogIconPickerTriggerLabel,
+  dialogIconSearchPlaceholder,
+  dialogIconSearchEmptyLabel,
   dialogIconSuggestionsLabel,
   dialogIconClearLabel,
   dialogColorClearLabel,
@@ -408,6 +417,9 @@ function DictionarySection({
             colorClearLabel: dialogColorClearLabel,
             iconLabel: dialogIconLabel,
             iconPlaceholder: dialogIconPlaceholder,
+            iconPickerTriggerLabel: dialogIconPickerTriggerLabel,
+            iconSearchPlaceholder: dialogIconSearchPlaceholder,
+            iconSearchEmptyLabel: dialogIconSearchEmptyLabel,
             iconSuggestionsLabel: dialogIconSuggestionsLabel,
             iconClearLabel: dialogIconClearLabel,
             previewEmptyLabel: appearanceEmptyLabel,

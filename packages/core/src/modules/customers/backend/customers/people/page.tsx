@@ -177,6 +177,12 @@ export default function CustomersPeoplePage() {
       type: 'dateRange',
     },
     {
+      id: 'emailContains',
+      label: t('customers.people.list.filters.emailContains'),
+      type: 'text',
+      placeholder: t('customers.people.list.filters.emailContainsPlaceholder'),
+    },
+    {
       id: 'hasEmail',
       label: t('customers.people.list.filters.hasEmail'),
       type: 'checkbox',
@@ -208,6 +214,10 @@ export default function CustomersPeoplePage() {
     if (createdAt && typeof createdAt === 'object') {
       if (createdAt.from) params.set('createdFrom', createdAt.from)
       if (createdAt.to) params.set('createdTo', createdAt.to)
+    }
+    const emailContains = filterValues.emailContains
+    if (typeof emailContains === 'string' && emailContains.trim()) {
+      params.set('emailContains', emailContains.trim())
     }
     const booleanFilters: Array<['hasEmail' | 'hasPhone' | 'hasNextInteraction', string]> = [
       ['hasEmail', 'hasEmail'],
