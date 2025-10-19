@@ -260,7 +260,7 @@ async function setCustomFieldsForPerson(
     organizationId,
     tenantId,
     values,
-    notify: false,
+    notify: true,
   })
 }
 

@@ -980,18 +980,16 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
                   onInput={(event) => adjustTextareaSize(event.currentTarget)}
                   disabled={isSubmitting}
                 />
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    {draftColor || draftIcon ? (
-                      <span className="inline-flex items-center gap-2 rounded-full bg-muted/40 px-2 py-1">
-                        {draftColor ? renderDictionaryColor(draftColor, 'h-3 w-3 rounded-full border border-border') : null}
-                        {draftIcon ? renderDictionaryIcon(draftIcon, 'h-3.5 w-3.5 text-muted-foreground') : (
-                          <span className="text-muted-foreground">{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
-                        )}
-                      </span>
-                    ) : (
-                      <span>{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
-                    )}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      {draftColor || draftIcon ? (
+                        <span className="inline-flex items-center gap-2 rounded-full bg-muted/40 px-2 py-1">
+                          {draftColor ? renderDictionaryColor(draftColor, 'h-3 w-3 rounded-full border border-border') : null}
+                          {draftIcon ? renderDictionaryIcon(draftIcon, 'h-3.5 w-3.5 text-muted-foreground') : null}
+                        </span>
+                      ) : (
+                        <span>{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
+                      )}
                     <Button
                       type="button"
                       variant="ghost"
@@ -1047,9 +1045,10 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
                         <div className="flex items-center gap-2">
                           <span>{formatRelativeTime(note.createdAt) ?? formatDateTime(note.createdAt) ?? emptyLabel}</span>
                           {displayColor ? renderDictionaryColor(displayColor, 'h-2.5 w-2.5 rounded-full border border-border') : null}
-                          {displayIcon ? renderDictionaryIcon(displayIcon, 'h-3.5 w-3.5 text-muted-foreground') : (
+                          {displayIcon ? renderDictionaryIcon(displayIcon, 'h-3.5 w-3.5 text-muted-foreground') : null}
+                          {!displayColor && !displayIcon ? (
                             <span>{t('customers.people.detail.notes.appearance.none')}</span>
-                          )}
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-2">
                           {note.authorUserId ? (
@@ -1085,7 +1084,9 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
                             <Button
                               type="button"
                               size="sm"
-                              onClick={handleAppearanceSave}
+                              onClick={() => {
+                                void handleAppearanceSave()
+                              }}
                               disabled={appearanceSavingId === note.id}
                             >
                               {appearanceSavingId === note.id ? (
@@ -1684,6 +1685,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       if (!personId) return
       setSectionPending((prev) => ({ ...prev, notes: true }))
       try {
+        const body = note.body.trim()
         const icon = note.appearanceIcon && note.appearanceIcon.trim().length ? note.appearanceIcon.trim() : null
         const color = note.appearanceColor && /^#([0-9a-f]{6})$/i.test(note.appearanceColor.trim())
           ? note.appearanceColor.trim().toLowerCase()
@@ -1693,7 +1695,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             entityId: personId,
-            body: note.body,
+            body,
             appearanceIcon: icon,
             appearanceColor: color,
           }),
@@ -1709,7 +1711,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         const responseBody = await res.json().catch(() => ({}))
         const newNote: CommentSummary = {
           id: typeof responseBody?.id === 'string' ? responseBody.id : randomId(),
-          body: note.body,
+          body,
           createdAt: new Date().toISOString(),
           authorUserId: null,
           dealId: null,
@@ -1723,6 +1725,51 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       }
     },
     [personId, t]
+  )
+
+  const handleUpdateNoteAppearance = React.useCallback(
+    async (noteId: string, appearance: { icon: string | null; color: string | null }) => {
+      const icon = appearance.icon && appearance.icon.trim().length ? appearance.icon.trim() : null
+      const color = appearance.color && /^#([0-9a-f]{6})$/i.test(appearance.color.trim())
+        ? appearance.color.trim().toLowerCase()
+        : null
+      try {
+        const res = await apiFetch('/api/customers/comments', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            id: noteId,
+            appearanceIcon: icon,
+            appearanceColor: color,
+          }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.notes.appearance.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        setData((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            comments: prev.comments.map((comment) =>
+              comment.id === noteId
+                ? { ...comment, appearanceIcon: icon, appearanceColor: color }
+                : comment
+            ),
+          }
+        })
+        flash(t('customers.people.detail.notes.appearance.updated'), 'success')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : t('customers.people.detail.notes.appearance.error')
+        flash(message, 'error')
+        throw error instanceof Error ? error : new Error(message)
+      }
+    },
+    [t]
   )
 
   const handleCreateActivity = React.useCallback(
@@ -2027,7 +2074,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         } catch {
           // ignore json parsing errors
         }
-        const err: any = new Error(message)
+        const err = new Error(message) as Error & { fieldErrors?: Record<string, string> }
         if (fieldErrors) err.fieldErrors = fieldErrors
         throw err
       }
@@ -2361,6 +2408,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               <NotesTab
                 notes={data.comments}
                 onCreate={handleCreateNote}
+                onAppearanceUpdate={handleUpdateNoteAppearance}
                 isSubmitting={sectionPending.notes}
                 emptyLabel={t('customers.people.detail.empty.comments')}
                 t={t}

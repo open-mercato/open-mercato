@@ -232,7 +232,7 @@ describe('customers commands undo custom fields', () => {
         organizationId: 'org-1',
         tenantId: 'tenant-1',
         values: { priority: 'high', rating: null },
-        notify: false,
+        notify: true,
       })
     )
     expect(existingEntity.displayName).toBe('Before Name')

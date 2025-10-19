@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
         'user-guide/users-and-roles',
         'user-guide/api-keys',
         'user-guide/user-custom-fields',
+        'user-guide/dictionaries',
         'user-guide/user-entities',
         'user-guide/organizations',
         'user-guide/audit-logs',

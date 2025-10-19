@@ -24,6 +24,11 @@ import {
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
 } from '../../../lib/dictionaries'
+import {
+  fetchCustomFieldDefs,
+  filterCustomFieldDefs,
+  type CustomFieldDefDto,
+} from '@open-mercato/ui/backend/utils/customFieldDefs'
 
 type PersonRow = {
   id: string
@@ -113,6 +118,7 @@ export default function CustomersPeoplePage() {
     'lifecycle-stages': {},
     'address-types': {},
   })
+  const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefDto[]>([])
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const router = useRouter()
@@ -152,6 +158,22 @@ export default function CustomersPeoplePage() {
       cancelled = true
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadCustomFields() {
+      try {
+        const defs = await fetchCustomFieldDefs(E.customers.customer_person_profile)
+        if (!cancelled) setCustomFieldDefs(defs)
+      } catch {
+        if (!cancelled) setCustomFieldDefs([])
+      }
+    }
+    loadCustomFields().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [scopeVersion, reloadToken])
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {
@@ -232,12 +254,20 @@ export default function CustomersPeoplePage() {
     }
     Object.entries(filterValues).forEach(([key, value]) => {
       if (!key.startsWith('cf_') || value == null) return
-      if (Array.isArray(value) && value.length) {
-        params.set(key, value.join(','))
+      if (Array.isArray(value)) {
+        const normalized = value
+          .map((item) => {
+            if (item == null) return ''
+            if (typeof item === 'string') return item.trim()
+            return String(item).trim()
+          })
+          .filter((item) => item.length > 0)
+        if (normalized.length) params.set(key, normalized.join(','))
       } else if (typeof value === 'object') {
         return
       } else if (value !== '') {
-        params.set(key, String(value))
+        const stringValue = typeof value === 'string' ? value.trim() : String(value)
+        if (stringValue) params.set(key, stringValue)
       }
     })
     return params.toString()
@@ -329,7 +359,35 @@ export default function CustomersPeoplePage() {
       />
     )
 
-    return [
+    const renderCustomFieldCell = (value: unknown) => {
+      if (value == null) return noValue
+      if (Array.isArray(value)) {
+        if (!value.length) return noValue
+        const normalized = value
+          .map((item) => {
+            if (item == null) return ''
+            if (typeof item === 'string') return item.trim()
+            return String(item).trim()
+          })
+          .filter((item) => item.length > 0)
+        if (!normalized.length) return noValue
+        return <span className="text-sm">{normalized.join(', ')}</span>
+      }
+      if (typeof value === 'boolean') {
+        return (
+          <span className="text-sm">
+            {value
+              ? t('customers.people.list.booleanYes', 'Yes')
+              : t('customers.people.list.booleanNo', 'No')}
+          </span>
+        )
+      }
+      const stringValue = typeof value === 'string' ? value.trim() : String(value)
+      if (!stringValue) return noValue
+      return <span className="text-sm">{stringValue}</span>
+    }
+
+    const baseColumns: ColumnDef<PersonRow>[] = [
       {
         accessorKey: 'name',
         header: t('customers.people.list.columns.name'),
@@ -387,7 +445,15 @@ export default function CustomersPeoplePage() {
         cell: ({ row }) => renderDictionaryCell('sources', row.original.source),
       },
     ]
-  }, [dictionaryMaps, t])
+
+    const customColumns = filterCustomFieldDefs(customFieldDefs, 'list').map<ColumnDef<PersonRow>>((def) => ({
+      accessorKey: `cf_${def.key}`,
+      header: def.label || def.key,
+      cell: ({ getValue }) => renderCustomFieldCell(getValue()),
+    }))
+
+    return [...baseColumns, ...customColumns]
+  }, [customFieldDefs, dictionaryMaps, t])
 
   return (
     <Page>
