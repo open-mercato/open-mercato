@@ -29,14 +29,39 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
   // Keep local state in sync when identity (key) changes to avoid stale UI after deletes/reorders
   React.useEffect(() => { setLocal(d) }, [d.key])
 
+  const sanitizeDef = (def: Def): Def => {
+    if (!def.configJson || !Array.isArray(def.configJson.options)) return def
+    const normalizedOptions = def.configJson.options
+      .map((option) => (typeof option === 'string' ? option.trim() : ''))
+      .filter((option) => option.length > 0)
+    if (normalizedOptions.length === def.configJson.options.length && normalizedOptions.every((option, idx) => option === def.configJson.options[idx])) {
+      return def
+    }
+    return {
+      ...def,
+      configJson: {
+        ...def.configJson,
+        options: normalizedOptions,
+      },
+    }
+  }
+
   const apply = (patch: Partial<Def>, propagateNow = false) => {
     setLocal((prev) => {
       const next = { ...prev, ...patch }
-      if (propagateNow) onChange(next)
-      return next
+      if (!propagateNow) return next
+      const sanitized = sanitizeDef(next)
+      onChange(sanitized)
+      return sanitized
     })
   }
-  const commit = () => onChange(local)
+  const commit = () => {
+    setLocal((prev) => {
+      const sanitized = sanitizeDef(prev)
+      onChange(sanitized)
+      return sanitized
+    })
+  }
 
   return (
     <div className="rounded border p-3 bg-white transition-colors hover:border-muted-foreground/60">
@@ -134,7 +159,7 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
                       <input
                         className="border rounded w-full px-2 py-1 text-sm"
                         value={Array.isArray(local.configJson?.options) ? local.configJson.options.join(',') : ''}
-                        onChange={(e) => apply({ configJson: { ...(local.configJson||{}), options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })}
+                        onChange={(e) => apply({ configJson: { ...(local.configJson||{}), options: e.target.value.split(',').map(s => s.trim()) } })}
                         onBlur={commit}
                       />
                     </div>
@@ -162,7 +187,7 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
               <input
                 className="border rounded w-full px-2 py-1 text-sm"
                 value={Array.isArray(local.configJson?.options) ? local.configJson.options.join(',') : ''}
-                onChange={(e) => apply({ configJson: { ...(local.configJson||{}), options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } })}
+                onChange={(e) => apply({ configJson: { ...(local.configJson||{}), options: e.target.value.split(',').map(s => s.trim()) } })}
                 onBlur={commit}
               />
             </div>
