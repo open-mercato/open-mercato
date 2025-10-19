@@ -132,7 +132,7 @@ const crud = makeCrudRoute({
         try {
           const em = ctx.container.resolve('em') as any
           const cfFilters = await buildCustomFieldFiltersFromQuery({
-            entityIds: [E.customers.customer_entity, E.customers.customer_person_profile],
+            entityIds: [E.customers.customer_person_profile, E.customers.customer_entity],
             query,
             em,
             tenantId: ctx.auth?.tenantId ?? null,

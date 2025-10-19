@@ -235,6 +235,7 @@
   "customers.people.detail.notes.updateSuccess": "Nota actualizada",
   "customers.people.detail.notes.updateError": "No se pudo actualizar la nota",
   "customers.people.detail.notes.loadMore": "Cargar más notas",
+  "customers.people.detail.notes.you": "Tú",
   "customers.people.detail.notes.appearance.colorLabel": "Color de la nota",
   "customers.people.detail.notes.appearance.colorHelp": "Elige un color de acento para esta nota.",
   "customers.people.detail.notes.appearance.clearColor": "Quitar color",

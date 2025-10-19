@@ -234,6 +234,7 @@
   "customers.people.detail.notes.updateSuccess": "Notatka zaktualizowana",
   "customers.people.detail.notes.updateError": "Nie udało się zaktualizować notatki",
   "customers.people.detail.notes.loadMore": "Pokaż więcej notatek",
+  "customers.people.detail.notes.you": "Ty",
   "customers.people.detail.notes.appearance.colorLabel": "Kolor notatki",
   "customers.people.detail.notes.appearance.colorHelp": "Wybierz kolor akcentu dla tej notatki.",
   "customers.people.detail.notes.appearance.clearColor": "Usuń kolor",

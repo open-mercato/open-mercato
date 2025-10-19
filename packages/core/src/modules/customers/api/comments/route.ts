@@ -74,7 +74,10 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         return commentCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
       },
-      response: ({ result }) => ({ id: result?.commentId ?? result?.id ?? null }),
+      response: ({ result }) => ({
+        id: result?.commentId ?? result?.id ?? null,
+        authorUserId: result?.authorUserId ?? null,
+      }),
       status: 201,
     },
     update: {

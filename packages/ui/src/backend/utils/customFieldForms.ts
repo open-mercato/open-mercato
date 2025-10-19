@@ -2,6 +2,7 @@ import type { CrudField } from '../CrudForm'
 import type { CustomFieldDefDto } from './customFieldDefs'
 import { filterCustomFieldDefs } from './customFieldDefs'
 import { apiFetch } from './api'
+import { fetchCustomFieldDefs } from './customFieldDefs'
 import { FieldRegistry } from '../fields/registry'
 
 function buildOptionsUrl(base: string, query?: string): string {
@@ -123,9 +124,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?
   return fields
 }
 
-export async function fetchCustomFieldFormFields(entityId: string, fetchImpl: typeof fetch = apiFetch, options?: { bareIds?: boolean }): Promise<CrudField[]> {
-  const res = await fetchImpl(`/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
-  const data = await res.json().catch(() => ({ items: [] }))
-  const defs: CustomFieldDefDto[] = data?.items || []
+export async function fetchCustomFieldFormFields(entityIds: string | string[], fetchImpl: typeof fetch = apiFetch, options?: { bareIds?: boolean }): Promise<CrudField[]> {
+  const defs: CustomFieldDefDto[] = await fetchCustomFieldDefs(entityIds, fetchImpl)
   return buildFormFieldsFromCustomFields(defs, options)
 }

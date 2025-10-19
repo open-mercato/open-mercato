@@ -50,6 +50,8 @@ type CustomerAddressTilesProps = {
   emptyLabel: string
   isSubmitting?: boolean
   gridClassName?: string
+  hideAddButton?: boolean
+  onAddActionChange?: (action: { openCreateForm: () => void; addDisabled: boolean } | null) => void
 }
 
 type DraftAddressState = {
@@ -150,6 +152,8 @@ export function CustomerAddressTiles({
   emptyLabel,
   isSubmitting = false,
   gridClassName = 'grid gap-4 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
+  hideAddButton = false,
+  onAddActionChange,
 }: CustomerAddressTilesProps) {
   const scopeVersion = useOrganizationScopeVersion()
   const [isFormOpen, setIsFormOpen] = React.useState(false)
@@ -512,6 +516,18 @@ export function CustomerAddressTiles({
   const disableActions = saving || isSubmitting || deletingId !== null
   const isEditing = editingId !== null
   const addDisabled = disableActions || isEditing
+
+  React.useEffect(() => {
+    if (!onAddActionChange) return
+    onAddActionChange({ openCreateForm, addDisabled })
+  }, [onAddActionChange, openCreateForm, addDisabled])
+
+  React.useEffect(
+    () => () => {
+      if (onAddActionChange) onAddActionChange(null)
+    },
+    [onAddActionChange]
+  )
 
   const renderFormTile = React.useCallback(
     (key: string) => (
@@ -914,24 +930,28 @@ export function CustomerAddressTiles({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        {addresses.length === 0 ? (
-          <p className="text-sm text-muted-foreground leading-none">{emptyLabel}</p>
-        ) : (
-          <span className="text-sm font-medium text-muted-foreground" aria-hidden="true" />
-        )}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="self-start"
-          onClick={openCreateForm}
-          disabled={addDisabled}
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          {t('customers.people.detail.addresses.add')}
-        </Button>
-      </div>
+      {(!hideAddButton || addresses.length === 0) && (
+        <div className="flex items-start justify-between gap-3">
+          {addresses.length === 0 ? (
+            <p className="text-sm text-muted-foreground leading-none">{emptyLabel}</p>
+          ) : (
+            <span className="text-sm font-medium text-muted-foreground" aria-hidden="true" />
+          )}
+          {hideAddButton ? null : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="self-start"
+              onClick={openCreateForm}
+              disabled={addDisabled}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {t('customers.people.detail.addresses.add')}
+            </Button>
+          )}
+        </div>
+      )}
       <div className={gridClassName}>
         {addresses.map((address) => {
           if (isFormOpen && editingId === address.id) {

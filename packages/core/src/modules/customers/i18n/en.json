@@ -236,6 +236,7 @@
   "customers.people.detail.notes.updateSuccess": "Note updated",
   "customers.people.detail.notes.updateError": "Failed to update note",
   "customers.people.detail.notes.loadMore": "Load more notes",
+  "customers.people.detail.notes.you": "You",
   "customers.people.detail.notes.appearance.colorLabel": "Note color",
   "customers.people.detail.notes.appearance.colorHelp": "Pick an accent color for this note.",
   "customers.people.detail.notes.appearance.clearColor": "Clear color",

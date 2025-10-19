@@ -10,7 +10,8 @@ import type { CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { fetchCustomFieldFormFields } from '@open-mercato/ui/backend/utils/customFieldForms'
 
 type CustomFieldsSectionProps = {
-  entityId: string
+  entityId?: string
+  entityIds?: string[]
   values: Record<string, unknown>
   onSubmit: (values: Record<string, unknown>) => Promise<void>
   title: string
@@ -45,19 +46,44 @@ function formatFieldValue(field: CrudField, value: unknown, emptyLabel: string):
   return String(value)
 }
 
-export function CustomFieldsSection({ entityId, values, onSubmit, title }: CustomFieldsSectionProps) {
+export function CustomFieldsSection({ entityId, entityIds, values, onSubmit, title }: CustomFieldsSectionProps) {
   const t = useT()
   const emptyLabel = t('customers.people.detail.noValue')
   const [fields, setFields] = React.useState<CrudField[]>([])
   const [loading, setLoading] = React.useState(true)
   const [editing, setEditing] = React.useState(false)
+  const resolvedEntityIds = React.useMemo(() => {
+    if (Array.isArray(entityIds) && entityIds.length) {
+      const dedup = new Set<string>()
+      const list: string[] = []
+      entityIds.forEach((id) => {
+        const trimmed = typeof id === 'string' ? id.trim() : ''
+        if (!trimmed || dedup.has(trimmed)) return
+        dedup.add(trimmed)
+        list.push(trimmed)
+      })
+      return list
+    }
+    if (typeof entityId === 'string' && entityId.trim().length > 0) {
+      return [entityId.trim()]
+    }
+    return []
+  }, [entityId, entityIds])
+  const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : undefined
 
   React.useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
+      if (!resolvedEntityIds.length) {
+        if (!cancelled) {
+          setFields([])
+          setLoading(false)
+        }
+        return
+      }
       try {
-        const fetched = await fetchCustomFieldFormFields(entityId)
+        const fetched = await fetchCustomFieldFormFields(resolvedEntityIds)
         if (!cancelled) setFields(fetched)
       } catch {
         if (!cancelled) setFields([])
@@ -67,7 +93,7 @@ export function CustomFieldsSection({ entityId, values, onSubmit, title }: Custo
     }
     load()
     return () => { cancelled = true }
-  }, [entityId])
+  }, [resolvedEntityIds])
 
   const handleSubmit = React.useCallback(async (input: Record<string, unknown>) => {
     await onSubmit(input)
@@ -99,7 +125,8 @@ export function CustomFieldsSection({ entityId, values, onSubmit, title }: Custo
           <div className="rounded-lg border bg-card p-4">
             <CrudForm<Record<string, unknown>>
               embedded
-              entityId={entityId}
+              entityId={primaryEntityId}
+              entityIds={resolvedEntityIds}
               fields={fields}
               initialValues={values}
               onSubmit={handleSubmit}

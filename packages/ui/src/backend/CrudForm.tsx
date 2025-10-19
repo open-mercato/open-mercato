@@ -87,6 +87,7 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   // When provided, CrudForm will fetch custom field definitions and append
   // form-editable custom fields automatically to the provided `fields`.
   entityId?: string
+  entityIds?: string[]
   // Optional grouped layout rendered in two responsive columns (1 on mobile).
   groups?: CrudFormGroup[]
   // Loading state for the entire form (e.g., when loading record data)
@@ -134,6 +135,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   title,
   backHref,
   entityId,
+  entityIds,
   groups,
   isLoading = false,
   loadingMessage,
@@ -165,6 +167,24 @@ export function CrudForm<TValues extends Record<string, any>>({
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
   const [cfFields, setCfFields] = React.useState<CrudField[]>([])
   const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
+  const resolvedEntityIds = React.useMemo(() => {
+    if (Array.isArray(entityIds) && entityIds.length) {
+      const dedup = new Set<string>()
+      const list: string[] = []
+      entityIds.forEach((id) => {
+        const trimmed = typeof id === 'string' ? id.trim() : ''
+        if (!trimmed || dedup.has(trimmed)) return
+        dedup.add(trimmed)
+        list.push(trimmed)
+      })
+      return list
+    }
+    if (typeof entityId === 'string' && entityId.trim().length > 0) {
+      return [entityId.trim()]
+    }
+    return []
+  }, [entityId, entityIds])
+  const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
   // Unified delete handler with confirmation
   const handleDelete = React.useCallback(async () => {
     if (!onDelete) return
@@ -194,7 +214,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   React.useEffect(() => {
     let cancelled = false
     async function load() {
-      if (!entityId) { 
+      if (!resolvedEntityIds.length) { 
         setCfFields([])
         setIsLoadingCustomFields(false)
         return 
@@ -203,7 +223,7 @@ export function CrudForm<TValues extends Record<string, any>>({
       setIsLoadingCustomFields(true)
       try {
         const mod = await import('./utils/customFieldForms')
-        const f = await mod.fetchCustomFieldFormFields(entityId, undefined, { bareIds: customEntity })
+        const f = await mod.fetchCustomFieldFormFields(resolvedEntityIds, undefined, { bareIds: customEntity })
         if (!cancelled) {
           setCfFields(f)
           setIsLoadingCustomFields(false)
@@ -217,7 +237,7 @@ export function CrudForm<TValues extends Record<string, any>>({
     }
     load()
     return () => { cancelled = true }
-  }, [entityId])
+  }, [resolvedEntityIds, customEntity])
 
   const allFields = React.useMemo(() => {
     if (!cfFields.length) return fields
@@ -251,14 +271,14 @@ export function CrudForm<TValues extends Record<string, any>>({
   }, [cfFields, fieldById])
 
   const customFieldsManageHref = React.useMemo(() => {
-    if (!entityId) return null
+    if (!primaryEntityId) return null
     try {
-      const encoded = encodeURIComponent(entityId)
+      const encoded = encodeURIComponent(primaryEntityId)
       return customEntity ? `/backend/entities/user/${encoded}` : `/backend/entities/system/${encoded}`
     } catch {
       return null
     }
-  }, [customEntity, entityId])
+  }, [customEntity, primaryEntityId])
 
   const customFieldsEmptyState = React.useMemo(() => {
     const text = t('entities.customFields.empty')
@@ -428,10 +448,10 @@ export function CrudForm<TValues extends Record<string, any>>({
     }
 
     // Custom fields validation via definitions (rules)
-    if (entityId) {
+    if (resolvedEntityIds.length) {
       try {
         const mod = await import('./utils/customFieldDefs')
-        const defs = await mod.fetchCustomFieldDefs(entityId)
+        const defs = await mod.fetchCustomFieldDefs(resolvedEntityIds)
         const { validateValuesAgainstDefs } = await import('@open-mercato/shared/modules/entities/validation')
         // Build values keyed by def.key for validation
         const cfValues: Record<string, any> = {}
@@ -815,6 +835,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     autoFocus: boolean
     onSubmitRequest: () => void
     wrapperClassName?: string
+    entityIdForField?: string
   }
 
   const FieldControl = React.useMemo(
@@ -830,6 +851,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         autoFocus,
         onSubmitRequest,
         wrapperClassName,
+        entityIdForField,
       }: FieldControlProps) {
     // Memoize the setValue callback for this specific field to prevent unnecessary re-renders
     const fieldSetValue = React.useCallback((v: any) => setValue(f.id, v), [setValue, f.id])
@@ -947,7 +969,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={fieldSetValue} autoFocus={autoFocus} />
         )}
         {f.type === 'custom' && (
-          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue, entityId, recordId: (values as any)?.id, autoFocus })}</>
+          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue, entityId: entityIdForField, recordId: (values as any)?.id, autoFocus })}</>
         )}
         {(f as any).description ? (
           <div className="text-xs text-muted-foreground">{(f as any).description}</div>
@@ -1010,6 +1032,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
               autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
               onSubmitRequest={requestSubmit}
               wrapperClassName={wrapperClassName}
+              entityIdForField={primaryEntityId ?? undefined}
             />
           )
         })}
@@ -1266,6 +1289,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                     autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
                     onSubmitRequest={requestSubmit}
                     wrapperClassName={wrapperClassName}
+                    entityIdForField={primaryEntityId ?? undefined}
                   />
                 )
               })}

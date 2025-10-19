@@ -16,6 +16,7 @@ import {
   CustomerDeal,
   CustomerTodoLink,
 } from '../../../data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
@@ -83,6 +84,28 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const activities = await em.find(CustomerActivity, { entity: person.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 })
   const tagAssignments = await em.find(CustomerTagAssignment, { entity: person.id }, { populate: ['tag'] })
   const todoLinks = await em.find(CustomerTodoLink, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
+
+  const authorIds = new Set<string>()
+  for (const comment of comments) {
+    if (comment.authorUserId) authorIds.add(comment.authorUserId)
+  }
+  const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
+  if (viewerUserId) authorIds.add(viewerUserId)
+
+  let userMap = new Map<string, { name: string | null; email: string | null }>()
+  if (authorIds.size) {
+    const authorIdList = Array.from(authorIds)
+    const users = await em.find(User, { id: { $in: authorIdList } })
+    userMap = new Map(
+      users.map((user) => [
+        user.id,
+        {
+          name: user.name ?? null,
+          email: user.email ?? null,
+        },
+      ])
+    )
+  }
 
   const dealLinks = await em.find(CustomerDealPersonLink, { person: person.id }, { populate: ['deal'] })
   const deals: CustomerDeal[] = []
@@ -175,15 +198,20 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       isPrimary: address.isPrimary,
       createdAt: address.createdAt.toISOString(),
     })),
-    comments: comments.map((comment) => ({
-      id: comment.id,
-      body: comment.body,
-      authorUserId: comment.authorUserId,
-      dealId: comment.deal ? (typeof comment.deal === 'string' ? comment.deal : comment.deal.id) : null,
-      createdAt: comment.createdAt.toISOString(),
-      appearanceIcon: comment.appearanceIcon ?? null,
-      appearanceColor: comment.appearanceColor ?? null,
-    })),
+    comments: comments.map((comment) => {
+      const authorInfo = comment.authorUserId ? userMap.get(comment.authorUserId) : null
+      return {
+        id: comment.id,
+        body: comment.body,
+        authorUserId: comment.authorUserId,
+        authorName: authorInfo?.name ?? null,
+        authorEmail: authorInfo?.email ?? null,
+        dealId: comment.deal ? (typeof comment.deal === 'string' ? comment.deal : comment.deal.id) : null,
+        createdAt: comment.createdAt.toISOString(),
+        appearanceIcon: comment.appearanceIcon ?? null,
+        appearanceColor: comment.appearanceColor ?? null,
+      }
+    }),
     activities: activities.map((activity) => ({
       id: activity.id,
       activityType: activity.activityType,
@@ -215,5 +243,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       createdAt: link.createdAt.toISOString(),
       createdByUserId: link.createdByUserId,
     })),
+    viewer: {
+      userId: viewerUserId,
+      name: viewerUserId ? userMap.get(viewerUserId)?.name ?? null : null,
+      email: viewerUserId ? userMap.get(viewerUserId)?.email ?? auth.email ?? null : auth.email ?? null,
+    },
   })
 }

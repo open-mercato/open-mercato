@@ -55,6 +55,8 @@ type CommentSummary = {
   body: string
   createdAt: string
   authorUserId?: string | null
+  authorName?: string | null
+  authorEmail?: string | null
   dealId?: string | null
   appearanceIcon?: string | null
   appearanceColor?: string | null
@@ -125,6 +127,11 @@ type PersonOverview = {
   activities: ActivitySummary[]
   deals: DealSummary[]
   todos: TodoLinkSummary[]
+  viewer?: {
+    userId: string | null
+    name?: string | null
+    email?: string | null
+  } | null
 }
 
 type Translator = ReturnType<typeof useT>
@@ -876,10 +883,23 @@ type NotesTabProps = {
   ) => Promise<void>
   isSubmitting: boolean
   emptyLabel: string
+  viewerUserId: string | null
+  viewerName?: string | null
+  viewerEmail?: string | null
   t: Translator
 }
 
-function NotesTab({ notes, onCreate, onUpdate, isSubmitting, emptyLabel, t }: NotesTabProps) {
+function NotesTab({
+  notes,
+  onCreate,
+  onUpdate,
+  isSubmitting,
+  emptyLabel,
+  viewerUserId,
+  viewerName,
+  viewerEmail,
+  t,
+}: NotesTabProps) {
   const [draftBody, setDraftBody] = React.useState('')
   const [draftIcon, setDraftIcon] = React.useState<string | null>(null)
   const [draftColor, setDraftColor] = React.useState<string | null>(null)
@@ -910,6 +930,7 @@ function NotesTab({ notes, onCreate, onUpdate, isSubmitting, emptyLabel, t }: No
     iconClearLabel: t('customers.people.detail.notes.appearance.iconClear'),
     previewEmptyLabel: t('customers.people.detail.notes.appearance.previewEmpty'),
   }), [t])
+  const viewerLabel = React.useMemo(() => viewerName ?? viewerEmail ?? null, [viewerEmail, viewerName])
 
   const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
     if (!element) return
@@ -1147,6 +1168,11 @@ function NotesTab({ notes, onCreate, onUpdate, isSubmitting, emptyLabel, t }: No
               const isEditingAppearance = appearanceEditor?.id === note.id
               const displayColor = isEditingAppearance ? appearanceEditor?.color : note.appearanceColor ?? null
               const displayIcon = isEditingAppearance ? appearanceEditor?.icon : note.appearanceIcon ?? null
+              const authorLabel = note.authorUserId
+                ? note.authorUserId === viewerUserId
+                  ? viewerLabel ?? t('customers.people.detail.notes.you')
+                  : note.authorName ?? note.authorEmail ?? note.authorUserId
+                : t('customers.people.detail.anonymous')
               const isAppearanceSaving = appearanceSavingId === note.id
               const isEditingContent = contentEditor.id === note.id
               const isContentSaving = contentSavingId === note.id
@@ -1164,11 +1190,7 @@ function NotesTab({ notes, onCreate, onUpdate, isSubmitting, emptyLabel, t }: No
                           ) : null}
                         </div>
                         <div className="flex items-center gap-2">
-                          {note.authorUserId ? (
-                            <span>{note.authorUserId}</span>
-                          ) : (
-                            <span>{t('customers.people.detail.anonymous')}</span>
-                          )}
+                          <span>{authorLabel}</span>
                           <Button
                             type="button"
                             variant="ghost"
@@ -1435,9 +1457,19 @@ type AddressesTabProps = {
   isSubmitting: boolean
   emptyLabel: string
   t: Translator
+  onAddActionChange?: (action: { open: () => void; disabled: boolean } | null) => void
 }
 
-function AddressesTab({ addresses, onCreate, onUpdate, onDelete, isSubmitting, emptyLabel, t }: AddressesTabProps) {
+function AddressesTab({
+  addresses,
+  onCreate,
+  onUpdate,
+  onDelete,
+  isSubmitting,
+  emptyLabel,
+  t,
+  onAddActionChange,
+}: AddressesTabProps) {
   const displayAddresses = React.useMemo<CustomerAddressValue[]>(() => {
     return addresses.map((address) => ({
       id: address.id,
@@ -1455,6 +1487,21 @@ function AddressesTab({ addresses, onCreate, onUpdate, onDelete, isSubmitting, e
     }))
   }, [addresses])
 
+  const handleAddActionChange = React.useCallback(
+    (action: { openCreateForm: () => void; addDisabled: boolean } | null) => {
+      if (!onAddActionChange) return
+      if (!action) {
+        onAddActionChange(null)
+        return
+      }
+      onAddActionChange({
+        open: action.openCreateForm,
+        disabled: action.addDisabled,
+      })
+    },
+    [onAddActionChange]
+  )
+
   return (
     <CustomerAddressTiles
       addresses={displayAddresses}
@@ -1464,6 +1511,8 @@ function AddressesTab({ addresses, onCreate, onUpdate, onDelete, isSubmitting, e
       isSubmitting={isSubmitting}
       emptyLabel={emptyLabel}
       t={t}
+      hideAddButton
+      onAddActionChange={handleAddActionChange}
     />
   )
 }
@@ -1628,6 +1677,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     addresses: false,
     tasks: false,
   })
+  const [addressAddAction, setAddressAddAction] = React.useState<{ open: () => void; disabled: boolean } | null>(null)
   const scopeVersion = useOrganizationScopeVersion()
   const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<CustomerDictionaryKind, CustomerDictionaryMap>>({
     statuses: {},
@@ -1892,16 +1942,41 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           throw new Error(message)
         }
         const responseBody = await res.json().catch(() => ({}))
-        const newNote: CommentSummary = {
-          id: typeof responseBody?.id === 'string' ? responseBody.id : randomId(),
-          body,
-          createdAt: new Date().toISOString(),
-          authorUserId: null,
-          dealId: null,
-          appearanceIcon: icon,
-          appearanceColor: color,
-        }
-        setData((prev) => (prev ? { ...prev, comments: [newNote, ...prev.comments] } : prev))
+        const serverAuthorId = typeof responseBody?.authorUserId === 'string' ? responseBody.authorUserId : null
+        const serverAuthorName = typeof responseBody?.authorName === 'string' ? responseBody.authorName : null
+        const serverAuthorEmail = typeof responseBody?.authorEmail === 'string' ? responseBody.authorEmail : null
+        setData((prev) => {
+          if (!prev) return prev
+          const viewerInfo = prev.viewer ?? null
+          const viewerId = viewerInfo?.userId ?? null
+          const viewerNameValue = viewerInfo?.name ?? null
+          const viewerEmailValue = viewerInfo?.email ?? null
+          const resolvedAuthorId = serverAuthorId ?? viewerId ?? null
+          const resolvedAuthorName = (() => {
+            if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
+              return viewerNameValue ?? viewerEmailValue ?? null
+            }
+            return serverAuthorName
+          })()
+          const resolvedAuthorEmail = (() => {
+            if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
+              return viewerEmailValue ?? null
+            }
+            return serverAuthorEmail
+          })()
+          const newNote: CommentSummary = {
+            id: typeof responseBody?.id === 'string' ? responseBody.id : randomId(),
+            body,
+            createdAt: new Date().toISOString(),
+            authorUserId: resolvedAuthorId,
+            authorName: resolvedAuthorName,
+            authorEmail: resolvedAuthorEmail,
+            dealId: null,
+            appearanceIcon: icon,
+            appearanceColor: color,
+          }
+          return { ...prev, comments: [newNote, ...prev.comments] }
+        })
         flash(t('customers.people.detail.notes.success'), 'success')
       } finally {
         setSectionPending((prev) => ({ ...prev, notes: false }))
@@ -2553,30 +2628,41 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         </div>
 
         <div className="space-y-4">
-          <div className="mb-1">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
             <nav
-              className="flex items-center gap-3 text-sm"
+              className="flex flex-wrap items-center gap-3 text-sm"
               role="tablist"
               aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}
             >
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  'relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors',
-                  activeTab === tab.id
-                    ? 'border-primary text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    'relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors',
+                    activeTab === tab.id
+                      ? 'border-primary text-foreground'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </nav>
+            {activeTab === 'addresses' ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleAddressAddClick}
+                disabled={addressAddAction?.disabled ?? true}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {t('customers.people.detail.addresses.add')}
+              </Button>
+            ) : null}
           </div>
           <div>
             <SectionLoader isLoading={sectionPending[activeTab as SectionKey]} />
@@ -2587,6 +2673,9 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 onUpdate={handleUpdateNote}
                 isSubmitting={sectionPending.notes}
                 emptyLabel={t('customers.people.detail.empty.comments')}
+                viewerUserId={data.viewer?.userId ?? null}
+                viewerName={data.viewer?.name ?? null}
+                viewerEmail={data.viewer?.email ?? null}
                 t={t}
               />
             )}
@@ -2611,6 +2700,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 isSubmitting={sectionPending.addresses}
                 emptyLabel={t('customers.people.detail.empty.addresses')}
                 t={t}
+                onAddActionChange={setAddressAddAction}
               />
             )}
             {activeTab === 'tasks' && (
@@ -2671,7 +2761,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           </div>
 
           <CustomFieldsSection
-            entityId={E.customers.customer_person_profile}
+            entityIds={[E.customers.customer_person_profile, E.customers.customer_entity]}
             values={data.customFields ?? {}}
             onSubmit={handleCustomFieldsSubmit}
             title={t('customers.people.detail.sections.customFields')}
@@ -2707,3 +2797,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     </Page>
   )
 }
+  const handleAddressAddClick = React.useCallback(() => {
+    if (!addressAddAction || addressAddAction.disabled) return
+    addressAddAction.open()
+  }, [addressAddAction])

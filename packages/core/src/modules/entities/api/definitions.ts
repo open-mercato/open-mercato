@@ -12,10 +12,45 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
 }
 
+function parseEntityIds(url: URL): string[] {
+  const direct = url.searchParams.getAll('entityId').filter((id) => typeof id === 'string' && id.trim().length > 0)
+  const combined = url.searchParams.get('entityIds')
+  if (combined) {
+    combined
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0)
+      .forEach((id) => direct.push(id))
+  }
+  const unique: string[] = []
+  const seen = new Set<string>()
+  for (const id of direct) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    unique.push(id)
+  }
+  return unique
+}
+
+async function resolveEntityDefaultEditor(em: any, entityId: string, tenantId: string | null | undefined): Promise<string | undefined> {
+  try {
+    const ent = await em.findOne('@open-mercato/core/modules/entities/data/entities:CustomEntity' as any, {
+      entityId,
+      $and: [
+        { $or: [ { tenantId: tenantId ?? undefined as any }, { tenantId: null } ] },
+      ],
+    } as any)
+    if (ent && typeof (ent as any).defaultEditor === 'string') return (ent as any).defaultEditor
+  } catch {}
+  return undefined
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url)
-  const entityId = url.searchParams.get('entityId') || ''
-  if (!entityId) return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
+  const entityIds = parseEntityIds(url)
+  if (!entityIds.length) {
+    return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
+  }
 
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -24,79 +59,104 @@ export async function GET(req: Request) {
   const em = resolve('em') as any
 
   // Tenant-only scoping: allow global (null) or exact tenant match; do not scope by organization here
-  const where = {
-    entityId,
+  const whereActive = {
+    entityId: { $in: entityIds as any },
     deletedAt: null,
     $and: [
       { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
     ],
   } as any
-  const defs = await em.find(CustomFieldDef, where as any)
+  const defs = await em.find(CustomFieldDef, whereActive as any)
   const tombstones = await em.find(CustomFieldDef, {
-    entityId,
+    entityId: { $in: entityIds as any },
     deletedAt: { $ne: null } as any,
     $and: [
       { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
     ],
   } as any)
-  const tombstonedKeys = new Set<string>((tombstones as any[]).map((d: any) => d.key))
 
-  let entityDefaultEditor: string | undefined
-  try {
-    const ent = await em.findOne('@open-mercato/core/modules/entities/data/entities:CustomEntity' as any, {
-      entityId,
-      $and: [
-        { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
-      ],
-    } as any)
-    if (ent && typeof (ent as any).defaultEditor === 'string') entityDefaultEditor = (ent as any).defaultEditor
-  } catch {}
-
-  const scopeScore = (x: any) => (x.tenantId ? 2 : 0) + (x.organizationId ? 1 : 0)
-  const byKey = new Map<string, any>()
-  for (const d of defs) {
-    const existing = byKey.get(d.key)
-    if (!existing) { byKey.set(d.key, d); continue }
-    const sNew = scopeScore(d)
-    const sOld = scopeScore(existing)
-    if (sNew > sOld) { byKey.set(d.key, d); continue }
-    if (sNew < sOld) continue
-    const tNew = (d.updatedAt instanceof Date) ? d.updatedAt.getTime() : new Date(d.updatedAt).getTime()
-    const tOld = (existing.updatedAt instanceof Date) ? existing.updatedAt.getTime() : new Date(existing.updatedAt).getTime()
-    if (tNew >= tOld) byKey.set(d.key, d)
+  const tombstonedByEntity = new Map<string, Set<string>>()
+  for (const entry of tombstones as any[]) {
+    const eid = String(entry.entityId)
+    if (!tombstonedByEntity.has(eid)) tombstonedByEntity.set(eid, new Set())
+    tombstonedByEntity.get(eid)!.add(entry.key)
   }
 
-  const winning = Array.from(byKey.values()).filter((d: any) => (d.isActive !== false) && !tombstonedKeys.has(d.key))
-  let items = winning.map((d) => ({
-    key: d.key,
-    kind: d.kind,
-    label: d.configJson?.label || d.key,
-    description: d.configJson?.description || undefined,
-    multi: Boolean(d.configJson?.multi),
-    options: Array.isArray(d.configJson?.options) ? d.configJson.options : undefined,
-    optionsUrl: (() => {
-      const dictionaryId = typeof d.configJson?.dictionaryId === 'string' ? d.configJson.dictionaryId : undefined
-      if (dictionaryId) return `/api/dictionaries/${dictionaryId}/entries`
-      return typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined
-    })(),
-    filterable: Boolean(d.configJson?.filterable),
-    formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
-    listVisible: d.configJson?.listVisible !== undefined ? Boolean(d.configJson.listVisible) : true,
-    editor: typeof d.configJson?.editor === 'string'
-      ? d.configJson.editor
-      : (d.kind === 'multiline' ? entityDefaultEditor : undefined),
-    input: typeof d.configJson?.input === 'string' ? d.configJson.input : undefined,
-    dictionaryId: typeof d.configJson?.dictionaryId === 'string' ? d.configJson.dictionaryId : undefined,
-    dictionaryInlineCreate: d.configJson?.dictionaryInlineCreate !== undefined
-      ? Boolean(d.configJson.dictionaryInlineCreate)
-      : undefined,
-    priority: typeof d.configJson?.priority === 'number' ? d.configJson.priority : 0,
-    validation: Array.isArray(d.configJson?.validation) ? d.configJson.validation : undefined,
-    // attachments config passthrough
-    maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
-    acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
-  }))
-  items.sort((a: any, b: any) => (a.priority ?? 0) - (b.priority ?? 0))
+  const scopeScore = (x: any) => (x.tenantId ? 2 : 0) + (x.organizationId ? 1 : 0)
+
+  const definitionsByEntity = new Map<string, any[]>()
+  for (const d of defs) {
+    const eid = String(d.entityId)
+    if (!definitionsByEntity.has(eid)) definitionsByEntity.set(eid, [])
+    definitionsByEntity.get(eid)!.push(d)
+  }
+
+  const entityDefaultEditors = new Map<string, string | undefined>()
+  for (const entityId of entityIds) {
+    const editor = await resolveEntityDefaultEditor(em, entityId, auth.tenantId ?? null)
+    entityDefaultEditors.set(entityId, editor)
+  }
+
+  const seenKeys = new Set<string>()
+  const items: any[] = []
+
+  for (const entityId of entityIds) {
+    const defsForEntity = definitionsByEntity.get(entityId) ?? []
+    if (!defsForEntity.length) continue
+    const tombstonedKeys = tombstonedByEntity.get(entityId) ?? new Set<string>()
+    const byKey = new Map<string, any>()
+    for (const d of defsForEntity) {
+      const existing = byKey.get(d.key)
+      if (!existing) { byKey.set(d.key, d); continue }
+      const sNew = scopeScore(d)
+      const sOld = scopeScore(existing)
+      if (sNew > sOld) { byKey.set(d.key, d); continue }
+      if (sNew < sOld) continue
+      const tNew = (d.updatedAt instanceof Date) ? d.updatedAt.getTime() : new Date(d.updatedAt).getTime()
+      const tOld = (existing.updatedAt instanceof Date) ? existing.updatedAt.getTime() : new Date(existing.updatedAt).getTime()
+      if (tNew >= tOld) byKey.set(d.key, d)
+    }
+
+    const defaultEditor = entityDefaultEditors.get(entityId)
+    const winning = Array.from(byKey.values()).filter((d: any) => (d.isActive !== false) && !tombstonedKeys.has(d.key))
+    winning.sort((a: any, b: any) => ((a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0)))
+
+    for (const d of winning) {
+      const keyLower = String(d.key).toLowerCase()
+      if (seenKeys.has(keyLower)) continue
+      seenKeys.add(keyLower)
+      items.push({
+        key: d.key,
+        kind: d.kind,
+        label: d.configJson?.label || d.key,
+        description: d.configJson?.description || undefined,
+        multi: Boolean(d.configJson?.multi),
+        options: Array.isArray(d.configJson?.options) ? d.configJson.options : undefined,
+        optionsUrl: (() => {
+          const dictionaryId = typeof d.configJson?.dictionaryId === 'string' ? d.configJson.dictionaryId : undefined
+          if (dictionaryId) return `/api/dictionaries/${dictionaryId}/entries`
+          return typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined
+        })(),
+        filterable: Boolean(d.configJson?.filterable),
+        formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
+        listVisible: d.configJson?.listVisible !== undefined ? Boolean(d.configJson.listVisible) : true,
+        editor: typeof d.configJson?.editor === 'string'
+          ? d.configJson.editor
+          : (d.kind === 'multiline' ? defaultEditor : undefined),
+        input: typeof d.configJson?.input === 'string' ? d.configJson.input : undefined,
+        dictionaryId: typeof d.configJson?.dictionaryId === 'string' ? d.configJson.dictionaryId : undefined,
+        dictionaryInlineCreate: d.configJson?.dictionaryInlineCreate !== undefined
+          ? Boolean(d.configJson.dictionaryInlineCreate)
+          : undefined,
+        priority: typeof d.configJson?.priority === 'number' ? d.configJson.priority : 0,
+        validation: Array.isArray(d.configJson?.validation) ? d.configJson.validation : undefined,
+        // attachments config passthrough
+        maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
+        acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
+        entityId,
+      })
+    }
+  }
 
   return NextResponse.json({ items })
 }

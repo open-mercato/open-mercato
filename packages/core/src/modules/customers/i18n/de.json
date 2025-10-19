@@ -225,6 +225,7 @@
   "customers.people.detail.notes.updateSuccess": "Notiz aktualisiert",
   "customers.people.detail.notes.updateError": "Notiz konnte nicht aktualisiert werden",
   "customers.people.detail.notes.loadMore": "Weitere Notizen laden",
+  "customers.people.detail.notes.you": "Du",
   "customers.people.detail.notes.appearance.colorLabel": "Notizfarbe",
   "customers.people.detail.notes.appearance.colorHelp": "Wählen Sie eine Akzentfarbe für diese Notiz.",
   "customers.people.detail.notes.appearance.clearColor": "Farbe entfernen",

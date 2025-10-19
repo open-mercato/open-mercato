@@ -1,6 +1,7 @@
 import { apiFetch } from './api'
 
 export type CustomFieldDefDto = {
+  entityId?: string
   key: string
   kind: string
   label?: string
@@ -31,8 +32,20 @@ export type CustomFieldDefDto = {
   dictionaryInlineCreate?: boolean
 }
 
-export async function fetchCustomFieldDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<CustomFieldDefDto[]> {
-  const res = await fetchImpl(`/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
+function buildDefinitionsQuery(entityIds: string[]): string {
+  const params = new URLSearchParams()
+  entityIds.forEach((id) => {
+    if (id) params.append('entityId', id)
+  })
+  return params.toString()
+}
+
+export async function fetchCustomFieldDefs(entityIds: string | string[], fetchImpl: typeof fetch = apiFetch): Promise<CustomFieldDefDto[]> {
+  const list = Array.isArray(entityIds) ? entityIds : [entityIds]
+  const filtered = list.map((id) => String(id || '').trim()).filter((id) => id.length > 0)
+  if (!filtered.length) return []
+  const query = buildDefinitionsQuery(filtered)
+  const res = await fetchImpl(`/api/entities/definitions?${query}`, { headers: { 'content-type': 'application/json' } })
   const data = await res.json().catch(() => ({ items: [] }))
   const items = (data?.items || []) as CustomFieldDefDto[]
   items.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))

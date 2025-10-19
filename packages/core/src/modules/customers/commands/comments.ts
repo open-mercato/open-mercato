@@ -49,12 +49,19 @@ async function loadCommentSnapshot(em: EntityManager, id: string): Promise<Comme
   }
 }
 
-const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: string }> = {
+const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: string; authorUserId: string | null }> = {
   id: 'customers.comments.create',
   async execute(rawInput, ctx) {
     const parsed = commentCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const authSub = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
+    const normalizedAuthor = (() => {
+      if (parsed.authorUserId) return parsed.authorUserId
+      if (!authSub) return null
+      const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
+      return uuidRegex.test(authSub) ? authSub : null
+    })()
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
@@ -67,7 +74,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       entity,
       deal,
       body: parsed.body,
-      authorUserId: parsed.authorUserId ?? null,
+      authorUserId: normalizedAuthor,
       appearanceIcon: parsed.appearanceIcon ?? null,
       appearanceColor: parsed.appearanceColor ?? null,
     })
@@ -86,7 +93,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       },
     })
 
-    return { commentId: comment.id }
+    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = ctx.container.resolve<EntityManager>('em')

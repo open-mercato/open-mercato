@@ -2,7 +2,7 @@ import { Filter } from '@/lib/query/types'
 import type { FilterDef } from '../FilterOverlay'
 import { apiFetch } from './api'
 import type { CustomFieldDefDto } from './customFieldDefs'
-import { filterCustomFieldDefs } from './customFieldDefs'
+import { filterCustomFieldDefs, fetchCustomFieldDefs as loadCustomFieldDefs } from './customFieldDefs'
 
 function buildOptionsUrl(base: string, query?: string): string {
   if (!query) return base
@@ -91,9 +91,7 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
   return out
 }
 
-export async function fetchCustomFieldFilterDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<FilterDef[]> {
-  const res = await fetchImpl(`/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
-  const data = await res.json().catch(() => ({ items: [] }))
-  const defs: CustomFieldDefDto[] = data?.items || []
+export async function fetchCustomFieldFilterDefs(entityIds: string | string[], fetchImpl: typeof fetch = apiFetch): Promise<FilterDef[]> {
+  const defs: CustomFieldDefDto[] = await loadCustomFieldDefs(entityIds, fetchImpl)
   return buildFilterDefsFromCustomFields(defs)
 }

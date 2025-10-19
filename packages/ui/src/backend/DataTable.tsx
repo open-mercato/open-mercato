@@ -101,6 +101,7 @@ export type DataTableProps<T> = {
   onFiltersClear?: () => void
   // When provided, DataTable will fetch custom field definitions and append filter controls for filterable ones.
   entityId?: string
+  entityIds?: string[]
   exporter?: DataTableExportConfig | false
 }
 
@@ -293,7 +294,32 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
   )
 }
 
-export function DataTable<T>({ columns, data, toolbar, title, actions, refreshButton, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId, exporter }: DataTableProps<T>) {
+export function DataTable<T>({
+  columns,
+  data,
+  toolbar,
+  title,
+  actions,
+  refreshButton,
+  sortable,
+  sorting: sortingProp,
+  onSortingChange,
+  pagination,
+  isLoading,
+  rowActions,
+  onRowClick,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder,
+  searchAlign = 'right',
+  filters: baseFilters = [],
+  filterValues = {},
+  onFiltersApply,
+  onFiltersClear,
+  entityId,
+  entityIds,
+  exporter,
+}: DataTableProps<T>) {
   const router = useRouter()
   React.useEffect(() => {
     return subscribeOrganizationScopeChanged(() => scheduleRouterRefresh(router))
@@ -441,18 +467,46 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, refreshBu
   // Auto filters: fetch custom field defs when requested
   const [cfFilters, setCfFilters] = React.useState<FilterDef[]>([])
   const [cfLoadedFor, setCfLoadedFor] = React.useState<string | null>(null)
+  const resolvedEntityIds = React.useMemo(() => {
+    if (Array.isArray(entityIds) && entityIds.length) {
+      const dedup = new Set<string>()
+      const list: string[] = []
+      entityIds.forEach((id) => {
+        const trimmed = typeof id === 'string' ? id.trim() : ''
+        if (!trimmed || dedup.has(trimmed)) return
+        dedup.add(trimmed)
+        list.push(trimmed)
+      })
+      return list
+    }
+    if (typeof entityId === 'string' && entityId.trim().length > 0) {
+      return [entityId.trim()]
+    }
+    return []
+  }, [entityId, entityIds])
+  const entityKey = React.useMemo(() => (resolvedEntityIds.length ? resolvedEntityIds.join('|') : null), [resolvedEntityIds])
 
   React.useEffect(() => {
     let cancelled = false
-    async function loadEntity(eid: string) {
+    async function loadEntities(ids: string[], cacheKey: string) {
       try {
-        const f = await fetchCustomFieldFilterDefs(eid)
-        if (!cancelled) { setCfFilters(f); setCfLoadedFor(eid) }
-      } catch (_) { if (!cancelled) { setCfFilters([]); setCfLoadedFor(eid) } }
+        const f = await fetchCustomFieldFilterDefs(ids)
+        if (!cancelled) { setCfFilters(f); setCfLoadedFor(cacheKey) }
+      } catch (_) { if (!cancelled) { setCfFilters([]); setCfLoadedFor(cacheKey) } }
     }
-    if (entityId && entityId !== cfLoadedFor) loadEntity(entityId)
+    if (!entityKey) {
+      if (!cancelled) {
+        setCfFilters([])
+        setCfLoadedFor(null)
+      }
+      return () => { cancelled = true }
+    }
+    if (entityKey === cfLoadedFor) {
+      return () => { cancelled = true }
+    }
+    loadEntities(resolvedEntityIds, entityKey)
     return () => { cancelled = true }
-  }, [entityId, cfLoadedFor])
+  }, [cfLoadedFor, entityKey, resolvedEntityIds])
 
   const builtToolbar = React.useMemo(() => {
     if (toolbar) return toolbar
