@@ -168,6 +168,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       authorUserId: comment.authorUserId,
       dealId: comment.deal ? (typeof comment.deal === 'string' ? comment.deal : comment.deal.id) : null,
       createdAt: comment.createdAt.toISOString(),
+      appearanceIcon: comment.appearanceIcon ?? null,
+      appearanceColor: comment.appearanceColor ?? null,
     })),
     activities: activities.map((activity) => ({
       id: activity.id,

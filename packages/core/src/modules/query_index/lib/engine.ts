@@ -2,7 +2,7 @@ import type { QueryEngine, QueryOptions, QueryResult } from '@open-mercato/share
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
+import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 
 export class HybridQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
@@ -16,8 +16,7 @@ export class HybridQueryEngine implements QueryEngine {
     }
     // Base table first; left-join index for cf:* only
     const knex = (this.em as any).getConnection().getKnex()
-    const [, name] = entity.split(':')
-    const baseTable = name.endsWith('s') ? name : `${name}s`
+    const baseTable = resolveEntityTableName(this.em, entity)
 
     // Fallback when base table is missing
     const baseExists = await this.tableExists(baseTable)
@@ -413,8 +412,7 @@ export class HybridQueryEngine implements QueryEngine {
 
   private async getBaseColumnsForEntity(entity: string): Promise<Map<string, string>> {
     const knex = (this.em as any).getConnection().getKnex()
-    const [, name] = entity.split(':')
-    const table = name.endsWith('s') ? name : `${name}s`
+    const table = resolveEntityTableName(this.em, entity)
     const rows = await knex('information_schema.columns')
       .select('column_name', 'data_type')
       .where({ table_name: table })

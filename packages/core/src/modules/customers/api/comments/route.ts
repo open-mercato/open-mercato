@@ -48,6 +48,8 @@ const crud = makeCrudRoute({
       'deal_id',
       'body',
       'author_user_id',
+      'appearance_icon',
+      'appearance_color',
       'organization_id',
       'tenant_id',
       'created_at',

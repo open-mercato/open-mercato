@@ -2,6 +2,55 @@ import type { QueryEngine, QueryOptions, QueryResult } from './types'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
+const entityTableCache = new Map<string, string>()
+
+const pluralizeBaseName = (name: string): string => {
+  if (!name) return name
+  if (name.endsWith('s')) return name
+  if (name.endsWith('y')) return `${name.slice(0, -1)}ies`
+  return `${name}s`
+}
+
+const toPascalCase = (value: string): string => {
+  return value
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join('')
+}
+
+const candidateClassNames = (rawName: string): string[] => {
+  const base = toPascalCase(rawName)
+  const candidates = new Set<string>()
+  if (base) candidates.add(base)
+  if (base && !base.endsWith('Entity')) candidates.add(`${base}Entity`)
+  return Array.from(candidates)
+}
+
+export function resolveEntityTableName(em: EntityManager | undefined, entity: EntityId): string {
+  if (entityTableCache.has(entity)) return entityTableCache.get(entity)!
+  const parts = String(entity || '').split(':')
+  const rawName = (parts[1] && parts[1].trim().length > 0) ? parts[1] : (parts[0] || '').trim()
+  const metadata = (em as any)?.getMetadata?.()
+
+  if (metadata && rawName) {
+    for (const candidate of candidateClassNames(rawName)) {
+      try {
+        const meta = metadata.find?.(candidate)
+        if (meta?.tableName) {
+          const tableName = String(meta.tableName)
+          entityTableCache.set(entity, tableName)
+          return tableName
+        }
+      } catch {}
+    }
+  }
+
+  const fallback = pluralizeBaseName(rawName || '')
+  entityTableCache.set(entity, fallback)
+  return fallback
+}
+
 
 // Minimal default implementation placeholder.
 // For now, only supports basic base-entity querying by table name inferred from EntityId ('<module>:<entity>' -> '<entities>') via convention.
@@ -14,8 +63,7 @@ export class BasicQueryEngine implements QueryEngine {
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
     // Heuristic: map '<module>:user' -> table 'users'
-    const [, name] = entity.split(':')
-    const table = this.pluralize(name)
+    const table = resolveEntityTableName(this.em, entity)
     const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
 
     let q = knex(table)
@@ -265,12 +313,6 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     return { items, page, pageSize, total }
-  }
-
-  private pluralize(name: string): string {
-    if (name.endsWith('s')) return name
-    if (name.endsWith('y')) return `${name.slice(0, -1)}ies`
-    return `${name}s`
   }
 
   private async resolveBaseColumn(table: string, field: string): Promise<string | null> {

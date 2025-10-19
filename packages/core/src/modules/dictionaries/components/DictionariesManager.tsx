@@ -31,6 +31,7 @@ export function DictionariesManager() {
   const [loading, setLoading] = React.useState(true)
   const [dialog, setDialog] = React.useState<DialogState | null>(null)
   const [form, setForm] = React.useState({ key: '', name: '', description: '' })
+  const [errors, setErrors] = React.useState<{ key?: string; name?: string }>({})
   const [submitting, setSubmitting] = React.useState(false)
   const [deleting, setDeleting] = React.useState<string | null>(null)
 
@@ -71,29 +72,45 @@ export function DictionariesManager() {
   const openCreateDialog = React.useCallback(() => {
     setForm({ key: '', name: '', description: '' })
     setDialog({ mode: 'create' })
+    setErrors({})
   }, [])
 
   const openEditDialog = React.useCallback((dictionary: DictionarySummary) => {
     setForm({ key: dictionary.key, name: dictionary.name, description: dictionary.description ?? '' })
     setDialog({ mode: 'edit', dictionary })
+    setErrors({})
   }, [])
 
   const closeDialog = React.useCallback(() => {
     setDialog(null)
     setForm({ key: '', name: '', description: '' })
+    setErrors({})
   }, [])
 
   const handleSubmit = React.useCallback(async () => {
     if (!dialog) return
-    if (!form.key.trim() || !form.name.trim()) {
-      flash(t('dictionaries.config.error.required', 'Key and name are required.'), 'error')
+    const trimmedKey = form.key.trim()
+    const trimmedName = form.name.trim()
+    const nextErrors: { key?: string; name?: string } = {}
+    if (!trimmedKey) {
+      nextErrors.key = t('dictionaries.config.dialog.keyErrorRequired', 'Key is required.')
+    } else if (trimmedKey.length > 100) {
+      nextErrors.key = t('dictionaries.config.dialog.keyErrorLength', 'Key must be at most 100 characters long.')
+    } else if (!/^[a-z0-9][a-z0-9_-]*$/.test(trimmedKey)) {
+      nextErrors.key = t('dictionaries.config.dialog.keyErrorPattern', 'Use lowercase letters, numbers, hyphen, or underscore.')
+    }
+    if (!trimmedName) {
+      nextErrors.name = t('dictionaries.config.dialog.nameErrorRequired', 'Name is required.')
+    }
+    if (nextErrors.key || nextErrors.name) {
+      setErrors(nextErrors)
       return
     }
     setSubmitting(true)
     try {
       const payload = {
-        key: form.key.trim(),
-        name: form.name.trim(),
+        key: trimmedKey,
+        name: trimmedName,
         description: form.description.trim() || undefined,
       }
       if (dialog.mode === 'create') {
@@ -121,6 +138,7 @@ export function DictionariesManager() {
       }
       closeDialog()
       await loadDictionaries()
+      setErrors({})
     } catch (err) {
       console.error('Failed to save dictionary', err)
       flash(t('dictionaries.config.error.save', 'Failed to save dictionary.'), 'error')
@@ -255,20 +273,40 @@ export function DictionariesManager() {
               <label className="text-sm font-medium">{t('dictionaries.config.dialog.keyLabel', 'Key')}</label>
               <input
                 value={form.key}
-                onChange={(event) => setForm((prev) => ({ ...prev, key: event.target.value }))}
+                onChange={(event) => {
+                  const next = event.target.value
+                  setForm((prev) => ({ ...prev, key: next }))
+                  if (errors.key) setErrors((prev) => ({ ...prev, key: undefined }))
+                }}
                 placeholder={t('dictionaries.config.dialog.keyPlaceholder', 'slug_name')}
                 disabled={dialog?.mode === 'edit'}
-                className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:bg-muted"
+                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:bg-muted ${errors.key ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                aria-invalid={errors.key ? 'true' : 'false'}
+                aria-describedby="dictionary-key-hint"
               />
+              <p
+                id="dictionary-key-hint"
+                className={`text-xs ${errors.key ? 'text-destructive' : 'text-muted-foreground'}`}
+              >
+                {errors.key ?? t('dictionaries.config.dialog.keyHint', 'Use lowercase letters, numbers, hyphen, or underscore.')}
+              </p>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('dictionaries.config.dialog.nameLabel', 'Name')}</label>
               <input
                 value={form.name}
-                onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                onChange={(event) => {
+                  const next = event.target.value
+                  setForm((prev) => ({ ...prev, name: next }))
+                  if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }))
+                }}
                 placeholder={t('dictionaries.config.dialog.namePlaceholder', 'Display name')}
-                className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${errors.name ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                aria-invalid={errors.name ? 'true' : 'false'}
               />
+              {errors.name ? (
+                <p className="text-xs text-destructive">{errors.name}</p>
+              ) : null}
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('dictionaries.config.dialog.descriptionLabel', 'Description')}</label>

@@ -66,6 +66,8 @@ type PersonCommentSnapshot = {
   createdAt: Date
   updatedAt: Date
   deletedAt: Date | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
 }
 
 type PersonSnapshot = {
@@ -201,6 +203,8 @@ function serializePersonSnapshot(
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,
       deletedAt: comment.deletedAt ?? null,
+      appearanceIcon: comment.appearanceIcon ?? null,
+      appearanceColor: comment.appearanceColor ?? null,
     })),
     custom,
   }

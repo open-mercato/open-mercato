@@ -56,6 +56,8 @@ type CommentSummary = {
   createdAt: string
   authorUserId?: string | null
   dealId?: string | null
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
 }
 
 type ActivitySummary = {
@@ -145,6 +147,33 @@ function formatDate(value?: string | null): string | null {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   return date.toLocaleDateString()
+}
+
+function formatRelativeTime(value?: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const now = Date.now()
+  const diffSeconds = (date.getTime() - now) / 1000
+  const absSeconds = Math.abs(diffSeconds)
+  const rtf = typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function'
+    ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+    : null
+  const format = (unit: Intl.RelativeTimeFormatUnit, divisor: number) => {
+    const valueToFormat = Math.round(diffSeconds / divisor)
+    if (rtf) return rtf.format(valueToFormat, unit)
+    const suffix = valueToFormat <= 0 ? 'ago' : 'from now'
+    const magnitude = Math.abs(valueToFormat)
+    return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${suffix}`
+  }
+
+  if (absSeconds < 45) return format('second', 1)
+  if (absSeconds < 45 * 60) return format('minute', 60)
+  if (absSeconds < 24 * 60 * 60) return format('hour', 60 * 60)
+  if (absSeconds < 7 * 24 * 60 * 60) return format('day', 24 * 60 * 60)
+  if (absSeconds < 30 * 24 * 60 * 60) return format('week', 7 * 24 * 60 * 60)
+  if (absSeconds < 365 * 24 * 60 * 60) return format('month', 30 * 24 * 60 * 60)
+  return format('year', 365 * 24 * 60 * 60)
 }
 
 function randomId() {
@@ -840,67 +869,254 @@ function InlineNextInteractionEditor({
 
 type NotesTabProps = {
   notes: CommentSummary[]
-  onCreate: (body: string) => Promise<void>
+  onCreate: (input: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => Promise<void>
+  onAppearanceUpdate: (noteId: string, appearance: { icon: string | null; color: string | null }) => Promise<void>
   isSubmitting: boolean
   emptyLabel: string
   t: Translator
 }
 
-function NotesTab({ notes, onCreate, isSubmitting, emptyLabel, t }: NotesTabProps) {
-  const [draft, setDraft] = React.useState('')
+function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabel, t }: NotesTabProps) {
+  const [draftBody, setDraftBody] = React.useState('')
+  const [draftIcon, setDraftIcon] = React.useState<string | null>(null)
+  const [draftColor, setDraftColor] = React.useState<string | null>(null)
+  const [showAppearance, setShowAppearance] = React.useState(false)
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const [appearanceEditor, setAppearanceEditor] = React.useState<{
+    id: string
+    icon: string | null
+    color: string | null
+  } | null>(null)
+  const [appearanceSavingId, setAppearanceSavingId] = React.useState<string | null>(null)
+  const noteAppearanceLabels = React.useMemo(() => ({
+    colorLabel: t('customers.people.detail.notes.appearance.colorLabel'),
+    colorHelp: t('customers.people.detail.notes.appearance.colorHelp'),
+    colorClearLabel: t('customers.people.detail.notes.appearance.clearColor'),
+    iconLabel: t('customers.people.detail.notes.appearance.iconLabel'),
+    iconPlaceholder: t('customers.people.detail.notes.appearance.iconPlaceholder'),
+    iconPickerTriggerLabel: t('customers.people.detail.notes.appearance.iconPicker'),
+    iconSearchPlaceholder: t('customers.people.detail.notes.appearance.iconSearchPlaceholder'),
+    iconSearchEmptyLabel: t('customers.people.detail.notes.appearance.iconSearchEmpty'),
+    iconSuggestionsLabel: t('customers.people.detail.notes.appearance.iconSuggestions'),
+    iconClearLabel: t('customers.people.detail.notes.appearance.iconClear'),
+    previewEmptyLabel: t('customers.people.detail.notes.appearance.previewEmpty'),
+  }), [t])
+
+  const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
+    if (!element) return
+    element.style.height = 'auto'
+    element.style.height = `${element.scrollHeight}px`
+  }, [])
+
+  React.useEffect(() => {
+    adjustTextareaSize(textareaRef.current)
+  }, [adjustTextareaSize, draftBody])
 
   const handleSubmit = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault()
-      if (!draft.trim() || isSubmitting) return
-      await onCreate(draft.trim())
-      setDraft('')
+      const trimmedBody = draftBody.trim()
+      if (!trimmedBody || isSubmitting) return
+      const normalizedIcon = (draftIcon ?? '').trim()
+      const normalizedColor = draftColor ? draftColor.trim().toLowerCase() : null
+      await onCreate({
+        body: trimmedBody,
+        appearanceIcon: normalizedIcon.length ? normalizedIcon : null,
+        appearanceColor: normalizedColor && /^#([0-9a-f]{6})$/.test(normalizedColor) ? normalizedColor : null,
+      })
+      setDraftBody('')
+      setDraftIcon(null)
+      setDraftColor(null)
     },
-    [draft, isSubmitting, onCreate]
+    [draftBody, draftIcon, draftColor, isSubmitting, onCreate]
   )
 
+  const openAppearanceEditor = React.useCallback((note: CommentSummary) => {
+    setAppearanceEditor({
+      id: note.id,
+      icon: note.appearanceIcon ?? null,
+      color: note.appearanceColor ?? null,
+    })
+  }, [])
+
+  const closeAppearanceEditor = React.useCallback(() => {
+    setAppearanceEditor(null)
+  }, [])
+
+  const handleAppearanceSave = React.useCallback(async () => {
+    if (!appearanceEditor) return
+    setAppearanceSavingId(appearanceEditor.id)
+    const icon = appearanceEditor.icon?.trim() ?? ''
+    const color = appearanceEditor.color ? appearanceEditor.color.trim().toLowerCase() : null
+    try {
+      await onAppearanceUpdate(appearanceEditor.id, {
+        icon: icon.length ? icon : null,
+        color: color && /^#([0-9a-f]{6})$/.test(color) ? color : null,
+      })
+      setAppearanceEditor(null)
+    } finally {
+      setAppearanceSavingId(null)
+    }
+  }, [appearanceEditor, onAppearanceUpdate])
+
   return (
-    <div className="space-y-6">
-      <form onSubmit={handleSubmit} className="rounded-lg border bg-muted/20 p-4 space-y-3">
-        <label className="text-sm font-medium text-muted-foreground" htmlFor="new-note">
-          {t('customers.people.detail.notes.addLabel')}
-        </label>
-        <textarea
-          id="new-note"
-          className="w-full min-h-[120px] rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          placeholder={t('customers.people.detail.notes.placeholder')}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          disabled={isSubmitting}
-        />
-        <div className="flex justify-end">
-          <Button type="submit" disabled={isSubmitting || !draft.trim()}>
-            {isSubmitting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {t('customers.people.detail.notes.saving')}
-              </>
-            ) : (
-              t('customers.people.detail.notes.submit')
-            )}
-          </Button>
-        </div>
-      </form>
-      <div className="space-y-4">
-        {notes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-        ) : (
-          notes.map((note) => (
-            <div key={note.id} className="rounded-lg border p-4 space-y-2">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{formatDateTime(note.createdAt) ?? emptyLabel}</span>
-                {note.authorUserId ? <span>{note.authorUserId}</span> : <span>{t('customers.people.detail.anonymous')}</span>}
-              </div>
-              <p className="text-sm whitespace-pre-wrap">{note.body}</p>
-            </div>
-          ))
-        )}
-      </div>
+    <div className="space-y-4">
+      <table className="w-full border-separate border-spacing-y-3">
+        <tbody>
+          <tr>
+            <td className="rounded-xl bg-muted/10 p-4 align-top">
+              <form onSubmit={handleSubmit} className="space-y-3">
+                <label className="text-sm font-medium text-muted-foreground" htmlFor="new-note">
+                  {t('customers.people.detail.notes.addLabel')}
+                </label>
+                <textarea
+                  id="new-note"
+                  ref={textareaRef}
+                  rows={1}
+                  className="w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  placeholder={t('customers.people.detail.notes.placeholder')}
+                  value={draftBody}
+                  onChange={(event) => setDraftBody(event.target.value)}
+                  onInput={(event) => adjustTextareaSize(event.currentTarget)}
+                  disabled={isSubmitting}
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {draftColor || draftIcon ? (
+                      <span className="inline-flex items-center gap-2 rounded-full bg-muted/40 px-2 py-1">
+                        {draftColor ? renderDictionaryColor(draftColor, 'h-3 w-3 rounded-full border border-border') : null}
+                        {draftIcon ? renderDictionaryIcon(draftIcon, 'h-3.5 w-3.5 text-muted-foreground') : (
+                          <span className="text-muted-foreground">{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span>{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowAppearance((prev) => !prev)}
+                    >
+                      {showAppearance
+                        ? t('customers.people.detail.notes.appearance.toggleClose')
+                        : t('customers.people.detail.notes.appearance.toggleOpen')}
+                    </Button>
+                  </div>
+                  <Button type="submit" disabled={isSubmitting || !draftBody.trim()}>
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {t('customers.people.detail.notes.saving')}
+                      </>
+                    ) : (
+                      t('customers.people.detail.notes.submit')
+                    )}
+                  </Button>
+                </div>
+                {showAppearance ? (
+                  <div className="rounded-lg border border-dashed border-muted-foreground/30 p-3">
+                    <AppearanceSelector
+                      icon={draftIcon}
+                      color={draftColor}
+                      onIconChange={setDraftIcon}
+                      onColorChange={setDraftColor}
+                      labels={noteAppearanceLabels}
+                    />
+                  </div>
+                ) : null}
+              </form>
+            </td>
+          </tr>
+          {notes.length === 0 ? (
+            <tr>
+              <td className="rounded-xl bg-background p-6 text-center text-sm text-muted-foreground">
+                {emptyLabel}
+              </td>
+            </tr>
+          ) : (
+            notes.map((note) => {
+              const isEditingAppearance = appearanceEditor?.id === note.id
+              const displayColor = isEditingAppearance ? appearanceEditor?.color : note.appearanceColor ?? null
+              const displayIcon = isEditingAppearance ? appearanceEditor?.icon : note.appearanceIcon ?? null
+              return (
+                <tr key={note.id}>
+                  <td className="rounded-xl bg-card p-4 shadow-sm align-top">
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <span>{formatRelativeTime(note.createdAt) ?? formatDateTime(note.createdAt) ?? emptyLabel}</span>
+                          {displayColor ? renderDictionaryColor(displayColor, 'h-2.5 w-2.5 rounded-full border border-border') : null}
+                          {displayIcon ? renderDictionaryIcon(displayIcon, 'h-3.5 w-3.5 text-muted-foreground') : (
+                            <span>{t('customers.people.detail.notes.appearance.none')}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {note.authorUserId ? (
+                            <span>{note.authorUserId}</span>
+                          ) : (
+                            <span>{t('customers.people.detail.anonymous')}</span>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => (isEditingAppearance ? closeAppearanceEditor() : openAppearanceEditor(note))}
+                            disabled={appearanceSavingId === note.id}
+                          >
+                            {isEditingAppearance
+                              ? t('customers.people.detail.notes.appearance.cancel')
+                              : t('customers.people.detail.notes.appearance.edit')}
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap">{note.body}</p>
+                      {isEditingAppearance ? (
+                        <div className="space-y-3 rounded-lg border border-dashed border-muted-foreground/30 p-3">
+                          <AppearanceSelector
+                            icon={appearanceEditor?.icon ?? null}
+                            color={appearanceEditor?.color ?? null}
+                            onIconChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
+                            onColorChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
+                            labels={noteAppearanceLabels}
+                            disabled={appearanceSavingId === note.id}
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={handleAppearanceSave}
+                              disabled={appearanceSavingId === note.id}
+                            >
+                              {appearanceSavingId === note.id ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  {t('customers.people.detail.notes.appearance.saving')}
+                                </>
+                              ) : (
+                                t('customers.people.detail.notes.appearance.save')
+                              )}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setAppearanceEditor((prev) => (prev ? { ...prev, icon: null, color: null } : prev))}
+                              disabled={appearanceSavingId === note.id}
+                            >
+                              {t('customers.people.detail.notes.appearance.reset')}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })
+          )}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -1464,14 +1680,23 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   )
 
   const handleCreateNote = React.useCallback(
-    async (body: string) => {
+    async (note: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => {
       if (!personId) return
       setSectionPending((prev) => ({ ...prev, notes: true }))
       try {
+        const icon = note.appearanceIcon && note.appearanceIcon.trim().length ? note.appearanceIcon.trim() : null
+        const color = note.appearanceColor && /^#([0-9a-f]{6})$/i.test(note.appearanceColor.trim())
+          ? note.appearanceColor.trim().toLowerCase()
+          : null
         const res = await apiFetch('/api/customers/comments', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ entityId: personId, body }),
+          body: JSON.stringify({
+            entityId: personId,
+            body: note.body,
+            appearanceIcon: icon,
+            appearanceColor: color,
+          }),
         })
         if (!res.ok) {
           let message = t('customers.people.detail.notes.error')
@@ -1481,13 +1706,15 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           } catch {}
           throw new Error(message)
         }
-        const payload = await res.json().catch(() => ({}))
+        const responseBody = await res.json().catch(() => ({}))
         const newNote: CommentSummary = {
-          id: typeof payload?.id === 'string' ? payload.id : randomId(),
-          body,
+          id: typeof responseBody?.id === 'string' ? responseBody.id : randomId(),
+          body: note.body,
           createdAt: new Date().toISOString(),
           authorUserId: null,
           dealId: null,
+          appearanceIcon: icon,
+          appearanceColor: color,
         }
         setData((prev) => (prev ? { ...prev, comments: [newNote, ...prev.comments] } : prev))
         flash(t('customers.people.detail.notes.success'), 'success')

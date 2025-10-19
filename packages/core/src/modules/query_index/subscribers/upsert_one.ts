@@ -1,10 +1,5 @@
+import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { upsertIndexRow } from '../lib/indexer'
-
-function toBaseTableFromEntityType(entityType: string): string {
-  const [, ent] = (entityType || '').split(':')
-  if (!ent) throw new Error(`Invalid entityType: ${entityType}`)
-  return ent.endsWith('s') ? ent : `${ent}s`
-}
 
 export const metadata = { event: 'query_index.upsert_one', persistent: false }
 
@@ -19,7 +14,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   if (organizationId == null || tenantId == null) {
     try {
       const knex = (em as any).getConnection().getKnex()
-      const table = toBaseTableFromEntityType(entityType)
+      const table = resolveEntityTableName(em, entityType)
       const row = await knex(table).select(['organization_id', 'tenant_id']).where({ id: recordId }).first()
       if (organizationId == null) organizationId = row?.organization_id ?? organizationId
       if (tenantId == null) tenantId = row?.tenant_id ?? tenantId
@@ -32,5 +27,4 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     await bus.emitEvent('query_index.vectorize_one', { entityType, recordId, organizationId, tenantId })
   } catch {}
 }
-
 

@@ -140,6 +140,13 @@ export const commentCreateSchema = scopedSchema.extend({
   dealId: uuid().optional(),
   body: z.string().min(1).max(8000),
   authorUserId: uuid().optional(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
 })
 
 export const commentUpdateSchema = z
