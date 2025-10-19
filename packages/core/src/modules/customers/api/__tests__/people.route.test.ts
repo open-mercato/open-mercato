@@ -82,4 +82,31 @@ describe('enrichPeopleListWithCustomFields', () => {
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({ id: 'entity-1', cf_priority: 'high' })
   })
+
+  it('treats cf_*In query params as multi-value filters', async () => {
+    const em = {
+      find: jest.fn().mockResolvedValue([
+        { id: 'profile-1', entity: 'entity-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+        { id: 'profile-2', entity: 'entity-2', tenantId: 'tenant-1', organizationId: 'org-1' },
+        { id: 'profile-3', entity: 'entity-3', tenantId: 'tenant-1', organizationId: 'org-1' },
+      ]),
+    } as unknown as EntityManager
+
+    mockedLoadCustomFieldValues.mockResolvedValue({
+      'profile-1': { cf_priority: 'high' },
+      'profile-2': { cf_priority: 'medium' },
+      'profile-3': { cf_priority: 'low' },
+    })
+
+    const items = [
+      { id: 'entity-1', display_name: 'Alice' },
+      { id: 'entity-2', display_name: 'Bob' },
+      { id: 'entity-3', display_name: 'Charlie' },
+    ]
+
+    const result = await enrichPeopleListWithCustomFields(em, items, { cf_priorityIn: 'high,medium' })
+
+    expect(result).toHaveLength(2)
+    expect(result.map((item) => item.id)).toEqual(['entity-1', 'entity-2'])
+  })
 })

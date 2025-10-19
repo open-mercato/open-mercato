@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
-import { Dictionary } from '../../data/entities'
-import { resolveDictionariesRouteContext } from '../context'
-import { upsertDictionarySchema } from '../../data/validators'
+import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
+import { upsertDictionarySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 export const metadata = {
@@ -93,4 +93,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to create dictionary' }, { status: 500 })
   }
 }
-

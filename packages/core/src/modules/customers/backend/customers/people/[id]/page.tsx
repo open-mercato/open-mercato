@@ -4,7 +4,6 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
@@ -33,6 +32,7 @@ import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/comp
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../../../../components/AddressTiles'
 import { useEmailDuplicateCheck } from '../../../hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../../../../utils/phoneDuplicates'
+import { CustomFieldsSection } from '../../../../components/CustomFieldsSection'
 
 type TagSummary = { id: string; label: string; color?: string | null }
 type AddressSummary = {
@@ -1759,16 +1759,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     [personId, t]
   )
 
-  const customFieldInitialValues = React.useMemo(() => {
-    if (!data) return {}
-    const base: Record<string, unknown> = {}
-    if (data?.profile?.id) base.id = data.profile.id
-    for (const [key, value] of Object.entries(data?.customFields ?? {})) {
-      if (key.startsWith('cf_')) base[key] = value
-    }
-    return base
-  }, [data])
-
   const handleCustomFieldsSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
       if (!data) {
@@ -1984,71 +1974,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       inputType: 'url',
     },
   ]
-
-  const customFieldInitialValues = React.useMemo(() => {
-    if (!data) return {}
-    const base: Record<string, unknown> = {}
-    if (data.profile?.id) base.id = data.profile.id
-    for (const [key, value] of Object.entries(data.customFields ?? {})) {
-      if (key.startsWith('cf_')) base[key] = value
-    }
-    return base
-  }, [data])
-
-  const handleCustomFieldsSubmit = React.useCallback(
-    async (values: Record<string, unknown>) => {
-      if (!data) {
-        throw new Error(t('customers.people.detail.inline.error'))
-      }
-      const customPayload: Record<string, unknown> = {}
-      const prefixed: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(values)) {
-        if (!key.startsWith('cf_')) continue
-        const normalizedValue = value === undefined ? null : value
-        customPayload[key.slice(3)] = normalizedValue
-        prefixed[key] = normalizedValue
-      }
-      if (!Object.keys(customPayload).length) {
-        flash(t('ui.forms.flash.saveSuccess'), 'success')
-        return
-      }
-      const res = await apiFetch('/api/customers/people', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id: data.person.id,
-          customFields: customPayload,
-        }),
-      })
-      if (!res.ok) {
-        let message = t('customers.people.detail.inline.error')
-        let fieldErrors: Record<string, string> | null = null
-        try {
-          const details = await res.clone().json()
-          if (details && typeof details.error === 'string') message = details.error
-          if (details && typeof details.fields === 'object' && details.fields !== null) {
-            fieldErrors = {}
-            for (const [rawKey, rawValue] of Object.entries(details.fields as Record<string, unknown>)) {
-              const formKey = rawKey.startsWith('cf_') ? rawKey : `cf_${rawKey}`
-              fieldErrors[formKey] = typeof rawValue === 'string' ? rawValue : message
-            }
-          }
-        } catch {
-          // ignore json parsing errors
-        }
-        const err: any = new Error(message)
-        if (fieldErrors) err.fieldErrors = fieldErrors
-        throw err
-      }
-      setData((prev) => {
-        if (!prev) return prev
-        const nextCustomFields = { ...prefixed }
-        return { ...prev, customFields: nextCustomFields }
-      })
-      flash(t('ui.forms.flash.saveSuccess'), 'success')
-    },
-    [data, t]
-  )
 
   return (
     <Page>
@@ -2294,21 +2219,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             </div>
           </div>
 
-          <div className="space-y-3">
-            <CrudForm
-              key={data.profile?.id ? `person-custom-fields-${data.profile.id}` : `person-custom-fields-${person.id}`}
-              title={t('customers.people.detail.sections.customFields')}
-              entityId={E.customers.customer_person_profile}
-              fields={[]}
-              groups={[
-                { id: 'person_custom_fields', kind: 'customFields', column: 1 },
-              ]}
-              initialValues={customFieldInitialValues}
-              isLoading={isLoading}
-              submitLabel={t('customers.people.detail.inline.save')}
-              onSubmit={handleCustomFieldsSubmit}
-            />
-          </div>
+          <CustomFieldsSection
+            entityId={E.customers.customer_person_profile}
+            values={data.customFields ?? {}}
+            onSubmit={handleCustomFieldsSubmit}
+            title={t('customers.people.detail.sections.customFields')}
+          />
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">

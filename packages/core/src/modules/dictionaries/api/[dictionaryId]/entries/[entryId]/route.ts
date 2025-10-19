@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { Dictionary, DictionaryEntry } from '../../../../../data/entities'
-import { resolveDictionariesRouteContext } from '../../../../context'
-import { updateDictionaryEntrySchema } from '../../../../../data/validators'
+import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
+import { updateDictionaryEntrySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const paramsSchema = z.object({
@@ -153,4 +153,3 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     return NextResponse.json({ error: 'Failed to delete dictionary entry' }, { status: 500 })
   }
 }
-

@@ -15,8 +15,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
-import { AppearanceSelector, useAppearanceState } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
-import { DictionaryValue } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { AppearanceSelector, useAppearanceState } from './AppearanceSelector'
+import { DictionaryValue } from './dictionaryAppearance'
 
 type Entry = {
   id: string
@@ -157,19 +157,31 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: Dictio
         })
         const json = await res.json().catch(() => ({}))
         if (!res.ok) {
-          throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to save dictionary entry')
+          throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to create dictionary entry')
         }
-        setEntries((prev) => [...prev, json])
+        const entry: Entry = {
+          id: String(json.id),
+          value: String(json.value),
+          label: typeof json.label === 'string' && json.label.length ? json.label : String(json.value),
+          color: typeof json.color === 'string' ? json.color : null,
+          icon: typeof json.icon === 'string' ? json.icon : null,
+          createdAt: typeof json.createdAt === 'string' ? json.createdAt : undefined,
+          updatedAt: typeof json.updatedAt === 'string' ? json.updatedAt : undefined,
+        }
+        setEntries((prev) => [...prev, entry])
         flash(t('dictionaries.config.entries.success.create', 'Dictionary entry created.'), 'success')
       }
-      closeDialog()
+      setDialogOpen(false)
+      setFormState({ value: '', label: '', color: null, icon: null })
+      appearance.setColor(null)
+      appearance.setIcon(null)
     } catch (err) {
       console.error('Failed to save dictionary entry', err)
       flash(t('dictionaries.config.entries.error.save', 'Failed to save dictionary entry.'), 'error')
     } finally {
       setIsSaving(false)
     }
-  }, [appearance.color, appearance.icon, closeDialog, dictionaryId, formState.id, formState.label, formState.value, t])
+  }, [appearance, dictionaryId, formState.id, formState.label, formState.value, t])
 
   const handleDelete = React.useCallback(
     async (entry: Entry) => {

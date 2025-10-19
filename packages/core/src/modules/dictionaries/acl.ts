@@ -1,5 +1,6 @@
 export const features = [
-  'dictionaries.view',
-  'dictionaries.manage',
-] as const
+  { id: 'dictionaries.view', title: 'View shared dictionaries', module: 'dictionaries' },
+  { id: 'dictionaries.manage', title: 'Manage shared dictionaries', module: 'dictionaries' },
+]
 
+export default features

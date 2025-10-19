@@ -94,6 +94,8 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   loadingMessage?: string
   // User-defined entity mode: all fields are custom, use bare keys (no cf_)
   customEntity?: boolean
+  // Embedded mode hides outer chrome; useful for inline sections
+  embedded?: boolean
 }
 
 // Group-level custom component context
@@ -136,6 +138,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   isLoading = false,
   loadingMessage,
   customEntity = false,
+  embedded = false,
   extraActions,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
@@ -1080,6 +1083,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
     return (
       <div className="space-y-4">
+        {!embedded ? (
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             {backHref ? (
@@ -1108,6 +1112,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             </Button>
           </div>
         </div>
+        ) : null}
         <DataLoader
           isLoading={isLoading}
           loadingMessage={resolvedLoadingMessage}
@@ -1172,17 +1177,17 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
               </div>
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            <div className="flex items-center justify-between gap-2">
-              <div />
+            <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'} gap-2`}>
+              {embedded ? null : <div />}
               <div className="flex items-center gap-2">
                 {extraActions}
-                {showDelete ? (
+                {!embedded && showDelete ? (
                   <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
                     <Trash2 className="size-4 mr-2" />
                     {deleteLabel}
                   </Button>
                 ) : null}
-                {cancelHref ? (
+                {!embedded && cancelHref ? (
                   <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
                     {cancelLabel}
                   </Link>
@@ -1202,6 +1207,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   // Default single-card layout (compatible with previous API)
   return (
     <div className="space-y-4">
+      {!embedded ? (
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           {backHref ? (
@@ -1230,6 +1236,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </Button>
         </div>
       </div>
+      ) : null}
       <DataLoader
         isLoading={isLoading}
         loadingMessage={resolvedLoadingMessage}
@@ -1237,7 +1244,11 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         className="min-h-[400px]"
       >
         <div>
-          <form id={formId} onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
+          <form
+            id={formId}
+            onSubmit={handleSubmit}
+            className={embedded ? 'space-y-4' : 'rounded-lg border bg-card p-4 space-y-4'}
+          >
             <div className={grid}>
               {allFields.map((f, idx) => {
                 const layout = ((f as any).layout ?? 'full') as CrudFieldBase['layout']
@@ -1260,15 +1271,15 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
               })}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            <div className="flex items-center justify-end gap-2">
+            <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-end'} gap-2`}>
               {extraActions}
-              {showDelete ? (
+              {!embedded && showDelete ? (
                 <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50">
                   <Trash2 className="size-4 mr-2" />
                   {deleteLabel}
                 </Button>
               ) : null}
-              {cancelHref ? (
+              {!embedded && cancelHref ? (
                 <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
                   {cancelLabel}
                 </Link>

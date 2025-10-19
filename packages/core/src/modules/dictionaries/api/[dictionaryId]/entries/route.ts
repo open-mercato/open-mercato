@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { Dictionary, DictionaryEntry } from '../../../../data/entities'
-import { resolveDictionariesRouteContext } from '../../../context'
-import { createDictionaryEntrySchema } from '../../../../data/validators'
+import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
+import { createDictionaryEntrySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
@@ -128,4 +128,3 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     return NextResponse.json({ error: 'Failed to create dictionary entry' }, { status: 500 })
   }
 }
-
