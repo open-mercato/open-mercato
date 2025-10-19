@@ -163,32 +163,6 @@ export default function TodosTable() {
 
   const effectiveColumns = columns.length ? columns : computedColumns
 
-  const exportConfig = React.useMemo(() => ({
-    view: {
-      description: t('example.todos.table.export.view'),
-      prepare: async (): Promise<{ prepared: PreparedExport; filename: string }> => {
-        const rows = todosWithOrgNames.map((row) => {
-          const out: Record<string, unknown> = {}
-          for (const col of viewExportColumns) {
-            out[col.field] = (row as Record<string, unknown>)[col.field]
-          }
-          return out
-        })
-        const prepared: PreparedExport = {
-          columns: viewExportColumns.map((col) => ({ field: col.field, header: col.header })),
-          rows,
-        }
-        return { prepared, filename: 'todos_view' }
-      },
-    },
-    full: {
-      description: t('example.todos.table.export.full'),
-      getUrl: (format: DataTableExportFormat) =>
-        buildCrudExportUrl('example/todos', fullExportParams, format),
-      filename: () => 'todos_full',
-    },
-  }), [fullExportParams, viewExportColumns, t, JSON.stringify(todosWithOrgNames)])
-
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
     queryKey: ['todos', queryParams, scopeVersion],
     queryFn: async () => fetchCrudList<TodoListItem>('example/todos', Object.fromEntries(new URLSearchParams(queryParams))),
@@ -232,6 +206,32 @@ export default function TodosTable() {
         : t('example.todos.table.organization.none'),
     }))
   }, [orgMap, t, todosData?.items])
+
+  const exportConfig = React.useMemo(() => ({
+    view: {
+      description: t('example.todos.table.export.view'),
+      prepare: async (): Promise<{ prepared: PreparedExport; filename: string }> => {
+        const rows = todosWithOrgNames.map((row) => {
+          const out: Record<string, unknown> = {}
+          for (const col of viewExportColumns) {
+            out[col.field] = (row as Record<string, unknown>)[col.field]
+          }
+          return out
+        })
+        const prepared: PreparedExport = {
+          columns: viewExportColumns.map((col) => ({ field: col.field, header: col.header })),
+          rows,
+        }
+        return { prepared, filename: 'todos_view' }
+      },
+    },
+    full: {
+      description: t('example.todos.table.export.full'),
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('example/todos', fullExportParams, format),
+      filename: () => 'todos_full',
+    },
+  }), [fullExportParams, viewExportColumns, t, todosWithOrgNames])
 
   const handleSortingChange = (newSorting: SortingState) => {
     setSorting(newSorting)
