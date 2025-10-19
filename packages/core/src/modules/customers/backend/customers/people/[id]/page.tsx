@@ -1770,6 +1770,11 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     }
   }, [personId, personName, router, t])
 
+  const handleAddressAddClick = React.useCallback(() => {
+    if (!addressAddAction || addressAddAction.disabled) return
+    addressAddAction.open()
+  }, [addressAddAction])
+
   React.useEffect(() => {
     if (!id) {
       setError(t('customers.people.detail.error.notFound'))
@@ -2761,7 +2766,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           </div>
 
           <CustomFieldsSection
-            entityIds={[E.customers.customer_person_profile, E.customers.customer_entity]}
+            entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
             values={data.customFields ?? {}}
             onSubmit={handleCustomFieldsSubmit}
             title={t('customers.people.detail.sections.customFields')}
@@ -2797,7 +2802,3 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     </Page>
   )
 }
-  const handleAddressAddClick = React.useCallback(() => {
-    if (!addressAddAction || addressAddAction.disabled) return
-    addressAddAction.open()
-  }, [addressAddAction])

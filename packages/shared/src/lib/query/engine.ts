@@ -155,20 +155,57 @@ export class BasicQueryEngine implements QueryEngine {
     }
     if (opts.includeCustomFields === true) {
       if (entityIdToSource.size > 0) {
+        const entityIdList = Array.from(entityIdToSource.keys())
+        const entityOrder = new Map<string, number>()
+        entityIdList.forEach((id, idx) => entityOrder.set(id, idx))
         const rows = await knex('custom_field_defs')
-          .select('key', 'entity_id')
-          .whereIn('entity_id', Array.from(entityIdToSource.keys()))
+          .select('key', 'entity_id', 'config_json')
+          .whereIn('entity_id', entityIdList)
           .andWhere('is_active', true)
           .modify((qb: any) => {
             qb.andWhere((inner: any) => {
               inner.where({ tenant_id: tenantId }).orWhereNull('tenant_id')
             })
           })
-        for (const row of rows) {
-          const source = entityIdToSource.get(String(row.entity_id))
+        const sorted = rows.map((row: any) => {
+          const raw = row.config_json
+          let cfg: Record<string, any> = {}
+          if (raw && typeof raw === 'string') {
+            try { cfg = JSON.parse(raw) } catch { cfg = {} }
+          } else if (raw && typeof raw === 'object') {
+            cfg = raw
+          }
+          return {
+            key: String(row.key),
+            entityId: String(row.entity_id),
+            config: cfg,
+          }
+        })
+        sorted.sort((a, b) => {
+          const ai = entityOrder.get(a.entityId) ?? Number.MAX_SAFE_INTEGER
+          const bi = entityOrder.get(b.entityId) ?? Number.MAX_SAFE_INTEGER
+          if (ai !== bi) return ai - bi
+          return a.key.localeCompare(b.key)
+        })
+        const selectedSources = new Map<string, { source: ResolvedCustomFieldSource; score: number; penalty: number; entityIndex: number }>()
+        for (const row of sorted) {
+          const source = entityIdToSource.get(row.entityId)
           if (!source) continue
-          if (!keySource.has(row.key)) keySource.set(row.key, source)
+          const cfg = row.config || {}
+          const listVisibleScore = cfg.listVisible === false ? 0 : 1
+          const formEditableScore = cfg.formEditable === false ? 0 : 1
+          const filterableScore = cfg.filterable ? 1 : 0
+          const baseScore = listVisibleScore * 4 + formEditableScore * 2 + filterableScore
+          const penalty = typeof cfg.priority === 'number' ? cfg.priority : 0
+          const entityIndex = entityOrder.get(row.entityId) ?? Number.MAX_SAFE_INTEGER
+          const existing = selectedSources.get(row.key)
+          if (!existing || baseScore > existing.score || (baseScore === existing.score && (penalty < existing.penalty || (penalty === existing.penalty && entityIndex < existing.entityIndex)))) {
+            selectedSources.set(row.key, { source, score: baseScore, penalty, entityIndex })
+          }
           cfKeys.add(row.key)
+        }
+        for (const [key, entry] of selectedSources.entries()) {
+          keySource.set(key, entry.source)
         }
       }
     } else if (requestedCustomFieldKeys.length > 0) {

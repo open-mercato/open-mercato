@@ -97,8 +97,10 @@ export async function GET(req: Request) {
     entityDefaultEditors.set(entityId, editor)
   }
 
-  const seenKeys = new Set<string>()
   const items: any[] = []
+
+  const entityOrder = new Map<string, number>()
+  entityIds.forEach((id, idx) => entityOrder.set(id, idx))
 
   for (const entityId of entityIds) {
     const defsForEntity = definitionsByEntity.get(entityId) ?? []
@@ -123,9 +125,7 @@ export async function GET(req: Request) {
 
     for (const d of winning) {
       const keyLower = String(d.key).toLowerCase()
-      if (seenKeys.has(keyLower)) continue
-      seenKeys.add(keyLower)
-      items.push({
+      const candidateBase = {
         key: d.key,
         kind: d.kind,
         label: d.configJson?.label || d.key,
@@ -154,11 +154,42 @@ export async function GET(req: Request) {
         maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
         acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
         entityId,
-      })
+        priority: typeof d.configJson?.priority === 'number' ? d.configJson.priority : 0,
+      } as any
+      const listVisibleScore = candidateBase.listVisible !== false ? 1 : 0
+      const formEditableScore = candidateBase.formEditable !== false ? 1 : 0
+      const filterableScore = candidateBase.filterable ? 1 : 0
+      const metrics = {
+        base: listVisibleScore * 4 + formEditableScore * 2 + filterableScore,
+        penalty: candidateBase.priority ?? 0,
+        entityIndex: entityOrder.get(entityId) ?? Number.MAX_SAFE_INTEGER,
+      }
+      const candidate = { ...candidateBase, __score: metrics }
+      const existing = (items as any[]).find((entry) => entry.key.toLowerCase() === keyLower)
+      if (!existing) {
+        items.push(candidate)
+        continue
+      }
+      const existingScore = existing.__score as { base: number; penalty: number; entityIndex: number }
+      const candidateScoreInfo = candidate.__score as { base: number; penalty: number; entityIndex: number }
+      const better =
+        candidateScoreInfo.base > existingScore.base ||
+        (candidateScoreInfo.base === existingScore.base && candidateScoreInfo.penalty < existingScore.penalty) ||
+        (candidateScoreInfo.base === existingScore.base && candidateScoreInfo.penalty === existingScore.penalty && candidateScoreInfo.entityIndex < existingScore.entityIndex)
+      if (better) {
+        const index = items.findIndex((entry) => entry.key.toLowerCase() === keyLower)
+        if (index >= 0) items[index] = candidate
+      }
     }
   }
 
-  return NextResponse.json({ items })
+  const sanitized = items.map((item: any) => {
+    const { __score, ...rest } = item
+    return rest
+  })
+  sanitized.sort((a: any, b: any) => ((a.priority ?? 0) - (b.priority ?? 0)))
+
+  return NextResponse.json({ items: sanitized })
 }
 
 export async function POST(req: Request) {

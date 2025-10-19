@@ -164,8 +164,8 @@ export default function CustomersPeoplePage() {
     async function loadCustomFields() {
       try {
         const defs = await fetchCustomFieldDefs([
-          E.customers.customer_person_profile,
           E.customers.customer_entity,
+          E.customers.customer_person_profile,
         ])
         if (!cancelled) setCustomFieldDefs(defs)
       } catch {
@@ -484,7 +484,7 @@ export default function CustomersPeoplePage() {
           filterValues={filterValues}
           onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
           onFiltersClear={() => { setFilterValues({}); setPage(1) }}
-          entityIds={[E.customers.customer_person_profile, E.customers.customer_entity]}
+          entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           onRowClick={(row) => router.push(`/backend/customers/people/${row.id}`)}
           rowActions={(row) => (
             <RowActions
