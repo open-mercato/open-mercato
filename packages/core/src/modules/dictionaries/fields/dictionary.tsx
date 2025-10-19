@@ -122,7 +122,7 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
   )
 }
 
-function DictionaryFieldInput({ value, onChange, disabled, def }: Props) {
+function DictionaryFieldInput({ value, setValue, disabled, def }: Props) {
   const t = useT()
   const dictionaryId = def?.dictionaryId
   if (!dictionaryId) {
@@ -137,7 +137,7 @@ function DictionaryFieldInput({ value, onChange, disabled, def }: Props) {
     <DictionarySelectControl
       dictionaryId={dictionaryId}
       value={normalizedValue ?? ''}
-      onChange={(next) => onChange(next ?? undefined)}
+      onChange={(next) => setValue(next ?? undefined)}
       allowInlineCreate={def?.dictionaryInlineCreate !== false}
       disabled={disabled}
     />

@@ -1,8 +1,15 @@
-import type { QueryEngine, QueryOptions, QueryResult } from './types'
+import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource } from './types'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 const entityTableCache = new Map<string, string>()
+
+type ResolvedCustomFieldSource = {
+  entityId: EntityId
+  alias: string
+  table: string
+  recordIdExpr: any
+}
 
 const pluralizeBaseName = (name: string): string => {
   if (!name) return name
@@ -127,61 +134,91 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     // Resolve which custom fields to include
-    const entityId = entity
     const tenantId = opts.tenantId
-    // const orgId = opts.organizationId // reserved for future organization-level scoping
     const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, '_')
-    const baseIdExpr = knex.raw('??::text', [`${table}.id`])
+    const cfSources = this.configureCustomFieldSources(q, table, entity, knex, opts, qualify)
+    const entityIdToSource = new Map<string, ResolvedCustomFieldSource>()
+    for (const source of cfSources) {
+      entityIdToSource.set(String(source.entityId), source)
+    }
+    const requestedCustomFieldKeys = Array.isArray(opts.includeCustomFields)
+      ? opts.includeCustomFields.map((key) => String(key))
+      : []
     const cfKeys = new Set<string>()
+    const keySource = new Map<string, ResolvedCustomFieldSource>()
     // Explicit in fields/filters
-    for (const f of (opts.fields || [])) if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
-    for (const f of arrayFilters) if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
-    // includeCustomFields: boolean | string[]
+    for (const f of (opts.fields || [])) {
+      if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
+    }
+    for (const f of arrayFilters) {
+      if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
+    }
     if (opts.includeCustomFields === true) {
-      // Read all defs for this entity tenant (tenant-scoped only)
+      if (entityIdToSource.size > 0) {
+        const rows = await knex('custom_field_defs')
+          .select('key', 'entity_id')
+          .whereIn('entity_id', Array.from(entityIdToSource.keys()))
+          .andWhere('is_active', true)
+          .modify((qb: any) => {
+            qb.andWhere((inner: any) => {
+              inner.where({ tenant_id: tenantId }).orWhereNull('tenant_id')
+            })
+          })
+        for (const row of rows) {
+          const source = entityIdToSource.get(String(row.entity_id))
+          if (!source) continue
+          if (!keySource.has(row.key)) keySource.set(row.key, source)
+          cfKeys.add(row.key)
+        }
+      }
+    } else if (requestedCustomFieldKeys.length > 0) {
+      for (const key of requestedCustomFieldKeys) cfKeys.add(key)
+    }
+    const unresolvedKeys = Array.from(cfKeys).filter((key) => !keySource.has(key))
+    if (unresolvedKeys.length > 0 && entityIdToSource.size > 0) {
       const rows = await knex('custom_field_defs')
-        .select('key')
-        .where({ entity_id: entityId, is_active: true })
+        .select('key', 'entity_id')
+        .whereIn('entity_id', Array.from(entityIdToSource.keys()))
+        .whereIn('key', unresolvedKeys)
+        .andWhere('is_active', true)
         .modify((qb: any) => {
           qb.andWhere((inner: any) => {
             inner.where({ tenant_id: tenantId }).orWhereNull('tenant_id')
           })
-          // NOTE: organization-level scoping intentionally disabled for custom fields
-          // if (orgId != null) inner.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
         })
-      for (const r of rows) cfKeys.add(r.key)
-    } else if (Array.isArray(opts.includeCustomFields)) {
-      for (const k of opts.includeCustomFields) cfKeys.add(k)
+      for (const row of rows) {
+        const source = entityIdToSource.get(String(row.entity_id))
+        if (!source) continue
+        if (!keySource.has(row.key)) keySource.set(row.key, source)
+      }
     }
 
-    // Custom fields: project requested cf:* keys and apply cf filters
     const cfValueExprByKey: Record<string, any> = {}
     const cfSelectedAliases: string[] = []
     const cfJsonAliases = new Set<string>()
     const cfMultiAliasByAlias = new Map<string, string>()
     for (const key of cfKeys) {
-      const defAlias = `cfd_${sanitize(key)}`
-      const valAlias = `cfv_${sanitize(key)}`
+      const source = keySource.get(key)
+      if (!source) continue
+      const entityIdForKey = source.entityId
+      const recordIdExpr = source.recordIdExpr
+      const sourceAliasSafe = sanitize(source.alias || 'src')
+      const keyAliasSafe = sanitize(key)
+      const defAlias = `cfd_${sourceAliasSafe}_${keyAliasSafe}`
+      const valAlias = `cfv_${sourceAliasSafe}_${keyAliasSafe}`
       // Join definitions for kind resolution
       q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function (this: any) {
-        this.on(`${defAlias}.entity_id`, '=', knex.raw('?', [entityId]))
+        this.on(`${defAlias}.entity_id`, '=', knex.raw('?', [entityIdForKey]))
           .andOn(`${defAlias}.key`, '=', knex.raw('?', [key]))
           .andOn(`${defAlias}.is_active`, '=', knex.raw('true'))
           .andOn(knex.raw(`(${defAlias}.tenant_id = ? OR ${defAlias}.tenant_id IS NULL)`, [tenantId]))
-        // NOTE: organization-level scoping intentionally disabled for custom fields
-        // this.andOn(function (this: any) {
-        //   this.on(`${defAlias}.organization_id`, '=', knex.raw('?', [orgId]))
-        //       .orOn(knex.raw('?? is null', [`${defAlias}.organization_id`]))
-        // })
       })
       // Join values with record match
       q = q.leftJoin({ [valAlias]: 'custom_field_values' }, function (this: any) {
-        this.on(`${valAlias}.entity_id`, '=', knex.raw('?', [entityId]))
+        this.on(`${valAlias}.entity_id`, '=', knex.raw('?', [entityIdForKey]))
           .andOn(`${valAlias}.field_key`, '=', knex.raw('?', [key]))
-          .andOn(`${valAlias}.record_id`, '=', baseIdExpr)
+          .andOn(`${valAlias}.record_id`, '=', recordIdExpr)
           .andOn(knex.raw(`(${valAlias}.tenant_id = ? OR ${valAlias}.tenant_id IS NULL)`, [tenantId]))
-        // NOTE: organization-level scoping intentionally disabled for custom fields
-        // if (orgId != null) this.andOn(`${valAlias}.organization_id`, '=', knex.raw('?', [orgId]))
       })
       // Force a common SQL type across branches to avoid Postgres CASE type conflicts
       const caseExpr = knex.raw(
@@ -196,7 +233,7 @@ export class BasicQueryEngine implements QueryEngine {
       cfValueExprByKey[key] = caseExpr
       const alias = sanitize(`cf:${key}`)
       // Project as aggregated to avoid duplicates when multi values exist
-      if ((opts.fields || []).includes(`cf:${key}`) || opts.includeCustomFields === true || (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.includes(key))) {
+      if ((opts.fields || []).includes(`cf:${key}`) || opts.includeCustomFields === true || (requestedCustomFieldKeys.length > 0 && requestedCustomFieldKeys.includes(key))) {
         // Use bool_or over config_json->>multi so it's valid under GROUP BY
         const isMulti = knex.raw(`bool_or(coalesce((${defAlias}.config_json->>'multi')::boolean, false))`)
         const aggregatedArray = `array_remove(array_agg(DISTINCT ${caseExpr.toString()}), NULL)`
@@ -331,6 +368,48 @@ export class BasicQueryEngine implements QueryEngine {
     const present = !!exists
     this.columnCache.set(key, present)
     return present
+  }
+
+  private configureCustomFieldSources(
+    q: any,
+    baseTable: string,
+    baseEntity: EntityId,
+    knex: any,
+    opts: QueryOptions,
+    qualify: (column: string) => string
+  ): ResolvedCustomFieldSource[] {
+    const sources: ResolvedCustomFieldSource[] = [
+      {
+        entityId: baseEntity,
+        alias: 'base',
+        table: baseTable,
+        recordIdExpr: knex.raw('??::text', [`${baseTable}.id`]),
+      },
+    ]
+    const extras: QueryCustomFieldSource[] = opts.customFieldSources ?? []
+    extras.forEach((srcOpt, index) => {
+      const joinTable = srcOpt.table ?? resolveEntityTableName(this.em, srcOpt.entityId)
+      const alias = srcOpt.alias ?? `cfs_${index}`
+      const join = srcOpt.join
+      if (!join) {
+        throw new Error(`QueryEngine: customFieldSources entry for ${String(srcOpt.entityId)} requires a join configuration`)
+      }
+      const joinArgs = { [alias]: joinTable }
+      const joinCallback = function (this: any) {
+        this.on(`${alias}.${join.toField}`, '=', qualify(join.fromField))
+      }
+      const joinType = join.type ?? 'left'
+      if (joinType === 'inner') q.join(joinArgs, joinCallback)
+      else q.leftJoin(joinArgs, joinCallback)
+      const recordColumn = srcOpt.recordIdColumn ?? 'id'
+      sources.push({
+        entityId: srcOpt.entityId,
+        alias,
+        table: joinTable,
+        recordIdExpr: knex.raw('??::text', [`${alias}.${recordColumn}`]),
+      })
+    })
+    return sources
   }
 
   private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {

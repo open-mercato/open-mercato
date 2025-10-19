@@ -3,15 +3,7 @@
 import * as React from 'react'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
-import { DictionaryEntrySelect, type DictionaryOption as SharedDictionaryOption } from './DictionaryEntrySelect'
-
-export type DictionaryOption = {
-  id: string
-  value: string
-  label: string
-  color: string | null
-  icon: string | null
-}
+import { DictionaryEntrySelect } from './DictionaryEntrySelect'
 
 type DictionarySelectControlProps = {
   dictionaryId: string
@@ -32,7 +24,7 @@ export function DictionarySelectControl({
 }: DictionarySelectControlProps) {
   const t = useT()
 
-  const fetchOptions = React.useCallback(async (): Promise<SharedDictionaryOption[]> => {
+  const fetchOptions = React.useCallback(async () => {
     const res = await apiFetch(`/api/dictionaries/${dictionaryId}/entries`)
     const payload = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -124,6 +116,7 @@ export function DictionarySelectControl({
       allowInlineCreate={allowInlineCreate}
       selectClassName={selectClassName}
       disabled={disabled}
+      manageHref="/backend/config/dictionaries"
     />
   )
 }

@@ -194,10 +194,10 @@ export function DictionariesManager() {
         </div>
         <div className="mt-4 space-y-2">
           {loading ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Spinner className="h-4 w-4" />
               {t('dictionaries.config.list.loading', 'Loading dictionaries…')}
-            </p>
+            </div>
           ) : items.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {t('dictionaries.config.list.empty', 'No dictionaries yet. Create one to get started.')}
@@ -206,12 +206,20 @@ export function DictionariesManager() {
             <ul className="space-y-1">
               {items.map((dictionary) => (
                 <li key={dictionary.id}>
-                  <button
-                    type="button"
-                    className={`flex w-full items-center justify-between rounded border px-3 py-2 text-left text-sm transition ${
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={dictionary.id === selectedId}
+                    className={`flex w-full cursor-pointer select-none items-center justify-between rounded border px-3 py-2 text-left text-sm transition ${
                       dictionary.id === selectedId ? 'border-primary bg-primary/5 text-primary' : 'border-border hover:bg-muted'
                     }`}
                     onClick={() => setSelectedId(dictionary.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedId(dictionary.id)
+                      }
+                    }}
                   >
                     <div>
                       <div className="font-medium">{dictionary.name}</div>
@@ -242,7 +250,7 @@ export function DictionariesManager() {
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
-                  </button>
+                  </div>
                 </li>
               ))}
             </ul>

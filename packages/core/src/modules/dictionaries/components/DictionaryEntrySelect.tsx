@@ -15,8 +15,22 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { DictionaryValue } from './dictionaryAppearance'
+import { DictionaryValue, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 import { AppearanceSelector, type AppearanceSelectorLabels, useAppearanceState } from './AppearanceSelector'
+
+const DEFAULT_APPEARANCE_LABELS: AppearanceSelectorLabels = {
+  colorLabel: 'Color',
+  colorHelp: 'Pick a highlight color for this entry.',
+  colorClearLabel: 'Remove color',
+  iconLabel: 'Icon or emoji',
+  iconPlaceholder: 'Type an emoji or icon token.',
+  iconPickerTriggerLabel: 'Browse icons and emoji',
+  iconSearchPlaceholder: 'Search icons or emojis…',
+  iconSearchEmptyLabel: 'No icons match your search.',
+  iconSuggestionsLabel: 'Suggestions',
+  iconClearLabel: 'Remove icon',
+  previewEmptyLabel: 'No appearance selected',
+}
 
 export type DictionaryOption = {
   value: string
@@ -56,6 +70,7 @@ export type DictionaryEntrySelectProps = {
   allowAppearance?: boolean
   appearanceLabels?: AppearanceSelectorLabels
   disabled?: boolean
+  showLabelInput?: boolean
 }
 
 export function DictionaryEntrySelect({
@@ -70,6 +85,7 @@ export function DictionaryEntrySelect({
   allowAppearance = false,
   appearanceLabels,
   disabled: disabledProp = false,
+  showLabelInput = true,
 }: DictionaryEntrySelectProps) {
   const [options, setOptions] = React.useState<DictionaryOption[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -127,7 +143,7 @@ export function DictionaryEntrySelect({
     try {
       const payload = await createOption({
         value: trimmedValue,
-        label: newLabel.trim() || undefined,
+        label: showLabelInput ? newLabel.trim() || undefined : undefined,
         color: allowAppearance ? appearance.color : null,
         icon: allowAppearance ? appearance.icon : null,
       })
@@ -218,24 +234,26 @@ export function DictionaryEntrySelect({
                       disabled={saving}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">{labels.labelLabel}</label>
-                    <input
-                      type="text"
-                      className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      value={newLabel}
-                      onChange={(event) => setNewLabel(event.target.value)}
-                      placeholder={labels.labelPlaceholder}
-                      disabled={saving}
-                    />
-                  </div>
+                  {showLabelInput ? (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">{labels.labelLabel}</label>
+                      <input
+                        type="text"
+                        className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        value={newLabel}
+                        onChange={(event) => setNewLabel(event.target.value)}
+                        placeholder={labels.labelPlaceholder}
+                        disabled={saving}
+                      />
+                    </div>
+                  ) : null}
                   {allowAppearance ? (
                     <AppearanceSelector
                       icon={appearance.icon}
                       color={appearance.color}
                       onIconChange={appearance.setIcon}
                       onColorChange={appearance.setColor}
-                      labels={appearanceLabels}
+                      labels={appearanceLabels ?? DEFAULT_APPEARANCE_LABELS}
                     />
                   ) : null}
                   {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
@@ -261,16 +279,26 @@ export function DictionaryEntrySelect({
         </div>
       </div>
       {activeOption ? (
-        <div className="text-xs text-muted-foreground">
-          <DictionaryValue
-            value={activeOption.value}
-            map={Object.fromEntries(options.map((option) => [option.value, option]))}
-            className="inline-flex items-center gap-2 text-sm"
-            iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background"
-            iconClassName="h-3.5 w-3.5"
-            colorClassName="h-2.5 w-2.5 rounded-full border border-border/60"
-          />
-        </div>
+        activeOption.icon || activeOption.color ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-2 rounded border border-dashed px-2 py-1">
+              {renderDictionaryIcon(activeOption.icon, 'h-4 w-4')}
+              {renderDictionaryColor(activeOption.color, 'h-4 w-4 rounded-sm')}
+            </span>
+            {activeOption.color ? <span>{activeOption.color}</span> : null}
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">
+            <DictionaryValue
+              value={activeOption.value}
+              map={Object.fromEntries(options.map((option) => [option.value, option]))}
+              className="inline-flex items-center gap-2 text-sm"
+              iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background"
+              iconClassName="h-3.5 w-3.5"
+              colorClassName="h-2.5 w-2.5 rounded-full border border-border/60"
+            />
+          </div>
+        )
       ) : null}
       {loading ? <div className="text-xs text-muted-foreground">{labels.loadingLabel}</div> : null}
     </div>

@@ -3,7 +3,7 @@ import type { AwilixContainer } from 'awilix'
 import { createRequestContainer } from '@/lib/di/container'
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import { getAuthFromCookies, type AuthContext } from '@/lib/auth/server'
-import type { QueryEngine, Where, Sort, Page } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, Where, Sort, Page, QueryCustomFieldSource } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -71,6 +71,7 @@ export type ListConfig<TList> = {
     filename?: string
   }
   export?: CrudExportOptions
+  customFieldSources?: QueryCustomFieldSource[]
 }
 
 export type CrudExportColumnConfig = {
@@ -598,6 +599,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           page,
           filters,
           withDeleted,
+        }
+        if (opts.list.customFieldSources) {
+          queryOpts.customFieldSources = opts.list.customFieldSources
         }
         if (ormCfg.tenantField) queryOpts.tenantId = ctx.auth.tenantId!
         if (ormCfg.orgField) {

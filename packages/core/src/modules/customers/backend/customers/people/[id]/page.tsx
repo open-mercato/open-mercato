@@ -9,7 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Loader2, Mail, Pencil, Phone, Plus, Trash2, X } from 'lucide-react'
+import { Loader2, Mail, Palette, Pencil, Phone, Plus, Trash2, X } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -870,13 +870,16 @@ function InlineNextInteractionEditor({
 type NotesTabProps = {
   notes: CommentSummary[]
   onCreate: (input: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => Promise<void>
-  onAppearanceUpdate: (noteId: string, appearance: { icon: string | null; color: string | null }) => Promise<void>
+  onUpdate: (
+    noteId: string,
+    patch: { body?: string; appearanceIcon?: string | null; appearanceColor?: string | null }
+  ) => Promise<void>
   isSubmitting: boolean
   emptyLabel: string
   t: Translator
 }
 
-function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabel, t }: NotesTabProps) {
+function NotesTab({ notes, onCreate, onUpdate, isSubmitting, emptyLabel, t }: NotesTabProps) {
   const [draftBody, setDraftBody] = React.useState('')
   const [draftIcon, setDraftIcon] = React.useState<string | null>(null)
   const [draftColor, setDraftColor] = React.useState<string | null>(null)
@@ -888,6 +891,12 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
     color: string | null
   } | null>(null)
   const [appearanceSavingId, setAppearanceSavingId] = React.useState<string | null>(null)
+  const [appearanceError, setAppearanceError] = React.useState<string | null>(null)
+  const [contentEditor, setContentEditor] = React.useState<{ id: string; value: string }>({ id: '', value: '' })
+  const [contentSavingId, setContentSavingId] = React.useState<string | null>(null)
+  const [contentError, setContentError] = React.useState<string | null>(null)
+  const contentTextareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const [visibleCount, setVisibleCount] = React.useState(() => Math.min(5, notes.length))
   const noteAppearanceLabels = React.useMemo(() => ({
     colorLabel: t('customers.people.detail.notes.appearance.colorLabel'),
     colorHelp: t('customers.people.detail.notes.appearance.colorHelp'),
@@ -912,6 +921,31 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
     adjustTextareaSize(textareaRef.current)
   }, [adjustTextareaSize, draftBody])
 
+  React.useEffect(() => {
+    if (!notes.length) {
+      setVisibleCount(0)
+      return
+    }
+    setVisibleCount((prev) => {
+      const baseline = Math.min(5, notes.length)
+      if (prev === 0) return baseline
+      return Math.min(Math.max(prev, baseline), notes.length)
+    })
+  }, [notes.length])
+
+  React.useEffect(() => {
+    if (!contentEditor.id) return
+    const textarea = contentTextareaRef.current
+    if (!textarea) return
+    const frame = window.requestAnimationFrame(() => {
+      textarea.focus()
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+      textarea.style.height = 'auto'
+      textarea.style.height = `${textarea.scrollHeight}px`
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [contentEditor])
+
   const handleSubmit = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault()
@@ -927,9 +961,31 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
       setDraftBody('')
       setDraftIcon(null)
       setDraftColor(null)
+      setShowAppearance(false)
     },
     [draftBody, draftIcon, draftColor, isSubmitting, onCreate]
   )
+
+  const handleAppearanceSave = React.useCallback(async () => {
+    if (!appearanceEditor) return
+    setAppearanceSavingId(appearanceEditor.id)
+    setAppearanceError(null)
+    const icon = appearanceEditor.icon?.trim() ?? ''
+    const color = appearanceEditor.color ? appearanceEditor.color.trim().toLowerCase() : null
+    try {
+      await onUpdate(appearanceEditor.id, {
+        appearanceIcon: icon.length ? icon : null,
+        appearanceColor: color && /^#([0-9a-f]{6})$/.test(color) ? color : null,
+      })
+      setAppearanceEditor(null)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t('customers.people.detail.notes.updateError', 'Failed to update note')
+      setAppearanceError(message)
+    } finally {
+      setAppearanceSavingId(null)
+    }
+  }, [appearanceEditor, onUpdate, t])
 
   const openAppearanceEditor = React.useCallback((note: CommentSummary) => {
     setAppearanceEditor({
@@ -937,27 +993,64 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
       icon: note.appearanceIcon ?? null,
       color: note.appearanceColor ?? null,
     })
+    setAppearanceError(null)
   }, [])
 
   const closeAppearanceEditor = React.useCallback(() => {
     setAppearanceEditor(null)
+    setAppearanceError(null)
   }, [])
 
-  const handleAppearanceSave = React.useCallback(async () => {
-    if (!appearanceEditor) return
-    setAppearanceSavingId(appearanceEditor.id)
-    const icon = appearanceEditor.icon?.trim() ?? ''
-    const color = appearanceEditor.color ? appearanceEditor.color.trim().toLowerCase() : null
-    try {
-      await onAppearanceUpdate(appearanceEditor.id, {
-        icon: icon.length ? icon : null,
-        color: color && /^#([0-9a-f]{6})$/.test(color) ? color : null,
-      })
-      setAppearanceEditor(null)
-    } finally {
-      setAppearanceSavingId(null)
+  const openContentEditor = React.useCallback((note: CommentSummary) => {
+    setContentEditor({ id: note.id, value: note.body })
+    setContentError(null)
+  }, [])
+
+  const closeContentEditor = React.useCallback(() => {
+    setContentEditor({ id: '', value: '' })
+    setContentError(null)
+  }, [])
+
+  const handleContentSave = React.useCallback(async () => {
+    if (!contentEditor.id) return
+    const trimmed = contentEditor.value.trim()
+    if (!trimmed) {
+      setContentError(t('customers.people.detail.notes.updateError'))
+      return
     }
-  }, [appearanceEditor, onAppearanceUpdate])
+    setContentSavingId(contentEditor.id)
+    setContentError(null)
+    try {
+      await onUpdate(contentEditor.id, { body: trimmed })
+      closeContentEditor()
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t('customers.people.detail.notes.updateError', 'Failed to update note')
+      setContentError(message)
+    } finally {
+      setContentSavingId(null)
+    }
+  }, [closeContentEditor, contentEditor, onUpdate, t])
+
+  const handleContentKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>, note: CommentSummary) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        openContentEditor(note)
+      }
+    },
+    [openContentEditor]
+  )
+
+  const visibleNotes = React.useMemo(() => notes.slice(0, visibleCount), [notes, visibleCount])
+  const hasVisibleNotes = React.useMemo(() => visibleCount > 0 && notes.length > 0, [visibleCount, notes.length])
+
+  const handleLoadMore = React.useCallback(() => {
+    setVisibleCount((prev) => {
+      if (prev >= notes.length) return prev
+      return Math.min(prev + 5, notes.length)
+    })
+  }, [notes.length])
 
   return (
     <div className="space-y-4">
@@ -980,25 +1073,42 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
                   onInput={(event) => adjustTextareaSize(event.currentTarget)}
                   disabled={isSubmitting}
                 />
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      {draftColor || draftIcon ? (
-                        <span className="inline-flex items-center gap-2 rounded-full bg-muted/40 px-2 py-1">
-                          {draftColor ? renderDictionaryColor(draftColor, 'h-3 w-3 rounded-full border border-border') : null}
-                          {draftIcon ? renderDictionaryIcon(draftIcon, 'h-3.5 w-3.5 text-muted-foreground') : null}
-                        </span>
-                      ) : (
-                        <span>{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
-                      )}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {draftColor || draftIcon ? (
+                      <span className="inline-flex items-center gap-2 rounded-full bg-muted/40 px-2 py-1">
+                        {draftColor ? renderDictionaryColor(draftColor, 'h-3 w-3 rounded-full border border-border') : null}
+                        {draftIcon ? renderDictionaryIcon(draftIcon, 'h-3.5 w-3.5 text-muted-foreground') : null}
+                      </span>
+                    ) : (
+                      <span>{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
+                    )}
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
+                      size="icon"
                       onClick={() => setShowAppearance((prev) => !prev)}
+                      aria-label={
+                        showAppearance
+                          ? t('customers.people.detail.notes.appearance.toggleClose')
+                          : t('customers.people.detail.notes.appearance.toggleOpen')
+                      }
+                      title={
+                        showAppearance
+                          ? t('customers.people.detail.notes.appearance.toggleClose')
+                          : t('customers.people.detail.notes.appearance.toggleOpen')
+                      }
                     >
-                      {showAppearance
-                        ? t('customers.people.detail.notes.appearance.toggleClose')
-                        : t('customers.people.detail.notes.appearance.toggleOpen')}
+                      {isSubmitting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Palette className="h-4 w-4" />
+                      )}
+                      <span className="sr-only">
+                        {showAppearance
+                          ? t('customers.people.detail.notes.appearance.toggleClose')
+                          : t('customers.people.detail.notes.appearance.toggleOpen')}
+                      </span>
                     </Button>
                   </div>
                   <Button type="submit" disabled={isSubmitting || !draftBody.trim()}>
@@ -1026,17 +1136,20 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
               </form>
             </td>
           </tr>
-          {notes.length === 0 ? (
+          {!hasVisibleNotes ? (
             <tr>
               <td className="rounded-xl bg-background p-6 text-center text-sm text-muted-foreground">
                 {emptyLabel}
               </td>
             </tr>
           ) : (
-            notes.map((note) => {
+            visibleNotes.map((note) => {
               const isEditingAppearance = appearanceEditor?.id === note.id
               const displayColor = isEditingAppearance ? appearanceEditor?.color : note.appearanceColor ?? null
               const displayIcon = isEditingAppearance ? appearanceEditor?.icon : note.appearanceIcon ?? null
+              const isAppearanceSaving = appearanceSavingId === note.id
+              const isEditingContent = contentEditor.id === note.id
+              const isContentSaving = contentSavingId === note.id
               return (
                 <tr key={note.id}>
                   <td className="rounded-xl bg-card p-4 shadow-sm align-top">
@@ -1059,17 +1172,79 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
                           <Button
                             type="button"
                             variant="ghost"
-                            size="sm"
+                            size="icon"
                             onClick={() => (isEditingAppearance ? closeAppearanceEditor() : openAppearanceEditor(note))}
-                            disabled={appearanceSavingId === note.id}
+                            disabled={isAppearanceSaving}
+                            aria-label={
+                              isEditingAppearance
+                                ? t('customers.people.detail.notes.appearance.toggleClose')
+                                : t('customers.people.detail.notes.appearance.toggleOpen')
+                            }
+                            title={
+                              isEditingAppearance
+                                ? t('customers.people.detail.notes.appearance.toggleClose')
+                                : t('customers.people.detail.notes.appearance.toggleOpen')
+                            }
                           >
-                            {isEditingAppearance
-                              ? t('customers.people.detail.notes.appearance.cancel')
-                              : t('customers.people.detail.notes.appearance.edit')}
+                            {isAppearanceSaving ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Palette className="h-4 w-4" />
+                            )}
+                            <span className="sr-only">
+                              {isEditingAppearance
+                                ? t('customers.people.detail.notes.appearance.toggleClose')
+                                : t('customers.people.detail.notes.appearance.toggleOpen')}
+                            </span>
                           </Button>
                         </div>
                       </div>
-                      <p className="text-sm whitespace-pre-wrap">{note.body}</p>
+                      {isEditingContent ? (
+                        <div className="space-y-2">
+                          <textarea
+                            ref={contentTextareaRef}
+                            value={contentEditor.value}
+                            onChange={(event) => {
+                              setContentEditor((prev) => ({ ...prev, value: event.target.value }))
+                              adjustTextareaSize(event.currentTarget)
+                            }}
+                            rows={3}
+                            className="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          />
+                          {contentError ? <p className="text-xs text-red-600">{contentError}</p> : null}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button type="button" size="sm" onClick={handleContentSave} disabled={isContentSaving}>
+                              {isContentSaving ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  {t('customers.people.detail.notes.saving')}
+                                </>
+                              ) : (
+                                t('customers.people.detail.inline.save')
+                              )}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={closeContentEditor}
+                              disabled={isContentSaving}
+                            >
+                              {t('customers.people.detail.inline.cancel')}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="cursor-text text-sm whitespace-pre-wrap"
+                          onClick={() => openContentEditor(note)}
+                          onKeyDown={(event) => handleContentKeyDown(event, note)}
+                        >
+                          {note.body}
+                        </div>
+                      )}
                       {isEditingAppearance ? (
                         <div className="space-y-3 rounded-lg border border-dashed border-muted-foreground/30 p-3">
                           <AppearanceSelector
@@ -1078,18 +1253,18 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
                             onIconChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
                             onColorChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
                             labels={noteAppearanceLabels}
-                            disabled={appearanceSavingId === note.id}
+                            disabled={isAppearanceSaving}
                           />
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <Button
                               type="button"
                               size="sm"
                               onClick={() => {
                                 void handleAppearanceSave()
                               }}
-                              disabled={appearanceSavingId === note.id}
+                              disabled={isAppearanceSaving}
                             >
-                              {appearanceSavingId === note.id ? (
+                              {isAppearanceSaving ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   {t('customers.people.detail.notes.appearance.saving')}
@@ -1103,11 +1278,12 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
                               size="sm"
                               variant="secondary"
                               onClick={() => setAppearanceEditor((prev) => (prev ? { ...prev, icon: null, color: null } : prev))}
-                              disabled={appearanceSavingId === note.id}
+                              disabled={isAppearanceSaving}
                             >
                               {t('customers.people.detail.notes.appearance.reset')}
                             </Button>
                           </div>
+                          {appearanceError ? <p className="text-xs text-red-600">{appearanceError}</p> : null}
                         </div>
                       ) : null}
                     </div>
@@ -1118,6 +1294,13 @@ function NotesTab({ notes, onCreate, onAppearanceUpdate, isSubmitting, emptyLabe
           )}
         </tbody>
       </table>
+      {visibleCount < notes.length ? (
+        <div className="flex justify-center">
+          <Button variant="outline" size="sm" onClick={handleLoadMore}>
+            {t('customers.people.detail.notes.loadMore')}
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1727,24 +1910,16 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     [personId, t]
   )
 
-  const handleUpdateNoteAppearance = React.useCallback(
-    async (noteId: string, appearance: { icon: string | null; color: string | null }) => {
-      const icon = appearance.icon && appearance.icon.trim().length ? appearance.icon.trim() : null
-      const color = appearance.color && /^#([0-9a-f]{6})$/i.test(appearance.color.trim())
-        ? appearance.color.trim().toLowerCase()
-        : null
+  const handleUpdateNote = React.useCallback(
+    async (noteId: string, patch: { body?: string; appearanceIcon?: string | null; appearanceColor?: string | null }) => {
       try {
         const res = await apiFetch('/api/customers/comments', {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            id: noteId,
-            appearanceIcon: icon,
-            appearanceColor: color,
-          }),
+          body: JSON.stringify({ id: noteId, ...patch }),
         })
         if (!res.ok) {
-          let message = t('customers.people.detail.notes.appearance.error')
+          let message = t('customers.people.detail.notes.updateError')
           try {
             const details = await res.clone().json()
             if (details && typeof details.error === 'string') message = details.error
@@ -1753,18 +1928,19 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         }
         setData((prev) => {
           if (!prev) return prev
-          return {
-            ...prev,
-            comments: prev.comments.map((comment) =>
-              comment.id === noteId
-                ? { ...comment, appearanceIcon: icon, appearanceColor: color }
-                : comment
-            ),
-          }
+          const nextComments = prev.comments.map((comment) => {
+            if (comment.id !== noteId) return comment
+            const next = { ...comment }
+            if (patch.body !== undefined) next.body = patch.body
+            if (patch.appearanceIcon !== undefined) next.appearanceIcon = patch.appearanceIcon ?? null
+            if (patch.appearanceColor !== undefined) next.appearanceColor = patch.appearanceColor ?? null
+            return next
+          })
+          return { ...prev, comments: nextComments }
         })
-        flash(t('customers.people.detail.notes.appearance.updated'), 'success')
+        flash(t('customers.people.detail.notes.updateSuccess'), 'success')
       } catch (error) {
-        const message = error instanceof Error ? error.message : t('customers.people.detail.notes.appearance.error')
+        const message = error instanceof Error ? error.message : t('customers.people.detail.notes.updateError')
         flash(message, 'error')
         throw error instanceof Error ? error : new Error(message)
       }
@@ -2408,7 +2584,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               <NotesTab
                 notes={data.comments}
                 onCreate={handleCreateNote}
-                onAppearanceUpdate={handleUpdateNoteAppearance}
+                onUpdate={handleUpdateNote}
                 isSubmitting={sectionPending.notes}
                 emptyLabel={t('customers.people.detail.empty.comments')}
                 t={t}

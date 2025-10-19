@@ -7,9 +7,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { personCreateSchema, personUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
-import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
-import { enrichPeopleListWithCustomFields } from './enrich'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -52,15 +50,6 @@ const crud = makeCrudRoute({
     orgField: 'organizationId',
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
-  },
-  hooks: {
-    afterList: async (payload, ctx) => {
-      const items = Array.isArray(payload?.items) ? payload.items : []
-      if (!items.length) return
-      const em = ctx.container.resolve('em') as EntityManager
-      const nextItems = await enrichPeopleListWithCustomFields(em, items, (ctx as any)?.query || {})
-      payload.items = nextItems
-    },
   },
   list: {
     schema: listSchema,
@@ -143,7 +132,7 @@ const crud = makeCrudRoute({
         try {
           const em = ctx.container.resolve('em') as any
           const cfFilters = await buildCustomFieldFiltersFromQuery({
-            entityId: E.customers.customer_person_profile,
+            entityIds: [E.customers.customer_entity, E.customers.customer_person_profile],
             query,
             em,
             tenantId: ctx.auth?.tenantId ?? null,
@@ -155,6 +144,22 @@ const crud = makeCrudRoute({
       }
       return filters
     },
+    customFieldSources: [
+      {
+        entityId: E.customers.customer_person_profile,
+        table: 'customer_people',
+        alias: 'person_profile',
+        recordIdColumn: 'id',
+        join: { fromField: 'id', toField: 'entity_id' },
+      },
+      {
+        entityId: E.customers.customer_company_profile,
+        table: 'customer_companies',
+        alias: 'company_profile',
+        recordIdColumn: 'id',
+        join: { fromField: 'id', toField: 'entity_id' },
+      },
+    ],
     transformItem: (item: any) => {
       if (!item) return item
       const normalized = { ...item }
@@ -174,7 +179,10 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return personCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(scoped)
+        const parsed = personCreateSchema.parse(base)
+        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       response: ({ result }) => ({
         id: result?.entityId ?? result?.id ?? null,
@@ -187,7 +195,10 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return personUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(scoped)
+        const parsed = personUpdateSchema.parse(base)
+        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       response: () => ({ ok: true }),
     },

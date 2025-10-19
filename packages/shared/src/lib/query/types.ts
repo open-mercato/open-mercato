@@ -45,6 +45,22 @@ export type WhereValue<T = any> = T | WhereOps<T>
 export type Where<Fields extends Record<string, any> = Record<string, any>> =
   Partial<{ [K in keyof Fields]: WhereValue<Fields[K]> }> & Record<string, WhereValue>
 
+export type QueryCustomFieldJoin = {
+  fromField: string
+  toField: string
+  type?: 'left' | 'inner'
+}
+
+export type QueryCustomFieldSource = {
+  entityId: EntityId
+  table?: string
+  alias?: string
+  recordIdColumn?: string
+  join?: QueryCustomFieldJoin
+  tenantField?: string
+  organizationField?: string
+}
+
 export type QueryOptions = {
   fields?: FieldSelector[] // base fields and/or 'cf:<key>' for custom fields
   includeExtensions?: boolean | string[] // include all registered extensions or only specific ones by entity id
@@ -60,6 +76,7 @@ export type QueryOptions = {
   // Soft-delete behavior: when false (default), rows with non-null deleted_at
   // are excluded if the base table has that column. Set true to include them.
   withDeleted?: boolean
+  customFieldSources?: QueryCustomFieldSource[]
 }
 
 export type QueryResult<T = any> = {

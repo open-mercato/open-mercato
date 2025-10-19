@@ -66,7 +66,8 @@ export function extractAllCustomFieldEntries(item: Record<string, unknown>): Rec
 }
 
 export async function buildCustomFieldFiltersFromQuery(opts: {
-  entityId: EntityId
+  entityId?: EntityId
+  entityIds?: EntityId[]
   query: Record<string, unknown>
   em: EntityManager
   tenantId: string | null | undefined
@@ -75,16 +76,38 @@ export async function buildCustomFieldFiltersFromQuery(opts: {
   const entries = Object.entries(opts.query).filter(([k]) => k.startsWith('cf_'))
   if (!entries.length) return out
 
+  const entityIdList = Array.isArray(opts.entityIds) && opts.entityIds.length
+    ? opts.entityIds
+    : opts.entityId
+      ? [opts.entityId]
+      : []
+  if (!entityIdList.length) return out
+
   // Tenant-only scope: allow global (null) or tenant match; ignore organization here
   const defs = await opts.em.find(CustomFieldDef, {
-    entityId: opts.entityId as string,
+    entityId: { $in: entityIdList as any },
     isActive: true,
     $and: [
       { $or: [ { tenantId: opts.tenantId as any }, { tenantId: null } ] },
     ],
   })
-  const byKey: Record<string, { kind: string; multi?: boolean }> = {}
-  for (const d of defs) byKey[d.key] = { kind: d.kind, multi: Boolean((d as any).configJson?.multi) }
+  const order = new Map<string, number>()
+  entityIdList.map(String).forEach((id, index) => order.set(id, index))
+  const byKey: Record<string, { kind: string; multi?: boolean; entityId: string }> = {}
+  for (const d of defs) {
+    const key = d.key
+    const entityId = String(d.entityId)
+    const current = byKey[key]
+    const rankNew = order.get(entityId) ?? Number.MAX_SAFE_INTEGER
+    if (!current) {
+      byKey[key] = { kind: d.kind, multi: Boolean((d as any).configJson?.multi), entityId }
+      continue
+    }
+    const rankOld = order.get(current.entityId) ?? Number.MAX_SAFE_INTEGER
+    if (rankNew < rankOld) {
+      byKey[key] = { kind: d.kind, multi: Boolean((d as any).configJson?.multi), entityId }
+    }
+  }
 
   const coerce = (kind: string, v: unknown) => {
     if (v == null) return v as undefined

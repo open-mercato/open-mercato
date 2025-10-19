@@ -150,7 +150,7 @@ Use helpers from `@open-mercato/shared/lib/crud/custom-fields` to keep routes DR
   - `selectors`: `['cf:priority', 'cf:severity', ...]` for QueryEngine `fields`
   - `outputKeys`: `['cf_priority', 'cf_severity', ...]` for CSV headers or typed output
 - `extractCustomFieldsFromItem(item, keys)` → maps projections `cf:<k>`/`cf_<k>` into `{ cf_<k>: value }`
-- `buildCustomFieldFiltersFromQuery({ entityId, query, em, orgId, tenantId })` → builds a `Record<string, WhereValue>` for `cf:<k>` and `cf:<k> $in` based on query keys `cf_<k>` and `cf_<k>In`. Values are coerced to the correct type from `CustomFieldDef.kind`.
+- `buildCustomFieldFiltersFromQuery({ entityId | entityIds, query, em, orgId, tenantId })` → builds a `Record<string, WhereValue>` for `cf:<k>` and `cf:<k> $in` based on query keys `cf_<k>` and `cf_<k>In`. Values are coerced to the correct type from `CustomFieldDef.kind`.
 
 Example wiring:
 

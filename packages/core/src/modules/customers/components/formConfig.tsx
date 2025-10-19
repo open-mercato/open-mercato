@@ -1,8 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import Link from 'next/link'
 import { z } from 'zod'
+import Link from 'next/link'
 import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
@@ -23,9 +23,12 @@ import type {
   CrudFormGroup,
   CrudFormGroupComponentProps,
 } from '@open-mercato/ui/backend/CrudForm'
+import {
+  DictionaryEntrySelect,
+  type DictionarySelectLabels,
+} from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useEmailDuplicateCheck } from '../backend/hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../utils/phoneDuplicates'
-import { renderDictionaryColor, renderDictionaryIcon } from '../lib/dictionaries'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from './AddressTiles'
 
 export const metadata = {
@@ -52,24 +55,6 @@ export type PersonFormValues = {
   description?: string
   addresses?: CustomerAddressValue[]
 } & Record<string, unknown>
-
-type DictionaryOption = { value: string; label: string; color?: string | null; icon?: string | null }
-
-export type DictionarySelectLabels = {
-  placeholder: string
-  addLabel: string
-  addPrompt?: string
-  dialogTitle: string
-  inputLabel: string
-  inputPlaceholder: string
-  emptyError: string
-  cancelLabel: string
-  saveLabel: string
-  errorLoad: string
-  errorSave: string
-  loadingLabel: string
-  manageTitle: string
-}
 
 type DictionarySelectFieldProps = {
   kind: 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types'
@@ -101,210 +86,77 @@ export function DictionarySelectField({
   labels,
   selectClassName,
 }: DictionarySelectFieldProps) {
-  const [options, setOptions] = React.useState<DictionaryOption[]>([])
-  const [loading, setLoading] = React.useState(true)
-  const [saving, setSaving] = React.useState(false)
-  const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [newOption, setNewOption] = React.useState('')
-  const [formError, setFormError] = React.useState<string | null>(null)
-  const activeOption = React.useMemo(
-    () => options.find((option) => option.value === value) ?? null,
-    [options, value]
-  )
-
-  const loadOptions = React.useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
-      const payload: Record<string, unknown> = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const errorValue = payload.error
-        const message = typeof errorValue === 'string' ? errorValue : labels.errorLoad
-        flash(message, 'error')
-        setOptions([])
-        return
-      }
-      const itemsSource = Array.isArray(payload.items) ? payload.items : []
-      const normalized = itemsSource
-        .map((item) => {
-          if (!item || typeof item !== 'object') return null
-          const candidate = item as Record<string, unknown>
-          const rawValue = typeof candidate.value === 'string' ? candidate.value.trim() : ''
-          if (!rawValue) return null
-          const label =
-            typeof candidate.label === 'string' && candidate.label.trim().length
-              ? candidate.label.trim()
-              : rawValue
-          const color =
-            typeof candidate.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(candidate.color)
-              ? `#${candidate.color.slice(1).toLowerCase()}`
-              : null
-          const icon =
-            typeof candidate.icon === 'string' && candidate.icon.trim().length
-              ? candidate.icon.trim()
-              : null
-          return { value: rawValue, label, color, icon }
-        })
-        .filter((entry): entry is DictionaryOption => !!entry)
-        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-      setOptions(normalized)
-    } catch {
-      flash(labels.errorLoad, 'error')
-      setOptions([])
-    } finally {
-      setLoading(false)
+  const fetchOptions = React.useCallback(async () => {
+    const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
+    const payload: Record<string, unknown> = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      const message = typeof payload.error === 'string' ? payload.error : labels.errorLoad
+      throw new Error(message)
     }
+
+    const itemsSource = Array.isArray(payload.items) ? payload.items : []
+    return itemsSource
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null
+        const candidate = item as Record<string, unknown>
+        const rawValue = typeof candidate.value === 'string' ? candidate.value.trim() : ''
+        if (!rawValue) return null
+        const label =
+          typeof candidate.label === 'string' && candidate.label.trim().length
+            ? candidate.label.trim()
+            : rawValue
+        const color =
+          typeof candidate.color === 'string' && candidate.color.trim().startsWith('#')
+            ? candidate.color.trim()
+            : null
+        const icon =
+          typeof candidate.icon === 'string' && candidate.icon.trim().length
+            ? candidate.icon.trim()
+            : null
+        return { value: rawValue, label, color, icon }
+      })
+      .filter((entry): entry is { value: string; label: string; color: string | null; icon: string | null } => !!entry)
   }, [kind, labels.errorLoad])
 
-  React.useEffect(() => {
-    loadOptions().catch(() => {})
-  }, [loadOptions])
-
-  const resetDialogState = React.useCallback(() => {
-    setNewOption('')
-    setFormError(null)
-    setSaving(false)
-  }, [])
-
-  const handleDialogChange = React.useCallback(
-    (open: boolean) => {
-      setDialogOpen(open)
-      if (!open) {
-        resetDialogState()
-      }
-    },
-    [resetDialogState]
-  )
-
-  const handleAddSubmit = React.useCallback<React.FormEventHandler<HTMLFormElement>>(async (event) => {
-    event.preventDefault()
-    if (saving) return
-    const trimmed = newOption.trim()
-    if (!trimmed) {
-      setFormError(labels.emptyError)
-      return
-    }
-    setSaving(true)
-    try {
+  const createOption = React.useCallback(
+    async (input: { value: string; label?: string }) => {
       const res = await apiFetch(`/api/customers/dictionaries/${kind}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ value: trimmed }),
+        body: JSON.stringify({ value: input.value }),
       })
-      let payload: unknown = null
-      try {
-        payload = await res.json()
-      } catch {
-        payload = null
-      }
+      const payload: Record<string, unknown> = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const errorValue = (payload as Record<string, unknown> | null)?.error
-        const message = typeof errorValue === 'string' ? errorValue : labels.errorSave
-        flash(message, 'error')
-        return
+        const message = typeof payload.error === 'string' ? payload.error : labels.errorSave
+        throw new Error(message)
       }
-      await loadOptions()
-      const createdValue = (payload as Record<string, unknown> | null)?.value
-      const selected = typeof createdValue === 'string' ? createdValue : trimmed
-      onChange(selected || undefined)
-      setDialogOpen(false)
-      resetDialogState()
-    } catch {
-      flash(labels.errorSave, 'error')
-    } finally {
-      setSaving(false)
-    }
-  }, [kind, labels.emptyError, labels.errorSave, loadOptions, newOption, onChange, resetDialogState, saving])
-
-  const disabled = loading || saving
+      const valueCreated = typeof payload.value === 'string' ? payload.value : input.value
+      const label =
+        typeof payload.label === 'string' && payload.label.trim().length ? payload.label.trim() : valueCreated
+      const color =
+        typeof payload.color === 'string' && payload.color.trim().startsWith('#')
+          ? payload.color.trim()
+          : null
+      const icon =
+        typeof payload.icon === 'string' && payload.icon.trim().length ? payload.icon.trim() : null
+      return { value: valueCreated, label, color, icon }
+    },
+    [kind, labels.errorSave],
+  )
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <select
-          className={cn('h-9 w-full rounded border px-2 text-sm', selectClassName)}
-          value={value ?? ''}
-          onChange={(event) => onChange(event.target.value ? event.target.value : undefined)}
-          disabled={disabled}
-        >
-          <option value="">{labels.placeholder}</option>
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <div className="flex items-center gap-1">
-          <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
-            <DialogTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                disabled={disabled}
-                aria-label={labels.addLabel}
-                title={labels.addLabel}
-              >
-                <Plus className="h-4 w-4" aria-hidden />
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-sm">
-              <DialogHeader>
-                <DialogTitle>{labels.dialogTitle}</DialogTitle>
-                {labels.addPrompt ? <DialogDescription>{labels.addPrompt}</DialogDescription> : null}
-              </DialogHeader>
-              <form onSubmit={handleAddSubmit} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">{labels.inputLabel}</label>
-                  <input
-                    className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder={labels.inputPlaceholder}
-                    value={newOption}
-                    onChange={(event) => {
-                      setNewOption(event.target.value)
-                      if (formError) setFormError(null)
-                    }}
-                    autoFocus
-                    disabled={saving}
-                  />
-                </div>
-                {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
-                <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
-                    {labels.cancelLabel}
-                  </Button>
-                  <Button type="submit" disabled={saving || !newOption.trim()}>
-                    {saving ? `${labels.saveLabel}…` : labels.saveLabel}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
-          <Button
-            asChild
-            variant="ghost"
-            size="icon"
-            title={labels.manageTitle}
-            aria-label={labels.manageTitle}
-          >
-            <Link href="/backend/config/customers">
-              <Settings className="h-4 w-4" aria-hidden />
-              <span className="sr-only">{labels.manageTitle}</span>
-            </Link>
-          </Button>
-        </div>
-      </div>
-      {activeOption && (activeOption.icon || activeOption.color) ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-2 rounded border border-dashed px-2 py-1">
-            {renderDictionaryIcon(activeOption.icon, 'h-4 w-4')}
-            {renderDictionaryColor(activeOption.color, 'h-4 w-4 rounded-sm')}
-          </span>
-          {activeOption.color ? <span>{activeOption.color}</span> : null}
-        </div>
-      ) : null}
-      {loading ? <div className="text-xs text-muted-foreground">{labels.loadingLabel}</div> : null}
-    </div>
+    <DictionaryEntrySelect
+      value={value}
+      onChange={onChange}
+      fetchOptions={fetchOptions}
+      createOption={createOption}
+      labels={labels}
+      selectClassName={selectClassName}
+      allowInlineCreate
+      allowAppearance={false}
+      manageHref="/backend/config/customers"
+      showLabelInput={false}
+    />
   )
 }
 
@@ -407,11 +259,14 @@ const buildDictionaryLabels = (t: Translator, definition: DictionaryFieldDefinit
   addLabel: t(definition.addLabelKey),
   addPrompt: t(definition.promptKey),
   dialogTitle: t(definition.dialogTitleKey),
-  inputLabel: t('customers.people.form.dictionary.valueLabel'),
-  inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+  valueLabel: t('customers.people.form.dictionary.valueLabel'),
+  valuePlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+  labelLabel: t('customers.people.form.dictionary.valueLabel'),
+  labelPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
   emptyError: t('customers.people.form.dictionary.errorRequired'),
   cancelLabel: t('customers.people.form.dictionary.cancel'),
   saveLabel: t('customers.people.form.dictionary.save'),
+  successCreateLabel: undefined,
   errorLoad: t('customers.people.form.dictionary.errorLoad'),
   errorSave: t('customers.people.form.dictionary.error'),
   loadingLabel: t('customers.people.form.dictionary.loading'),
