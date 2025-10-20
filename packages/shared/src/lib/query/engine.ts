@@ -159,7 +159,7 @@ export class BasicQueryEngine implements QueryEngine {
         const entityOrder = new Map<string, number>()
         entityIdList.forEach((id, idx) => entityOrder.set(id, idx))
         const rows = await knex('custom_field_defs')
-          .select('key', 'entity_id', 'config_json')
+          .select('key', 'entity_id', 'config_json', 'kind')
           .whereIn('entity_id', entityIdList)
           .andWhere('is_active', true)
           .modify((qb: any) => {
@@ -178,6 +178,7 @@ export class BasicQueryEngine implements QueryEngine {
           return {
             key: String(row.key),
             entityId: String(row.entity_id),
+            kind: String(row.kind || ''),
             config: cfg,
           }
         })
@@ -192,15 +193,11 @@ export class BasicQueryEngine implements QueryEngine {
           const source = entityIdToSource.get(row.entityId)
           if (!source) continue
           const cfg = row.config || {}
-          const listVisibleScore = cfg.listVisible === false ? 0 : 1
-          const formEditableScore = cfg.formEditable === false ? 0 : 1
-          const filterableScore = cfg.filterable ? 1 : 0
-          const baseScore = listVisibleScore * 4 + formEditableScore * 2 + filterableScore
-          const penalty = typeof cfg.priority === 'number' ? cfg.priority : 0
           const entityIndex = entityOrder.get(row.entityId) ?? Number.MAX_SAFE_INTEGER
+          const scores = computeScore(cfg, row.kind, entityIndex)
           const existing = selectedSources.get(row.key)
-          if (!existing || baseScore > existing.score || (baseScore === existing.score && (penalty < existing.penalty || (penalty === existing.penalty && entityIndex < existing.entityIndex)))) {
-            selectedSources.set(row.key, { source, score: baseScore, penalty, entityIndex })
+          if (!existing || scores.base > existing.score || (scores.base === existing.score && (scores.penalty < existing.penalty || (scores.penalty === existing.penalty && scores.entityIndex < existing.entityIndex)))) {
+            selectedSources.set(row.key, { source, score: scores.base, penalty: scores.penalty, entityIndex: scores.entityIndex })
           }
           cfKeys.add(row.key)
         }
@@ -514,3 +511,31 @@ export class BasicQueryEngine implements QueryEngine {
     return out
   }
 }
+    const computeScore = (cfg: Record<string, unknown>, kind: string, entityIndex: number) => {
+      const listVisibleScore = cfg.listVisible === false ? 0 : 1
+      const formEditableScore = cfg.formEditable === false ? 0 : 1
+      const filterableScore = cfg.filterable ? 1 : 0
+      const kindScore = (() => {
+        switch (kind) {
+          case 'dictionary':
+            return 8
+          case 'relation':
+            return 6
+          case 'select':
+            return 4
+          case 'multiline':
+            return 3
+          case 'boolean':
+          case 'integer':
+          case 'float':
+            return 2
+          default:
+            return 1
+        }
+      })()
+      const optionsBonus = Array.isArray(cfg.options) && cfg.options.length ? 2 : 0
+      const dictionaryBonus = typeof cfg.dictionaryId === 'string' && cfg.dictionaryId.trim().length ? 5 : 0
+      const base = (listVisibleScore * 16) + (formEditableScore * 8) + (filterableScore * 4) + kindScore + optionsBonus + dictionaryBonus
+      const penalty = typeof cfg.priority === 'number' ? cfg.priority : 0
+      return { base, penalty, entityIndex }
+    }

@@ -3,7 +3,19 @@ import type { CustomFieldDefDto } from './customFieldDefs'
 import { filterCustomFieldDefs } from './customFieldDefs'
 import { apiFetch } from './api'
 import { fetchCustomFieldDefs } from './customFieldDefs'
-import { FieldRegistry } from '../fields/registry'
+import { FieldRegistry, loadGeneratedFieldRegistrations } from '../fields/registry'
+
+let registryReady: Promise<void> | null = null
+
+async function ensureFieldRegistryReady() {
+  if (!registryReady) {
+    registryReady = loadGeneratedFieldRegistrations().catch((err) => {
+      registryReady = null
+      throw err
+    })
+  }
+  await registryReady
+}
 
 function buildOptionsUrl(base: string, query?: string): string {
   if (!query) return base
@@ -125,6 +137,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?
 }
 
 export async function fetchCustomFieldFormFields(entityIds: string | string[], fetchImpl: typeof fetch = apiFetch, options?: { bareIds?: boolean }): Promise<CrudField[]> {
+  await ensureFieldRegistryReady()
   const defs: CustomFieldDefDto[] = await fetchCustomFieldDefs(entityIds, fetchImpl)
   return buildFormFieldsFromCustomFields(defs, options)
 }

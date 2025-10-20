@@ -156,14 +156,7 @@ export async function GET(req: Request) {
         entityId,
         priority: typeof d.configJson?.priority === 'number' ? d.configJson.priority : 0,
       } as any
-      const listVisibleScore = candidateBase.listVisible !== false ? 1 : 0
-      const formEditableScore = candidateBase.formEditable !== false ? 1 : 0
-      const filterableScore = candidateBase.filterable ? 1 : 0
-      const metrics = {
-        base: listVisibleScore * 4 + formEditableScore * 2 + filterableScore,
-        penalty: candidateBase.priority ?? 0,
-        entityIndex: entityOrder.get(entityId) ?? Number.MAX_SAFE_INTEGER,
-      }
+      const metrics = computeDefinitionScore(d, candidateBase, entityOrder.get(entityId) ?? Number.MAX_SAFE_INTEGER)
       const candidate = { ...candidateBase, __score: metrics }
       const existing = (items as any[]).find((entry) => entry.key.toLowerCase() === keyLower)
       if (!existing) {
@@ -257,4 +250,32 @@ export async function DELETE(req: Request) {
   await em.flush()
   // Changing field definitions may impact forms but not sidebar items; no nav cache touch
   return NextResponse.json({ ok: true })
+}
+const computeDefinitionScore = (def: any, cfg: Record<string, any>, entityIndex: number) => {
+  const listVisibleScore = cfg.listVisible === false ? 0 : 1
+  const formEditableScore = cfg.formEditable === false ? 0 : 1
+  const filterableScore = cfg.filterable ? 1 : 0
+  const kindScore = (() => {
+    switch (def.kind) {
+      case 'dictionary':
+        return 8
+      case 'relation':
+        return 6
+      case 'select':
+        return 4
+      case 'multiline':
+        return 3
+      case 'boolean':
+      case 'integer':
+      case 'float':
+        return 2
+      default:
+        return 1
+    }
+  })()
+  const optionsBonus = Array.isArray(cfg.options) && cfg.options.length ? 2 : 0
+  const dictionaryBonus = typeof cfg.dictionaryId === 'string' && cfg.dictionaryId.trim().length ? 5 : 0
+  const base = (listVisibleScore * 16) + (formEditableScore * 8) + (filterableScore * 4) + kindScore + optionsBonus + dictionaryBonus
+  const penalty = typeof cfg.priority === 'number' ? cfg.priority : 0
+  return { base, penalty, entityIndex }
 }
