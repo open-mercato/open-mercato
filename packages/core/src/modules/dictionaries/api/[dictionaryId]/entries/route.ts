@@ -95,8 +95,8 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
 
     const duplicate = await context.em.findOne(DictionaryEntry, {
       dictionary,
-      organizationId: context.organizationId,
-      tenantId: context.tenantId,
+      organizationId: dictionary.organizationId,
+      tenantId: dictionary.tenantId,
       normalizedValue: normalized,
     })
     if (duplicate) {
@@ -105,8 +105,8 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
 
     const entry = context.em.create(DictionaryEntry, {
       dictionary,
-      organizationId: context.organizationId,
-      tenantId: context.tenantId,
+      organizationId: dictionary.organizationId,
+      tenantId: dictionary.tenantId,
       value,
       normalizedValue: normalized,
       label,

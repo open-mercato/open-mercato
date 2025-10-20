@@ -12,7 +12,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { FileCode, Loader2, Mail, Palette, Pencil, Phone, Plus, Trash2, X } from 'lucide-react'
+import { FileCode, Linkedin, Loader2, Mail, Palette, Pencil, Phone, Plus, Trash2, Twitter, X } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -745,6 +745,30 @@ function InlineMultilineEditor({
   )
 }
 
+function createSocialRenderDisplay(IconComponent: typeof Linkedin): NonNullable<InlineFieldProps['renderDisplay']> {
+  return ({ value, emptyLabel }) => {
+    const raw = typeof value === 'string' ? value.trim() : ''
+    if (!raw.length) {
+      return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+    }
+    const display = raw.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '')
+    return (
+      <a
+        className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/90 hover:underline"
+        href={raw}
+        target="_blank"
+        rel="noreferrer"
+      >
+        <IconComponent aria-hidden className="h-4 w-4" />
+        <span className="truncate">{display}</span>
+      </a>
+    )
+  }
+}
+
+const renderLinkedInDisplay = createSocialRenderDisplay(Linkedin)
+const renderTwitterDisplay = createSocialRenderDisplay(Twitter)
+
 type DictionaryEditorProps = {
   label: string
   value: string | null | undefined
@@ -912,6 +936,7 @@ type DetailFieldConfig =
       onSave: (value: string | null) => Promise<void>
       inputType?: InlineFieldType
       validator?: (value: string) => string | null
+      renderDisplay?: InlineFieldProps['renderDisplay']
     })
   | (DetailFieldCommon & {
       kind: 'multiline'
@@ -2859,6 +2884,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       onSave: (next) => updateProfileField('linkedInUrl', next),
       inputType: 'url',
       validator: validators.linkedInUrl,
+      renderDisplay: renderLinkedInDisplay,
     },
     {
       key: 'twitterUrl',
@@ -2870,6 +2896,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       onSave: (next) => updateProfileField('twitterUrl', next),
       inputType: 'url',
       validator: validators.twitterUrl,
+      renderDisplay: renderTwitterDisplay,
     },
   ]
 
@@ -3100,11 +3127,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                       <InlineTextEditor
                         label={field.label}
                         value={field.value}
-                        placeholder={field.placeholder}
-                        emptyLabel={field.emptyLabel}
-                        onSave={field.onSave}
-                        type={field.inputType}
-                        validator={field.validator}
+                      placeholder={field.placeholder}
+                      emptyLabel={field.emptyLabel}
+                      onSave={field.onSave}
+                      type={field.inputType}
+                      validator={field.validator}
+                      renderDisplay={field.renderDisplay}
                         variant="muted"
                         activateOnClick
                         containerClassName="rounded border bg-muted/20 p-3"

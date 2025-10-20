@@ -18,7 +18,7 @@ import {
   CustomerPersonProfile,
   CustomerTagAssignment,
 } from '../data/entities'
-import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { resolvePersonCustomFieldRouting, CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID } from '../lib/customFieldRouting'
 import {
   personCreateSchema,
   personUpdateSchema,
@@ -41,9 +41,6 @@ import {
   diffCustomFieldChanges,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-
-const PERSON_ENTITY_ID = 'customers:customer_person_profile'
-const CUSTOMER_ENTITY_ID = 'customers:customer_entity'
 
 type PersonAddressSnapshot = {
   id: string
@@ -232,7 +229,13 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
     tenantId: entity.tenantId,
     organizationId: entity.organizationId,
   })
-  const custom = { ...entityCustom, ...profileCustom }
+  const routing = await resolvePersonCustomFieldRouting(em, entity.tenantId, entity.organizationId)
+  const custom: Record<string, unknown> = { ...entityCustom }
+  for (const [key, value] of Object.entries(profileCustom)) {
+    const target = routing.get(key)
+    if (target === CUSTOMER_ENTITY_ID && Object.prototype.hasOwnProperty.call(custom, key)) continue
+    custom[key] = value
+  }
   return serializePersonSnapshot(entity, profile, tagIds, addresses, comments, custom)
 }
 
@@ -251,98 +254,6 @@ async function resolveCompanyReference(
     throw new CrudHttpError(403, { error: 'Cannot link person to company outside current scope' })
   }
   return company
-}
-
-type DefinitionScore = { base: number; penalty: number; entityIndex: number }
-
-function normalizeCustomFieldConfig(raw: unknown): Record<string, any> {
-  if (!raw) return {}
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw)
-      return parsed && typeof parsed === 'object' ? parsed : {}
-    } catch {
-      return {}
-    }
-  }
-  if (typeof raw === 'object') {
-    return { ...(raw as Record<string, any>) }
-  }
-  return {}
-}
-
-function scoreDefinition(kind: string, cfg: Record<string, any>, entityIndex: number): DefinitionScore {
-  const listVisibleScore = cfg.listVisible === false ? 0 : 1
-  const formEditableScore = cfg.formEditable === false ? 0 : 1
-  const filterableScore = cfg.filterable ? 1 : 0
-  const kindScore = (() => {
-    switch (kind) {
-      case 'dictionary':
-        return 8
-      case 'relation':
-        return 6
-      case 'select':
-        return 4
-      case 'multiline':
-        return 3
-      case 'boolean':
-      case 'integer':
-      case 'float':
-        return 2
-      default:
-        return 1
-    }
-  })()
-  const optionsBonus = Array.isArray(cfg.options) && cfg.options.length ? 2 : 0
-  const dictionaryBonus =
-    typeof cfg.dictionaryId === 'string' && cfg.dictionaryId.trim().length ? 5 : 0
-  const base = (listVisibleScore * 16) + (formEditableScore * 8) + (filterableScore * 4) + kindScore + optionsBonus + dictionaryBonus
-  const penalty = typeof cfg.priority === 'number' ? cfg.priority : 0
-  return { base, penalty, entityIndex }
-}
-
-async function resolvePersonCustomFieldRouting(
-  em: EntityManager,
-  tenantId: string | null | undefined,
-  organizationId: string | null | undefined
-): Promise<Map<string, string>> {
-  const entityIds = [CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID]
-  const scopeClauses: any[] = []
-  if (tenantId) scopeClauses.push({ $or: [{ tenantId }, { tenantId: null }] })
-  else scopeClauses.push({ tenantId: null })
-  if (organizationId) scopeClauses.push({ $or: [{ organizationId }, { organizationId: null }] })
-  const where: Record<string, any> = {
-    entityId: { $in: entityIds as any },
-    deletedAt: null,
-    isActive: true,
-  }
-  if (scopeClauses.length) where.$and = scopeClauses
-
-  const defs = await em.find(CustomFieldDef, where as any)
-  const order = new Map<string, number>()
-  entityIds.forEach((id, index) => order.set(id, index))
-
-  const bestByKey = new Map<string, { entityId: string; metrics: DefinitionScore }>()
-  for (const def of defs) {
-    const cfg = normalizeCustomFieldConfig((def as any).configJson)
-    const metrics = scoreDefinition(def.kind, cfg, order.get(def.entityId) ?? Number.MAX_SAFE_INTEGER)
-    const existing = bestByKey.get(def.key)
-    const better = !existing ||
-      metrics.base > existing.metrics.base ||
-      (metrics.base === existing.metrics.base && (
-        metrics.penalty < existing.metrics.penalty ||
-        (metrics.penalty === existing.metrics.penalty && metrics.entityIndex < existing.metrics.entityIndex)
-      ))
-    if (better) {
-      bestByKey.set(def.key, { entityId: def.entityId, metrics })
-    }
-  }
-
-  const routing = new Map<string, string>()
-  for (const [key, entry] of bestByKey.entries()) {
-    routing.set(key, entry.entityId)
-  }
-  return routing
 }
 
 async function setCustomFieldsForPerson(

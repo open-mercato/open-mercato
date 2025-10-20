@@ -17,6 +17,8 @@ export type DictionarySummary = {
   description?: string | null
   isSystem?: boolean
   isActive?: boolean
+  organizationId: string
+  isInherited: boolean
 }
 
 type DialogState = {
@@ -34,6 +36,7 @@ export function DictionariesManager() {
   const [errors, setErrors] = React.useState<{ key?: string; name?: string }>({})
   const [submitting, setSubmitting] = React.useState(false)
   const [deleting, setDeleting] = React.useState<string | null>(null)
+  const inheritedManageMessage = t('dictionaries.config.error.inheritedManage', 'Inherited dictionaries must be managed at the parent organization.')
 
   const loadDictionaries = React.useCallback(async () => {
     setLoading(true)
@@ -51,6 +54,8 @@ export function DictionariesManager() {
             description: typeof item.description === 'string' ? item.description : null,
             isSystem: Boolean(item.isSystem),
             isActive: item.isActive !== false,
+            organizationId: typeof item.organizationId === 'string' ? item.organizationId : '',
+            isInherited: item.isInherited === true,
           }))
         : []
       setItems(list)
@@ -76,10 +81,14 @@ export function DictionariesManager() {
   }, [])
 
   const openEditDialog = React.useCallback((dictionary: DictionarySummary) => {
+    if (dictionary.isInherited) {
+      flash(inheritedManageMessage, 'info')
+      return
+    }
     setForm({ key: dictionary.key, name: dictionary.name, description: dictionary.description ?? '' })
     setDialog({ mode: 'edit', dictionary })
     setErrors({})
-  }, [])
+  }, [inheritedManageMessage])
 
   const closeDialog = React.useCallback(() => {
     setDialog(null)
@@ -89,6 +98,10 @@ export function DictionariesManager() {
 
   const handleSubmit = React.useCallback(async () => {
     if (!dialog) return
+    if (dialog.mode === 'edit' && dialog.dictionary?.isInherited) {
+      flash(inheritedManageMessage, 'info')
+      return
+    }
     const trimmedKey = form.key.trim()
     const trimmedName = form.name.trim()
     const nextErrors: { key?: string; name?: string } = {}
@@ -145,10 +158,14 @@ export function DictionariesManager() {
     } finally {
       setSubmitting(false)
     }
-  }, [closeDialog, dialog, form.description, form.key, form.name, loadDictionaries, t])
+  }, [closeDialog, dialog, form.description, form.key, form.name, inheritedManageMessage, loadDictionaries, t])
 
   const handleDelete = React.useCallback(
     async (dictionary: DictionarySummary) => {
+      if (dictionary.isInherited) {
+        flash(inheritedManageMessage, 'info')
+        return
+      }
       if (dictionary.isSystem) {
         flash(t('dictionaries.config.error.system', 'System dictionaries cannot be deleted.'), 'error')
         return
@@ -175,7 +192,7 @@ export function DictionariesManager() {
         setDeleting(null)
       }
     },
-    [loadDictionaries, t],
+    [inheritedManageMessage, loadDictionaries, t],
   )
 
   const selectedDictionary = items.find((item) => item.id === selectedId) ?? null
@@ -222,7 +239,14 @@ export function DictionariesManager() {
                     }}
                   >
                     <div>
-                      <div className="font-medium">{dictionary.name}</div>
+                      <div className="flex items-center gap-2 font-medium">
+                        <span>{dictionary.name}</span>
+                        {dictionary.isInherited ? (
+                          <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-normal uppercase tracking-wide text-muted-foreground">
+                            {t('dictionaries.config.list.inherited', 'Inherited')}
+                          </span>
+                        ) : null}
+                      </div>
                       <div className="text-xs text-muted-foreground">{dictionary.key}</div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -230,6 +254,8 @@ export function DictionariesManager() {
                         type="button"
                         size="icon"
                         variant="ghost"
+                        disabled={dictionary.isInherited}
+                        title={dictionary.isInherited ? inheritedManageMessage : undefined}
                         onClick={(event) => {
                           event.stopPropagation()
                           openEditDialog(dictionary)
@@ -241,7 +267,8 @@ export function DictionariesManager() {
                         type="button"
                         size="icon"
                         variant="ghost"
-                        disabled={deleting === dictionary.id}
+                        disabled={dictionary.isInherited || deleting === dictionary.id}
+                        title={dictionary.isInherited ? inheritedManageMessage : undefined}
                         onClick={(event) => {
                           event.stopPropagation()
                           handleDelete(dictionary)
@@ -259,7 +286,11 @@ export function DictionariesManager() {
       </div>
       <div>
         {selectedDictionary ? (
-          <DictionaryEntriesEditor dictionaryId={selectedDictionary.id} dictionaryName={selectedDictionary.name} />
+          <DictionaryEntriesEditor
+            dictionaryId={selectedDictionary.id}
+            dictionaryName={selectedDictionary.name}
+            readOnly={selectedDictionary.isInherited}
+          />
         ) : (
           <div className="flex h-full flex-col items-center justify-center rounded border border-dashed p-10 text-center text-sm text-muted-foreground">
             {t('dictionaries.config.entries.placeholder', 'Select a dictionary to manage its entries.')}

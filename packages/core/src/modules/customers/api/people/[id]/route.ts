@@ -19,6 +19,7 @@ import {
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { mergePersonCustomFieldValues, resolvePersonCustomFieldRouting } from '../../../lib/customFieldRouting'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -139,6 +140,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     })
   }
 
+  const routing = await resolvePersonCustomFieldRouting(em, person.tenantId ?? null, person.organizationId ?? null)
+  const customFields = mergePersonCustomFieldValues(
+    routing,
+    entityCustomFieldValues?.[person.id] ?? {},
+    profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
+  )
+
   return NextResponse.json({
     person: {
       id: person.id,
@@ -176,10 +184,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           companyEntityId: profile.company ? (typeof profile.company === 'string' ? profile.company : profile.company.id) : null,
         }
       : null,
-    customFields: {
-      ...(entityCustomFieldValues?.[person.id] ?? {}),
-      ...(profileId ? profileCustomFieldValues?.[profileId] ?? {} : {}),
-    },
+    customFields,
     tags: serializeTags(tagAssignments),
     addresses: addresses.map((address) => ({
       id: address.id,

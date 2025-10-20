@@ -31,7 +31,7 @@ async function loadEntry(
   const entry = await context.em.findOne(DictionaryEntry, {
     id: entryId,
     dictionary,
-    organizationId: context.organizationId,
+    organizationId: dictionary.organizationId,
     tenantId: context.tenantId,
   })
   if (!entry) {
@@ -81,7 +81,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
       if (normalized !== entry.normalizedValue) {
         const duplicate = await context.em.findOne(DictionaryEntry, {
           dictionary,
-          organizationId: context.organizationId,
+          organizationId: dictionary.organizationId,
           tenantId: context.tenantId,
           normalizedValue: normalized,
           id: { $ne: entry.id } as any,

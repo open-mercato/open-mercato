@@ -23,6 +23,38 @@ export function DictionarySelectControl({
   disabled = false,
 }: DictionarySelectControlProps) {
   const t = useT()
+  const [inlineCreateEnabled, setInlineCreateEnabled] = React.useState<boolean>(allowInlineCreate)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function evaluateInlineCreate() {
+      if (!allowInlineCreate) {
+        setInlineCreateEnabled(false)
+        return
+      }
+      try {
+        const res = await apiFetch(`/api/dictionaries/${dictionaryId}`)
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (res.ok && json && json.isInherited === true) {
+          setInlineCreateEnabled(false)
+          return
+        }
+        setInlineCreateEnabled(true)
+      } catch (err) {
+        console.warn('DictionarySelectControl.inlineCreate check failed', err)
+        if (!cancelled) {
+          setInlineCreateEnabled(allowInlineCreate)
+        }
+      }
+    }
+    evaluateInlineCreate().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [allowInlineCreate, dictionaryId])
+
+  const effectiveAllowInlineCreate = allowInlineCreate && inlineCreateEnabled
 
   const fetchOptions = React.useCallback(async () => {
     const res = await apiFetch(`/api/dictionaries/${dictionaryId}/entries`)
@@ -109,11 +141,11 @@ export function DictionarySelectControl({
       value={typeof value === 'string' ? value : undefined}
       onChange={onChange}
       fetchOptions={fetchOptions}
-      createOption={allowInlineCreate ? createOption : undefined}
+      createOption={effectiveAllowInlineCreate ? createOption : undefined}
       labels={labels}
       appearanceLabels={appearanceLabels}
       allowAppearance
-      allowInlineCreate={allowInlineCreate}
+      allowInlineCreate={effectiveAllowInlineCreate}
       selectClassName={selectClassName}
       disabled={disabled}
       manageHref="/backend/config/dictionaries"

@@ -31,6 +31,7 @@ type Entry = {
 type DictionaryEntriesEditorProps = {
   dictionaryId: string
   dictionaryName: string
+  readOnly?: boolean
 }
 
 type FormState = {
@@ -41,8 +42,9 @@ type FormState = {
   icon: string | null
 }
 
-export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: DictionaryEntriesEditorProps) {
+export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly = false }: DictionaryEntriesEditorProps) {
   const t = useT()
+  const readOnlyMessage = t('dictionaries.config.entries.readOnly', 'Inherited dictionaries are managed at the parent organization.')
   const [entries, setEntries] = React.useState<Entry[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -99,6 +101,10 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: Dictio
 
   const openDialog = React.useCallback(
     (entry?: Entry) => {
+      if (readOnly) {
+        flash(readOnlyMessage, 'info')
+        return
+      }
       if (entry) {
         setFormState({
           id: entry.id,
@@ -114,7 +120,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: Dictio
       }
       setDialogOpen(true)
     },
-    [appearance, resetForm],
+    [appearance, readOnly, readOnlyMessage, resetForm],
   )
 
   const closeDialog = React.useCallback(() => {
@@ -123,6 +129,10 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: Dictio
   }, [resetForm])
 
   const handleSave = React.useCallback(async () => {
+    if (readOnly) {
+      flash(readOnlyMessage, 'info')
+      return
+    }
     if (!formState.value.trim()) {
       flash(t('dictionaries.config.entries.error.required', 'Value is required.'), 'error')
       return
@@ -181,10 +191,14 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: Dictio
     } finally {
       setIsSaving(false)
     }
-  }, [appearance, dictionaryId, formState.id, formState.label, formState.value, t])
+  }, [appearance, dictionaryId, formState.id, formState.label, formState.value, readOnly, readOnlyMessage, t])
 
   const handleDelete = React.useCallback(
     async (entry: Entry) => {
+      if (readOnly) {
+        flash(readOnlyMessage, 'info')
+        return
+      }
       if (!entry.id) return
       const confirmDelete = window.confirm(
         t('dictionaries.config.entries.delete.confirm', 'Delete "{{value}}"?', { value: entry.label || entry.value }),
@@ -206,7 +220,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: Dictio
         setIsDeleting(false)
       }
     },
-    [dictionaryId, t],
+    [dictionaryId, readOnly, readOnlyMessage, t],
   )
 
   const tableContent = React.useMemo(() => {
@@ -253,27 +267,35 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: Dictio
             />
           </TableCell>
           <TableCell className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => openDialog(entry)}
-            >
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => handleDelete(entry)}
-              disabled={isDeleting}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {readOnly ? (
+              <span className="text-xs text-muted-foreground">
+                {t('dictionaries.config.entries.readOnlyActions', 'Managed in parent organization')}
+              </span>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => openDialog(entry)}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleDelete(entry)}
+                  disabled={isDeleting}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </>
+            )}
           </TableCell>
-        </TableRow>
+      </TableRow>
       ))
-  }, [entries, error, handleDelete, isDeleting, loading, openDialog, t])
+  }, [entries, error, handleDelete, isDeleting, loading, openDialog, readOnly, t])
 
   return (
     <div className="space-y-4">
@@ -281,7 +303,9 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: Dictio
         <div>
           <h2 className="text-lg font-semibold">{dictionaryName}</h2>
           <p className="text-sm text-muted-foreground">
-            {t('dictionaries.config.entries.subtitle', 'Manage reusable values and appearance for this dictionary.')}
+            {readOnly
+              ? readOnlyMessage
+              : t('dictionaries.config.entries.subtitle', 'Manage reusable values and appearance for this dictionary.')}
           </p>
         </div>
         <div className="flex gap-2">
@@ -289,7 +313,13 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName }: Dictio
             <RefreshCw className="mr-2 h-4 w-4" />
             {t('dictionaries.config.entries.actions.refresh', 'Refresh')}
           </Button>
-          <Button type="button" size="sm" onClick={() => openDialog()}>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => openDialog()}
+            disabled={readOnly}
+            title={readOnly ? readOnlyMessage : undefined}
+          >
             <Plus className="mr-2 h-4 w-4" />
             {t('dictionaries.config.entries.actions.add', 'Add entry')}
           </Button>
