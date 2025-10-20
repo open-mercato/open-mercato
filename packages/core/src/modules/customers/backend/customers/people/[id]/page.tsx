@@ -1435,304 +1435,282 @@ function NotesTab({
 
   return (
     <div className="space-y-3">
-      <table className="w-full border-separate border-spacing-y-3 -mt-3">
-        <tbody>
-          <tr>
-            <td className="rounded-xl bg-muted/10 px-0 pb-3 pt-0 align-top">
-              <form onSubmit={handleSubmit} className="space-y-2">
-                <label htmlFor="new-note" className="sr-only">
-                  {t('customers.people.detail.notes.addLabel')}
-                </label>
-                {isMarkdownEnabled ? (
-                  <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
-                    <div data-color-mode="light" className="w-full">
-                      <UiMarkdownEditor
-                        value={draftBody}
-                        height={220}
-                        onChange={(value) => setDraftBody(typeof value === 'string' ? value : '')}
-                        previewOptions={{ remarkPlugins: [remarkGfm] }}
-                      />
+      <div className="rounded-xl bg-muted/10 p-4">
+        <form onSubmit={handleSubmit} className="space-y-2">
+          <label htmlFor="new-note" className="sr-only">
+            {t('customers.people.detail.notes.addLabel')}
+          </label>
+          {isMarkdownEnabled ? (
+            <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
+              <div data-color-mode="light" className="w-full">
+                <UiMarkdownEditor
+                  value={draftBody}
+                  height={220}
+                  onChange={(value) => setDraftBody(typeof value === 'string' ? value : '')}
+                  previewOptions={{ remarkPlugins: [remarkGfm] }}
+                />
+              </div>
+            </div>
+          ) : (
+            <textarea
+              id="new-note"
+              ref={textareaRef}
+              rows={1}
+              className="w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              placeholder={t('customers.people.detail.notes.placeholder')}
+              value={draftBody}
+              onChange={(event) => setDraftBody(event.target.value)}
+              onInput={(event) => adjustTextareaSize(event.currentTarget)}
+              disabled={isSubmitting}
+            />
+          )}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              {draftColor || draftIcon ? (
+                <span className="inline-flex items-center gap-2 rounded-full bg-muted/40 px-2 py-1">
+                  {draftColor ? renderDictionaryColor(draftColor, 'h-3 w-3 rounded-full border border-border') : null}
+                  {draftIcon ? renderDictionaryIcon(draftIcon, 'h-3.5 w-3.5 text-muted-foreground') : null}
+                </span>
+              ) : (
+                <span>{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
+              )}
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowAppearance((prev) => !prev)}
+                  aria-label={
+                    showAppearance
+                      ? t('customers.people.detail.notes.appearance.toggleClose')
+                      : t('customers.people.detail.notes.appearance.toggleOpen')
+                  }
+                  title={
+                    showAppearance
+                      ? t('customers.people.detail.notes.appearance.toggleClose')
+                      : t('customers.people.detail.notes.appearance.toggleOpen')
+                  }
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
+                  <span className="sr-only">
+                    {showAppearance
+                      ? t('customers.people.detail.notes.appearance.toggleClose')
+                      : t('customers.people.detail.notes.appearance.toggleOpen')}
+                  </span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleMarkdownToggle}
+                  aria-pressed={isMarkdownEnabled}
+                  title={
+                    isMarkdownEnabled
+                      ? t('customers.people.detail.notes.markdownDisable')
+                      : t('customers.people.detail.notes.markdownEnable')
+                  }
+                  aria-label={
+                    isMarkdownEnabled
+                      ? t('customers.people.detail.notes.markdownDisable')
+                      : t('customers.people.detail.notes.markdownEnable')
+                  }
+                  className={cn('h-8 w-8', isMarkdownEnabled ? 'text-primary' : undefined)}
+                  disabled={isSubmitting}
+                >
+                  <FileCode className="h-4 w-4" />
+                  <span className="sr-only">
+                    {isMarkdownEnabled
+                      ? t('customers.people.detail.notes.markdownDisable')
+                      : t('customers.people.detail.notes.markdownEnable')}
+                  </span>
+                </Button>
+              </div>
+            </div>
+            <Button type="submit" disabled={isSubmitting || !draftBody.trim()}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t('customers.people.detail.notes.saving')}
+                </>
+              ) : (
+                t('customers.people.detail.notes.submit')
+              )}
+            </Button>
+          </div>
+          {showAppearance ? (
+            <div className="rounded-lg border border-dashed border-muted-foreground/30 p-3">
+              <AppearanceSelector
+                icon={draftIcon}
+                color={draftColor}
+                onIconChange={setDraftIcon}
+                onColorChange={setDraftColor}
+                labels={noteAppearanceLabels}
+              />
+            </div>
+          ) : null}
+        </form>
+      </div>
+
+      {hasVisibleNotes
+        ? visibleNotes.map((note) => {
+            const isEditingAppearance = appearanceEditor?.id === note.id
+            const displayColor = isEditingAppearance ? appearanceEditor?.color : note.appearanceColor ?? null
+            const displayIcon = isEditingAppearance ? appearanceEditor?.icon : note.appearanceIcon ?? null
+            const authorLabel = note.authorUserId
+              ? note.authorUserId === viewerUserId
+                ? viewerLabel ?? t('customers.people.detail.notes.you')
+                : note.authorName ?? note.authorEmail ?? note.authorUserId
+              : t('customers.people.detail.anonymous')
+            const isAppearanceSaving = appearanceSavingId === note.id
+            const isEditingContent = contentEditor.id === note.id
+            const isContentSaving = contentSavingId === note.id
+            return (
+              <div key={note.id} className="rounded-xl bg-card p-4 shadow-sm">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <span>{formatRelativeTime(note.createdAt) ?? formatDateTime(note.createdAt) ?? emptyLabel}</span>
+                      {displayColor ? renderDictionaryColor(displayColor, 'h-2.5 w-2.5 rounded-full border border-border') : null}
+                      {displayIcon ? renderDictionaryIcon(displayIcon, 'h-3.5 w-3.5 text-muted-foreground') : null}
+                      {!displayColor && !displayIcon ? (
+                        <span>{t('customers.people.detail.notes.appearance.none')}</span>
+                      ) : null}
                     </div>
-                  </div>
-                ) : (
-                  <textarea
-                    id="new-note"
-                    ref={textareaRef}
-                    rows={1}
-                    className="w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    placeholder={t('customers.people.detail.notes.placeholder')}
-                    value={draftBody}
-                    onChange={(event) => setDraftBody(event.target.value)}
-                    onInput={(event) => adjustTextareaSize(event.currentTarget)}
-                    disabled={isSubmitting}
-                  />
-                )}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    {draftColor || draftIcon ? (
-                      <span className="inline-flex items-center gap-2 rounded-full bg-muted/40 px-2 py-1">
-                        {draftColor ? renderDictionaryColor(draftColor, 'h-3 w-3 rounded-full border border-border') : null}
-                        {draftIcon ? renderDictionaryIcon(draftIcon, 'h-3.5 w-3.5 text-muted-foreground') : null}
-                      </span>
-                    ) : (
-                      <span>{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
-                    )}
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-2">
+                      <span>{authorLabel}</span>
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        onClick={() => setShowAppearance((prev) => !prev)}
+                        onClick={() => (isEditingAppearance ? closeAppearanceEditor() : openAppearanceEditor(note))}
+                        disabled={isAppearanceSaving}
                         aria-label={
-                          showAppearance
+                          isEditingAppearance
                             ? t('customers.people.detail.notes.appearance.toggleClose')
                             : t('customers.people.detail.notes.appearance.toggleOpen')
                         }
                         title={
-                          showAppearance
+                          isEditingAppearance
                             ? t('customers.people.detail.notes.appearance.toggleClose')
                             : t('customers.people.detail.notes.appearance.toggleOpen')
                         }
-                        disabled={isSubmitting}
                       >
-                        {isSubmitting ? (
+                        {isAppearanceSaving ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           <Palette className="h-4 w-4" />
                         )}
                         <span className="sr-only">
-                          {showAppearance
+                          {isEditingAppearance
                             ? t('customers.people.detail.notes.appearance.toggleClose')
                             : t('customers.people.detail.notes.appearance.toggleOpen')}
                         </span>
                       </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={handleMarkdownToggle}
-                        aria-pressed={isMarkdownEnabled}
-                        title={
-                          isMarkdownEnabled
-                            ? t('customers.people.detail.notes.markdownDisable')
-                            : t('customers.people.detail.notes.markdownEnable')
-                        }
-                        aria-label={
-                          isMarkdownEnabled
-                            ? t('customers.people.detail.notes.markdownDisable')
-                            : t('customers.people.detail.notes.markdownEnable')
-                        }
-                        className={cn(
-                          'h-8 w-8',
-                          isMarkdownEnabled ? 'text-primary' : undefined
-                        )}
-                        disabled={isSubmitting}
-                      >
-                        <FileCode className="h-4 w-4" />
-                        <span className="sr-only">
-                          {isMarkdownEnabled
-                            ? t('customers.people.detail.notes.markdownDisable')
-                            : t('customers.people.detail.notes.markdownEnable')}
-                        </span>
-                      </Button>
                     </div>
                   </div>
-                  <Button type="submit" disabled={isSubmitting || !draftBody.trim()}>
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {t('customers.people.detail.notes.saving')}
-                      </>
-                    ) : (
-                      t('customers.people.detail.notes.submit')
-                    )}
-                  </Button>
-                </div>
-                {showAppearance ? (
-                  <div className="rounded-lg border border-dashed border-muted-foreground/30 p-3">
-                    <AppearanceSelector
-                      icon={draftIcon}
-                      color={draftColor}
-                      onIconChange={setDraftIcon}
-                      onColorChange={setDraftColor}
-                      labels={noteAppearanceLabels}
-                    />
-                  </div>
-                ) : null}
-              </form>
-            </td>
-          </tr>
-          {!hasVisibleNotes ? (
-            <tr>
-              <td className="rounded-xl bg-background p-6">
-                <EmptyState
-                  title={emptyState.title}
-                  action={{
-                    label: emptyState.actionLabel,
-                    onClick: focusComposer,
-                    disabled: isSubmitting,
-                  }}
-                />
-              </td>
-            </tr>
-          ) : (
-            visibleNotes.map((note) => {
-              const isEditingAppearance = appearanceEditor?.id === note.id
-              const displayColor = isEditingAppearance ? appearanceEditor?.color : note.appearanceColor ?? null
-              const displayIcon = isEditingAppearance ? appearanceEditor?.icon : note.appearanceIcon ?? null
-              const authorLabel = note.authorUserId
-                ? note.authorUserId === viewerUserId
-                  ? viewerLabel ?? t('customers.people.detail.notes.you')
-                  : note.authorName ?? note.authorEmail ?? note.authorUserId
-                : t('customers.people.detail.anonymous')
-              const isAppearanceSaving = appearanceSavingId === note.id
-              const isEditingContent = contentEditor.id === note.id
-              const isContentSaving = contentSavingId === note.id
-              return (
-                <tr key={note.id}>
-                  <td className="rounded-xl bg-card p-4 shadow-sm align-top">
-                    <div className="flex flex-col gap-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                          <span>{formatRelativeTime(note.createdAt) ?? formatDateTime(note.createdAt) ?? emptyLabel}</span>
-                          {displayColor ? renderDictionaryColor(displayColor, 'h-2.5 w-2.5 rounded-full border border-border') : null}
-                          {displayIcon ? renderDictionaryIcon(displayIcon, 'h-3.5 w-3.5 text-muted-foreground') : null}
-                          {!displayColor && !displayIcon ? (
-                            <span>{t('customers.people.detail.notes.appearance.none')}</span>
-                          ) : null}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span>{authorLabel}</span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => (isEditingAppearance ? closeAppearanceEditor() : openAppearanceEditor(note))}
-                            disabled={isAppearanceSaving}
-                            aria-label={
-                              isEditingAppearance
-                                ? t('customers.people.detail.notes.appearance.toggleClose')
-                                : t('customers.people.detail.notes.appearance.toggleOpen')
-                            }
-                            title={
-                              isEditingAppearance
-                                ? t('customers.people.detail.notes.appearance.toggleClose')
-                                : t('customers.people.detail.notes.appearance.toggleOpen')
-                            }
-                          >
-                            {isAppearanceSaving ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Palette className="h-4 w-4" />
-                            )}
-                            <span className="sr-only">
-                              {isEditingAppearance
-                                ? t('customers.people.detail.notes.appearance.toggleClose')
-                                : t('customers.people.detail.notes.appearance.toggleOpen')}
-                            </span>
-                          </Button>
-                        </div>
+                  {isEditingContent ? (
+                    <div className="space-y-2">
+                      <textarea
+                        ref={contentTextareaRef}
+                        value={contentEditor.value}
+                        onChange={(event) => {
+                          setContentEditor((prev) => ({ ...prev, value: event.target.value }))
+                          adjustTextareaSize(event.currentTarget)
+                        }}
+                        rows={3}
+                        className="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      />
+                      {contentError ? <p className="text-xs text-red-600">{contentError}</p> : null}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button type="button" size="sm" onClick={handleContentSave} disabled={isContentSaving}>
+                          {isContentSaving ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              {t('customers.people.detail.notes.saving')}
+                            </>
+                          ) : (
+                            t('customers.people.detail.inline.save')
+                          )}
+                        </Button>
+                        <Button type="button" size="sm" variant="ghost" onClick={closeContentEditor} disabled={isContentSaving}>
+                          {t('customers.people.detail.inline.cancel')}
+                        </Button>
                       </div>
-                      {isEditingContent ? (
-                        <div className="space-y-2">
-                          <textarea
-                            ref={contentTextareaRef}
-                            value={contentEditor.value}
-                            onChange={(event) => {
-                              setContentEditor((prev) => ({ ...prev, value: event.target.value }))
-                              adjustTextareaSize(event.currentTarget)
-                            }}
-                            rows={3}
-                            className="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                          />
-                          {contentError ? <p className="text-xs text-red-600">{contentError}</p> : null}
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button type="button" size="sm" onClick={handleContentSave} disabled={isContentSaving}>
-                              {isContentSaving ? (
-                                <>
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  {t('customers.people.detail.notes.saving')}
-                                </>
-                              ) : (
-                                t('customers.people.detail.inline.save')
-                              )}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={closeContentEditor}
-                              disabled={isContentSaving}
-                            >
-                              {t('customers.people.detail.inline.cancel')}
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          className="cursor-text text-sm"
-                          onClick={() => openContentEditor(note)}
-                          onKeyDown={(event) => handleContentKeyDown(event, note)}
-                        >
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
-                          >
-                            {note.body}
-                          </ReactMarkdown>
-                        </div>
-                      )}
-                      {isEditingAppearance ? (
-                        <div className="space-y-3 rounded-lg border border-dashed border-muted-foreground/30 p-3">
-                          <AppearanceSelector
-                            icon={appearanceEditor?.icon ?? null}
-                            color={appearanceEditor?.color ?? null}
-                            onIconChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
-                            onColorChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
-                            labels={noteAppearanceLabels}
-                            disabled={isAppearanceSaving}
-                          />
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => {
-                                void handleAppearanceSave()
-                              }}
-                              disabled={isAppearanceSaving}
-                            >
-                              {isAppearanceSaving ? (
-                                <>
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  {t('customers.people.detail.notes.appearance.saving')}
-                                </>
-                              ) : (
-                                t('customers.people.detail.notes.appearance.save')
-                              )}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => setAppearanceEditor((prev) => (prev ? { ...prev, icon: null, color: null } : prev))}
-                              disabled={isAppearanceSaving}
-                            >
-                              {t('customers.people.detail.notes.appearance.reset')}
-                            </Button>
-                          </div>
-                          {appearanceError ? <p className="text-xs text-red-600">{appearanceError}</p> : null}
-                        </div>
-                      ) : null}
                     </div>
-                  </td>
-                </tr>
-              )
-            })
-          )}
-        </tbody>
-      </table>
+                  ) : (
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      className="cursor-text text-sm"
+                      onClick={() => openContentEditor(note)}
+                      onKeyDown={(event) => handleContentKeyDown(event, note)}
+                    >
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+                      >
+                        {note.body}
+                      </ReactMarkdown>
+                    </div>
+                  )}
+                  {isEditingAppearance ? (
+                    <div className="space-y-3 rounded-lg border border-dashed border-muted-foreground/30 p-3">
+                      <AppearanceSelector
+                        icon={appearanceEditor?.icon ?? null}
+                        color={appearanceEditor?.color ?? null}
+                        onIconChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
+                        onColorChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
+                        labels={noteAppearanceLabels}
+                        disabled={isAppearanceSaving}
+                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            void handleAppearanceSave()
+                          }}
+                          disabled={isAppearanceSaving}
+                        >
+                          {isAppearanceSaving ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              {t('customers.people.detail.notes.appearance.saving')}
+                            </>
+                          ) : (
+                            t('customers.people.detail.notes.appearance.save')
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setAppearanceEditor((prev) => (prev ? { ...prev, icon: null, color: null } : prev))}
+                          disabled={isAppearanceSaving}
+                        >
+                          {t('customers.people.detail.notes.appearance.reset')}
+                        </Button>
+                      </div>
+                      {appearanceError ? <p className="text-xs text-red-600">{appearanceError}</p> : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            )
+          })
+        : (
+          <div className="rounded-xl bg-background p-6">
+            <EmptyState
+              title={emptyState.title}
+              action={{
+                label: emptyState.actionLabel,
+                onClick: focusComposer,
+                disabled: isSubmitting,
+              }}
+            />
+          </div>
+        )}
       {visibleCount < notes.length ? (
         <div className="flex justify-center">
           <Button variant="outline" size="sm" onClick={handleLoadMore}>
@@ -1829,7 +1807,7 @@ function ActivitiesTab({
         )}
       </div>
       <Dialog open={open} onOpenChange={(next) => { if (!next) setDraft((prev) => ({ ...prev, activityType: prev.activityType })); setOpen(next) }}>
-        <DialogContent className="bottom-4 top-auto w-[calc(100vw-2rem)] max-w-lg translate-y-0 sm:bottom-auto sm:top-1/2 sm:w-full sm:-translate-y-1/2">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('customers.people.detail.activities.addTitle')}</DialogTitle>
           </DialogHeader>
@@ -2039,7 +2017,7 @@ function TasksTab({
         )}
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="bottom-4 top-auto w-[calc(100vw-2rem)] max-w-lg translate-y-0 sm:bottom-auto sm:top-1/2 sm:w-full sm:-translate-y-1/2">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('customers.people.detail.tasks.addTitle')}</DialogTitle>
           </DialogHeader>
@@ -2186,9 +2164,13 @@ function DealsTab({
       if (draft.expectedCloseAt) payload.expectedCloseAt = draft.expectedCloseAt
       const normalizedDescription = draft.description.trim()
       if (normalizedDescription) payload.description = normalizedDescription
-      await onCreate(payload)
-      resetDraft()
-      setOpen(false)
+      try {
+        await onCreate(payload)
+        resetDraft()
+        setOpen(false)
+      } catch {
+        // errors are surfaced via flash notifications in the handler
+      }
     },
     [draft, isSubmitting, onCreate, resetDraft, t]
   )
@@ -2395,7 +2377,17 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     addresses: false,
     tasks: false,
   })
-  const [addressAddAction, setAddressAddAction] = React.useState<{ open: () => void; disabled: boolean } | null>(null)
+  const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+  const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
+    setSectionAction(action)
+  }, [])
+  const handleSectionAction = React.useCallback(() => {
+    if (!sectionAction || sectionAction.disabled) return
+    sectionAction.onClick()
+  }, [sectionAction])
+  React.useEffect(() => {
+    setSectionAction(null)
+  }, [activeTab])
   const scopeVersion = useOrganizationScopeVersion()
   const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<CustomerDictionaryKind, CustomerDictionaryMap>>({
     statuses: {},
@@ -2503,11 +2495,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       setIsDeleting(false)
     }
   }, [personId, personName, router, t])
-
-  const handleAddressAddClick = React.useCallback(() => {
-    if (!addressAddAction || addressAddAction.disabled) return
-    addressAddAction.open()
-  }, [addressAddAction])
 
   React.useEffect(() => {
     if (!id) {
@@ -2808,6 +2795,69 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         flash(t('customers.people.detail.activities.success'), 'success')
       } finally {
         setSectionPending((prev) => ({ ...prev, activities: false }))
+      }
+    },
+    [personId, t]
+  )
+
+  const handleCreateDeal = React.useCallback(
+    async (payload: {
+      title: string
+      status?: string
+      pipelineStage?: string
+      valueAmount?: number
+      valueCurrency?: string
+      probability?: number
+      expectedCloseAt?: string
+      description?: string
+    }) => {
+      if (!personId) return
+      setSectionPending((prev) => ({ ...prev, deals: true }))
+      try {
+        const bodyPayload: Record<string, unknown> = {
+          title: payload.title,
+          personIds: [personId],
+        }
+        if (payload.status) bodyPayload.status = payload.status
+        if (payload.pipelineStage) bodyPayload.pipelineStage = payload.pipelineStage
+        if (typeof payload.valueAmount === 'number') bodyPayload.valueAmount = payload.valueAmount
+        if (payload.valueCurrency) bodyPayload.valueCurrency = payload.valueCurrency.toUpperCase()
+        if (typeof payload.probability === 'number') bodyPayload.probability = payload.probability
+        if (payload.expectedCloseAt) bodyPayload.expectedCloseAt = payload.expectedCloseAt
+        if (payload.description) bodyPayload.description = payload.description
+        const res = await apiFetch('/api/customers/deals', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(bodyPayload),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.deals.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        const body = await res.json().catch(() => ({}))
+        const newDeal: DealSummary = {
+          id: typeof body?.id === 'string' ? body.id : randomId(),
+          title: payload.title,
+          status: payload.status ?? null,
+          pipelineStage: payload.pipelineStage ?? null,
+          valueAmount:
+            typeof payload.valueAmount === 'number' ? payload.valueAmount.toString() : null,
+          valueCurrency: payload.valueCurrency ? payload.valueCurrency.toUpperCase() : null,
+          probability: typeof payload.probability === 'number' ? payload.probability : null,
+          expectedCloseAt: payload.expectedCloseAt ?? null,
+        }
+        setData((prev) => (prev ? { ...prev, deals: [newDeal, ...prev.deals] } : prev))
+        flash(t('customers.people.detail.deals.success'), 'success')
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.deals.error')
+        flash(message, 'error')
+        throw err instanceof Error ? err : new Error(message)
+      } finally {
+        setSectionPending((prev) => ({ ...prev, deals: false }))
       }
     },
     [personId, t]
@@ -3162,6 +3212,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       labels: dictionaryLabels.jobTitles,
       dictionaryMap: dictionaryMaps['job-titles'],
       onSave: async (next) => updateProfileField('jobTitle', next),
+      onAfterSave: () => loadDictionaryEntries('job-titles'),
       selectClassName: 'h-9 w-full rounded border px-3 text-sm',
     },
     {
@@ -3414,15 +3465,15 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 </button>
               ))}
             </nav>
-            {activeTab === 'addresses' ? (
+            {sectionAction ? (
               <Button
                 type="button"
                 size="sm"
-                onClick={handleAddressAddClick}
-                disabled={addressAddAction?.disabled ?? true}
+                onClick={handleSectionAction}
+                disabled={sectionAction.disabled}
               >
                 <Plus className="mr-2 h-4 w-4" />
-                {t('customers.people.detail.addresses.add')}
+                {sectionAction.label}
               </Button>
             ) : null}
           </div>
@@ -3439,6 +3490,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 viewerName={data.viewer?.name ?? null}
                 viewerEmail={data.viewer?.email ?? null}
                 t={t}
+                addActionLabel={t('customers.people.detail.notes.addLabel')}
+                emptyState={{
+                  title: t('customers.people.detail.emptyState.notes.title'),
+                  actionLabel: t('customers.people.detail.emptyState.notes.action'),
+                }}
+                onActionChange={handleSectionActionChange}
               />
             )}
             {activeTab === 'activities' && (
@@ -3448,10 +3505,28 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 isSubmitting={sectionPending.activities}
                 emptyLabel={t('customers.people.detail.empty.activities')}
                 t={t}
+                addActionLabel={t('customers.people.detail.activities.add')}
+                emptyState={{
+                  title: t('customers.people.detail.emptyState.activities.title'),
+                  actionLabel: t('customers.people.detail.emptyState.activities.action'),
+                }}
+                onActionChange={handleSectionActionChange}
               />
             )}
             {activeTab === 'deals' && (
-              <DealsTab deals={data.deals} emptyLabel={t('customers.people.detail.empty.deals')} />
+              <DealsTab
+                deals={data.deals}
+                onCreate={handleCreateDeal}
+                isSubmitting={sectionPending.deals}
+                emptyLabel={t('customers.people.detail.empty.deals')}
+                t={t}
+                addActionLabel={t('customers.people.detail.actions.addDeal')}
+                emptyState={{
+                  title: t('customers.people.detail.emptyState.deals.title'),
+                  actionLabel: t('customers.people.detail.emptyState.deals.action'),
+                }}
+                onActionChange={handleSectionActionChange}
+              />
             )}
             {activeTab === 'addresses' && (
               <AddressesTab
@@ -3462,7 +3537,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 isSubmitting={sectionPending.addresses}
                 emptyLabel={t('customers.people.detail.empty.addresses')}
                 t={t}
-                onAddActionChange={setAddressAddAction}
+                addActionLabel={t('customers.people.detail.addresses.add')}
+                emptyState={{
+                  title: t('customers.people.detail.emptyState.addresses.title'),
+                  actionLabel: t('customers.people.detail.emptyState.addresses.action'),
+                }}
+                onActionChange={handleSectionActionChange}
               />
             )}
             {activeTab === 'tasks' && (
@@ -3472,6 +3552,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 isSubmitting={sectionPending.tasks}
                 emptyLabel={t('customers.people.detail.empty.todos')}
                 t={t}
+                addActionLabel={t('customers.people.detail.tasks.add')}
+                emptyState={{
+                  title: t('customers.people.detail.emptyState.tasks.title'),
+                  actionLabel: t('customers.people.detail.emptyState.tasks.action'),
+                }}
+                onActionChange={handleSectionActionChange}
               />
             )}
           </div>

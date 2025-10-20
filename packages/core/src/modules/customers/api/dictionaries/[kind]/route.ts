@@ -117,7 +117,15 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
     }
 
     return NextResponse.json(
-      { id: entry.id, value: entry.value, label: entry.label, color: entry.color, icon: entry.icon },
+      {
+        id: entry.id,
+        value: entry.value,
+        label: entry.label,
+        color: entry.color,
+        icon: entry.icon,
+        organizationId: entry.organizationId,
+        isInherited: false,
+      },
       { status: existing ? 200 : 201 }
     )
   } catch (err) {

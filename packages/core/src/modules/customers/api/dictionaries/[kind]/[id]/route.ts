@@ -104,7 +104,15 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
     }
 
     if (!hasChanges) {
-      return NextResponse.json({ id: entry.id, value: entry.value, label: entry.label, color: entry.color, icon: entry.icon })
+      return NextResponse.json({
+        id: entry.id,
+        value: entry.value,
+        label: entry.label,
+        color: entry.color,
+        icon: entry.icon,
+        organizationId: entry.organizationId,
+        isInherited: false,
+      })
     }
 
     await routeContext.em.flush()
@@ -115,6 +123,8 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
       label: entry.label,
       color: entry.color,
       icon: entry.icon,
+      organizationId: entry.organizationId,
+      isInherited: false,
     })
   } catch (err) {
     if (err instanceof CrudHttpError) {
