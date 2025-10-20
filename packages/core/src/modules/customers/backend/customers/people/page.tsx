@@ -147,7 +147,7 @@ export default function CustomersPeoplePage() {
     let cancelled = false
     async function loadAll() {
       if (cancelled) return
-      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {} })
+      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {}, 'job-titles': {} })
       await Promise.all([
         fetchDictionaryEntries('statuses'),
         fetchDictionaryEntries('sources'),

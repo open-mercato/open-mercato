@@ -1404,7 +1404,7 @@ function NotesTab({
       <table className="w-full border-separate border-spacing-y-3">
         <tbody>
           <tr>
-            <td className="rounded-xl bg-muted/10 px-0 py-3 align-top">
+            <td className="rounded-xl bg-muted/10 px-0 pb-3 pt-0 align-top">
               <form onSubmit={handleSubmit} className="space-y-2">
                 <label htmlFor="new-note" className="sr-only">
                   {t('customers.people.detail.notes.addLabel')}
