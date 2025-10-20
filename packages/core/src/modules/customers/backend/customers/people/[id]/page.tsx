@@ -23,6 +23,10 @@ import {
   DictionarySelectField,
 } from '../../../../components/formConfig'
 import {
+  DictionaryEntrySelect,
+  type DictionarySelectLabels,
+} from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import {
   ICON_SUGGESTIONS,
   DictionaryValue,
   createDictionaryMap,
@@ -92,6 +96,11 @@ type TodoLinkSummary = {
   todoSource: string
   createdAt: string
   createdByUserId?: string | null
+  title?: string | null
+  isDone?: boolean | null
+  priority?: number | null
+  dueAt?: string | null
+  todoOrganizationId?: string | null
 }
 
 type PersonOverview = {
@@ -196,6 +205,21 @@ function formatRelativeTime(value?: string | null): string | null {
   if (absSeconds < 30 * 24 * 60 * 60) return format('week', 7 * 24 * 60 * 60)
   if (absSeconds < 365 * 24 * 60 * 60) return format('month', 30 * 24 * 60 * 60)
   return format('year', 365 * 24 * 60 * 60)
+}
+
+function resolveTodoApiPath(source: string): string | null {
+  if (!source) return null
+  const [module] = source.split(':')
+  if (!module) return null
+  return `/api/${module}/todos`
+}
+
+function resolveTodoHref(source: string, todoId: string | null | undefined): string | null {
+  if (!todoId) return null
+  if (!source) return null
+  const [module] = source.split(':')
+  if (!module) return null
+  return `/backend/${module}/todos/${encodeURIComponent(todoId)}/edit`
 }
 
 function randomId() {
@@ -646,6 +670,22 @@ function InlineMultilineEditor({
       return next
     })
   }, [])
+
+  const handleFormKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLFormElement>) => {
+      if (!event.metaKey && !event.ctrlKey) return
+      if (event.key !== 'Enter') return
+      event.preventDefault()
+      if (isSubmitting) return
+      if (!draftBody.trim()) return
+      try {
+        formRef.current?.requestSubmit()
+      } catch {
+        // ignore environments without form.requestSubmit
+      }
+    },
+    [draftBody, isSubmitting]
+  )
 
   const handleSave = React.useCallback(async () => {
     const normalized = draft.trim()
@@ -1234,6 +1274,7 @@ function NotesTab({
   const [showAppearance, setShowAppearance] = React.useState(false)
   const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(false)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const formRef = React.useRef<HTMLFormElement | null>(null)
   const focusComposer = React.useCallback(() => {
     const element = textareaRef.current
     if (!element) return
@@ -1436,7 +1477,7 @@ function NotesTab({
   return (
     <div className="space-y-3">
       <div className="rounded-xl bg-muted/10 p-4">
-        <form onSubmit={handleSubmit} className="space-y-2">
+        <form ref={formRef} onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-2">
           <label htmlFor="new-note" className="sr-only">
             {t('customers.people.detail.notes.addLabel')}
           </label>
@@ -1724,13 +1765,23 @@ function NotesTab({
 
 type ActivitiesTabProps = {
   activities: ActivitySummary[]
-  onCreate: (payload: { activityType: string; subject?: string; body?: string; occurredAt?: string }) => Promise<void>
+  onCreate: (payload: {
+    activityType: string
+    subject?: string
+    body?: string
+    occurredAt?: string
+    appearanceIcon?: string | null
+    appearanceColor?: string | null
+  }) => Promise<void>
   isSubmitting: boolean
   emptyLabel: string
   t: Translator
   addActionLabel: string
   emptyState: TabEmptyState
   onActionChange?: (action: SectionAction | null) => void
+  activityLabels: DictionarySelectLabels
+  activityMap: CustomerDictionaryMap
+  onActivityDictionaryChange?: () => void
 }
 
 function ActivitiesTab({
@@ -1742,6 +1793,9 @@ function ActivitiesTab({
   addActionLabel,
   emptyState,
   onActionChange,
+  activityLabels,
+  activityMap,
+  onActivityDictionaryChange,
 }: ActivitiesTabProps) {
   const [open, setOpen] = React.useState(false)
   const openDialog = React.useCallback(() => setOpen(true), [])
@@ -1751,6 +1805,66 @@ function ActivitiesTab({
     body: '',
     occurredAt: '',
   })
+  const [localActivityMap, setLocalActivityMap] = React.useState<CustomerDictionaryMap>({})
+
+  const fetchActivityOptions = React.useCallback(async () => {
+    const res = await apiFetch('/api/customers/dictionaries/activity-types')
+    const payload = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      const message = typeof payload?.error === 'string' ? payload.error : activityLabels.errorLoad
+      throw new Error(message)
+    }
+    const entries = normalizeDictionaryEntries(payload.items)
+    setLocalActivityMap(createDictionaryMap(entries))
+    return entries.map((entry) => ({
+      value: entry.value,
+      label: entry.label,
+      color: entry.color ?? null,
+      icon: entry.icon ?? null,
+    }))
+  }, [activityLabels.errorLoad])
+
+  const createActivityOption = React.useCallback(
+    async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
+      const res = await apiFetch('/api/customers/dictionaries/activity-types', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          value: input.value,
+          label: input.label,
+          color: input.color ?? undefined,
+          icon: input.icon ?? undefined,
+        }),
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const message = typeof payload?.error === 'string' ? payload.error : activityLabels.errorSave
+        throw new Error(message)
+      }
+      const value = typeof payload?.value === 'string' ? payload.value : input.value
+      const label = typeof payload?.label === 'string' && payload.label.trim().length ? payload.label : input.label ?? value
+      const color = typeof payload?.color === 'string' ? payload.color : input.color ?? null
+      const icon = typeof payload?.icon === 'string' ? payload.icon : input.icon ?? null
+      setLocalActivityMap((prev) => ({
+        ...prev,
+        [value]: {
+          value,
+          label,
+          color: color ?? null,
+          icon: icon ?? null,
+        },
+      }))
+      if (typeof onActivityDictionaryChange === 'function') {
+        onActivityDictionaryChange()
+      }
+      return { value, label, color: color ?? null, icon: icon ?? null }
+    },
+    [activityLabels.errorSave, onActivityDictionaryChange]
+  )
+
+  const selectedActivityEntry = React.useMemo(() => {
+    return localActivityMap[draft.activityType] ?? activityMap[draft.activityType] ?? null
+  }, [activityMap, localActivityMap, draft.activityType])
 
   React.useEffect(() => {
     if (!onActionChange) return
@@ -1774,11 +1888,13 @@ function ActivitiesTab({
         subject: draft.subject.trim() || undefined,
         body: draft.body.trim() || undefined,
         occurredAt: draft.occurredAt ? new Date(draft.occurredAt).toISOString() : undefined,
+        appearanceIcon: selectedActivityEntry?.icon ?? null,
+        appearanceColor: selectedActivityEntry?.color ?? null,
       })
       setDraft({ activityType: '', subject: '', body: '', occurredAt: '' })
       setOpen(false)
     },
-    [draft, isSubmitting, onCreate, t]
+    [draft, isSubmitting, onCreate, selectedActivityEntry, t]
   )
 
   return (
@@ -1794,16 +1910,26 @@ function ActivitiesTab({
             }}
           />
         ) : (
-          activities.map((activity) => (
-            <div key={activity.id} className="rounded-lg border p-4 space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="font-medium uppercase tracking-wide">{activity.activityType}</span>
-                <span>{formatDateTime(activity.occurredAt) ?? emptyLabel}</span>
+          activities.map((activity) => {
+            const dictionaryEntry = localActivityMap[activity.activityType] ?? activityMap[activity.activityType] ?? null
+            const displayIcon = dictionaryEntry?.icon ?? activity.appearanceIcon ?? null
+            const displayColor = dictionaryEntry?.color ?? activity.appearanceColor ?? null
+            const displayLabel = dictionaryEntry?.label ?? activity.activityType
+            return (
+              <div key={activity.id} className="rounded-lg border p-4 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    {displayIcon ? renderDictionaryIcon(displayIcon, 'h-4 w-4 text-muted-foreground') : null}
+                    <span className="text-sm font-medium text-foreground">{displayLabel}</span>
+                    {displayColor ? renderDictionaryColor(displayColor, 'h-3 w-3 rounded-full border border-border') : null}
+                  </div>
+                  <span>{formatDateTime(activity.occurredAt) ?? emptyLabel}</span>
+                </div>
+                {activity.subject ? <p className="text-sm font-medium">{activity.subject}</p> : null}
+                {activity.body ? <p className="text-sm whitespace-pre-wrap text-muted-foreground">{activity.body}</p> : null}
               </div>
-              {activity.subject ? <p className="text-sm font-medium">{activity.subject}</p> : null}
-              {activity.body ? <p className="text-sm whitespace-pre-wrap text-muted-foreground">{activity.body}</p> : null}
-            </div>
-          ))
+            )
+          })
         )}
       </div>
       <Dialog open={open} onOpenChange={(next) => { if (!next) setDraft((prev) => ({ ...prev, activityType: prev.activityType })); setOpen(next) }}>
@@ -1814,11 +1940,16 @@ function ActivitiesTab({
           <form className="space-y-3" onSubmit={handleSubmit}>
             <div className="space-y-1">
               <label className="text-sm font-medium">{t('customers.people.detail.activities.fields.type')}</label>
-              <input
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={draft.activityType}
-                onChange={(event) => setDraft((prev) => ({ ...prev, activityType: event.target.value }))}
-                required
+              <DictionaryEntrySelect
+                value={draft.activityType || undefined}
+                onChange={(next) => setDraft((prev) => ({ ...prev, activityType: next ?? '' }))}
+                fetchOptions={fetchActivityOptions}
+                createOption={createActivityOption}
+                labels={activityLabels}
+                allowAppearance
+                selectClassName="w-full"
+                manageHref="/backend/config/customers"
+                disabled={isSubmitting}
               />
             </div>
             <div className="space-y-1">
@@ -1844,6 +1975,26 @@ function ActivitiesTab({
                 className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={draft.occurredAt}
                 onChange={(event) => setDraft((prev) => ({ ...prev, occurredAt: event.target.value }))}
+                onFocus={(event) => {
+                  const target = event.currentTarget as HTMLInputElement & { showPicker?: () => void }
+                  if (typeof target.showPicker === 'function') {
+                    try {
+                      target.showPicker()
+                    } catch {
+                      // ignore
+                    }
+                  }
+                }}
+                onClick={(event) => {
+                  const target = event.currentTarget as HTMLInputElement & { showPicker?: () => void }
+                  if (typeof target.showPicker === 'function') {
+                    try {
+                      target.showPicker()
+                    } catch {
+                      // ignore
+                    }
+                  }
+                }}
               />
             </div>
             <DialogFooter>
@@ -1952,6 +2103,8 @@ type TasksTabProps = {
   addActionLabel: string
   emptyState: TabEmptyState
   onActionChange?: (action: SectionAction | null) => void
+  onToggle: (task: TodoLinkSummary, nextIsDone: boolean) => Promise<void>
+  pendingTaskId: string | null
 }
 
 function TasksTab({
@@ -1963,9 +2116,12 @@ function TasksTab({
   addActionLabel,
   emptyState,
   onActionChange,
+  onToggle,
+  pendingTaskId,
 }: TasksTabProps) {
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState({ title: '', isDone: false })
+  const [visibleCount, setVisibleCount] = React.useState(() => Math.min(5, tasks.length))
   const openDialog = React.useCallback(() => setOpen(true), [])
 
   React.useEffect(() => {
@@ -1977,6 +2133,24 @@ function TasksTab({
     })
     return () => onActionChange(null)
   }, [onActionChange, addActionLabel, openDialog, isSubmitting])
+
+  React.useEffect(() => {
+    setVisibleCount((prev) => {
+      if (!tasks.length) return 0
+      const baseline = Math.min(5, tasks.length)
+      if (prev === 0) return baseline
+      return Math.min(Math.max(prev, baseline), tasks.length)
+    })
+  }, [tasks.length])
+
+  const handleLoadMore = React.useCallback(() => {
+    setVisibleCount((prev) => Math.min(prev + 5, tasks.length))
+  }, [tasks.length])
+
+  const visibleTasks = React.useMemo(() => {
+    if (!visibleCount) return []
+    return tasks.slice(0, visibleCount)
+  }, [tasks, visibleCount])
 
   const handleSubmit = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -1995,7 +2169,7 @@ function TasksTab({
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        {tasks.length === 0 ? (
+        {visibleTasks.length === 0 ? (
           <EmptyState
             title={emptyState.title}
             action={{
@@ -2005,16 +2179,61 @@ function TasksTab({
             }}
           />
         ) : (
-          tasks.map((task) => (
-            <div key={task.id} className="rounded-lg border p-4 space-y-1 text-sm">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{task.todoSource}</span>
-                <span>{formatDateTime(task.createdAt) ?? emptyLabel}</span>
+          visibleTasks.map((task) => {
+            const todoHref = resolveTodoHref(task.todoSource, task.todoId)
+            const createdLabel = formatDateTime(task.createdAt) ?? emptyLabel
+            const dueLabel = task.dueAt ? formatDate(task.dueAt) ?? formatDateTime(task.dueAt) ?? null : null
+            const priorityLabel = task.priority != null ? t('customers.people.detail.tasks.priorityLabel', { priority: task.priority }) : null
+            const title = task.title ?? t('customers.people.detail.tasks.untitled')
+            const isDone = task.isDone === true
+            const checkboxId = `person-task-${task.id}`
+            const isPending = pendingTaskId === task.todoId
+            return (
+              <div key={task.id} className="rounded-lg border bg-card p-4 space-y-3 text-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <label htmlFor={checkboxId} className="flex cursor-pointer items-start gap-2">
+                    <input
+                      id={checkboxId}
+                      type="checkbox"
+                      checked={isDone}
+                      onChange={(event) => { const next = event.target.checked; void onToggle(task, next) }}
+                      disabled={isSubmitting || isPending}
+                      className="mt-1 h-4 w-4"
+                    />
+                    <span className={cn('text-sm font-medium', isDone ? 'line-through text-muted-foreground' : undefined)}>{title}</span>
+                  </label>
+                  <span className="text-xs text-muted-foreground">{createdLabel}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                  <span>{task.todoSource}</span>
+                  {priorityLabel ? <span>{priorityLabel}</span> : null}
+                  {dueLabel ? <span>{t('customers.people.detail.tasks.dueLabel', { date: dueLabel })}</span> : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs">
+                  {todoHref ? (
+                    <Link href={todoHref} className="text-primary hover:underline">
+                      {t('customers.people.detail.tasks.openTask')}
+                    </Link>
+                  ) : null}
+                </div>
               </div>
-              <div className="text-sm text-muted-foreground">ID: {task.todoId}</div>
-            </div>
-          ))
+            )
+          })
         )}
+        {visibleCount < tasks.length ? (
+          <div className="flex justify-center">
+            <Button variant="outline" size="sm" onClick={handleLoadMore}>
+              {t('customers.people.detail.tasks.loadMore')}
+            </Button>
+          </div>
+        ) : null}
+        {tasks.length > 0 ? (
+          <div className="flex justify-center text-xs">
+            <Link href="/backend/customers/work-plan/todos" className="text-primary hover:underline">
+              {t('customers.people.detail.tasks.viewAll')}
+            </Link>
+          </div>
+        ) : null}
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
@@ -2378,6 +2597,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     tasks: false,
   })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+  const [pendingTaskId, setPendingTaskId] = React.useState<string | null>(null)
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
     setSectionAction(action)
   }, [])
@@ -2394,6 +2614,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     sources: {},
     'lifecycle-stages': {},
     'address-types': {},
+    'activity-types': {},
     'job-titles': {},
   })
   const personId = data?.person?.id ?? null
@@ -2419,12 +2640,20 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   React.useEffect(() => {
     const controller = new AbortController()
     async function loadAll() {
-      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {}, 'job-titles': {} })
+      setDictionaryMaps({
+        statuses: {},
+        sources: {},
+        'lifecycle-stages': {},
+        'address-types': {},
+        'activity-types': {},
+        'job-titles': {},
+      })
       await Promise.all([
         loadDictionaryEntries('statuses', controller.signal),
         loadDictionaryEntries('sources', controller.signal),
         loadDictionaryEntries('lifecycle-stages', controller.signal),
         loadDictionaryEntries('address-types', controller.signal),
+        loadDictionaryEntries('activity-types', controller.signal),
         loadDictionaryEntries('job-titles', controller.signal),
       ])
     }
@@ -2433,6 +2662,10 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       controller.abort()
     }
   }, [loadDictionaryEntries, scopeVersion, id])
+
+  const refreshActivityTypes = React.useCallback(() => {
+    loadDictionaryEntries('activity-types').catch(() => {})
+  }, [loadDictionaryEntries])
 
   const validators = React.useMemo(() => ({
     email: (value: string) => {
@@ -2626,6 +2859,21 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       loadingLabel: t('customers.people.form.dictionary.loading'),
       manageTitle: t('customers.people.form.dictionary.manage'),
     },
+    activityTypes: {
+      placeholder: t('customers.people.form.activityType.placeholder'),
+      addLabel: t('customers.people.form.dictionary.addActivityType'),
+      addPrompt: t('customers.people.form.dictionary.promptActivityType'),
+      dialogTitle: t('customers.people.form.dictionary.dialogTitleActivityType'),
+      inputLabel: t('customers.people.form.dictionary.valueLabel'),
+      inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+      emptyError: t('customers.people.form.dictionary.errorRequired'),
+      cancelLabel: t('customers.people.form.dictionary.cancel'),
+      saveLabel: t('customers.people.form.dictionary.save'),
+      errorLoad: t('customers.people.form.dictionary.errorLoad'),
+      errorSave: t('customers.people.form.dictionary.error'),
+      loadingLabel: t('customers.people.form.dictionary.loading'),
+      manageTitle: t('customers.people.form.dictionary.manage'),
+    },
     jobTitles: {
       placeholder: t('customers.people.form.jobTitle.placeholder'),
       addLabel: t('customers.people.form.dictionary.addJobTitle'),
@@ -2765,7 +3013,14 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   )
 
   const handleCreateActivity = React.useCallback(
-    async (payload: { activityType: string; subject?: string; body?: string; occurredAt?: string }) => {
+    async (payload: {
+      activityType: string
+      subject?: string
+      body?: string
+      occurredAt?: string
+      appearanceIcon?: string | null
+      appearanceColor?: string | null
+    }) => {
       if (!personId) return
       setSectionPending((prev) => ({ ...prev, activities: true }))
       try {
@@ -2790,6 +3045,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           body: payload.body ?? null,
           occurredAt: payload.occurredAt ?? null,
           createdAt: new Date().toISOString(),
+          appearanceIcon: payload.appearanceIcon ?? null,
+          appearanceColor: payload.appearanceColor ?? null,
         }
         setData((prev) => (prev ? { ...prev, activities: [newActivity, ...prev.activities] } : prev))
         flash(t('customers.people.detail.activities.success'), 'success')
@@ -3078,6 +3335,10 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           todoSource: 'example:todo',
           createdAt: new Date().toISOString(),
           createdByUserId: null,
+          title: payload.title,
+          isDone: payload.isDone,
+          priority: null,
+          dueAt: null,
         }
         setData((prev) => (prev ? { ...prev, todos: [newTask, ...prev.todos] } : prev))
         flash(t('customers.people.detail.tasks.success'), 'success')
@@ -3086,6 +3347,51 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       }
     },
     [personId, t]
+  )
+
+  const handleToggleTask = React.useCallback(
+    async (task: TodoLinkSummary, nextIsDone: boolean) => {
+      if (!task.todoId) {
+        flash(t('customers.people.detail.tasks.toggleError'), 'error')
+        return
+      }
+      const apiPath = resolveTodoApiPath(task.todoSource)
+      if (!apiPath) {
+        flash(t('customers.people.detail.tasks.toggleError'), 'error')
+        return
+      }
+      setPendingTaskId(task.todoId)
+      try {
+        const res = await apiFetch(apiPath, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: task.todoId, is_done: nextIsDone }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.tasks.toggleError')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        setData((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            todos: prev.todos.map((item) =>
+              item.todoId === task.todoId ? { ...item, isDone: nextIsDone } : item
+            ),
+          }
+        })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.tasks.toggleError')
+        flash(message, 'error')
+      } finally {
+        setPendingTaskId(null)
+      }
+    },
+    [setData, t]
   )
 
   const handleCustomFieldsSubmit = React.useCallback(
@@ -3511,6 +3817,9 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                   actionLabel: t('customers.people.detail.emptyState.activities.action'),
                 }}
                 onActionChange={handleSectionActionChange}
+                activityLabels={dictionaryLabels.activityTypes}
+                activityMap={dictionaryMaps['activity-types']}
+                onActivityDictionaryChange={refreshActivityTypes}
               />
             )}
             {activeTab === 'deals' && (
@@ -3558,6 +3867,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                   actionLabel: t('customers.people.detail.emptyState.tasks.action'),
                 }}
                 onActionChange={handleSectionActionChange}
+                onToggle={handleToggleTask}
+                pendingTaskId={pendingTaskId}
               />
             )}
           </div>

@@ -48,6 +48,8 @@ type ActivitySnapshot = {
     body: string | null
     occurredAt: Date | null
     authorUserId: string | null
+    appearanceIcon: string | null
+    appearanceColor: string | null
   }
   custom?: Record<string, unknown>
 }
@@ -78,6 +80,8 @@ async function loadActivitySnapshot(em: EntityManager, id: string): Promise<Acti
       body: activity.body ?? null,
       occurredAt: activity.occurredAt ?? null,
       authorUserId: activity.authorUserId ?? null,
+      appearanceIcon: activity.appearanceIcon ?? null,
+      appearanceColor: activity.appearanceColor ?? null,
     },
     custom,
   }
@@ -125,6 +129,8 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
       body: parsed.body ?? null,
       occurredAt: parsed.occurredAt ?? null,
       authorUserId: parsed.authorUserId ?? null,
+      appearanceIcon: parsed.appearanceIcon ?? null,
+      appearanceColor: parsed.appearanceColor ?? null,
     })
     em.persist(activity)
     await em.flush()
@@ -207,6 +213,8 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
     if (parsed.body !== undefined) activity.body = parsed.body ?? null
     if (parsed.occurredAt !== undefined) activity.occurredAt = parsed.occurredAt ?? null
     if (parsed.authorUserId !== undefined) activity.authorUserId = parsed.authorUserId ?? null
+    if (parsed.appearanceIcon !== undefined) activity.appearanceIcon = parsed.appearanceIcon ?? null
+    if (parsed.appearanceColor !== undefined) activity.appearanceColor = parsed.appearanceColor ?? null
 
     await em.flush()
 
@@ -240,6 +248,8 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
       'body',
       'occurredAt',
       'authorUserId',
+      'appearanceIcon',
+      'appearanceColor',
     ]
     const changes =
       afterSnapshot && afterSnapshot.activity

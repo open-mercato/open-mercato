@@ -7,16 +7,30 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
-export const dictionaryKindSchema = z.enum(['statuses', 'sources', 'lifecycle-stages', 'address-types', 'job-titles'])
+export const dictionaryKindSchema = z.enum([
+  'statuses',
+  'sources',
+  'lifecycle-stages',
+  'address-types',
+  'activity-types',
+  'job-titles',
+])
 
 export type DictionaryRouteParam = z.infer<typeof dictionaryKindSchema>
-export type DictionaryEntityKind = 'status' | 'source' | 'lifecycle_stage' | 'address_type' | 'job_title'
+export type DictionaryEntityKind =
+  | 'status'
+  | 'source'
+  | 'lifecycle_stage'
+  | 'address_type'
+  | 'activity_type'
+  | 'job_title'
 
 const KIND_MAP: Record<DictionaryRouteParam, DictionaryEntityKind> = {
   statuses: 'status',
   sources: 'source',
   'lifecycle-stages': 'lifecycle_stage',
   'address-types': 'address_type',
+  'activity-types': 'activity_type',
   'job-titles': 'job_title',
 }
 

@@ -57,7 +57,7 @@ export type PersonFormValues = {
 } & Record<string, unknown>
 
 type DictionarySelectFieldProps = {
-  kind: 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types' | 'job-titles'
+  kind: 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types' | 'job-titles' | 'activity-types'
   value?: string
   onChange: (value: string | undefined) => void
   labels: DictionarySelectLabels

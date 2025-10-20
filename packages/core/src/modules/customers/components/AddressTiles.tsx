@@ -539,7 +539,17 @@ export function CustomerAddressTiles({
 
   const renderFormTile = React.useCallback(
     (key: string) => (
-      <div key={key} className="rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/20 p-4 text-sm">
+      <div
+        key={key}
+        className="rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/20 p-4 text-sm"
+        onKeyDown={(event) => {
+          if (!(event.metaKey || event.ctrlKey)) return
+          if (event.key !== 'Enter') return
+          event.preventDefault()
+          if (disableActions) return
+          void handleSave()
+        }}
+      >
         <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <span>
             {editingId
