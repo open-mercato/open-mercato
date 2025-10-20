@@ -7,10 +7,15 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
 
-async function loadDictionary(context: Awaited<ReturnType<typeof resolveDictionariesRouteContext>>, id: string) {
+async function loadDictionary(
+  context: Awaited<ReturnType<typeof resolveDictionariesRouteContext>>,
+  id: string,
+  options: { allowInherited?: boolean } = {},
+) {
+  const { allowInherited = false } = options
   const dictionary = await context.em.findOne(Dictionary, {
     id,
-    organizationId: context.organizationId,
+    organizationId: allowInherited ? { $in: context.readableOrganizationIds } : context.organizationId,
     tenantId: context.tenantId,
     deletedAt: null,
   })
@@ -45,13 +50,13 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
   try {
     const context = await resolveDictionariesRouteContext(req)
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
-    const dictionary = await loadDictionary(context, dictionaryId)
+    const dictionary = await loadDictionary(context, dictionaryId, { allowInherited: true })
     const entries = await context.em.find(
       DictionaryEntry,
       {
         dictionary,
-        organizationId: context.organizationId,
-        tenantId: context.tenantId,
+        organizationId: dictionary.organizationId,
+        tenantId: dictionary.tenantId,
       },
       { orderBy: { label: 'asc' } },
     )

@@ -18,6 +18,7 @@ import {
   CustomerPersonProfile,
   CustomerTagAssignment,
 } from '../data/entities'
+import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import {
   personCreateSchema,
   personUpdateSchema,
@@ -42,6 +43,7 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 
 const PERSON_ENTITY_ID = 'customers:customer_person_profile'
+const CUSTOMER_ENTITY_ID = 'customers:customer_entity'
 
 type PersonAddressSnapshot = {
   id: string
@@ -218,12 +220,19 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
   const tagIds = await loadEntityTagIds(em, entity)
   const addresses = await em.find(CustomerAddress, { entity }, { orderBy: { createdAt: 'asc' } })
   const comments = await em.find(CustomerComment, { entity }, { orderBy: { createdAt: 'asc' }, populate: ['deal'] })
-  const custom = await loadCustomFieldSnapshot(em, {
+  const entityCustom = await loadCustomFieldSnapshot(em, {
+    entityId: CUSTOMER_ENTITY_ID,
+    recordId: entity.id,
+    tenantId: entity.tenantId,
+    organizationId: entity.organizationId,
+  })
+  const profileCustom = await loadCustomFieldSnapshot(em, {
     entityId: PERSON_ENTITY_ID,
     recordId: profile.id,
     tenantId: entity.tenantId,
     organizationId: entity.organizationId,
   })
+  const custom = { ...entityCustom, ...profileCustom }
   return serializePersonSnapshot(entity, profile, tagIds, addresses, comments, custom)
 }
 
@@ -244,24 +253,140 @@ async function resolveCompanyReference(
   return company
 }
 
+type DefinitionScore = { base: number; penalty: number; entityIndex: number }
+
+function normalizeCustomFieldConfig(raw: unknown): Record<string, any> {
+  if (!raw) return {}
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof raw === 'object') {
+    return { ...(raw as Record<string, any>) }
+  }
+  return {}
+}
+
+function scoreDefinition(kind: string, cfg: Record<string, any>, entityIndex: number): DefinitionScore {
+  const listVisibleScore = cfg.listVisible === false ? 0 : 1
+  const formEditableScore = cfg.formEditable === false ? 0 : 1
+  const filterableScore = cfg.filterable ? 1 : 0
+  const kindScore = (() => {
+    switch (kind) {
+      case 'dictionary':
+        return 8
+      case 'relation':
+        return 6
+      case 'select':
+        return 4
+      case 'multiline':
+        return 3
+      case 'boolean':
+      case 'integer':
+      case 'float':
+        return 2
+      default:
+        return 1
+    }
+  })()
+  const optionsBonus = Array.isArray(cfg.options) && cfg.options.length ? 2 : 0
+  const dictionaryBonus =
+    typeof cfg.dictionaryId === 'string' && cfg.dictionaryId.trim().length ? 5 : 0
+  const base = (listVisibleScore * 16) + (formEditableScore * 8) + (filterableScore * 4) + kindScore + optionsBonus + dictionaryBonus
+  const penalty = typeof cfg.priority === 'number' ? cfg.priority : 0
+  return { base, penalty, entityIndex }
+}
+
+async function resolvePersonCustomFieldRouting(
+  em: EntityManager,
+  tenantId: string | null | undefined,
+  organizationId: string | null | undefined
+): Promise<Map<string, string>> {
+  const entityIds = [CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID]
+  const scopeClauses: any[] = []
+  if (tenantId) scopeClauses.push({ $or: [{ tenantId }, { tenantId: null }] })
+  else scopeClauses.push({ tenantId: null })
+  if (organizationId) scopeClauses.push({ $or: [{ organizationId }, { organizationId: null }] })
+  const where: Record<string, any> = {
+    entityId: { $in: entityIds as any },
+    deletedAt: null,
+    isActive: true,
+  }
+  if (scopeClauses.length) where.$and = scopeClauses
+
+  const defs = await em.find(CustomFieldDef, where as any)
+  const order = new Map<string, number>()
+  entityIds.forEach((id, index) => order.set(id, index))
+
+  const bestByKey = new Map<string, { entityId: string; metrics: DefinitionScore }>()
+  for (const def of defs) {
+    const cfg = normalizeCustomFieldConfig((def as any).configJson)
+    const metrics = scoreDefinition(def.kind, cfg, order.get(def.entityId) ?? Number.MAX_SAFE_INTEGER)
+    const existing = bestByKey.get(def.key)
+    const better = !existing ||
+      metrics.base > existing.metrics.base ||
+      (metrics.base === existing.metrics.base && (
+        metrics.penalty < existing.metrics.penalty ||
+        (metrics.penalty === existing.metrics.penalty && metrics.entityIndex < existing.metrics.entityIndex)
+      ))
+    if (better) {
+      bestByKey.set(def.key, { entityId: def.entityId, metrics })
+    }
+  }
+
+  const routing = new Map<string, string>()
+  for (const [key, entry] of bestByKey.entries()) {
+    routing.set(key, entry.entityId)
+  }
+  return routing
+}
+
 async function setCustomFieldsForPerson(
   ctx: CommandRuntimeContext,
+  entityId: string,
   profileId: string,
   organizationId: string,
   tenantId: string,
   values: Record<string, unknown>
 ): Promise<void> {
   if (!values || !Object.keys(values).length) return
+  const em = ctx.container.resolve<EntityManager>('em')
+  const routing = await resolvePersonCustomFieldRouting(em, tenantId, organizationId)
+  const entityScoped: Record<string, unknown> = {}
+  const profileScoped: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(values)) {
+    const target = routing.get(key) ?? PERSON_ENTITY_ID
+    if (target === CUSTOMER_ENTITY_ID) entityScoped[key] = value
+    else profileScoped[key] = value
+  }
+
   const de = ctx.container.resolve<DataEngine>('dataEngine')
-  await setCustomFieldsIfAny({
-    dataEngine: de,
-    entityId: PERSON_ENTITY_ID,
-    recordId: profileId,
-    organizationId,
-    tenantId,
-    values,
-    notify: true,
-  })
+  if (Object.keys(entityScoped).length) {
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: CUSTOMER_ENTITY_ID,
+      recordId: entityId,
+      organizationId,
+      tenantId,
+      values: entityScoped,
+      notify: true,
+    })
+  }
+  if (Object.keys(profileScoped).length) {
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: PERSON_ENTITY_ID,
+      recordId: profileId,
+      organizationId,
+      tenantId,
+      values: profileScoped,
+      notify: true,
+    })
+  }
 }
 
 const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string; personId: string }> = {
@@ -358,7 +483,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const organizationId = entity.organizationId
     await syncEntityTags(em, entity, parsed.tags)
     await em.flush()
-    await setCustomFieldsForPerson(ctx, profile.id, organizationId, tenantId, custom)
+    await setCustomFieldsForPerson(ctx, entity.id, profile.id, organizationId, tenantId, custom)
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await emitCrudSideEffects({
@@ -499,7 +624,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     await syncEntityTags(em, record, parsed.tags)
     await em.flush()
 
-    await setCustomFieldsForPerson(ctx, profile.id, record.organizationId, record.tenantId, custom)
+    await setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await emitCrudSideEffects({
@@ -671,7 +796,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
     if (Object.keys(resetValues).length) {
-      await setCustomFieldsForPerson(ctx, before.profile.id, before.entity.organizationId, before.entity.tenantId, resetValues)
+      await setCustomFieldsForPerson(ctx, before.entity.id, before.profile.id, before.entity.organizationId, before.entity.tenantId, resetValues)
     }
   },
 }
@@ -874,7 +999,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       })
       const resetValues = buildCustomFieldResetMap(before.custom, null)
       if (Object.keys(resetValues).length) {
-        await setCustomFieldsForPerson(ctx, profile.id, entity.organizationId, entity.tenantId, resetValues)
+        await setCustomFieldsForPerson(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }
     },
   }

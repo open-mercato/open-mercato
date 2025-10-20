@@ -2,14 +2,17 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Loader2, Mail, Palette, Pencil, Phone, Plus, Trash2, X } from 'lucide-react'
+import { FileCode, Loader2, Mail, Palette, Pencil, Phone, Plus, Trash2, X } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -186,6 +189,62 @@ function formatRelativeTime(value?: string | null): string | null {
 function randomId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   return `tmp-${Math.random().toString(36).slice(2)}`
+}
+
+function isValidSocialUrl(
+  rawValue: string,
+  options: { hosts: string[]; pathRequired?: boolean },
+): boolean {
+  const { hosts, pathRequired = false } = options
+  let parsed: URL
+  try {
+    parsed = new URL(rawValue)
+  } catch {
+    return false
+  }
+  const protocol = parsed.protocol.toLowerCase()
+  if (protocol !== 'https:' && protocol !== 'http:') {
+    return false
+  }
+  const hostname = parsed.hostname.toLowerCase()
+  const matchesHost = hosts.some((host) => hostname === host || hostname.endsWith(`.${host}`))
+  if (!matchesHost) {
+    return false
+  }
+  if (!pathRequired) {
+    return true
+  }
+  const normalizedPath = parsed.pathname.replace(/\/+/g, '/').replace(/^\/|\/$/g, '')
+  return normalizedPath.length > 0
+}
+
+const NOTES_MARKDOWN_COOKIE = 'customers_notes_markdown'
+
+type UiMarkdownEditorProps = {
+  value?: string
+  height?: number
+  onChange?: (value?: string) => void
+  previewOptions?: { remarkPlugins?: unknown[] }
+}
+
+const UiMarkdownEditor = dynamic<UiMarkdownEditorProps>(() => import('@uiw/react-md-editor'), {
+  ssr: false,
+})
+
+function writeMarkdownPreferenceCookie(enabled: boolean) {
+  if (typeof document === 'undefined') return
+  const expires = new Date()
+  expires.setFullYear(expires.getFullYear() + 1)
+  document.cookie = `${NOTES_MARKDOWN_COOKIE}=${enabled ? '1' : '0'}; path=/; expires=${expires.toUTCString()}; SameSite=Lax`
+}
+
+function readMarkdownPreferenceCookie(): boolean | null {
+  if (typeof document === 'undefined') return null
+  const allCookies = document.cookie ? document.cookie.split('; ') : []
+  const match = allCookies.find((entry) => entry.startsWith(`${NOTES_MARKDOWN_COOKIE}=`))
+  if (!match) return null
+  const value = match.split('=').slice(1).join('=')
+  return value === '1'
 }
 
 type InlineFieldType = 'text' | 'email' | 'tel' | 'url'
@@ -468,6 +527,224 @@ function InlineTextEditor({
   )
 }
 
+type InlineMultilineEditorProps = {
+  label: string
+  value: string | null | undefined
+  placeholder: string
+  emptyLabel: string
+  onSave: (value: string | null) => Promise<void>
+  validator?: (value: string) => string | null
+  variant?: 'default' | 'muted'
+  activateOnClick?: boolean
+  containerClassName?: string
+  triggerClassName?: string
+}
+
+function InlineMultilineEditor({
+  label,
+  value,
+  placeholder,
+  emptyLabel,
+  onSave,
+  validator,
+  variant = 'default',
+  activateOnClick = false,
+  containerClassName,
+  triggerClassName,
+}: InlineMultilineEditorProps) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(value ?? '')
+  const [error, setError] = React.useState<string | null>(null)
+  const [saving, setSaving] = React.useState(false)
+  const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(false)
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const containerClasses = cn(
+    'group',
+    variant === 'muted' ? 'relative rounded border bg-muted/20 p-3' : 'rounded-lg border p-4',
+    containerClassName || null,
+  )
+  const readOnlyWrapperClasses = cn(
+    'flex-1 min-w-0',
+    activateOnClick && !editing ? 'cursor-pointer' : null,
+  )
+  const triggerClasses = cn(
+    'shrink-0',
+    variant === 'muted' ? 'h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100' : null,
+    triggerClassName || null,
+  )
+
+  const handleActivate = React.useCallback(() => {
+    if (!editing) setEditing(true)
+  }, [editing])
+
+  const handleContainerKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        handleActivate()
+      }
+    },
+    [activateOnClick, editing, handleActivate],
+  )
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraft(value ?? '')
+    }
+  }, [editing, value])
+
+  React.useEffect(() => {
+    const preference = readMarkdownPreferenceCookie()
+    if (preference !== null) {
+      setIsMarkdownEnabled(preference)
+    }
+  }, [])
+
+  const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
+    if (!element) return
+    element.style.height = 'auto'
+    element.style.height = `${element.scrollHeight}px`
+  }, [])
+
+  React.useEffect(() => {
+    if (!editing) return
+    const frame = window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current
+      adjustTextareaSize(textarea)
+      if (textarea) {
+        textarea.focus()
+        const end = textarea.value.length
+        textarea.setSelectionRange(end, end)
+      }
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [adjustTextareaSize, editing])
+
+  React.useEffect(() => {
+    if (!editing) return
+    adjustTextareaSize(textareaRef.current)
+  }, [adjustTextareaSize, draft, editing, isMarkdownEnabled])
+
+  const handleMarkdownToggle = React.useCallback(() => {
+    setIsMarkdownEnabled((prev) => {
+      const next = !prev
+      writeMarkdownPreferenceCookie(next)
+      return next
+    })
+  }, [])
+
+  const handleSave = React.useCallback(async () => {
+    const normalized = draft.trim()
+    if (validator) {
+      const validationError = validator(normalized)
+      if (validationError) {
+        setError(validationError)
+        return
+      }
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      await onSave(normalized.length ? normalized : null)
+      setEditing(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customers.people.detail.inline.error')
+      flash(message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }, [draft, onSave, t, validator])
+
+  const editingContainerClass = 'mt-2 space-y-3'
+
+  const activateListeners =
+    activateOnClick && !editing
+      ? {
+          role: 'button' as const,
+          tabIndex: 0,
+          onClick: handleActivate,
+          onKeyDown: handleContainerKeyDown,
+        }
+      : {}
+
+  return (
+    <div className={containerClasses}>
+      <div className="flex items-start justify-between gap-2">
+        <div className={readOnlyWrapperClasses} {...activateListeners}>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {editing ? (
+            <div className={editingContainerClass}>
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant={isMarkdownEnabled ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 px-3 text-xs font-medium"
+                  onClick={handleMarkdownToggle}
+                  aria-pressed={isMarkdownEnabled}
+                >
+                  {isMarkdownEnabled
+                    ? t('customers.people.detail.notes.markdownDisable')
+                    : t('customers.people.detail.notes.markdownEnable')}
+                </Button>
+              </div>
+              <textarea
+                ref={textareaRef}
+                rows={isMarkdownEnabled ? 6 : 3}
+                className={cn(
+                  'w-full resize-none overflow-hidden rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring',
+                  isMarkdownEnabled ? 'font-mono' : null,
+                )}
+                placeholder={placeholder}
+                value={draft}
+                onChange={(event) => {
+                  if (error) setError(null)
+                  setDraft(event.target.value)
+                }}
+                onInput={(event) => adjustTextareaSize(event.currentTarget)}
+                autoFocus
+                disabled={saving}
+              />
+              {error ? <p className="text-xs text-red-600">{error}</p> : null}
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {t('customers.people.detail.inline.save')}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+                  {t('customers.people.detail.inline.cancel')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-1 text-sm whitespace-pre-wrap break-words">
+              {value && typeof value === 'string' && value.trim().length ? (
+                value
+              ) : (
+                <span className="text-muted-foreground">{emptyLabel}</span>
+              )}
+            </div>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={triggerClasses}
+          onClick={(event) => {
+            event.stopPropagation()
+            setEditing((state) => !state)
+          }}
+        >
+          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 type DictionaryEditorProps = {
   label: string
   value: string | null | undefined
@@ -620,31 +897,39 @@ function InlineDictionaryEditor({
   )
 }
 
+type DetailFieldCommon = {
+  key: string
+  label: string
+  emptyLabel: string
+  gridClassName?: string
+}
+
 type DetailFieldConfig =
-  | {
-      key: string
+  | (DetailFieldCommon & {
       kind: 'text'
-      label: string
       value: string | null | undefined
       placeholder: string
-      emptyLabel: string
       onSave: (value: string | null) => Promise<void>
       inputType?: InlineFieldType
       validator?: (value: string) => string | null
-    }
-  | {
-      key: string
-      kind: 'dictionary'
-      label: string
+    })
+  | (DetailFieldCommon & {
+      kind: 'multiline'
       value: string | null | undefined
-      emptyLabel: string
+      placeholder: string
+      onSave: (value: string | null) => Promise<void>
+      validator?: (value: string) => string | null
+    })
+  | (DetailFieldCommon & {
+      kind: 'dictionary'
+      value: string | null | undefined
       dictionaryKind: CustomerDictionaryKind
       labels: Parameters<typeof DictionarySelectField>[0]['labels']
       onSave: (value: string | null) => Promise<void>
       dictionaryMap?: CustomerDictionaryMap | null
       onAfterSave?: () => void | Promise<void>
       selectClassName?: string
-    }
+    })
 
 type ProfileEditableField = 'firstName' | 'lastName' | 'jobTitle' | 'department' | 'linkedInUrl' | 'twitterUrl'
 
@@ -904,6 +1189,7 @@ function NotesTab({
   const [draftIcon, setDraftIcon] = React.useState<string | null>(null)
   const [draftColor, setDraftColor] = React.useState<string | null>(null)
   const [showAppearance, setShowAppearance] = React.useState(false)
+  const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(false)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const [appearanceEditor, setAppearanceEditor] = React.useState<{
     id: string
@@ -931,6 +1217,13 @@ function NotesTab({
     previewEmptyLabel: t('customers.people.detail.notes.appearance.previewEmpty'),
   }), [t])
   const viewerLabel = React.useMemo(() => viewerName ?? viewerEmail ?? null, [viewerEmail, viewerName])
+  const handleMarkdownToggle = React.useCallback(() => {
+    setIsMarkdownEnabled((prev) => {
+      const next = !prev
+      writeMarkdownPreferenceCookie(next)
+      return next
+    })
+  }, [])
 
   const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
     if (!element) return
@@ -940,7 +1233,14 @@ function NotesTab({
 
   React.useEffect(() => {
     adjustTextareaSize(textareaRef.current)
-  }, [adjustTextareaSize, draftBody])
+  }, [adjustTextareaSize, draftBody, isMarkdownEnabled])
+
+  React.useEffect(() => {
+    const preference = readMarkdownPreferenceCookie()
+    if (preference !== null) {
+      setIsMarkdownEnabled(preference)
+    }
+  }, [])
 
   React.useEffect(() => {
     if (!notes.length) {
@@ -972,10 +1272,11 @@ function NotesTab({
       event.preventDefault()
       const trimmedBody = draftBody.trim()
       if (!trimmedBody || isSubmitting) return
+      const bodyToSave = isMarkdownEnabled ? draftBody : trimmedBody
       const normalizedIcon = (draftIcon ?? '').trim()
       const normalizedColor = draftColor ? draftColor.trim().toLowerCase() : null
       await onCreate({
-        body: trimmedBody,
+        body: bodyToSave,
         appearanceIcon: normalizedIcon.length ? normalizedIcon : null,
         appearanceColor: normalizedColor && /^#([0-9a-f]{6})$/.test(normalizedColor) ? normalizedColor : null,
       })
@@ -984,7 +1285,7 @@ function NotesTab({
       setDraftColor(null)
       setShowAppearance(false)
     },
-    [draftBody, draftIcon, draftColor, isSubmitting, onCreate]
+    [draftBody, draftIcon, draftColor, isMarkdownEnabled, isSubmitting, onCreate]
   )
 
   const handleAppearanceSave = React.useCallback(async () => {
@@ -1074,28 +1375,41 @@ function NotesTab({
   }, [notes.length])
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <table className="w-full border-separate border-spacing-y-3">
         <tbody>
           <tr>
-            <td className="rounded-xl bg-muted/10 px-0 py-4 align-top">
-              <form onSubmit={handleSubmit} className="space-y-3">
-                <label className="text-sm font-medium text-muted-foreground" htmlFor="new-note">
+            <td className="rounded-xl bg-muted/10 px-0 py-3 align-top">
+              <form onSubmit={handleSubmit} className="space-y-2">
+                <label htmlFor="new-note" className="sr-only">
                   {t('customers.people.detail.notes.addLabel')}
                 </label>
-                <textarea
-                  id="new-note"
-                  ref={textareaRef}
-                  rows={1}
-                  className="w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  placeholder={t('customers.people.detail.notes.placeholder')}
-                  value={draftBody}
-                  onChange={(event) => setDraftBody(event.target.value)}
-                  onInput={(event) => adjustTextareaSize(event.currentTarget)}
-                  disabled={isSubmitting}
-                />
+                {isMarkdownEnabled ? (
+                  <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
+                    <div data-color-mode="light" className="w-full">
+                      <UiMarkdownEditor
+                        value={draftBody}
+                        height={220}
+                        onChange={(value) => setDraftBody(typeof value === 'string' ? value : '')}
+                        previewOptions={{ remarkPlugins: [remarkGfm] }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <textarea
+                    id="new-note"
+                    ref={textareaRef}
+                    rows={1}
+                    className="w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    placeholder={t('customers.people.detail.notes.placeholder')}
+                    value={draftBody}
+                    onChange={(event) => setDraftBody(event.target.value)}
+                    onInput={(event) => adjustTextareaSize(event.currentTarget)}
+                    disabled={isSubmitting}
+                  />
+                )}
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     {draftColor || draftIcon ? (
                       <span className="inline-flex items-center gap-2 rounded-full bg-muted/40 px-2 py-1">
                         {draftColor ? renderDictionaryColor(draftColor, 'h-3 w-3 rounded-full border border-border') : null}
@@ -1104,33 +1418,65 @@ function NotesTab({
                     ) : (
                       <span>{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
                     )}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setShowAppearance((prev) => !prev)}
-                      aria-label={
-                        showAppearance
-                          ? t('customers.people.detail.notes.appearance.toggleClose')
-                          : t('customers.people.detail.notes.appearance.toggleOpen')
-                      }
-                      title={
-                        showAppearance
-                          ? t('customers.people.detail.notes.appearance.toggleClose')
-                          : t('customers.people.detail.notes.appearance.toggleOpen')
-                      }
-                    >
-                      {isSubmitting ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Palette className="h-4 w-4" />
-                      )}
-                      <span className="sr-only">
-                        {showAppearance
-                          ? t('customers.people.detail.notes.appearance.toggleClose')
-                          : t('customers.people.detail.notes.appearance.toggleOpen')}
-                      </span>
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setShowAppearance((prev) => !prev)}
+                        aria-label={
+                          showAppearance
+                            ? t('customers.people.detail.notes.appearance.toggleClose')
+                            : t('customers.people.detail.notes.appearance.toggleOpen')
+                        }
+                        title={
+                          showAppearance
+                            ? t('customers.people.detail.notes.appearance.toggleClose')
+                            : t('customers.people.detail.notes.appearance.toggleOpen')
+                        }
+                        disabled={isSubmitting}
+                      >
+                        {isSubmitting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Palette className="h-4 w-4" />
+                        )}
+                        <span className="sr-only">
+                          {showAppearance
+                            ? t('customers.people.detail.notes.appearance.toggleClose')
+                            : t('customers.people.detail.notes.appearance.toggleOpen')}
+                        </span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={handleMarkdownToggle}
+                        aria-pressed={isMarkdownEnabled}
+                        title={
+                          isMarkdownEnabled
+                            ? t('customers.people.detail.notes.markdownDisable')
+                            : t('customers.people.detail.notes.markdownEnable')
+                        }
+                        aria-label={
+                          isMarkdownEnabled
+                            ? t('customers.people.detail.notes.markdownDisable')
+                            : t('customers.people.detail.notes.markdownEnable')
+                        }
+                        className={cn(
+                          'h-8 w-8',
+                          isMarkdownEnabled ? 'text-primary' : undefined
+                        )}
+                        disabled={isSubmitting}
+                      >
+                        <FileCode className="h-4 w-4" />
+                        <span className="sr-only">
+                          {isMarkdownEnabled
+                            ? t('customers.people.detail.notes.markdownDisable')
+                            : t('customers.people.detail.notes.markdownEnable')}
+                        </span>
+                      </Button>
+                    </div>
                   </div>
                   <Button type="submit" disabled={isSubmitting || !draftBody.trim()}>
                     {isSubmitting ? (
@@ -1260,11 +1606,16 @@ function NotesTab({
                         <div
                           role="button"
                           tabIndex={0}
-                          className="cursor-text text-sm whitespace-pre-wrap"
+                          className="cursor-text text-sm"
                           onClick={() => openContentEditor(note)}
                           onKeyDown={(event) => handleContentKeyDown(event, note)}
                         >
-                          {note.body}
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+                          >
+                            {note.body}
+                          </ReactMarkdown>
                         </div>
                       )}
                       {isEditingAppearance ? (
@@ -1735,6 +2086,20 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     displayName: (value: string) => {
       const trimmed = value.trim()
       return trimmed.length ? null : t('customers.people.form.displayName.error')
+    },
+    linkedInUrl: (value: string) => {
+      if (!value) return null
+      const candidate = value.trim()
+      return isValidSocialUrl(candidate, { hosts: ['linkedin.com'], pathRequired: true })
+        ? null
+        : t('customers.people.detail.inline.linkedInInvalid')
+    },
+    twitterUrl: (value: string) => {
+      if (!value) return null
+      const candidate = value.trim()
+      return isValidSocialUrl(candidate, { hosts: ['twitter.com', 'x.com'], pathRequired: true })
+        ? null
+        : t('customers.people.detail.inline.twitterInvalid')
     },
   }), [t])
 
@@ -2458,11 +2823,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     },
     {
       key: 'description',
-      kind: 'text',
+      kind: 'multiline',
       label: t('customers.people.form.description'),
       value: person.description ?? null,
       placeholder: t('customers.people.form.description'),
       emptyLabel: t('customers.people.detail.noValue'),
+      gridClassName: 'sm:col-span-2 xl:col-span-3',
       onSave: async (next) => {
         const send = typeof next === 'string' ? next : ''
         await savePerson(
@@ -2492,6 +2858,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       emptyLabel: t('customers.people.detail.noValue'),
       onSave: (next) => updateProfileField('linkedInUrl', next),
       inputType: 'url',
+      validator: validators.linkedInUrl,
     },
     {
       key: 'twitterUrl',
@@ -2502,6 +2869,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       emptyLabel: t('customers.people.detail.noValue'),
       onSave: (next) => updateProfileField('twitterUrl', next),
       inputType: 'url',
+      validator: validators.twitterUrl,
     },
   ]
 
@@ -2725,41 +3093,62 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.details')}</h2>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {detailFields.map((field) => {
+                const wrapperClassName = field.gridClassName ? field.gridClassName : undefined
                 if (field.kind === 'text') {
                   return (
-                    <InlineTextEditor
-                      key={field.key}
+                    <div key={field.key} className={wrapperClassName}>
+                      <InlineTextEditor
+                        label={field.label}
+                        value={field.value}
+                        placeholder={field.placeholder}
+                        emptyLabel={field.emptyLabel}
+                        onSave={field.onSave}
+                        type={field.inputType}
+                        validator={field.validator}
+                        variant="muted"
+                        activateOnClick
+                        containerClassName="rounded border bg-muted/20 p-3"
+                        triggerClassName="h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+                      />
+                    </div>
+                  )
+                }
+                if (field.kind === 'multiline') {
+                  return (
+                    <div key={field.key} className={wrapperClassName}>
+                      <InlineMultilineEditor
+                        label={field.label}
+                        value={field.value}
+                        placeholder={field.placeholder}
+                        emptyLabel={field.emptyLabel}
+                        onSave={field.onSave}
+                        validator={field.validator}
+                        variant="muted"
+                        activateOnClick
+                        containerClassName="rounded border bg-muted/20 p-3"
+                        triggerClassName="h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+                      />
+                    </div>
+                  )
+                }
+                return (
+                  <div key={field.key} className={wrapperClassName}>
+                    <InlineDictionaryEditor
                       label={field.label}
                       value={field.value}
-                      placeholder={field.placeholder}
                       emptyLabel={field.emptyLabel}
+                      labels={field.labels}
                       onSave={field.onSave}
-                      type={field.inputType}
-                      validator={field.validator}
+                      dictionaryMap={field.dictionaryMap}
+                      onAfterSave={field.onAfterSave}
+                      kind={field.dictionaryKind}
                       variant="muted"
                       activateOnClick
                       containerClassName="rounded border bg-muted/20 p-3"
                       triggerClassName="h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+                      selectClassName={field.selectClassName}
                     />
-                  )
-                }
-                return (
-                  <InlineDictionaryEditor
-                    key={field.key}
-                    label={field.label}
-                    value={field.value}
-                    emptyLabel={field.emptyLabel}
-                    labels={field.labels}
-                    onSave={field.onSave}
-                    dictionaryMap={field.dictionaryMap}
-                    onAfterSave={field.onAfterSave}
-                    kind={field.dictionaryKind}
-                    variant="muted"
-                    activateOnClick
-                    containerClassName="rounded border bg-muted/20 p-3"
-                    triggerClassName="h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
-                    selectClassName={field.selectClassName}
-                  />
+                  </div>
                 )
               })}
             </div>

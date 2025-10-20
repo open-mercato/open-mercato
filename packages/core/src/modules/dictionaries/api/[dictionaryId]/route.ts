@@ -18,10 +18,15 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['dictionaries.manage'] },
 }
 
-async function loadDictionary(context: Awaited<ReturnType<typeof resolveDictionariesRouteContext>>, id: string) {
+async function loadDictionary(
+  context: Awaited<ReturnType<typeof resolveDictionariesRouteContext>>,
+  id: string,
+  options: { allowInherited?: boolean } = {},
+) {
+  const { allowInherited = false } = options
   const dictionary = await context.em.findOne(Dictionary, {
     id,
-    organizationId: context.organizationId,
+    organizationId: allowInherited ? { $in: context.readableOrganizationIds } : context.organizationId,
     tenantId: context.tenantId,
     deletedAt: null,
   })
@@ -35,7 +40,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
   try {
     const context = await resolveDictionariesRouteContext(req)
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
-    const dictionary = await loadDictionary(context, dictionaryId)
+    const dictionary = await loadDictionary(context, dictionaryId, { allowInherited: true })
     return NextResponse.json({
       id: dictionary.id,
       key: dictionary.key,
@@ -43,6 +48,8 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
       description: dictionary.description,
       isSystem: dictionary.isSystem,
       isActive: dictionary.isActive,
+      organizationId: dictionary.organizationId,
+      isInherited: dictionary.organizationId !== context.organizationId,
       createdAt: dictionary.createdAt,
       updatedAt: dictionary.updatedAt,
     })

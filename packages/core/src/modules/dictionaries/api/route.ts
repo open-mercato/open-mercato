@@ -18,7 +18,7 @@ export async function GET(req: Request) {
     const items = await context.em.find(
       Dictionary,
       {
-        organizationId: context.organizationId,
+        organizationId: { $in: context.readableOrganizationIds },
         tenantId: context.tenantId,
         deletedAt: null,
         ...(includeInactive ? {} : { isActive: true }),
@@ -34,6 +34,8 @@ export async function GET(req: Request) {
         description: dictionary.description,
         isSystem: dictionary.isSystem,
         isActive: dictionary.isActive,
+        organizationId: dictionary.organizationId,
+        isInherited: dictionary.organizationId !== context.organizationId,
         createdAt: dictionary.createdAt,
         updatedAt: dictionary.updatedAt,
       })),
