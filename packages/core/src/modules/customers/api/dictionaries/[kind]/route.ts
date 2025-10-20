@@ -23,23 +23,50 @@ export const metadata = {
 
 export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
   try {
-    const { translate, em, organizationId, tenantId } = await resolveDictionaryRouteContext(req)
+    const { translate, em, organizationId, tenantId, readableOrganizationIds } = await resolveDictionaryRouteContext(req)
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
+
+    const organizationOrder = new Map<string, number>()
+    readableOrganizationIds.forEach((id, index) => organizationOrder.set(id, index))
 
     const entries = await em.find(
       CustomerDictionaryEntry,
-      { tenantId, organizationId, kind: mappedKind },
+      { tenantId, organizationId: { $in: readableOrganizationIds }, kind: mappedKind } as any,
       { orderBy: { label: 'asc' } }
     )
 
+    const byValue = new Map<string, { entry: CustomerDictionaryEntry; isInherited: boolean; order: number }>()
+    for (const entry of entries) {
+      const normalized = entry.normalizedValue
+      const order = organizationOrder.get(entry.organizationId) ?? Number.MAX_SAFE_INTEGER
+      if (!byValue.has(normalized) || order < byValue.get(normalized)!.order) {
+        byValue.set(normalized, {
+          entry,
+          isInherited: entry.organizationId !== organizationId,
+          order,
+        })
+      }
+    }
+
+    const items = Array.from(byValue.values()).map(({ entry, isInherited, order }) => ({
+      id: entry.id,
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+      organizationId: entry.organizationId,
+      isInherited,
+      __order: order,
+    }))
+
+    items.sort((a, b) => {
+      if (a.isInherited !== b.isInherited) return a.isInherited ? 1 : -1
+      if (a.__order !== b.__order) return a.__order - b.__order
+      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+    })
+
     return NextResponse.json({
-      items: entries.map((entry) => ({
-        id: entry.id,
-        value: entry.value,
-        label: entry.label,
-        color: entry.color,
-        icon: entry.icon,
-      })),
+      items: items.map(({ __order, ...item }) => item),
     })
   } catch (err) {
     if (err instanceof CrudHttpError) {

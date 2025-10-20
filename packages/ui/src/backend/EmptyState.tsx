@@ -7,6 +7,7 @@ type EmptyStateAction = {
   label: string
   onClick?: () => void
   icon?: React.ReactNode
+  disabled?: boolean
 }
 
 type EmptyStateProps = {
@@ -38,9 +39,10 @@ export function EmptyState({
           type="button"
           onClick={action.onClick}
           className={cn(
-            'mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary transition hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+            'mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary transition hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
             actionLabelClassName
           )}
+          disabled={action.disabled}
         >
           {action.icon}
           <span>{action.label}</span>

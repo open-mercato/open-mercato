@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
@@ -140,6 +141,17 @@ type PersonOverview = {
 type Translator = ReturnType<typeof useT>
 
 type SectionKey = 'notes' | 'activities' | 'deals' | 'addresses' | 'tasks'
+
+type TabEmptyState = {
+  title: string
+  actionLabel: string
+}
+
+type SectionAction = {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+}
 
 function cn(...values: Array<string | null | undefined | false>) {
   return values.filter(Boolean).join(' ')
@@ -1197,6 +1209,9 @@ type NotesTabProps = {
   viewerName?: string | null
   viewerEmail?: string | null
   t: Translator
+  addActionLabel: string
+  emptyState: TabEmptyState
+  onActionChange?: (action: SectionAction | null) => void
 }
 
 function NotesTab({
@@ -1209,6 +1224,9 @@ function NotesTab({
   viewerName,
   viewerEmail,
   t,
+  addActionLabel,
+  emptyState,
+  onActionChange,
 }: NotesTabProps) {
   const [draftBody, setDraftBody] = React.useState('')
   const [draftIcon, setDraftIcon] = React.useState<string | null>(null)
@@ -1216,6 +1234,12 @@ function NotesTab({
   const [showAppearance, setShowAppearance] = React.useState(false)
   const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(false)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const focusComposer = React.useCallback(() => {
+    const element = textareaRef.current
+    if (!element) return
+    element.focus()
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [])
   const [appearanceEditor, setAppearanceEditor] = React.useState<{
     id: string
     icon: string | null

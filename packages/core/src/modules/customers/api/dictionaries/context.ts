@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -29,6 +30,7 @@ export type DictionaryRouteContext = {
   em: EntityManager
   organizationId: string
   tenantId: string
+  readableOrganizationIds: string[]
 }
 
 export function mapDictionaryKind(kind: string | undefined) {
@@ -54,11 +56,30 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
   }
 
   const em = container.resolve<EntityManager>('em')
+  const readableOrganizationIds: string[] = [organizationId]
+  try {
+    const organization = await em.findOne(Organization, {
+      id: organizationId,
+      tenant: auth.tenantId as any,
+      deletedAt: null,
+    } as any)
+    if (organization && Array.isArray(organization.ancestorIds)) {
+      for (const ancestorId of organization.ancestorIds) {
+        if (typeof ancestorId === 'string' && ancestorId.trim()) {
+          readableOrganizationIds.push(ancestorId)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[customers.dictionaries.context] Failed to resolve ancestor organizations', err)
+  }
+
   return {
     auth,
     translate,
     em,
     organizationId,
     tenantId: auth.tenantId,
+    readableOrganizationIds,
   }
 }
