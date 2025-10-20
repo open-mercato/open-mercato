@@ -117,6 +117,7 @@ export default function CustomersPeoplePage() {
     sources: {},
     'lifecycle-stages': {},
     'address-types': {},
+    'job-titles': {},
   })
   const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefDto[]>([])
   const scopeVersion = useOrganizationScopeVersion()

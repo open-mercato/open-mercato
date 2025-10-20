@@ -6,16 +6,17 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
-export const dictionaryKindSchema = z.enum(['statuses', 'sources', 'lifecycle-stages', 'address-types'])
+export const dictionaryKindSchema = z.enum(['statuses', 'sources', 'lifecycle-stages', 'address-types', 'job-titles'])
 
 export type DictionaryRouteParam = z.infer<typeof dictionaryKindSchema>
-export type DictionaryEntityKind = 'status' | 'source' | 'lifecycle_stage' | 'address_type'
+export type DictionaryEntityKind = 'status' | 'source' | 'lifecycle_stage' | 'address_type' | 'job_title'
 
 const KIND_MAP: Record<DictionaryRouteParam, DictionaryEntityKind> = {
   statuses: 'status',
   sources: 'source',
   'lifecycle-stages': 'lifecycle_stage',
   'address-types': 'address_type',
+  'job-titles': 'job_title',
 }
 
 export const paramsSchema = z.object({

@@ -20,7 +20,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
 
-type DictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types'
+type DictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types' | 'job-titles'
 
 type DictionaryEntry = {
   id: string
@@ -115,6 +115,11 @@ export function DictionarySettings() {
       kind: 'statuses' as const,
       title: t('customers.config.dictionaries.sections.statuses.title', 'Statuses'),
       description: t('customers.config.dictionaries.sections.statuses.description', 'Define the statuses available for customer records.'),
+    },
+    {
+      kind: 'job-titles' as const,
+      title: t('customers.config.dictionaries.sections.jobTitles.title', 'Job titles'),
+      description: t('customers.config.dictionaries.sections.jobTitles.description', 'Configure job titles with their appearance.'),
     },
     {
       kind: 'sources' as const,

@@ -2060,6 +2060,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     sources: {},
     'lifecycle-stages': {},
     'address-types': {},
+    'job-titles': {},
   })
   const personId = data?.person?.id ?? null
   const [isDeleting, setIsDeleting] = React.useState(false)
@@ -2084,12 +2085,13 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   React.useEffect(() => {
     const controller = new AbortController()
     async function loadAll() {
-      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {} })
+      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {}, 'job-titles': {} })
       await Promise.all([
         loadDictionaryEntries('statuses', controller.signal),
         loadDictionaryEntries('sources', controller.signal),
         loadDictionaryEntries('lifecycle-stages', controller.signal),
         loadDictionaryEntries('address-types', controller.signal),
+        loadDictionaryEntries('job-titles', controller.signal),
       ])
     }
     loadAll().catch(() => {})
@@ -2285,6 +2287,21 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       addLabel: t('customers.people.form.dictionary.addSource'),
       addPrompt: t('customers.people.form.dictionary.promptSource'),
       dialogTitle: t('customers.people.form.dictionary.dialogTitleSource'),
+      inputLabel: t('customers.people.form.dictionary.valueLabel'),
+      inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+      emptyError: t('customers.people.form.dictionary.errorRequired'),
+      cancelLabel: t('customers.people.form.dictionary.cancel'),
+      saveLabel: t('customers.people.form.dictionary.save'),
+      errorLoad: t('customers.people.form.dictionary.errorLoad'),
+      errorSave: t('customers.people.form.dictionary.error'),
+      loadingLabel: t('customers.people.form.dictionary.loading'),
+      manageTitle: t('customers.people.form.dictionary.manage'),
+    },
+    jobTitles: {
+      placeholder: t('customers.people.form.jobTitle.placeholder'),
+      addLabel: t('customers.people.form.dictionary.addJobTitle'),
+      addPrompt: t('customers.people.form.dictionary.promptJobTitle'),
+      dialogTitle: t('customers.people.form.dictionary.dialogTitleJobTitle'),
       inputLabel: t('customers.people.form.dictionary.valueLabel'),
       inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
       emptyError: t('customers.people.form.dictionary.errorRequired'),
@@ -2795,12 +2812,15 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     },
     {
       key: 'jobTitle',
-      kind: 'text',
+      kind: 'dictionary',
       label: t('customers.people.form.jobTitle'),
       value: profile?.jobTitle ?? null,
-      placeholder: t('customers.people.form.jobTitle'),
       emptyLabel: t('customers.people.detail.noValue'),
-      onSave: (next) => updateProfileField('jobTitle', next),
+      dictionaryKind: 'job-titles',
+      labels: dictionaryLabels.jobTitles,
+      dictionaryMap: dictionaryMaps['job-titles'],
+      onSave: async (next) => updateProfileField('jobTitle', next),
+      selectClassName: 'h-9 w-full rounded border px-3 text-sm',
     },
     {
       key: 'lifecycleStage',

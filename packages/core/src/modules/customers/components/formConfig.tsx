@@ -57,7 +57,7 @@ export type PersonFormValues = {
 } & Record<string, unknown>
 
 type DictionarySelectFieldProps = {
-  kind: 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types'
+  kind: 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types' | 'job-titles'
   value?: string
   onChange: (value: string | undefined) => void
   labels: DictionarySelectLabels
@@ -215,16 +215,27 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
 })
 
 type DictionaryFieldDefinition = {
-  id: 'status' | 'lifecycleStage' | 'source'
-  kind: 'statuses' | 'lifecycle-stages' | 'sources'
+  id: 'jobTitle' | 'status' | 'lifecycleStage' | 'source'
+  kind: 'job-titles' | 'statuses' | 'lifecycle-stages' | 'sources'
   labelKey: string
   placeholderKey: string
   addLabelKey: string
   promptKey: string
   dialogTitleKey: string
+  layout?: CrudField['layout']
 }
 
 const dictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
+  {
+    id: 'jobTitle',
+    kind: 'job-titles',
+    labelKey: 'customers.people.form.jobTitle',
+    placeholderKey: 'customers.people.form.jobTitle.placeholder',
+    addLabelKey: 'customers.people.form.dictionary.addJobTitle',
+    promptKey: 'customers.people.form.dictionary.promptJobTitle',
+    dialogTitleKey: 'customers.people.form.dictionary.dialogTitleJobTitle',
+    layout: 'half',
+  },
   {
     id: 'status',
     kind: 'statuses',
@@ -650,16 +661,16 @@ export const createDisplayNameSection = (t: Translator) =>
 export const createPersonFormFields = (t: Translator): CrudField[] => {
   const contactSection = createSectionHeadingField('__contactInformationSection', t('customers.people.form.sections.contactInformation'))
   const companySection = createSectionHeadingField('__companyInformationSection', t('customers.people.form.sections.companyInformation'))
-  const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition) => ({
-    id: definition.id,
-    label: t(definition.labelKey),
-    type: 'custom',
-    layout: 'third',
-    component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
-      <DictionarySelectField
-        kind={definition.kind}
-        value={typeof value === 'string' ? value : undefined}
-        onChange={(next) => setValue(next)}
+const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition) => ({
+  id: definition.id,
+  label: t(definition.labelKey),
+  type: 'custom',
+  layout: definition.layout ?? 'third',
+  component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+    <DictionarySelectField
+      kind={definition.kind}
+      value={typeof value === 'string' ? value : undefined}
+      onChange={(next) => setValue(next)}
         labels={buildDictionaryLabels(t, definition)}
       />
     ),
@@ -673,7 +684,6 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
     createPrimaryEmailField(t),
     createPrimaryPhoneField(t),
     companySection,
-    { id: 'jobTitle', label: t('customers.people.form.jobTitle'), type: 'text', layout: 'half' },
     {
       id: 'companyEntityId',
       label: t('customers.people.form.company'),

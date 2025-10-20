@@ -11,7 +11,12 @@ import {
   renderDictionaryIcon,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 
-export type CustomerDictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types'
+export type CustomerDictionaryKind =
+  | 'statuses'
+  | 'sources'
+  | 'lifecycle-stages'
+  | 'address-types'
+  | 'job-titles'
 export type CustomerDictionaryDisplayEntry = DictionaryDisplayEntry
 export type CustomerDictionaryMap = DictionaryMap
 

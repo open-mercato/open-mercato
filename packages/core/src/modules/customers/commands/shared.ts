@@ -138,14 +138,14 @@ export async function requireDealInScope(
   return deal
 }
 
-const DICTIONARY_KINDS = new Set(['status', 'source', 'lifecycle_stage', 'address_type'])
+const DICTIONARY_KINDS = new Set(['status', 'source', 'lifecycle_stage', 'address_type', 'job_title'])
 
 export async function ensureDictionaryEntry(
   em: EntityManager,
   params: {
     tenantId: string
     organizationId: string
-    kind: 'status' | 'source' | 'lifecycle_stage' | 'address_type'
+    kind: 'status' | 'source' | 'lifecycle_stage' | 'address_type' | 'job_title'
     value: string
     label?: string | null
     color?: string | null | undefined

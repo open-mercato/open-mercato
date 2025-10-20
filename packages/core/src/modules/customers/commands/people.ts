@@ -380,6 +380,14 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         value: status,
       })
     }
+    if (jobTitle) {
+      await ensureDictionaryEntry(em, {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        kind: 'job_title',
+        value: jobTitle,
+      })
+    }
     if (source) {
       await ensureDictionaryEntry(em, {
         tenantId: parsed.tenantId,
@@ -513,7 +521,18 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     if (parsed.firstName !== undefined) profile.firstName = normalizeOptionalString(parsed.firstName)
     if (parsed.lastName !== undefined) profile.lastName = normalizeOptionalString(parsed.lastName)
     if (parsed.preferredName !== undefined) profile.preferredName = normalizeOptionalString(parsed.preferredName)
-    if (parsed.jobTitle !== undefined) profile.jobTitle = normalizeOptionalString(parsed.jobTitle)
+    if (parsed.jobTitle !== undefined) {
+      const normalizedJobTitle = normalizeOptionalString(parsed.jobTitle)
+      profile.jobTitle = normalizedJobTitle
+      if (normalizedJobTitle) {
+        await ensureDictionaryEntry(em, {
+          tenantId: record.tenantId,
+          organizationId: record.organizationId,
+          kind: 'job_title',
+          value: normalizedJobTitle,
+        })
+      }
+    }
     if (parsed.department !== undefined) profile.department = normalizeOptionalString(parsed.department)
     if (parsed.seniority !== undefined) profile.seniority = normalizeOptionalString(parsed.seniority)
     if (parsed.timezone !== undefined) profile.timezone = normalizeOptionalString(parsed.timezone)
