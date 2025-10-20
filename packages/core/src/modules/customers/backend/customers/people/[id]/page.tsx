@@ -1274,6 +1274,16 @@ function NotesTab({
     })
   }, [])
 
+  React.useEffect(() => {
+    if (!onActionChange) return
+    onActionChange({
+      label: addActionLabel,
+      onClick: focusComposer,
+      disabled: isSubmitting,
+    })
+    return () => onActionChange(null)
+  }, [onActionChange, addActionLabel, focusComposer, isSubmitting])
+
   const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
     if (!element) return
     element.style.height = 'auto'
@@ -1425,7 +1435,7 @@ function NotesTab({
 
   return (
     <div className="space-y-3">
-      <table className="w-full border-separate border-spacing-y-3">
+      <table className="w-full border-separate border-spacing-y-3 -mt-3">
         <tbody>
           <tr>
             <td className="rounded-xl bg-muted/10 px-0 pb-3 pt-0 align-top">
@@ -1554,8 +1564,15 @@ function NotesTab({
           </tr>
           {!hasVisibleNotes ? (
             <tr>
-              <td className="rounded-xl bg-background p-6 text-center text-sm text-muted-foreground">
-                {emptyLabel}
+              <td className="rounded-xl bg-background p-6">
+                <EmptyState
+                  title={emptyState.title}
+                  action={{
+                    label: emptyState.actionLabel,
+                    onClick: focusComposer,
+                    disabled: isSubmitting,
+                  }}
+                />
               </td>
             </tr>
           ) : (
@@ -1733,16 +1750,39 @@ type ActivitiesTabProps = {
   isSubmitting: boolean
   emptyLabel: string
   t: Translator
+  addActionLabel: string
+  emptyState: TabEmptyState
+  onActionChange?: (action: SectionAction | null) => void
 }
 
-function ActivitiesTab({ activities, onCreate, isSubmitting, emptyLabel, t }: ActivitiesTabProps) {
+function ActivitiesTab({
+  activities,
+  onCreate,
+  isSubmitting,
+  emptyLabel,
+  t,
+  addActionLabel,
+  emptyState,
+  onActionChange,
+}: ActivitiesTabProps) {
   const [open, setOpen] = React.useState(false)
+  const openDialog = React.useCallback(() => setOpen(true), [])
   const [draft, setDraft] = React.useState({
     activityType: '',
     subject: '',
     body: '',
     occurredAt: '',
   })
+
+  React.useEffect(() => {
+    if (!onActionChange) return
+    onActionChange({
+      label: addActionLabel,
+      onClick: openDialog,
+      disabled: isSubmitting,
+    })
+    return () => onActionChange(null)
+  }, [onActionChange, addActionLabel, openDialog, isSubmitting])
 
   const handleSubmit = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -1765,15 +1805,16 @@ function ActivitiesTab({ activities, onCreate, isSubmitting, emptyLabel, t }: Ac
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end">
-        <Button onClick={() => setOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t('customers.people.detail.activities.add')}
-        </Button>
-      </div>
       <div className="space-y-4">
         {activities.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+          <EmptyState
+            title={emptyState.title}
+            action={{
+              label: emptyState.actionLabel,
+              onClick: openDialog,
+              disabled: isSubmitting,
+            }}
+          />
         ) : (
           activities.map((activity) => (
             <div key={activity.id} className="rounded-lg border p-4 space-y-2">
@@ -1857,7 +1898,9 @@ type AddressesTabProps = {
   isSubmitting: boolean
   emptyLabel: string
   t: Translator
-  onAddActionChange?: (action: { open: () => void; disabled: boolean } | null) => void
+  addActionLabel: string
+  emptyState: TabEmptyState
+  onActionChange?: (action: SectionAction | null) => void
 }
 
 function AddressesTab({
@@ -1868,7 +1911,9 @@ function AddressesTab({
   isSubmitting,
   emptyLabel,
   t,
-  onAddActionChange,
+  addActionLabel,
+  emptyState,
+  onActionChange,
 }: AddressesTabProps) {
   const displayAddresses = React.useMemo<CustomerAddressValue[]>(() => {
     return addresses.map((address) => ({
@@ -1889,17 +1934,18 @@ function AddressesTab({
 
   const handleAddActionChange = React.useCallback(
     (action: { openCreateForm: () => void; addDisabled: boolean } | null) => {
-      if (!onAddActionChange) return
+      if (!onActionChange) return
       if (!action) {
-        onAddActionChange(null)
+        onActionChange(null)
         return
       }
-      onAddActionChange({
-        open: action.openCreateForm,
+      onActionChange({
+        label: addActionLabel,
+        onClick: action.openCreateForm,
         disabled: action.addDisabled,
       })
     },
-    [onAddActionChange]
+    [onActionChange, addActionLabel]
   )
 
   return (
@@ -1913,6 +1959,8 @@ function AddressesTab({
       t={t}
       hideAddButton
       onAddActionChange={handleAddActionChange}
+      emptyStateTitle={emptyState.title}
+      emptyStateActionLabel={emptyState.actionLabel}
     />
   )
 }
@@ -1923,11 +1971,34 @@ type TasksTabProps = {
   isSubmitting: boolean
   emptyLabel: string
   t: Translator
+  addActionLabel: string
+  emptyState: TabEmptyState
+  onActionChange?: (action: SectionAction | null) => void
 }
 
-function TasksTab({ tasks, onCreate, isSubmitting, emptyLabel, t }: TasksTabProps) {
+function TasksTab({
+  tasks,
+  onCreate,
+  isSubmitting,
+  emptyLabel,
+  t,
+  addActionLabel,
+  emptyState,
+  onActionChange,
+}: TasksTabProps) {
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState({ title: '', isDone: false })
+  const openDialog = React.useCallback(() => setOpen(true), [])
+
+  React.useEffect(() => {
+    if (!onActionChange) return
+    onActionChange({
+      label: addActionLabel,
+      onClick: openDialog,
+      disabled: isSubmitting,
+    })
+    return () => onActionChange(null)
+  }, [onActionChange, addActionLabel, openDialog, isSubmitting])
 
   const handleSubmit = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -1945,15 +2016,16 @@ function TasksTab({ tasks, onCreate, isSubmitting, emptyLabel, t }: TasksTabProp
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end">
-        <Button onClick={() => setOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t('customers.people.detail.tasks.add')}
-        </Button>
-      </div>
       <div className="space-y-4">
         {tasks.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+          <EmptyState
+            title={emptyState.title}
+            action={{
+              label: emptyState.actionLabel,
+              onClick: openDialog,
+              disabled: isSubmitting,
+            }}
+          />
         ) : (
           tasks.map((task) => (
             <div key={task.id} className="rounded-lg border p-4 space-y-1 text-sm">
@@ -2013,31 +2085,277 @@ function TasksTab({ tasks, onCreate, isSubmitting, emptyLabel, t }: TasksTabProp
 
 type DealsTabProps = {
   deals: DealSummary[]
+  onCreate: (payload: {
+    title: string
+    status?: string
+    pipelineStage?: string
+    valueAmount?: number
+    valueCurrency?: string
+    probability?: number
+    expectedCloseAt?: string
+    description?: string
+  }) => Promise<void>
+  isSubmitting: boolean
   emptyLabel: string
+  t: Translator
+  addActionLabel: string
+  emptyState: TabEmptyState
+  onActionChange?: (action: SectionAction | null) => void
 }
 
-function DealsTab({ deals, emptyLabel }: DealsTabProps) {
+function DealsTab({
+  deals,
+  onCreate,
+  isSubmitting,
+  emptyLabel,
+  t,
+  addActionLabel,
+  emptyState,
+  onActionChange,
+}: DealsTabProps) {
+  const [open, setOpen] = React.useState(false)
+  const openDialog = React.useCallback(() => setOpen(true), [])
+  const [draft, setDraft] = React.useState({
+    title: '',
+    status: '',
+    pipelineStage: '',
+    valueAmount: '',
+    valueCurrency: '',
+    probability: '',
+    expectedCloseAt: '',
+    description: '',
+  })
+
+  const resetDraft = React.useCallback(() => {
+    setDraft({
+      title: '',
+      status: '',
+      pipelineStage: '',
+      valueAmount: '',
+      valueCurrency: '',
+      probability: '',
+      expectedCloseAt: '',
+      description: '',
+    })
+  }, [])
+
+  React.useEffect(() => {
+    if (!onActionChange) return
+    onActionChange({
+      label: addActionLabel,
+      onClick: openDialog,
+      disabled: isSubmitting,
+    })
+    return () => onActionChange(null)
+  }, [onActionChange, addActionLabel, openDialog, isSubmitting])
+
+  const handleSubmit = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      const trimmedTitle = draft.title.trim()
+      if (!trimmedTitle || isSubmitting) {
+        flash(t('customers.people.detail.deals.titleRequired'), 'error')
+        return
+      }
+      const payload: {
+        title: string
+        status?: string
+        pipelineStage?: string
+        valueAmount?: number
+        valueCurrency?: string
+        probability?: number
+        expectedCloseAt?: string
+        description?: string
+      } = { title: trimmedTitle }
+      const normalizedStatus = draft.status.trim()
+      if (normalizedStatus) payload.status = normalizedStatus
+      const normalizedStage = draft.pipelineStage.trim()
+      if (normalizedStage) payload.pipelineStage = normalizedStage
+      const normalizedAmount = draft.valueAmount.trim()
+      if (normalizedAmount) {
+        const parsed = Number(normalizedAmount)
+        if (!Number.isNaN(parsed)) payload.valueAmount = parsed
+      }
+      const normalizedCurrency = draft.valueCurrency.trim()
+      if (normalizedCurrency) payload.valueCurrency = normalizedCurrency.toUpperCase()
+      const normalizedProbability = draft.probability.trim()
+      if (normalizedProbability) {
+        const parsed = Number(normalizedProbability)
+        if (!Number.isNaN(parsed)) payload.probability = parsed
+      }
+      if (draft.expectedCloseAt) payload.expectedCloseAt = draft.expectedCloseAt
+      const normalizedDescription = draft.description.trim()
+      if (normalizedDescription) payload.description = normalizedDescription
+      await onCreate(payload)
+      resetDraft()
+      setOpen(false)
+    },
+    [draft, isSubmitting, onCreate, resetDraft, t]
+  )
+
+  const handleClose = React.useCallback(() => {
+    resetDraft()
+    setOpen(false)
+  }, [resetDraft])
+
   return (
-    <div className="space-y-4">
-      {deals.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-      ) : (
-        deals.map((deal) => (
-          <div key={deal.id} className="rounded-lg border p-4 space-y-1 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-base font-semibold">{deal.title}</h3>
-              <span className="text-xs uppercase text-muted-foreground">{deal.status || emptyLabel}</span>
+    <div className="space-y-6">
+      <div className="space-y-4">
+        {deals.length === 0 ? (
+          <EmptyState
+            title={emptyState.title}
+            action={{
+              label: emptyState.actionLabel,
+              onClick: openDialog,
+              disabled: isSubmitting,
+            }}
+          />
+        ) : (
+          deals.map((deal) => (
+            <div key={deal.id} className="rounded-lg border p-4 space-y-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-base font-semibold">{deal.title}</h3>
+                <span className="text-xs uppercase text-muted-foreground">{deal.status || emptyLabel}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                {deal.pipelineStage ? <span>{deal.pipelineStage}</span> : null}
+                {typeof deal.probability === 'number' ? <span>{deal.probability}%</span> : null}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {deal.valueAmount && deal.valueCurrency
+                  ? `${deal.valueAmount} ${deal.valueCurrency}`
+                  : emptyLabel}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) : emptyLabel}
+              </div>
             </div>
-            <div className="text-xs text-muted-foreground">
-              {deal.pipelineStage ? `${deal.pipelineStage} • ` : ''}
-              {deal.valueAmount && deal.valueCurrency ? `${deal.valueAmount} ${deal.valueCurrency}` : null}
+          ))
+        )}
+      </div>
+      <Dialog open={open} onOpenChange={(next) => { if (!next) handleClose(); else setOpen(next) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('customers.people.detail.deals.addTitle')}</DialogTitle>
+          </DialogHeader>
+          <form className="space-y-3" onSubmit={handleSubmit}>
+            <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="deal-title">
+                {t('customers.people.detail.deals.fields.title')}
+              </label>
+              <input
+                id="deal-title"
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draft.title}
+                onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
+                required
+              />
             </div>
-            <div className="text-xs text-muted-foreground">
-              {deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) : emptyLabel}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="deal-status">
+                  {t('customers.people.detail.deals.fields.status')}
+                </label>
+                <input
+                  id="deal-status"
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft.status}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="deal-stage">
+                  {t('customers.people.detail.deals.fields.pipelineStage')}
+                </label>
+                <input
+                  id="deal-stage"
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft.pipelineStage}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, pipelineStage: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="deal-value">
+                  {t('customers.people.detail.deals.fields.valueAmount')}
+                </label>
+                <input
+                  id="deal-value"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft.valueAmount}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, valueAmount: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="deal-currency">
+                  {t('customers.people.detail.deals.fields.valueCurrency')}
+                </label>
+                <input
+                  id="deal-currency"
+                  className="w-full uppercase rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft.valueCurrency}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, valueCurrency: event.target.value }))}
+                  maxLength={3}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="deal-probability">
+                  {t('customers.people.detail.deals.fields.probability')}
+                </label>
+                <input
+                  id="deal-probability"
+                  type="number"
+                  min="0"
+                  max="100"
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft.probability}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, probability: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="deal-expected">
+                  {t('customers.people.detail.deals.fields.expectedCloseAt')}
+                </label>
+                <input
+                  id="deal-expected"
+                  type="date"
+                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft.expectedCloseAt}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, expectedCloseAt: event.target.value }))}
+                />
+              </div>
             </div>
-          </div>
-        ))
-      )}
+            <div className="space-y-1">
+              <label className="text-sm font-medium" htmlFor="deal-description">
+                {t('customers.people.detail.deals.fields.description')}
+              </label>
+              <textarea
+                id="deal-description"
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draft.description}
+                onChange={(event) => setDraft((prev) => ({ ...prev, description: event.target.value }))}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting}>
+                {t('customers.people.detail.deals.cancel')}
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t('customers.people.detail.deals.saving')}
+                  </>
+                ) : (
+                  t('customers.people.detail.deals.save')
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
