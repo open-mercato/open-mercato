@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Plus } from 'lucide-react'
 
 type EmptyStateAction = {
   label: string
@@ -44,7 +45,7 @@ export function EmptyState({
           className={cn('mt-4 inline-flex items-center gap-2', actionLabelClassName)}
           disabled={action.disabled}
         >
-          {action.icon}
+          {(action.icon ?? <Plus className="h-4 w-4" aria-hidden />)}
           <span>{action.label}</span>
         </Button>
       ) : null}
