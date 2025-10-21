@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
+import type { CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
+import { invalidateDefinitionsCache } from './definitions.cache'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
@@ -30,8 +32,13 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   const { entityId, definitions } = parsed.data
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as any
+  let cache: CacheStrategy | undefined
+  try {
+    cache = resolve('cache') as CacheStrategy
+  } catch {}
 
   await em.begin()
   try {
@@ -66,6 +73,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to save definitions batch' }, { status: 500 })
   }
 
+  await invalidateDefinitionsCache(cache, {
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    entityIds: [entityId],
+  })
+
   return NextResponse.json({ ok: true })
 }
-

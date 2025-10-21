@@ -94,7 +94,11 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
-        const id = parsed?.id ?? (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
+        const id =
+          parsed?.body?.id ??
+          parsed?.id ??
+          parsed?.query?.id ??
+          (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
         if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.comment_required', 'Comment id is required') })
         return { id }
       },

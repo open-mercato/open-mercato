@@ -595,6 +595,7 @@ function InlineMultilineEditor({
   const [saving, setSaving] = React.useState(false)
   const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(false)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const formRef = React.useRef<HTMLFormElement | null>(null)
   const containerClasses = cn(
     'group',
     variant === 'muted' ? 'relative rounded border bg-muted/20 p-3' : 'rounded-lg border p-4',
@@ -727,19 +728,42 @@ function InlineMultilineEditor({
         <div className={readOnlyWrapperClasses} {...activateListeners}>
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
           {editing ? (
-            <div className={editingContainerClass}>
-              <div className="flex justify-end">
+            <form
+              ref={formRef}
+              className={editingContainerClass}
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (saving) return
+                void handleSave()
+              }}
+              onKeyDown={handleFormKeyDown}
+            >
+              <div className="flex w-full items-center justify-end gap-2">
                 <Button
                   type="button"
-                  variant={isMarkdownEnabled ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="h-8 px-3 text-xs font-medium"
+                  variant="ghost"
+                  size="icon"
                   onClick={handleMarkdownToggle}
                   aria-pressed={isMarkdownEnabled}
+                  title={
+                    isMarkdownEnabled
+                      ? t('customers.people.detail.notes.markdownDisable')
+                      : t('customers.people.detail.notes.markdownEnable')
+                  }
+                  aria-label={
+                    isMarkdownEnabled
+                      ? t('customers.people.detail.notes.markdownDisable')
+                      : t('customers.people.detail.notes.markdownEnable')
+                  }
+                  className={cn('h-8 w-8', isMarkdownEnabled ? 'text-primary' : undefined)}
+                  disabled={saving}
                 >
-                  {isMarkdownEnabled
-                    ? t('customers.people.detail.notes.markdownDisable')
-                    : t('customers.people.detail.notes.markdownEnable')}
+                  <FileCode className="h-4 w-4" />
+                  <span className="sr-only">
+                    {isMarkdownEnabled
+                      ? t('customers.people.detail.notes.markdownDisable')
+                      : t('customers.people.detail.notes.markdownEnable')}
+                  </span>
                 </Button>
               </div>
               <textarea
@@ -761,15 +785,15 @@ function InlineMultilineEditor({
               />
               {error ? <p className="text-xs text-red-600">{error}</p> : null}
               <div className="flex items-center gap-2">
-                <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+                <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('customers.people.detail.inline.save')}
+                  {t('customers.people.detail.inline.saveShortcut')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('customers.people.detail.inline.cancel')}
                 </Button>
               </div>
-            </div>
+            </form>
           ) : (
             <div className="mt-1 text-sm whitespace-pre-wrap break-words">
               {value && typeof value === 'string' && value.trim().length ? (
@@ -1491,9 +1515,9 @@ function NotesTab({
   }, [notes.length])
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-xl bg-muted/10 p-4">
-        <form ref={formRef} onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-2">
+    <div className="mt-4 space-y-3">
+      <div className="rounded-xl bg-muted/10 py-4">
+        <form ref={formRef} onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-2 px-4">
           <label htmlFor="new-note" className="sr-only">
             {t('customers.people.detail.notes.addLabel')}
           </label>
@@ -1914,7 +1938,7 @@ function ActivitiesTab({
   )
 
   return (
-    <div className="space-y-6">
+    <div className="mt-4 space-y-6">
       <div className="space-y-4">
         {activities.length === 0 ? (
           <EmptyState
@@ -2094,19 +2118,21 @@ function AddressesTab({
   )
 
   return (
-    <CustomerAddressTiles
-      addresses={displayAddresses}
-      onCreate={onCreate}
-      onUpdate={onUpdate}
-      onDelete={onDelete}
-      isSubmitting={isSubmitting}
-      emptyLabel={emptyLabel}
-      t={t}
-      hideAddButton
-      onAddActionChange={handleAddActionChange}
-      emptyStateTitle={emptyState.title}
-      emptyStateActionLabel={emptyState.actionLabel}
-    />
+    <div className="mt-4">
+      <CustomerAddressTiles
+        addresses={displayAddresses}
+        onCreate={onCreate}
+        onUpdate={onUpdate}
+        onDelete={onDelete}
+        isSubmitting={isSubmitting}
+        emptyLabel={emptyLabel}
+        t={t}
+        hideAddButton
+        onAddActionChange={handleAddActionChange}
+        emptyStateTitle={emptyState.title}
+        emptyStateActionLabel={emptyState.actionLabel}
+      />
+    </div>
   )
 }
 
@@ -2183,7 +2209,7 @@ function TasksTab({
   )
 
   return (
-    <div className="space-y-6">
+    <div className="mt-4 space-y-6">
       <div className="space-y-4">
         {visibleTasks.length === 0 ? (
           <EmptyState
@@ -2416,7 +2442,7 @@ function DealsTab({
   }, [resetDraft])
 
   return (
-    <div className="space-y-6">
+    <div className="mt-4 space-y-6">
       <div className="space-y-4">
         {deals.length === 0 ? (
           <EmptyState

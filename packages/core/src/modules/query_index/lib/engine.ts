@@ -11,6 +11,7 @@ type NormalizedFilter = { field: string; op: FilterOp; value?: unknown }
 
 export class HybridQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
+  private debugVerbosity: boolean | null = null
 
   constructor(private em: EntityManager, private fallback: BasicQueryEngine) {}
 

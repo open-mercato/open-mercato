@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server'
+import type { CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
+import {
+  createDefinitionsCacheKey,
+  createDefinitionsCacheTags,
+  invalidateDefinitionsCache,
+  ENTITY_DEFINITIONS_CACHE_TTL_MS,
+} from './definitions.cache'
 
 export const metadata = {
   // Reading definitions is needed by record forms; keep it auth-protected but accessible to all authenticated users
@@ -55,8 +62,30 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as any
+  let cache: CacheStrategy | undefined
+  try {
+    cache = resolve('cache') as CacheStrategy
+  } catch {}
+
+  let cacheKey: string | null = null
+  if (cache) {
+    cacheKey = createDefinitionsCacheKey({
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId,
+      entityIds,
+    })
+    try {
+      const cached = await cache.get(cacheKey)
+      if (cached) {
+        return NextResponse.json(cached)
+      }
+    } catch (err) {
+      console.warn('[entities.definitions.cache] Failed to read cache', err)
+    }
+  }
 
   // Tenant-only scoping: allow global (null) or exact tenant match; do not scope by organization here
   const whereActive = {
@@ -182,7 +211,25 @@ export async function GET(req: Request) {
   })
   sanitized.sort((a: any, b: any) => ((a.priority ?? 0) - (b.priority ?? 0)))
 
-  return NextResponse.json({ items: sanitized })
+  const responseBody = { items: sanitized }
+
+  if (cache && cacheKey) {
+    const tags = createDefinitionsCacheTags({
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId,
+      entityIds,
+    })
+    try {
+      await cache.set(cacheKey, responseBody, {
+        ttl: ENTITY_DEFINITIONS_CACHE_TTL_MS,
+        tags,
+      })
+    } catch (err) {
+      console.warn('[entities.definitions.cache] Failed to store cache entry', err)
+    }
+  }
+
+  return NextResponse.json(responseBody)
 }
 
 export async function POST(req: Request) {
@@ -201,8 +248,13 @@ export async function POST(req: Request) {
     }
   }
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as any
+  let cache: CacheStrategy | undefined
+  try {
+    cache = resolve('cache') as CacheStrategy
+  } catch {}
 
   const where: any = { entityId: input.entityId, key: input.key, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
   let def = await em.findOne(CustomFieldDef, where)
@@ -226,6 +278,11 @@ export async function POST(req: Request) {
   def.updatedAt = new Date()
   em.persist(def)
   await em.flush()
+  await invalidateDefinitionsCache(cache, {
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    entityIds: [input.entityId],
+  })
   // Changing field definitions may impact forms but not sidebar items; no nav cache touch
   return NextResponse.json({ ok: true, item: { id: def.id, key: def.key, kind: def.kind, configJson: def.configJson, isActive: def.isActive } })
 }
@@ -238,8 +295,13 @@ export async function DELETE(req: Request) {
   const { entityId, key } = body || {}
   if (!entityId || !key) return NextResponse.json({ error: 'entityId and key are required' }, { status: 400 })
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as any
+  let cache: CacheStrategy | undefined
+  try {
+    cache = resolve('cache') as CacheStrategy
+  } catch {}
   const where: any = { entityId, key, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
   const def = await em.findOne(CustomFieldDef, where)
   if (!def) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -248,6 +310,11 @@ export async function DELETE(req: Request) {
   def.deletedAt = def.deletedAt ?? new Date()
   em.persist(def)
   await em.flush()
+  await invalidateDefinitionsCache(cache, {
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    entityIds: [entityId],
+  })
   // Changing field definitions may impact forms but not sidebar items; no nav cache touch
   return NextResponse.json({ ok: true })
 }
