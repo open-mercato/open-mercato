@@ -141,3 +141,14 @@ export async function fetchCustomFieldFormFields(entityIds: string | string[], f
   const defs: CustomFieldDefDto[] = await fetchCustomFieldDefs(entityIds, fetchImpl)
   return buildFormFieldsFromCustomFields(defs, options)
 }
+
+export async function fetchCustomFieldFormFieldsWithDefinitions(
+  entityIds: string | string[],
+  fetchImpl: typeof fetch = apiFetch,
+  options?: { bareIds?: boolean },
+): Promise<{ fields: CrudField[]; definitions: CustomFieldDefDto[] }> {
+  await ensureFieldRegistryReady()
+  const definitions = await fetchCustomFieldDefs(entityIds, fetchImpl)
+  const fields = buildFormFieldsFromCustomFields(definitions, options)
+  return { fields, definitions }
+}

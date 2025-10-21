@@ -338,6 +338,7 @@ function InlineTextEditor({
     disabled: !editing || !isEmailField || !!error || saving || !isValidEmailForLookup,
     matchMode: 'prefix',
   })
+  const formRef = React.useRef<HTMLFormElement | null>(null)
   const handlePhoneDuplicateLookup = React.useCallback(
     async (digits: string) => {
       if (!isPhoneField || !editing || !!error || saving) return null
@@ -352,6 +353,7 @@ function InlineTextEditor({
       : variant === 'plain'
         ? 'relative flex items-center gap-3 rounded-none border-0 p-0'
         : 'rounded-lg border p-4',
+    activateOnClick && !editing ? 'cursor-pointer' : null,
     containerClassName || null
   )
   const readOnlyWrapperClasses = cn(
@@ -361,8 +363,11 @@ function InlineTextEditor({
   )
   const triggerSize = variant === 'plain' ? 'icon' : 'sm'
   const triggerClasses = cn(
-    'shrink-0',
-    variant === 'muted' ? 'h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100' : null,
+    'shrink-0 transition-opacity duration-150',
+    editing
+      ? 'opacity-100'
+      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100',
+    variant === 'muted' ? 'h-8 w-8' : null,
     variant === 'plain' ? 'mt-1' : null,
     triggerClassName || null
   )
@@ -378,6 +383,26 @@ function InlineTextEditor({
         event.preventDefault()
         handleActivate()
       }
+    },
+    [activateOnClick, editing, handleActivate]
+  )
+
+  const handleInteractiveClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      const target = event.target as HTMLElement
+      const interactiveElement = target.closest('button, input, select, textarea, a, [role="link"]')
+      if (interactiveElement) {
+        if (interactiveElement.tagName.toLowerCase() === 'a') {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return
+          }
+          event.preventDefault()
+        } else {
+          return
+        }
+      }
+      handleActivate()
     },
     [activateOnClick, editing, handleActivate]
   )
@@ -410,6 +435,34 @@ function InlineTextEditor({
       setSaving(false)
     }
   }, [draft, onSave, t, validator])
+
+  const handleFormKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLFormElement>) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setEditing(false)
+        return
+      }
+      if (event.key !== 'Enter' || (!event.metaKey && !event.ctrlKey)) return
+      event.preventDefault()
+      if (saving) return
+      if (!trimmedDraft.length) return
+      try {
+        formRef.current?.requestSubmit()
+      } catch {
+        // ignore environments without form.requestSubmit
+      }
+    },
+    [saving, trimmedDraft]
+  )
+  const handleFormSubmit = React.useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      if (saving) return
+      void handleSave()
+    },
+    [handleSave, saving]
+  )
 
   const displayContent = React.useMemo(() => {
     if (renderDisplay) {
@@ -472,20 +525,25 @@ function InlineTextEditor({
       ? {
           role: 'button' as const,
           tabIndex: 0,
-          onClick: handleActivate,
+          onClick: handleInteractiveClick,
           onKeyDown: handleContainerKeyDown,
         }
       : {}
 
   return (
-    <div className={containerClasses}>
+    <div className={containerClasses} onClick={handleInteractiveClick}>
       <div className="flex items-start justify-between gap-2">
         <div className={readOnlyWrapperClasses} {...activateListeners}>
           {hideLabel ? null : (
             <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
           )}
           {editing ? (
-            <div className={editingContainerClass}>
+            <form
+              ref={formRef}
+              className={editingContainerClass}
+              onSubmit={handleFormSubmit}
+              onKeyDown={handleFormKeyDown}
+            >
               {isPhoneField ? (
                 <PhoneNumberField
                   value={draft.length ? draft : undefined}
@@ -533,15 +591,15 @@ function InlineTextEditor({
                 </p>
               ) : null}
               <div className="flex items-center gap-2">
-                <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+                <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('customers.people.detail.inline.save')}
+                  {t('customers.people.detail.inline.saveShortcut')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('customers.people.detail.inline.cancel')}
                 </Button>
               </div>
-            </div>
+            </form>
           ) : (
             <div className={variant === 'plain' ? '' : 'mt-1'}>{displayContent}</div>
           )}
@@ -599,6 +657,7 @@ function InlineMultilineEditor({
   const containerClasses = cn(
     'group',
     variant === 'muted' ? 'relative rounded border bg-muted/20 p-3' : 'rounded-lg border p-4',
+    activateOnClick && !editing ? 'cursor-pointer' : null,
     containerClassName || null,
   )
   const readOnlyWrapperClasses = cn(
@@ -606,8 +665,11 @@ function InlineMultilineEditor({
     activateOnClick && !editing ? 'cursor-pointer' : null,
   )
   const triggerClasses = cn(
-    'shrink-0',
-    variant === 'muted' ? 'h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100' : null,
+    'shrink-0 transition-opacity duration-150',
+    editing
+      ? 'opacity-100'
+      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100',
+    variant === 'muted' ? 'h-8 w-8' : null,
     triggerClassName || null,
   )
 
@@ -622,6 +684,26 @@ function InlineMultilineEditor({
         event.preventDefault()
         handleActivate()
       }
+    },
+    [activateOnClick, editing, handleActivate],
+  )
+
+  const handleInteractiveClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      const target = event.target as HTMLElement
+      const interactiveElement = target.closest('button, input, select, textarea, a, [role="link"]')
+      if (interactiveElement) {
+        if (interactiveElement.tagName.toLowerCase() === 'a') {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return
+          }
+          event.preventDefault()
+        } else {
+          return
+        }
+      }
+      handleActivate()
     },
     [activateOnClick, editing, handleActivate],
   )
@@ -674,8 +756,12 @@ function InlineMultilineEditor({
 
   const handleFormKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLFormElement>) => {
-      if (!event.metaKey && !event.ctrlKey) return
-      if (event.key !== 'Enter') return
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setEditing(false)
+        return
+      }
+      if (event.key !== 'Enter' || (!event.metaKey && !event.ctrlKey)) return
       event.preventDefault()
       if (saving) return
       if (!draft.trim()) return
@@ -717,13 +803,13 @@ function InlineMultilineEditor({
       ? {
           role: 'button' as const,
           tabIndex: 0,
-          onClick: handleActivate,
+          onClick: handleInteractiveClick,
           onKeyDown: handleContainerKeyDown,
         }
       : {}
 
   return (
-    <div className={containerClasses}>
+    <div className={containerClasses} onClick={handleInteractiveClick}>
       <div className="flex items-start justify-between gap-2">
         <div className={readOnlyWrapperClasses} {...activateListeners}>
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
@@ -883,6 +969,7 @@ function InlineDictionaryEditor({
   const containerClasses = cn(
     'group',
     variant === 'muted' ? 'relative rounded border bg-muted/20 p-3' : 'rounded-lg border p-4',
+    activateOnClick && !editing ? 'cursor-pointer' : null,
     containerClassName || null
   )
   const readOnlyWrapperClasses = cn(
@@ -890,8 +977,11 @@ function InlineDictionaryEditor({
     activateOnClick && !editing ? 'cursor-pointer' : null
   )
   const triggerClasses = cn(
-    'shrink-0',
-    variant === 'muted' ? 'h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100' : null,
+    'shrink-0 transition-opacity duration-150',
+    editing
+      ? 'opacity-100'
+      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100',
+    variant === 'muted' ? 'h-8 w-8' : null,
     triggerClassName || null
   )
   const triggerSize: React.ComponentProps<typeof Button>['size'] = 'sm'
@@ -907,6 +997,26 @@ function InlineDictionaryEditor({
         event.preventDefault()
         handleActivate()
       }
+    },
+    [activateOnClick, editing, handleActivate]
+  )
+
+  const handleInteractiveClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      const target = event.target as HTMLElement
+      const interactiveElement = target.closest('button, input, select, textarea, a, [role="link"]')
+      if (interactiveElement) {
+        if (interactiveElement.tagName.toLowerCase() === 'a') {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return
+          }
+          event.preventDefault()
+        } else {
+          return
+        }
+      }
+      handleActivate()
     },
     [activateOnClick, editing, handleActivate]
   )
@@ -937,18 +1047,33 @@ function InlineDictionaryEditor({
       ? {
           role: 'button' as const,
           tabIndex: 0,
-          onClick: handleActivate,
+          onClick: handleInteractiveClick,
           onKeyDown: handleContainerKeyDown,
         }
       : {}
 
   return (
-    <div className={containerClasses}>
+    <div className={containerClasses} onClick={handleInteractiveClick}>
       <div className="flex items-start justify-between gap-2">
         <div className={readOnlyWrapperClasses} {...activateListeners}>
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
           {editing ? (
-            <div className={editingContainerClass}>
+            <div
+              className={editingContainerClass}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setEditing(false)
+                  return
+                }
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  if (!saving) {
+                    void handleSave()
+                  }
+                }
+              }}
+            >
               <DictionarySelectField
                 kind={kind}
                 value={draft}
@@ -1051,6 +1176,7 @@ type NextInteractionEditorProps = {
   valueColor: string | null | undefined
   emptyLabel: string
   onSave: (next: NextInteractionPayload | null) => Promise<void>
+  activateOnClick?: boolean
 }
 
 function InlineNextInteractionEditor({
@@ -1062,6 +1188,7 @@ function InlineNextInteractionEditor({
   valueColor,
   emptyLabel,
   onSave,
+  activateOnClick = false,
 }: NextInteractionEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -1073,6 +1200,10 @@ function InlineNextInteractionEditor({
   const [dateError, setDateError] = React.useState<string | null>(null)
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const containerClasses = cn(
+    'group relative rounded-lg border p-4',
+    activateOnClick && !editing ? 'cursor-pointer' : null
+  )
 
   React.useEffect(() => {
     if (!editing) {
@@ -1139,22 +1270,90 @@ function InlineNextInteractionEditor({
     }
   }, [draftColor, draftDate, draftIcon, draftName, draftRefId, onSave, t])
 
+  const handleActivate = React.useCallback(() => {
+    if (!editing) setEditing(true)
+  }, [editing])
+
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        handleActivate()
+      }
+    },
+    [activateOnClick, editing, handleActivate]
+  )
+
+  const handleInteractiveClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      const target = event.target as HTMLElement
+      const interactiveElement = target.closest('button, input, select, textarea, a, [role="link"]')
+      if (interactiveElement) {
+        if (interactiveElement.tagName.toLowerCase() === 'a') {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return
+          }
+          event.preventDefault()
+        } else {
+          return
+        }
+      }
+      handleActivate()
+    },
+    [activateOnClick, editing, handleActivate]
+  )
+
+  const interactiveProps: React.HTMLAttributes<HTMLDivElement> =
+    activateOnClick && !editing
+      ? {
+          role: 'button' as const,
+          tabIndex: 0,
+          onClick: handleInteractiveClick,
+          onKeyDown: handleKeyDown,
+        }
+      : {}
+
   return (
-    <div className="relative rounded-lg border p-4">
+    <div className={containerClasses} onClick={handleInteractiveClick}>
       <Button
         type="button"
         variant="ghost"
         size="sm"
-        className="absolute right-3 top-3"
-        onClick={() => setEditing((state) => !state)}
+        className={cn(
+          'absolute right-3 top-3 transition-opacity duration-150',
+          editing
+            ? 'opacity-100'
+            : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
+        )}
+        onClick={(event) => {
+          event.stopPropagation()
+          setEditing((state) => !state)
+        }}
       >
         {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
       </Button>
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-2" {...interactiveProps}>
         <div className="flex-1">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
           {editing ? (
-            <div className="mt-2 space-y-4">
+            <div
+              className="mt-2 space-y-4"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setEditing(false)
+                  return
+                }
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  if (!saving) {
+                    void handleSave()
+                  }
+                }
+              }}
+            >
               <input
                 type="datetime-local"
                 className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -1516,9 +1715,9 @@ function NotesTab({
   }, [notes.length])
 
   return (
-    <div className="mt-4 space-y-3">
+    <div className="mt-2 space-y-3">
       <div className="rounded-xl bg-muted/10 py-4">
-        <form ref={formRef} onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-2 px-4">
+        <form ref={formRef} onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-2">
           <label htmlFor="new-note" className="sr-only">
             {t('customers.people.detail.notes.addLabel')}
           </label>
@@ -1648,7 +1847,7 @@ function NotesTab({
             const isEditingContent = contentEditor.id === note.id
             const isContentSaving = contentSavingId === note.id
             return (
-              <div key={note.id} className="rounded-xl bg-card p-4 shadow-sm">
+              <div key={note.id} className="group rounded-xl bg-card p-4 shadow-sm transition-shadow">
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <div className="flex items-center gap-2">
@@ -1661,6 +1860,20 @@ function NotesTab({
                     </div>
                     <div className="flex items-center gap-2">
                       <span>{authorLabel}</span>
+                      {!isEditingContent ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openContentEditor(note)}
+                          aria-label={t('customers.people.detail.notes.edit', 'Edit note')}
+                          title={t('customers.people.detail.notes.edit', 'Edit note')}
+                          className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                        >
+                          <Pencil className="h-4 w-4" />
+                          <span className="sr-only">{t('customers.people.detail.notes.edit', 'Edit note')}</span>
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         variant="ghost"
@@ -1693,16 +1906,31 @@ function NotesTab({
                   </div>
                   {isEditingContent ? (
                     <div className="space-y-2">
-                      <textarea
-                        ref={contentTextareaRef}
-                        value={contentEditor.value}
-                        onChange={(event) => {
-                          setContentEditor((prev) => ({ ...prev, value: event.target.value }))
-                          adjustTextareaSize(event.currentTarget)
-                        }}
-                        rows={3}
-                        className="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      />
+                      {isMarkdownEnabled ? (
+                        <div className="w-full rounded-md border border-muted-foreground/20 bg-background p-2">
+                          <div data-color-mode="light" className="w-full">
+                            <UiMarkdownEditor
+                              value={contentEditor.value}
+                              height={220}
+                              onChange={(value) =>
+                                setContentEditor((prev) => ({ ...prev, value: typeof value === 'string' ? value : '' }))
+                              }
+                              previewOptions={{ remarkPlugins: [remarkGfm] }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <textarea
+                          ref={contentTextareaRef}
+                          value={contentEditor.value}
+                          onChange={(event) => {
+                            setContentEditor((prev) => ({ ...prev, value: event.target.value }))
+                            adjustTextareaSize(event.currentTarget)
+                          }}
+                          rows={3}
+                          className="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        />
+                      )}
                       {contentError ? <p className="text-xs text-red-600">{contentError}</p> : null}
                       <div className="flex flex-wrap items-center gap-2">
                         <Button type="button" size="sm" onClick={handleContentSave} disabled={isContentSaving}>
@@ -1715,6 +1943,32 @@ function NotesTab({
                             t('customers.people.detail.inline.save')
                           )}
                         </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={handleMarkdownToggle}
+                          aria-pressed={isMarkdownEnabled}
+                          title={
+                            isMarkdownEnabled
+                              ? t('customers.people.detail.notes.markdownDisable')
+                              : t('customers.people.detail.notes.markdownEnable')
+                          }
+                          aria-label={
+                            isMarkdownEnabled
+                              ? t('customers.people.detail.notes.markdownDisable')
+                              : t('customers.people.detail.notes.markdownEnable')
+                          }
+                          className={cn('h-8 w-8', isMarkdownEnabled ? 'text-primary' : undefined)}
+                          disabled={isContentSaving}
+                        >
+                          <FileCode className="h-4 w-4" />
+                          <span className="sr-only">
+                            {isMarkdownEnabled
+                              ? t('customers.people.detail.notes.markdownDisable')
+                              : t('customers.people.detail.notes.markdownEnable')}
+                          </span>
+                        </Button>
                         <Button type="button" size="sm" variant="ghost" onClick={closeContentEditor} disabled={isContentSaving}>
                           {t('customers.people.detail.inline.cancel')}
                         </Button>
@@ -1724,7 +1978,7 @@ function NotesTab({
                     <div
                       role="button"
                       tabIndex={0}
-                      className="cursor-text text-sm"
+                      className="cursor-pointer text-sm"
                       onClick={() => openContentEditor(note)}
                       onKeyDown={(event) => handleContentKeyDown(event, note)}
                     >
@@ -3677,7 +3931,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               hideLabel
               variant="plain"
               activateOnClick
-              triggerClassName="opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+              triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
               containerClassName="max-w-full"
             />
           </div>
@@ -3705,6 +3959,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             type="email"
             validator={validators.email}
             recordId={person.id}
+            activateOnClick
             onSave={async (next) => {
               const send = typeof next === 'string' ? next : ''
               await savePerson(
@@ -3724,6 +3979,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             type="tel"
             validator={validators.phone}
             recordId={person.id}
+            activateOnClick
             onSave={async (next) => {
               const send = typeof next === 'string' ? next : ''
               await savePerson(
@@ -3740,6 +3996,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             value={person.status ?? null}
             emptyLabel={t('customers.people.detail.noValue')}
             labels={dictionaryLabels.statuses}
+            activateOnClick
             onSave={async (next) => {
               const send = typeof next === 'string' ? next : ''
               await savePerson(
@@ -3779,6 +4036,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 })
               )
             }}
+            activateOnClick
           />
         </div>
 
@@ -3931,7 +4189,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                         variant="muted"
                         activateOnClick
                         containerClassName="rounded border bg-muted/20 p-3"
-                        triggerClassName="h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+                        triggerClassName="h-8 w-8 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
                       />
                     </div>
                   )
@@ -3949,7 +4207,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                         variant="muted"
                         activateOnClick
                         containerClassName="rounded border bg-muted/20 p-3"
-                        triggerClassName="h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+                        triggerClassName="h-8 w-8 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
                       />
                     </div>
                   )
@@ -3968,7 +4226,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                       variant="muted"
                       activateOnClick
                       containerClassName="rounded border bg-muted/20 p-3"
-                      triggerClassName="h-8 w-8 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+                      triggerClassName="h-8 w-8 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
                       selectClassName={field.selectClassName}
                     />
                   </div>

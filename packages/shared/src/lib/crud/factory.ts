@@ -348,8 +348,10 @@ function handleError(err: unknown): Response {
   const stack = err instanceof Error ? err.stack : undefined
   // eslint-disable-next-line no-console
   console.error('[crud] unexpected error', { message, stack, err })
-  const body: Record<string, unknown> = { error: 'Internal server error' }
-  if (message) body.message = message
+  const body: Record<string, unknown> = {
+    error: 'Internal server error',
+    message: 'Something went wrong. Please try again later.',
+  }
   return json(body, { status: 500 })
 }
 

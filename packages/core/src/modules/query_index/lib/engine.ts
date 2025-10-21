@@ -22,6 +22,7 @@ type PreparedCustomFieldSource = {
 export class HybridQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
   private debugVerbosity: boolean | null = null
+  private sqlDebugEnabled: boolean | null = null
 
   constructor(private em: EntityManager, private fallback: BasicQueryEngine) {}
 
@@ -182,7 +183,8 @@ export class HybridQueryEngine implements QueryEngine {
     const pageSize = opts.page?.pageSize ?? 20
 
     const countBuilder = builder.clone().clearSelect().clearOrder().countDistinct(`${qualify('id')} as count`)
-    if (debugEnabled) {
+    const sqlDebugEnabled = this.isSqlDebugEnabled()
+    if (debugEnabled && sqlDebugEnabled) {
       const { sql, bindings } = countBuilder.clone().toSQL()
       this.debug('query:sql:count', { entity, sql, bindings })
     }
@@ -190,7 +192,7 @@ export class HybridQueryEngine implements QueryEngine {
     const total = this.parseCount(countRow)
 
     const dataBuilder = builder.clone().limit(pageSize).offset((page - 1) * pageSize)
-    if (debugEnabled) {
+    if (debugEnabled && sqlDebugEnabled) {
       const { sql, bindings } = dataBuilder.clone().toSQL()
       this.debug('query:sql:data', { entity, sql, bindings, page, pageSize })
     }
@@ -725,6 +727,13 @@ export class HybridQueryEngine implements QueryEngine {
     const nodeEnv = (process.env.NODE_ENV ?? '').toLowerCase()
     this.debugVerbosity = level === 'debug' || level === 'trace' || level === 'silly' || nodeEnv === 'development'
     return this.debugVerbosity
+  }
+
+  private isSqlDebugEnabled(): boolean {
+    if (this.sqlDebugEnabled != null) return this.sqlDebugEnabled
+    const raw = (process.env.QUERY_ENGINE_DEBUG_SQL ?? '').toLowerCase()
+    this.sqlDebugEnabled = raw === '1' || raw === 'true' || raw === 'yes'
+    return this.sqlDebugEnabled
   }
 
   private debug(message: string, context?: Record<string, unknown>): void {
