@@ -7,14 +7,43 @@ jest.mock('@/generated/modules.generated', () => ({
   ],
 }))
 
-function createFakeKnex() {
+type FakeData = Record<string, any[]>
+
+function cloneRows(rows: any[] | undefined): any[] {
+  if (!rows) return []
+  return rows.map((row) => ({ ...row }))
+}
+
+function createFakeKnex(overrides?: FakeData) {
   const calls: any[] = []
-  const data: Record<string, any[]> = {
-    custom_field_defs: [{ key: 'vip' }, { key: 'industry' }],
+  const defaultData: FakeData = {
+    custom_field_defs: [
+      { key: 'vip', entity_id: 'auth:user', is_active: true, config_json: '{}', kind: 'boolean' },
+      { key: 'industry', entity_id: 'auth:user', is_active: true, config_json: '{}', kind: 'select' },
+    ],
+    custom_field_values: [],
   }
+  const sourceData = { ...defaultData, ...(overrides || {}) }
+  const data: FakeData = Object.fromEntries(
+    Object.entries(sourceData).map(([table, rows]) => [table, cloneRows(rows)])
+  )
   function raw(sql: string, params?: any[]) { return { toString: () => sql, sql, params } }
   function builderFor(table: string) {
     const ops = { table, wheres: [] as any[], joins: [] as any[], selects: [] as any[], orderBys: [] as any[], groups: [] as any[], limits: 0, offsets: 0, isCountDistinct: false }
+    function recordJoin(type: 'left' | 'inner', aliasObj: any, fn: Function, ctxBuilder: () => any) {
+      const entry: any = { type, aliasObj, conditions: [] as any[] }
+      const ctx = ctxBuilder()
+      ctx.on = (left: any, op: any, right: any) => {
+        entry.conditions.push({ method: 'on', args: [left, op, right] })
+        return ctx
+      }
+      ctx.andOn = (left: any, op: any, right: any) => {
+        entry.conditions.push({ method: 'andOn', args: [left, op, right] })
+        return ctx
+      }
+      fn.call(ctx)
+      ops.joins.push(entry)
+    }
     const b: any = {
       _ops: ops,
       select: function (...cols: any[]) { ops.selects.push(cols); return this },
@@ -25,12 +54,11 @@ function createFakeKnex() {
       whereNull: function (col: any) { ops.wheres.push(['isNull', col]); return this },
       whereNotNull: function (col: any) { ops.wheres.push(['notNull', col]); return this },
       leftJoin: function (aliasObj: any, fn: Function) {
-        ops.joins.push({ aliasObj })
-        const ctx: any = {
-          on: () => ({ andOn: () => ctx }),
-          andOn: () => ctx,
-        }
-        fn.call(ctx)
+        recordJoin('left', aliasObj, fn, () => ({}))
+        return this
+      },
+      join: function (aliasObj: any, fn: Function) {
+        recordJoin('inner', aliasObj, fn, () => ({}))
         return this
       },
       orderBy: function (col: any, dir?: any) { ops.orderBys.push([col, dir]); return this },
@@ -116,5 +144,71 @@ describe('BasicQueryEngine', () => {
     // Assert an extension leftJoin was attempted
     const hasExtJoin = baseCall._ops.joins.length > 0
     expect(hasExtJoin).toBe(true)
+  })
+
+  test('customFieldSources join additional profiles for custom fields', async () => {
+    const fakeKnex = createFakeKnex({
+      custom_field_defs: [
+        { key: 'birthday', entity_id: 'customers:customer_person_profile', is_active: true, config_json: JSON.stringify({ listVisible: true }), kind: 'text' },
+        { key: 'sector', entity_id: 'customers:customer_company_profile', is_active: true, config_json: JSON.stringify({ listVisible: true }), kind: 'select' },
+      ],
+      custom_field_values: [],
+      customer_entities: [],
+      customer_people: [],
+      customer_companies: [],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeKnex as any)
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      includeCustomFields: ['birthday', 'sector'],
+      fields: ['id', 'cf:birthday', 'cf:sector'],
+      customFieldSources: [
+        {
+          entityId: 'customers:customer_person_profile',
+          table: 'customer_people',
+          alias: 'person_profile',
+          recordIdColumn: 'id',
+          join: { fromField: 'id', toField: 'entity_id' },
+        },
+        {
+          entityId: 'customers:customer_company_profile',
+          table: 'customer_companies',
+          alias: 'company_profile',
+          recordIdColumn: 'id',
+          join: { fromField: 'id', toField: 'entity_id' },
+        },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+    const baseCall = fakeKnex._calls.find((b: any) => b._ops.table === 'customer_entities')
+    expect(baseCall).toBeTruthy()
+    const joinAliases = baseCall._ops.joins.map((j: any) => Object.keys(j.aliasObj)[0])
+    expect(joinAliases).toEqual(expect.arrayContaining([
+      'person_profile',
+      'company_profile',
+      'cfd_person_profile_birthday',
+      'cfv_person_profile_birthday',
+      'cfd_company_profile_sector',
+      'cfv_company_profile_sector',
+    ]))
+    const personProfileJoin = baseCall._ops.joins.find((j: any) => j.aliasObj.person_profile)
+    expect(personProfileJoin?.conditions.some((c: any) => c.args[0] === 'person_profile.entity_id' && c.args[2] === 'customer_entities.id')).toBe(true)
+    const companyProfileJoin = baseCall._ops.joins.find((j: any) => j.aliasObj.company_profile)
+    expect(companyProfileJoin?.conditions.some((c: any) => c.args[0] === 'company_profile.entity_id' && c.args[2] === 'customer_entities.id')).toBe(true)
+    const cfvPersonJoin = baseCall._ops.joins.find((j: any) => j.aliasObj.cfv_person_profile_birthday)
+    expect(cfvPersonJoin?.conditions.some((c: any) => c.args[0] === 'cfv_person_profile_birthday.record_id' && c.args[2]?.params?.[0] === 'person_profile.id')).toBe(true)
+    const cfvCompanyJoin = baseCall._ops.joins.find((j: any) => j.aliasObj.cfv_company_profile_sector)
+    expect(cfvCompanyJoin?.conditions.some((c: any) => c.args[0] === 'cfv_company_profile_sector.record_id' && c.args[2]?.params?.[0] === 'company_profile.id')).toBe(true)
+    const defsEntityWhere = fakeKnex._calls
+      .filter((b: any) => b._ops.table === 'custom_field_defs')
+      .flatMap((b: any) => b._ops.wheres)
+      .find((w: any) => Array.isArray(w) && w[0] === 'in' && w[1] === 'entity_id')
+    expect(defsEntityWhere).toBeTruthy()
+    const entityTargets = defsEntityWhere?.[2] || []
+    expect(entityTargets).toEqual(expect.arrayContaining([
+      'customers:customer_entity',
+      'customers:customer_person_profile',
+      'customers:customer_company_profile',
+    ]))
   })
 })

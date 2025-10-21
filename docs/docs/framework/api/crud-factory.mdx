@@ -86,6 +86,7 @@ This exports `metadata` and HTTP handlers, which the modules registry auto-disco
   - entityId + fields: enable QueryEngine listing (with custom fields)
   - sortFieldMap: map UI sort keys to datamodel fields (e.g. `cf_priority -> 'cf:priority'`)
   - buildFilters(query, ctx): produce typed QueryEngine filters
+  - customFieldSources: add extra tables whose records should contribute custom fields (useful when a base entity links to person/company profiles or other inheritance-style tables)
   - transformItem: post-process each item
   - export: configure export formats (CSV/JSON/XML/Markdown), filename, and optional column mappings
   - csv: legacy helper for specifying export columns/rows; still used to infer export data when `export` is omitted
@@ -141,6 +142,37 @@ When an `indexer` config is provided, the factory also emits `query_index.upsert
 When `customFields.enabled` is set and `entityId` is provided, the factory picks `cf_*` inputs by default (e.g., `cf_priority` -> `priority`) and persists them via the Custom Fields module.
 
 If you need full control, supply `customFields.map(body) => Record<string, any>`.
+
+### Multiple sources for custom fields
+
+Some entities span several tables—for example a customer row joined to either a person profile or a company profile. When those linked tables carry their own custom fields, wire them in with `list.customFieldSources`. Each source defines the entity id whose custom fields should be hydrated, the table/alias to join, and how to reach the base entity:
+
+```ts
+const { GET } = makeCrudRoute({
+  list: {
+    entityId: E.customers.customer_entity,
+    fields: ['id', 'display_name', 'cf:vip', 'cf:birthday'],
+    customFieldSources: [
+      {
+        entityId: E.customers.customer_person_profile,
+        table: 'customer_people',
+        alias: 'person_profile',
+        recordIdColumn: 'id',
+        join: { fromField: 'id', toField: 'entity_id' },
+      },
+      {
+        entityId: E.customers.customer_company_profile,
+        table: 'customer_companies',
+        alias: 'company_profile',
+        recordIdColumn: 'id',
+        join: { fromField: 'id', toField: 'entity_id' },
+      },
+    ],
+  },
+})
+```
+
+The Query Engine auto-discovers definitions for all provided entity ids, picks the best match for each key, and joins the corresponding `custom_field_values` using the supplied alias. Filters such as `cf_birthday=...` continue to work because the engine aliases joined values back to `cf:<key>` regardless of the source table.
 
 ### Reusable helpers
 

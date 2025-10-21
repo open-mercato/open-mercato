@@ -83,8 +83,30 @@ await dataEngine.setCustomFields({
 - POST/PUT handlers accept `cf_<key>` properties (for example `cf_job_title`) and store them via the shared data engine.
 - List endpoints and the query engine expose custom fields as `cf:<key>` projections, so filters like `cf_language_pref=pl` just work.
 
+## 5. Combine profile tables
+
+Some teams split user data between the base `auth:user` record and auxiliary tables—think HR profiles or staff availability. When those related tables expose their own custom fields, instruct the Query Engine to pull them in by extending the list config (or direct `queryEngine.query`) with `customFieldSources`:
+
+```ts
+const userList = await queryEngine.query(E.auth.user, {
+  tenantId,
+  includeCustomFields: true,
+  fields: ['id', 'email', 'cf:job_title', 'cf:availability_notes'],
+  customFieldSources: [
+    {
+      entityId: E.hr.user_profile,
+      table: 'hr_user_profiles',
+      alias: 'hr_profile',
+      recordIdColumn: 'id',
+      join: { fromField: 'id', toField: 'user_id' },
+    },
+  ],
+})
+```
+
+The engine merges definitions from every listed entity id, deduplicates keys, and aliases the projected values back to `cf:<key>`. This keeps multi-table models consistent without duplicating custom field plumbing.
+
 ## Next steps
 
 - Use the [Entities CLI](../cli/entities-install) options to automate installations during deployments.
 - Extend other directory objects the same way—`auth:role`, `directory:organization`, or your own module entities all support the custom field pipeline.
-
