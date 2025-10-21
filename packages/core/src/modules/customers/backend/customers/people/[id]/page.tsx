@@ -1480,10 +1480,11 @@ function NotesTab({
       setContentError(t('customers.people.detail.notes.updateError'))
       return
     }
+    const bodyToSave = isMarkdownEnabled ? contentEditor.value : trimmed
     setContentSavingId(contentEditor.id)
     setContentError(null)
     try {
-      await onUpdate(contentEditor.id, { body: trimmed })
+      await onUpdate(contentEditor.id, { body: bodyToSave })
       closeContentEditor()
     } catch (error) {
       const message =
@@ -1492,7 +1493,7 @@ function NotesTab({
     } finally {
       setContentSavingId(null)
     }
-  }, [closeContentEditor, contentEditor, onUpdate, t])
+  }, [closeContentEditor, contentEditor, isMarkdownEnabled, onUpdate, t])
 
   const handleContentKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>, note: CommentSummary) => {
@@ -1847,6 +1848,23 @@ function ActivitiesTab({
   })
   const [localActivityMap, setLocalActivityMap] = React.useState<CustomerDictionaryMap>({})
 
+  const appearanceLabels = React.useMemo(
+    () => ({
+      colorLabel: t('customers.config.dictionaries.dialog.colorLabel', 'Color'),
+      colorHelp: t('customers.config.dictionaries.dialog.colorHelp', 'Pick a highlight color for this entry.'),
+      colorClearLabel: t('customers.config.dictionaries.dialog.colorClear', 'Remove color'),
+      iconLabel: t('customers.config.dictionaries.dialog.iconLabel', 'Icon or emoji'),
+      iconPlaceholder: t('customers.config.dictionaries.dialog.iconPlaceholder', 'Type an emoji or pick one of the suggestions.'),
+      iconPickerTriggerLabel: t('customers.config.dictionaries.dialog.iconBrowse', 'Browse icons and emojis'),
+      iconSearchPlaceholder: t('customers.config.dictionaries.dialog.iconSearchPlaceholder', 'Search icons or emojis…'),
+      iconSearchEmptyLabel: t('customers.config.dictionaries.dialog.iconSearchEmpty', 'No icons match your search.'),
+      iconSuggestionsLabel: t('customers.config.dictionaries.dialog.iconSuggestions', 'Suggestions'),
+      iconClearLabel: t('customers.config.dictionaries.dialog.iconClear', 'Remove icon'),
+      previewEmptyLabel: t('customers.config.dictionaries.dialog.previewEmpty', 'No appearance selected'),
+    }),
+    [t],
+  )
+
   const fetchActivityOptions = React.useCallback(async () => {
     const res = await apiFetch('/api/customers/dictionaries/activity-types')
     const payload = await res.json().catch(() => ({}))
@@ -1987,6 +2005,7 @@ function ActivitiesTab({
                 createOption={createActivityOption}
                 labels={activityLabels}
                 allowAppearance
+                appearanceLabels={appearanceLabels}
                 selectClassName="w-full"
                 manageHref="/backend/config/customers"
                 disabled={isSubmitting}
@@ -2855,14 +2874,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     [savePerson]
   )
 
-  const dictionaryLabels = React.useMemo(() => ({
-    statuses: {
-      placeholder: t('customers.people.form.status.placeholder'),
-      addLabel: t('customers.people.form.dictionary.addStatus'),
-      addPrompt: t('customers.people.form.dictionary.promptStatus'),
-      dialogTitle: t('customers.people.form.dictionary.dialogTitleStatus'),
-      inputLabel: t('customers.people.form.dictionary.valueLabel'),
-      inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+  const dictionaryLabels = React.useMemo(() => {
+    const base = {
+      valueLabel: t('customers.people.form.dictionary.valueLabel', 'Name'),
+      valuePlaceholder: t('customers.people.form.dictionary.valuePlaceholder', 'Name'),
+      labelLabel: t('customers.config.dictionaries.dialog.labelLabel', 'Label'),
+      labelPlaceholder: t('customers.people.form.dictionary.labelPlaceholder', 'Display name shown in UI'),
       emptyError: t('customers.people.form.dictionary.errorRequired'),
       cancelLabel: t('customers.people.form.dictionary.cancel'),
       saveLabel: t('customers.people.form.dictionary.save'),
@@ -2870,68 +2887,45 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       errorSave: t('customers.people.form.dictionary.error'),
       loadingLabel: t('customers.people.form.dictionary.loading'),
       manageTitle: t('customers.people.form.dictionary.manage'),
-    },
-    lifecycleStages: {
-      placeholder: t('customers.people.form.lifecycleStage.placeholder'),
-      addLabel: t('customers.people.form.dictionary.addLifecycleStage'),
-      addPrompt: t('customers.people.form.dictionary.promptLifecycleStage'),
-      dialogTitle: t('customers.people.form.dictionary.dialogTitleLifecycleStage'),
-      inputLabel: t('customers.people.form.dictionary.valueLabel'),
-      inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-      emptyError: t('customers.people.form.dictionary.errorRequired'),
-      cancelLabel: t('customers.people.form.dictionary.cancel'),
-      saveLabel: t('customers.people.form.dictionary.save'),
-      errorLoad: t('customers.people.form.dictionary.errorLoad'),
-      errorSave: t('customers.people.form.dictionary.error'),
-      loadingLabel: t('customers.people.form.dictionary.loading'),
-      manageTitle: t('customers.people.form.dictionary.manage'),
-    },
-    sources: {
-      placeholder: t('customers.people.form.source.placeholder'),
-      addLabel: t('customers.people.form.dictionary.addSource'),
-      addPrompt: t('customers.people.form.dictionary.promptSource'),
-      dialogTitle: t('customers.people.form.dictionary.dialogTitleSource'),
-      inputLabel: t('customers.people.form.dictionary.valueLabel'),
-      inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-      emptyError: t('customers.people.form.dictionary.errorRequired'),
-      cancelLabel: t('customers.people.form.dictionary.cancel'),
-      saveLabel: t('customers.people.form.dictionary.save'),
-      errorLoad: t('customers.people.form.dictionary.errorLoad'),
-      errorSave: t('customers.people.form.dictionary.error'),
-      loadingLabel: t('customers.people.form.dictionary.loading'),
-      manageTitle: t('customers.people.form.dictionary.manage'),
-    },
-    activityTypes: {
-      placeholder: t('customers.people.form.activityType.placeholder'),
-      addLabel: t('customers.people.form.dictionary.addActivityType'),
-      addPrompt: t('customers.people.form.dictionary.promptActivityType'),
-      dialogTitle: t('customers.people.form.dictionary.dialogTitleActivityType'),
-      inputLabel: t('customers.people.form.dictionary.valueLabel'),
-      inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-      emptyError: t('customers.people.form.dictionary.errorRequired'),
-      cancelLabel: t('customers.people.form.dictionary.cancel'),
-      saveLabel: t('customers.people.form.dictionary.save'),
-      errorLoad: t('customers.people.form.dictionary.errorLoad'),
-      errorSave: t('customers.people.form.dictionary.error'),
-      loadingLabel: t('customers.people.form.dictionary.loading'),
-      manageTitle: t('customers.people.form.dictionary.manage'),
-    },
-    jobTitles: {
-      placeholder: t('customers.people.form.jobTitle.placeholder'),
-      addLabel: t('customers.people.form.dictionary.addJobTitle'),
-      addPrompt: t('customers.people.form.dictionary.promptJobTitle'),
-      dialogTitle: t('customers.people.form.dictionary.dialogTitleJobTitle'),
-      inputLabel: t('customers.people.form.dictionary.valueLabel'),
-      inputPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-      emptyError: t('customers.people.form.dictionary.errorRequired'),
-      cancelLabel: t('customers.people.form.dictionary.cancel'),
-      saveLabel: t('customers.people.form.dictionary.save'),
-      errorLoad: t('customers.people.form.dictionary.errorLoad'),
-      errorSave: t('customers.people.form.dictionary.error'),
-      loadingLabel: t('customers.people.form.dictionary.loading'),
-      manageTitle: t('customers.people.form.dictionary.manage'),
-    },
-  }), [t])
+    }
+    return {
+      statuses: {
+        ...base,
+        placeholder: t('customers.people.form.status.placeholder'),
+        addLabel: t('customers.people.form.dictionary.addStatus'),
+        addPrompt: t('customers.people.form.dictionary.promptStatus'),
+        dialogTitle: t('customers.people.form.dictionary.dialogTitleStatus'),
+      },
+      lifecycleStages: {
+        ...base,
+        placeholder: t('customers.people.form.lifecycleStage.placeholder'),
+        addLabel: t('customers.people.form.dictionary.addLifecycleStage'),
+        addPrompt: t('customers.people.form.dictionary.promptLifecycleStage'),
+        dialogTitle: t('customers.people.form.dictionary.dialogTitleLifecycleStage'),
+      },
+      sources: {
+        ...base,
+        placeholder: t('customers.people.form.source.placeholder'),
+        addLabel: t('customers.people.form.dictionary.addSource'),
+        addPrompt: t('customers.people.form.dictionary.promptSource'),
+        dialogTitle: t('customers.people.form.dictionary.dialogTitleSource'),
+      },
+      activityTypes: {
+        ...base,
+        placeholder: t('customers.people.form.activityType.placeholder'),
+        addLabel: t('customers.people.form.dictionary.addActivityType'),
+        addPrompt: t('customers.people.form.dictionary.promptActivityType'),
+        dialogTitle: t('customers.people.form.dictionary.dialogTitleActivityType'),
+      },
+      jobTitles: {
+        ...base,
+        placeholder: t('customers.people.form.jobTitle.placeholder'),
+        addLabel: t('customers.people.form.dictionary.addJobTitle'),
+        addPrompt: t('customers.people.form.dictionary.promptJobTitle'),
+        dialogTitle: t('customers.people.form.dictionary.dialogTitleJobTitle'),
+      },
+    }
+  }, [t])
 
   const tabs = React.useMemo(
     () => [

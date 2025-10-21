@@ -152,13 +152,6 @@ const crud = makeCrudRoute({
         recordIdColumn: 'id',
         join: { fromField: 'id', toField: 'entity_id' },
       },
-      {
-        entityId: E.customers.customer_company_profile,
-        table: 'customer_companies',
-        alias: 'company_profile',
-        recordIdColumn: 'id',
-        join: { fromField: 'id', toField: 'entity_id' },
-      },
     ],
     transformItem: (item: any) => {
       if (!item) return item

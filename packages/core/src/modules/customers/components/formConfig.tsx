@@ -4,6 +4,7 @@ import * as React from 'react'
 import { z } from 'zod'
 import Link from 'next/link'
 import { Check, Pencil, Plus, Settings } from 'lucide-react'
+import { useT } from '@/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -86,6 +87,41 @@ export function DictionarySelectField({
   labels,
   selectClassName,
 }: DictionarySelectFieldProps) {
+  const t = useT()
+  const translate = React.useCallback(
+    (key: string, fallback: string) => {
+      const result = t(key)
+      return result === key ? fallback : result
+    },
+    [t],
+  )
+
+  const appearanceLabels = React.useMemo(
+    () => ({
+      colorLabel: translate('customers.config.dictionaries.dialog.colorLabel', 'Color'),
+      colorHelp: translate('customers.config.dictionaries.dialog.colorHelp', 'Pick a highlight color for this entry.'),
+      colorClearLabel: translate('customers.config.dictionaries.dialog.colorClear', 'Remove color'),
+      iconLabel: translate('customers.config.dictionaries.dialog.iconLabel', 'Icon or emoji'),
+      iconPlaceholder: translate(
+        'customers.config.dictionaries.dialog.iconPlaceholder',
+        'Type an emoji or pick one of the suggestions.',
+      ),
+      iconPickerTriggerLabel: translate('customers.config.dictionaries.dialog.iconBrowse', 'Browse icons and emojis'),
+      iconSearchPlaceholder: translate(
+        'customers.config.dictionaries.dialog.iconSearchPlaceholder',
+        'Search icons or emojis…',
+      ),
+      iconSearchEmptyLabel: translate(
+        'customers.config.dictionaries.dialog.iconSearchEmpty',
+        'No icons match your search.',
+      ),
+      iconSuggestionsLabel: translate('customers.config.dictionaries.dialog.iconSuggestions', 'Suggestions'),
+      iconClearLabel: translate('customers.config.dictionaries.dialog.iconClear', 'Remove icon'),
+      previewEmptyLabel: translate('customers.config.dictionaries.dialog.previewEmpty', 'No appearance selected'),
+    }),
+    [translate],
+  )
+
   const fetchOptions = React.useCallback(async () => {
     const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
     const payload: Record<string, unknown> = await res.json().catch(() => ({}))
@@ -119,11 +155,16 @@ export function DictionarySelectField({
   }, [kind, labels.errorLoad])
 
   const createOption = React.useCallback(
-    async (input: { value: string; label?: string }) => {
+    async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
       const res = await apiFetch(`/api/customers/dictionaries/${kind}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ value: input.value }),
+        body: JSON.stringify({
+          value: input.value,
+          label: input.label ?? input.value,
+          color: input.color ?? undefined,
+          icon: input.icon ?? undefined,
+        }),
       })
       const payload: Record<string, unknown> = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -153,9 +194,10 @@ export function DictionarySelectField({
       labels={labels}
       selectClassName={selectClassName}
       allowInlineCreate
-      allowAppearance={false}
+      allowAppearance
+      appearanceLabels={appearanceLabels}
       manageHref="/backend/config/customers"
-      showLabelInput={false}
+      showLabelInput
     />
   )
 }
@@ -270,10 +312,10 @@ const buildDictionaryLabels = (t: Translator, definition: DictionaryFieldDefinit
   addLabel: t(definition.addLabelKey),
   addPrompt: t(definition.promptKey),
   dialogTitle: t(definition.dialogTitleKey),
-  valueLabel: t('customers.people.form.dictionary.valueLabel'),
-  valuePlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
-  labelLabel: t('customers.people.form.dictionary.valueLabel'),
-  labelPlaceholder: t('customers.people.form.dictionary.valuePlaceholder'),
+  valueLabel: t('customers.people.form.dictionary.valueLabel', 'Value'),
+  valuePlaceholder: t('customers.people.form.dictionary.valuePlaceholder', 'Value'),
+  labelLabel: t('customers.config.dictionaries.dialog.labelLabel', 'Label'),
+  labelPlaceholder: t('customers.people.form.dictionary.labelPlaceholder', 'Display name shown in UI'),
   emptyError: t('customers.people.form.dictionary.errorRequired'),
   cancelLabel: t('customers.people.form.dictionary.cancel'),
   saveLabel: t('customers.people.form.dictionary.save'),

@@ -101,5 +101,54 @@ describe('HybridQueryEngine', () => {
     await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1', page: { page: 1, pageSize: 5 } })
     expect(fallback.query).not.toHaveBeenCalled()
   })
-})
 
+  test('joins entity index aliases for customFieldSources', async () => {
+    const fakeKnex = createFakeKnex({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any)
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id', 'cf:birthday', 'cf:sector'],
+      includeCustomFields: ['birthday', 'sector'],
+      customFieldSources: [
+        {
+          entityId: 'customers:customer_person_profile',
+          table: 'customer_people',
+          alias: 'person_profile',
+          recordIdColumn: 'id',
+          join: { fromField: 'id', toField: 'entity_id' },
+        },
+        {
+          entityId: 'customers:customer_company_profile',
+          table: 'customer_companies',
+          alias: 'company_profile',
+          recordIdColumn: 'id',
+          join: { fromField: 'id', toField: 'entity_id' },
+        },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const baseCall = fakeKnex._calls.find((call: any) => call._ops.alias === 'b')
+    expect(baseCall).toBeTruthy()
+    const summary = fakeKnex._calls.map((call: any) => ({
+      alias: call._ops.alias,
+      joinAliases: call._ops.joins.map((join: any) => Object.keys(join.aliasObj)[0]),
+    }))
+    expect(summary).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        alias: 'b',
+        joinAliases: expect.arrayContaining([
+          'ei',
+          'person_profile',
+          'ei_person_profile',
+          'company_profile',
+          'ei_company_profile',
+        ]),
+      }),
+    ]))
+  })
+})
