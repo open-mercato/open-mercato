@@ -50,3 +50,18 @@ export function toLocalDateTimeInput(value?: string | null): string {
     date.getMinutes(),
   )}`
 }
+
+export function resolveTodoHref(source: string, todoId: string | null | undefined): string | null {
+  if (!todoId) return null
+  if (!source) return null
+  const [module] = source.split(':')
+  if (!module) return null
+  return `/backend/${module}/todos/${encodeURIComponent(todoId)}/edit`
+}
+
+export function resolveTodoApiPath(source: string): string | null {
+  if (!source) return null
+  const [module] = source.split(':')
+  if (!module) return null
+  return `/api/${module}/todos`
+}

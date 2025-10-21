@@ -16,7 +16,7 @@ import {
   type DictionaryMap,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 
-type CustomFieldsSectionProps = {
+type CustomDataSectionProps = {
   entityId?: string
   entityIds?: string[]
   values: Record<string, unknown>
@@ -145,7 +145,7 @@ function formatFieldValue(field: CrudField, value: unknown, emptyLabel: string, 
   return resolved
 }
 
-export function CustomFieldsSection({ entityId, entityIds, values, onSubmit, title }: CustomFieldsSectionProps) {
+export function CustomDataSection({ entityId, entityIds, values, onSubmit, title }: CustomDataSectionProps) {
   const t = useT()
   const emptyLabel = t('customers.people.detail.noValue')
   const [fields, setFields] = React.useState<CrudField[]>([])
@@ -171,6 +171,7 @@ export function CustomFieldsSection({ entityId, entityIds, values, onSubmit, tit
     return []
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : undefined
+
   const submitActiveForm = React.useCallback(() => {
     const node = sectionRef.current?.querySelector('form')
     if (!node) return
@@ -181,6 +182,7 @@ export function CustomFieldsSection({ entityId, entityIds, values, onSubmit, tit
     }
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   }, [])
+
   const handleEditingKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (!editing) return
@@ -194,12 +196,14 @@ export function CustomFieldsSection({ entityId, entityIds, values, onSubmit, tit
         submitActiveForm()
       }
     },
-    [editing, submitActiveForm]
+    [editing, submitActiveForm],
   )
+
   const handleActivate = React.useCallback(() => {
     if (loading || editing) return
     setEditing(true)
   }, [editing, loading])
+
   const handleReadOnlyKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (loading || editing) return
@@ -208,7 +212,7 @@ export function CustomFieldsSection({ entityId, entityIds, values, onSubmit, tit
         setEditing(true)
       }
     },
-    [editing, loading]
+    [editing, loading],
   )
 
   React.useEffect(() => {
@@ -374,4 +378,4 @@ export function CustomFieldsSection({ entityId, entityIds, values, onSubmit, tit
   )
 }
 
-export default CustomFieldsSection
+export default CustomDataSection

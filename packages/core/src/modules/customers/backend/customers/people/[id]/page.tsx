@@ -2,10 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
@@ -22,6 +19,36 @@ import { useT } from '@/lib/i18n/context'
 import {
   DictionarySelectField,
 } from '../../../../components/formConfig'
+import {
+  ActivitiesSection,
+} from '../../../../components/detail/ActivitiesSection'
+import {
+  NotesSection,
+} from '../../../../components/detail/NotesSection'
+import {
+  TagsSection,
+  type TagOption,
+} from '../../../../components/detail/TagsSection'
+import {
+  formatDateTime,
+  formatDate,
+  formatRelativeTime,
+  resolveTodoHref,
+  resolveTodoApiPath,
+  toLocalDateTimeInput,
+} from '../../../../components/detail/utils'
+import type {
+  ActivitySummary,
+  AddressSummary,
+  CommentSummary,
+  DealSummary,
+  TagSummary,
+  TodoLinkSummary,
+  Translator,
+  SectionAction,
+  TabEmptyState,
+} from '../../../../components/detail/types'
+import type { ActivityFormSubmitPayload } from '../../../../components/detail/ActivityForm'
 import {
   DictionaryEntrySelect,
   type DictionarySelectLabels,
@@ -40,73 +67,7 @@ import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/comp
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../../../../components/AddressTiles'
 import { useEmailDuplicateCheck } from '../../../hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../../../../utils/phoneDuplicates'
-import { CustomFieldsSection } from '../../../../components/CustomFieldsSection'
-
-type TagSummary = { id: string; label: string; color?: string | null }
-type AddressSummary = {
-  id: string
-  name?: string | null
-  purpose?: string | null
-  addressLine1: string
-  addressLine2?: string | null
-  buildingNumber?: string | null
-  flatNumber?: string | null
-  city?: string | null
-  region?: string | null
-  postalCode?: string | null
-  country?: string | null
-  isPrimary?: boolean
-}
-
-type CommentSummary = {
-  id: string
-  body: string
-  createdAt: string
-  authorUserId?: string | null
-  authorName?: string | null
-  authorEmail?: string | null
-  dealId?: string | null
-  appearanceIcon?: string | null
-  appearanceColor?: string | null
-}
-
-type ActivitySummary = {
-  id: string
-  activityType: string
-  subject?: string | null
-  body?: string | null
-  occurredAt?: string | null
-  createdAt: string
-  appearanceIcon?: string | null
-  appearanceColor?: string | null
-  authorUserId?: string | null
-  authorName?: string | null
-  authorEmail?: string | null
-}
-
-type DealSummary = {
-  id: string
-  title: string
-  status?: string | null
-  pipelineStage?: string | null
-  valueAmount?: string | null
-  valueCurrency?: string | null
-  probability?: number | null
-  expectedCloseAt?: string | null
-}
-
-type TodoLinkSummary = {
-  id: string
-  todoId: string
-  todoSource: string
-  createdAt: string
-  createdByUserId?: string | null
-  title?: string | null
-  isDone?: boolean | null
-  priority?: number | null
-  dueAt?: string | null
-  todoOrganizationId?: string | null
-}
+import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 
 type PersonOverview = {
   person: {
@@ -152,92 +113,27 @@ type PersonOverview = {
   } | null
 }
 
-type Translator = ReturnType<typeof useT>
-
 type SectionKey = 'notes' | 'activities' | 'deals' | 'addresses' | 'tasks'
-
-type TabEmptyState = {
-  title: string
-  actionLabel: string
-}
-
-type SectionAction = {
-  label: string
-  onClick: () => void
-  disabled?: boolean
-}
 
 function cn(...values: Array<string | null | undefined | false>) {
   return values.filter(Boolean).join(' ')
 }
 
-function formatDateTime(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleString()
-}
 
-function formatDate(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString()
-}
 
-function toLocalDateTimeInput(value?: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const pad = (input: number) => `${input}`.padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-function formatRelativeTime(value?: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  const now = Date.now()
-  const diffSeconds = (date.getTime() - now) / 1000
-  const absSeconds = Math.abs(diffSeconds)
-  const rtf = typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function'
-    ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-    : null
-  const format = (unit: Intl.RelativeTimeFormatUnit, divisor: number) => {
-    const valueToFormat = Math.round(diffSeconds / divisor)
-    if (rtf) return rtf.format(valueToFormat, unit)
-    const suffix = valueToFormat <= 0 ? 'ago' : 'from now'
-    const magnitude = Math.abs(valueToFormat)
-    return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${suffix}`
-  }
-
-  if (absSeconds < 45) return format('second', 1)
-  if (absSeconds < 45 * 60) return format('minute', 60)
-  if (absSeconds < 24 * 60 * 60) return format('hour', 60 * 60)
-  if (absSeconds < 7 * 24 * 60 * 60) return format('day', 24 * 60 * 60)
-  if (absSeconds < 30 * 24 * 60 * 60) return format('week', 7 * 24 * 60 * 60)
-  if (absSeconds < 365 * 24 * 60 * 60) return format('month', 30 * 24 * 60 * 60)
-  return format('year', 365 * 24 * 60 * 60)
-}
-
-function resolveTodoApiPath(source: string): string | null {
-  if (!source) return null
-  const [module] = source.split(':')
-  if (!module) return null
-  return `/api/${module}/todos`
-}
-
-function resolveTodoHref(source: string, todoId: string | null | undefined): string | null {
-  if (!todoId) return null
-  if (!source) return null
-  const [module] = source.split(':')
-  if (!module) return null
-  return `/backend/${module}/todos/${encodeURIComponent(todoId)}/edit`
-}
 
 function randomId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   return `tmp-${Math.random().toString(36).slice(2)}`
+}
+
+function slugifyTagLabel(label: string): string {
+  return label
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || `tag-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function isValidSocialUrl(
@@ -265,35 +161,6 @@ function isValidSocialUrl(
   }
   const normalizedPath = parsed.pathname.replace(/\/+/g, '/').replace(/^\/|\/$/g, '')
   return normalizedPath.length > 0
-}
-
-const NOTES_MARKDOWN_COOKIE = 'customers_notes_markdown'
-
-type UiMarkdownEditorProps = {
-  value?: string
-  height?: number
-  onChange?: (value?: string) => void
-  previewOptions?: { remarkPlugins?: unknown[] }
-}
-
-const UiMarkdownEditor = dynamic<UiMarkdownEditorProps>(() => import('@uiw/react-md-editor'), {
-  ssr: false,
-})
-
-function writeMarkdownPreferenceCookie(enabled: boolean) {
-  if (typeof document === 'undefined') return
-  const expires = new Date()
-  expires.setFullYear(expires.getFullYear() + 1)
-  document.cookie = `${NOTES_MARKDOWN_COOKIE}=${enabled ? '1' : '0'}; path=/; expires=${expires.toUTCString()}; SameSite=Lax`
-}
-
-function readMarkdownPreferenceCookie(): boolean | null {
-  if (typeof document === 'undefined') return null
-  const allCookies = document.cookie ? document.cookie.split('; ') : []
-  const match = allCookies.find((entry) => entry.startsWith(`${NOTES_MARKDOWN_COOKIE}=`))
-  if (!match) return null
-  const value = match.split('=').slice(1).join('=')
-  return value === '1'
 }
 
 type InlineFieldType = 'text' | 'email' | 'tel' | 'url'
@@ -1472,2029 +1339,25 @@ function InlineNextInteractionEditor({
   )
 }
 
-type NotesTabProps = {
-  notes: CommentSummary[]
-  onCreate: (input: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => Promise<void>
-  onUpdate: (
-    noteId: string,
-    patch: { body?: string; appearanceIcon?: string | null; appearanceColor?: string | null }
-  ) => Promise<void>
-  isSubmitting: boolean
-  emptyLabel: string
-  viewerUserId: string | null
-  viewerName?: string | null
-  viewerEmail?: string | null
-  t: Translator
-  addActionLabel: string
-  emptyState: TabEmptyState
-  onActionChange?: (action: SectionAction | null) => void
-}
-
-function NotesTab({
-  notes,
-  onCreate,
-  onUpdate,
-  isSubmitting,
-  emptyLabel,
-  viewerUserId,
-  viewerName,
-  viewerEmail,
-  t,
-  addActionLabel,
-  emptyState,
-  onActionChange,
-}: NotesTabProps) {
-  const [draftBody, setDraftBody] = React.useState('')
-  const [draftIcon, setDraftIcon] = React.useState<string | null>(null)
-  const [draftColor, setDraftColor] = React.useState<string | null>(null)
-  const [showAppearance, setShowAppearance] = React.useState(false)
-  const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(false)
-  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
-  const formRef = React.useRef<HTMLFormElement | null>(null)
-  const focusComposer = React.useCallback(() => {
-    const element = textareaRef.current
-    if (!element) return
-    element.focus()
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [])
-  const [appearanceEditor, setAppearanceEditor] = React.useState<{
-    id: string
-    icon: string | null
-    color: string | null
-  } | null>(null)
-  const [appearanceSavingId, setAppearanceSavingId] = React.useState<string | null>(null)
-  const [appearanceError, setAppearanceError] = React.useState<string | null>(null)
-  const [contentEditor, setContentEditor] = React.useState<{ id: string; value: string }>({ id: '', value: '' })
-  const [contentSavingId, setContentSavingId] = React.useState<string | null>(null)
-  const [contentError, setContentError] = React.useState<string | null>(null)
-  const contentTextareaRef = React.useRef<HTMLTextAreaElement | null>(null)
-  const [visibleCount, setVisibleCount] = React.useState(() => Math.min(5, notes.length))
-  const noteAppearanceLabels = React.useMemo(() => ({
-    colorLabel: t('customers.people.detail.notes.appearance.colorLabel'),
-    colorHelp: t('customers.people.detail.notes.appearance.colorHelp'),
-    colorClearLabel: t('customers.people.detail.notes.appearance.clearColor'),
-    iconLabel: t('customers.people.detail.notes.appearance.iconLabel'),
-    iconPlaceholder: t('customers.people.detail.notes.appearance.iconPlaceholder'),
-    iconPickerTriggerLabel: t('customers.people.detail.notes.appearance.iconPicker'),
-    iconSearchPlaceholder: t('customers.people.detail.notes.appearance.iconSearchPlaceholder'),
-    iconSearchEmptyLabel: t('customers.people.detail.notes.appearance.iconSearchEmpty'),
-    iconSuggestionsLabel: t('customers.people.detail.notes.appearance.iconSuggestions'),
-    iconClearLabel: t('customers.people.detail.notes.appearance.iconClear'),
-    previewEmptyLabel: t('customers.people.detail.notes.appearance.previewEmpty'),
-  }), [t])
-  const viewerLabel = React.useMemo(() => viewerName ?? viewerEmail ?? null, [viewerEmail, viewerName])
-  const handleMarkdownToggle = React.useCallback(() => {
-    setIsMarkdownEnabled((prev) => {
-      const next = !prev
-      writeMarkdownPreferenceCookie(next)
-      return next
-    })
-  }, [])
-
-  React.useEffect(() => {
-    if (!onActionChange) return
-    onActionChange({
-      label: addActionLabel,
-      onClick: focusComposer,
-      disabled: isSubmitting,
-    })
-    return () => onActionChange(null)
-  }, [onActionChange, addActionLabel, focusComposer, isSubmitting])
-
-  const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
-    if (!element) return
-    element.style.height = 'auto'
-    element.style.height = `${element.scrollHeight}px`
-  }, [])
-
-  React.useEffect(() => {
-    adjustTextareaSize(textareaRef.current)
-  }, [adjustTextareaSize, draftBody, isMarkdownEnabled])
-
-  React.useEffect(() => {
-    const preference = readMarkdownPreferenceCookie()
-    if (preference !== null) {
-      setIsMarkdownEnabled(preference)
-    }
-  }, [])
-
-  React.useEffect(() => {
-    if (!notes.length) {
-      setVisibleCount(0)
-      return
-    }
-    setVisibleCount((prev) => {
-      const baseline = Math.min(5, notes.length)
-      if (prev === 0) return baseline
-      return Math.min(Math.max(prev, baseline), notes.length)
-    })
-  }, [notes.length])
-
-  React.useEffect(() => {
-    if (!contentEditor.id) return
-    const textarea = contentTextareaRef.current
-    if (!textarea) return
-    const frame = window.requestAnimationFrame(() => {
-      textarea.focus()
-      textarea.setSelectionRange(textarea.value.length, textarea.value.length)
-      textarea.style.height = 'auto'
-      textarea.style.height = `${textarea.scrollHeight}px`
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [contentEditor])
-
-  const handleSubmit = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      const trimmedBody = draftBody.trim()
-      if (!trimmedBody || isSubmitting) return
-      const bodyToSave = isMarkdownEnabled ? draftBody : trimmedBody
-      const normalizedIcon = (draftIcon ?? '').trim()
-      const normalizedColor = draftColor ? draftColor.trim().toLowerCase() : null
-      await onCreate({
-        body: bodyToSave,
-        appearanceIcon: normalizedIcon.length ? normalizedIcon : null,
-        appearanceColor: normalizedColor && /^#([0-9a-f]{6})$/.test(normalizedColor) ? normalizedColor : null,
-      })
-      setDraftBody('')
-      setDraftIcon(null)
-      setDraftColor(null)
-      setShowAppearance(false)
-    },
-    [draftBody, draftIcon, draftColor, isMarkdownEnabled, isSubmitting, onCreate]
-  )
-
-  const handleFormKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLFormElement>) => {
-      if (event.key !== 'Enter') return
-      if (!event.metaKey && !event.ctrlKey) return
-      const trimmedBody = draftBody.trim()
-      if (!trimmedBody || isSubmitting) return
-      event.preventDefault()
-      try {
-        formRef.current?.requestSubmit()
-      } catch {
-        // ignore environments without form.requestSubmit
-      }
-    },
-    [draftBody, isSubmitting]
-  )
-
-  const handleAppearanceSave = React.useCallback(async () => {
-    if (!appearanceEditor) return
-    setAppearanceSavingId(appearanceEditor.id)
-    setAppearanceError(null)
-    const icon = appearanceEditor.icon?.trim() ?? ''
-    const color = appearanceEditor.color ? appearanceEditor.color.trim().toLowerCase() : null
-    try {
-      await onUpdate(appearanceEditor.id, {
-        appearanceIcon: icon.length ? icon : null,
-        appearanceColor: color && /^#([0-9a-f]{6})$/.test(color) ? color : null,
-      })
-      setAppearanceEditor(null)
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : t('customers.people.detail.notes.updateError', 'Failed to update note')
-      setAppearanceError(message)
-    } finally {
-      setAppearanceSavingId(null)
-    }
-  }, [appearanceEditor, onUpdate, t])
-
-  const openAppearanceEditor = React.useCallback((note: CommentSummary) => {
-    setAppearanceEditor({
-      id: note.id,
-      icon: note.appearanceIcon ?? null,
-      color: note.appearanceColor ?? null,
-    })
-    setAppearanceError(null)
-  }, [])
-
-  const closeAppearanceEditor = React.useCallback(() => {
-    setAppearanceEditor(null)
-    setAppearanceError(null)
-  }, [])
-
-  const openContentEditor = React.useCallback((note: CommentSummary) => {
-    setContentEditor({ id: note.id, value: note.body })
-    setContentError(null)
-  }, [])
-
-  const closeContentEditor = React.useCallback(() => {
-    setContentEditor({ id: '', value: '' })
-    setContentError(null)
-  }, [])
-
-  const handleContentSave = React.useCallback(async () => {
-    if (!contentEditor.id) return
-    const trimmed = contentEditor.value.trim()
-    if (!trimmed) {
-      setContentError(t('customers.people.detail.notes.updateError'))
-      return
-    }
-    const bodyToSave = isMarkdownEnabled ? contentEditor.value : trimmed
-    setContentSavingId(contentEditor.id)
-    setContentError(null)
-    try {
-      await onUpdate(contentEditor.id, { body: bodyToSave })
-      closeContentEditor()
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : t('customers.people.detail.notes.updateError', 'Failed to update note')
-      setContentError(message)
-    } finally {
-      setContentSavingId(null)
-    }
-  }, [closeContentEditor, contentEditor, isMarkdownEnabled, onUpdate, t])
-
-  const handleContentKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>, note: CommentSummary) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault()
-        openContentEditor(note)
-      }
-    },
-    [openContentEditor]
-  )
-
-  const visibleNotes = React.useMemo(() => notes.slice(0, visibleCount), [notes, visibleCount])
-  const hasVisibleNotes = React.useMemo(() => visibleCount > 0 && notes.length > 0, [visibleCount, notes.length])
-
-  const handleLoadMore = React.useCallback(() => {
-    setVisibleCount((prev) => {
-      if (prev >= notes.length) return prev
-      return Math.min(prev + 5, notes.length)
-    })
-  }, [notes.length])
-
-  return (
-    <div className="mt-2 space-y-3">
-      <div className="rounded-xl bg-muted/10 py-4">
-        <form ref={formRef} onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-2">
-          <label htmlFor="new-note" className="sr-only">
-            {t('customers.people.detail.notes.addLabel')}
-          </label>
-          {isMarkdownEnabled ? (
-            <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
-              <div data-color-mode="light" className="w-full">
-                <UiMarkdownEditor
-                  value={draftBody}
-                  height={220}
-                  onChange={(value) => setDraftBody(typeof value === 'string' ? value : '')}
-                  previewOptions={{ remarkPlugins: [remarkGfm] }}
-                />
-              </div>
-            </div>
-          ) : (
-            <textarea
-              id="new-note"
-              ref={textareaRef}
-              rows={1}
-              className="w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              placeholder={t('customers.people.detail.notes.placeholder')}
-              value={draftBody}
-              onChange={(event) => setDraftBody(event.target.value)}
-              onInput={(event) => adjustTextareaSize(event.currentTarget)}
-              disabled={isSubmitting}
-            />
-          )}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {draftColor || draftIcon ? (
-                <span className="inline-flex items-center gap-2 rounded-full bg-muted/40 px-2 py-1">
-                  {draftColor ? renderDictionaryColor(draftColor, 'h-3 w-3 rounded-full border border-border') : null}
-                  {draftIcon ? renderDictionaryIcon(draftIcon, 'h-3.5 w-3.5 text-muted-foreground') : null}
-                </span>
-              ) : (
-                <span>{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
-              )}
-              <div className="flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowAppearance((prev) => !prev)}
-                  aria-label={
-                    showAppearance
-                      ? t('customers.people.detail.notes.appearance.toggleClose')
-                      : t('customers.people.detail.notes.appearance.toggleOpen')
-                  }
-                  title={
-                    showAppearance
-                      ? t('customers.people.detail.notes.appearance.toggleClose')
-                      : t('customers.people.detail.notes.appearance.toggleOpen')
-                  }
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
-                  <span className="sr-only">
-                    {showAppearance
-                      ? t('customers.people.detail.notes.appearance.toggleClose')
-                      : t('customers.people.detail.notes.appearance.toggleOpen')}
-                  </span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleMarkdownToggle}
-                  aria-pressed={isMarkdownEnabled}
-                  title={
-                    isMarkdownEnabled
-                      ? t('customers.people.detail.notes.markdownDisable')
-                      : t('customers.people.detail.notes.markdownEnable')
-                  }
-                  aria-label={
-                    isMarkdownEnabled
-                      ? t('customers.people.detail.notes.markdownDisable')
-                      : t('customers.people.detail.notes.markdownEnable')
-                  }
-                  className={cn('h-8 w-8', isMarkdownEnabled ? 'text-primary' : undefined)}
-                  disabled={isSubmitting}
-                >
-                  <FileCode className="h-4 w-4" />
-                  <span className="sr-only">
-                    {isMarkdownEnabled
-                      ? t('customers.people.detail.notes.markdownDisable')
-                      : t('customers.people.detail.notes.markdownEnable')}
-                  </span>
-                </Button>
-              </div>
-            </div>
-            <Button type="submit" disabled={isSubmitting || !draftBody.trim()}>
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {t('customers.people.detail.notes.saving')}
-                </>
-              ) : (
-                t('customers.people.detail.notes.submit')
-              )}
-            </Button>
-          </div>
-          {showAppearance ? (
-            <div className="rounded-lg border border-dashed border-muted-foreground/30 p-3">
-              <AppearanceSelector
-                icon={draftIcon}
-                color={draftColor}
-                onIconChange={setDraftIcon}
-                onColorChange={setDraftColor}
-                labels={noteAppearanceLabels}
-              />
-            </div>
-          ) : null}
-        </form>
-      </div>
-
-      {hasVisibleNotes
-        ? visibleNotes.map((note) => {
-            const isEditingAppearance = appearanceEditor?.id === note.id
-            const displayColor = isEditingAppearance ? appearanceEditor?.color : note.appearanceColor ?? null
-            const displayIcon = isEditingAppearance ? appearanceEditor?.icon : note.appearanceIcon ?? null
-            const authorLabel = note.authorUserId
-              ? note.authorUserId === viewerUserId
-                ? viewerLabel ?? t('customers.people.detail.notes.you')
-                : note.authorName ?? note.authorEmail ?? note.authorUserId
-              : t('customers.people.detail.anonymous')
-            const isAppearanceSaving = appearanceSavingId === note.id
-            const isEditingContent = contentEditor.id === note.id
-            const isContentSaving = contentSavingId === note.id
-            return (
-              <div key={note.id} className="group rounded-xl bg-card p-4 shadow-sm transition-shadow">
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <span>{formatRelativeTime(note.createdAt) ?? formatDateTime(note.createdAt) ?? emptyLabel}</span>
-                      {displayColor ? renderDictionaryColor(displayColor, 'h-2.5 w-2.5 rounded-full border border-border') : null}
-                      {displayIcon ? renderDictionaryIcon(displayIcon, 'h-3.5 w-3.5 text-muted-foreground') : null}
-                      {!displayColor && !displayIcon ? (
-                        <span>{t('customers.people.detail.notes.appearance.none')}</span>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span>{authorLabel}</span>
-                      {!isEditingContent ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openContentEditor(note)}
-                          aria-label={t('customers.people.detail.notes.edit', 'Edit note')}
-                          title={t('customers.people.detail.notes.edit', 'Edit note')}
-                          className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                        >
-                          <Pencil className="h-4 w-4" />
-                          <span className="sr-only">{t('customers.people.detail.notes.edit', 'Edit note')}</span>
-                        </Button>
-                      ) : null}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => (isEditingAppearance ? closeAppearanceEditor() : openAppearanceEditor(note))}
-                        disabled={isAppearanceSaving}
-                        aria-label={
-                          isEditingAppearance
-                            ? t('customers.people.detail.notes.appearance.toggleClose')
-                            : t('customers.people.detail.notes.appearance.toggleOpen')
-                        }
-                        title={
-                          isEditingAppearance
-                            ? t('customers.people.detail.notes.appearance.toggleClose')
-                            : t('customers.people.detail.notes.appearance.toggleOpen')
-                        }
-                      >
-                        {isAppearanceSaving ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Palette className="h-4 w-4" />
-                        )}
-                        <span className="sr-only">
-                          {isEditingAppearance
-                            ? t('customers.people.detail.notes.appearance.toggleClose')
-                            : t('customers.people.detail.notes.appearance.toggleOpen')}
-                        </span>
-                      </Button>
-                    </div>
-                  </div>
-                  {isEditingContent ? (
-                    <div className="space-y-2">
-                      {isMarkdownEnabled ? (
-                        <div className="w-full rounded-md border border-muted-foreground/20 bg-background p-2">
-                          <div data-color-mode="light" className="w-full">
-                            <UiMarkdownEditor
-                              value={contentEditor.value}
-                              height={220}
-                              onChange={(value) =>
-                                setContentEditor((prev) => ({ ...prev, value: typeof value === 'string' ? value : '' }))
-                              }
-                              previewOptions={{ remarkPlugins: [remarkGfm] }}
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <textarea
-                          ref={contentTextareaRef}
-                          value={contentEditor.value}
-                          onChange={(event) => {
-                            setContentEditor((prev) => ({ ...prev, value: event.target.value }))
-                            adjustTextareaSize(event.currentTarget)
-                          }}
-                          rows={3}
-                          className="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                        />
-                      )}
-                      {contentError ? <p className="text-xs text-red-600">{contentError}</p> : null}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button type="button" size="sm" onClick={handleContentSave} disabled={isContentSaving}>
-                          {isContentSaving ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              {t('customers.people.detail.notes.saving')}
-                            </>
-                          ) : (
-                            t('customers.people.detail.inline.save')
-                          )}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={handleMarkdownToggle}
-                          aria-pressed={isMarkdownEnabled}
-                          title={
-                            isMarkdownEnabled
-                              ? t('customers.people.detail.notes.markdownDisable')
-                              : t('customers.people.detail.notes.markdownEnable')
-                          }
-                          aria-label={
-                            isMarkdownEnabled
-                              ? t('customers.people.detail.notes.markdownDisable')
-                              : t('customers.people.detail.notes.markdownEnable')
-                          }
-                          className={cn('h-8 w-8', isMarkdownEnabled ? 'text-primary' : undefined)}
-                          disabled={isContentSaving}
-                        >
-                          <FileCode className="h-4 w-4" />
-                          <span className="sr-only">
-                            {isMarkdownEnabled
-                              ? t('customers.people.detail.notes.markdownDisable')
-                              : t('customers.people.detail.notes.markdownEnable')}
-                          </span>
-                        </Button>
-                        <Button type="button" size="sm" variant="ghost" onClick={closeContentEditor} disabled={isContentSaving}>
-                          {t('customers.people.detail.inline.cancel')}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      className="cursor-pointer text-sm"
-                      onClick={() => openContentEditor(note)}
-                      onKeyDown={(event) => handleContentKeyDown(event, note)}
-                    >
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
-                      >
-                        {note.body}
-                      </ReactMarkdown>
-                    </div>
-                  )}
-                  {isEditingAppearance ? (
-                    <div className="space-y-3 rounded-lg border border-dashed border-muted-foreground/30 p-3">
-                      <AppearanceSelector
-                        icon={appearanceEditor?.icon ?? null}
-                        color={appearanceEditor?.color ?? null}
-                        onIconChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
-                        onColorChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
-                        labels={noteAppearanceLabels}
-                        disabled={isAppearanceSaving}
-                      />
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => {
-                            void handleAppearanceSave()
-                          }}
-                          disabled={isAppearanceSaving}
-                        >
-                          {isAppearanceSaving ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              {t('customers.people.detail.notes.appearance.saving')}
-                            </>
-                          ) : (
-                            t('customers.people.detail.notes.appearance.save')
-                          )}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => setAppearanceEditor((prev) => (prev ? { ...prev, icon: null, color: null } : prev))}
-                          disabled={isAppearanceSaving}
-                        >
-                          {t('customers.people.detail.notes.appearance.reset')}
-                        </Button>
-                      </div>
-                      {appearanceError ? <p className="text-xs text-red-600">{appearanceError}</p> : null}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            )
-          })
-        : (
-          <div className="rounded-xl bg-background p-6">
-            <EmptyState
-              title={emptyState.title}
-              action={{
-                label: emptyState.actionLabel,
-                onClick: focusComposer,
-                disabled: isSubmitting,
-              }}
-            />
-          </div>
-        )}
-      {visibleCount < notes.length ? (
-        <div className="flex justify-center">
-          <Button variant="outline" size="sm" onClick={handleLoadMore}>
-            {t('customers.people.detail.notes.loadMore')}
-          </Button>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-type ActivitiesTabProps = {
-  activities: ActivitySummary[]
-  onCreate: (payload: {
-    activityType: string
-    subject?: string
-    body?: string
-    occurredAt?: string
-    appearanceIcon?: string | null
-    appearanceColor?: string | null
-  }) => Promise<void>
-  onUpdate: (
-    activityId: string,
-    payload: {
-      activityType: string
-      subject?: string
-      body?: string
-      occurredAt?: string
-      appearanceIcon?: string | null
-      appearanceColor?: string | null
-    },
-  ) => Promise<void>
-  onDelete: (activityId: string) => Promise<void>
-  isSubmitting: boolean
-  emptyLabel: string
-  t: Translator
-  addActionLabel: string
-  emptyState: TabEmptyState
-  onActionChange?: (action: SectionAction | null) => void
-  activityLabels: DictionarySelectLabels
-  activityMap: CustomerDictionaryMap
-  onActivityDictionaryChange?: () => void
-  pendingActivityId: string | null
-  pendingActivityAction: 'create' | 'update' | 'delete' | null
-}
-
-function ActivitiesTab({
-  activities,
-  onCreate,
-  onUpdate,
-  onDelete,
-  isSubmitting,
-  emptyLabel,
-  t,
-  addActionLabel,
-  emptyState,
-  onActionChange,
-  activityLabels,
-  activityMap,
-  onActivityDictionaryChange,
-  pendingActivityId,
-  pendingActivityAction,
-}: ActivitiesTabProps) {
-  const [open, setOpen] = React.useState(false)
-  const [dialogMode, setDialogMode] = React.useState<'create' | 'edit'>('create')
-  const [editingActivityId, setEditingActivityId] = React.useState<string | null>(null)
-  const [draft, setDraft] = React.useState({
-    activityType: '',
-    subject: '',
-    body: '',
-    occurredAt: '',
-  })
-  const [localActivityMap, setLocalActivityMap] = React.useState<CustomerDictionaryMap>({})
-
-  const resetDraft = React.useCallback(() => {
-    setDraft({
-      activityType: '',
-      subject: '',
-      body: '',
-      occurredAt: '',
-    })
-  }, [])
-
-  const openCreateDialog = React.useCallback(() => {
-    setDialogMode('create')
-    setEditingActivityId(null)
-    resetDraft()
-    setOpen(true)
-  }, [resetDraft])
-
-  const openEditDialog = React.useCallback((activity: ActivitySummary) => {
-    setDialogMode('edit')
-    setEditingActivityId(activity.id)
-    setDraft({
-      activityType: activity.activityType ?? '',
-      subject: activity.subject ?? '',
-      body: activity.body ?? '',
-      occurredAt: toLocalDateTimeInput(activity.occurredAt ?? activity.createdAt ?? null),
-    })
-    setOpen(true)
-  }, [])
-
-  const closeDialog = React.useCallback(() => {
-    setOpen(false)
-    setDialogMode('create')
-    setEditingActivityId(null)
-    resetDraft()
-  }, [resetDraft])
-
-  const appearanceLabels = React.useMemo(
-    () => ({
-      colorLabel: t('customers.config.dictionaries.dialog.colorLabel', 'Color'),
-      colorHelp: t('customers.config.dictionaries.dialog.colorHelp', 'Pick a highlight color for this entry.'),
-      colorClearLabel: t('customers.config.dictionaries.dialog.colorClear', 'Remove color'),
-      iconLabel: t('customers.config.dictionaries.dialog.iconLabel', 'Icon or emoji'),
-      iconPlaceholder: t('customers.config.dictionaries.dialog.iconPlaceholder', 'Type an emoji or pick one of the suggestions.'),
-      iconPickerTriggerLabel: t('customers.config.dictionaries.dialog.iconBrowse', 'Browse icons and emojis'),
-      iconSearchPlaceholder: t('customers.config.dictionaries.dialog.iconSearchPlaceholder', 'Search icons or emojis…'),
-      iconSearchEmptyLabel: t('customers.config.dictionaries.dialog.iconSearchEmpty', 'No icons match your search.'),
-      iconSuggestionsLabel: t('customers.config.dictionaries.dialog.iconSuggestions', 'Suggestions'),
-      iconClearLabel: t('customers.config.dictionaries.dialog.iconClear', 'Remove icon'),
-      previewEmptyLabel: t('customers.config.dictionaries.dialog.previewEmpty', 'No appearance selected'),
-    }),
-    [t],
-  )
-
-  const fetchActivityOptions = React.useCallback(async () => {
-    const res = await apiFetch('/api/customers/dictionaries/activity-types')
-    const payload = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      const message = typeof payload?.error === 'string' ? payload.error : activityLabels.errorLoad
-      throw new Error(message)
-    }
-    const entries = normalizeDictionaryEntries(payload.items)
-    setLocalActivityMap(createDictionaryMap(entries))
-    return entries.map((entry) => ({
-      value: entry.value,
-      label: entry.label,
-      color: entry.color ?? null,
-      icon: entry.icon ?? null,
-    }))
-  }, [activityLabels.errorLoad])
-
-  const createActivityOption = React.useCallback(
-    async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
-      const res = await apiFetch('/api/customers/dictionaries/activity-types', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          value: input.value,
-          label: input.label,
-          color: input.color ?? undefined,
-          icon: input.icon ?? undefined,
-        }),
-      })
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message = typeof payload?.error === 'string' ? payload.error : activityLabels.errorSave
-        throw new Error(message)
-      }
-      const value = typeof payload?.value === 'string' ? payload.value : input.value
-      const label = typeof payload?.label === 'string' && payload.label.trim().length ? payload.label : input.label ?? value
-      const color = typeof payload?.color === 'string' ? payload.color : input.color ?? null
-      const icon = typeof payload?.icon === 'string' ? payload.icon : input.icon ?? null
-      setLocalActivityMap((prev) => ({
-        ...prev,
-        [value]: {
-          value,
-          label,
-          color: color ?? null,
-          icon: icon ?? null,
-        },
-      }))
-      if (typeof onActivityDictionaryChange === 'function') {
-        onActivityDictionaryChange()
-      }
-      return { value, label, color: color ?? null, icon: icon ?? null }
-    },
-    [activityLabels.errorSave, onActivityDictionaryChange]
-  )
-
-  const selectedActivityEntry = React.useMemo(() => {
-    return localActivityMap[draft.activityType] ?? activityMap[draft.activityType] ?? null
-  }, [activityMap, localActivityMap, draft.activityType])
-
-  React.useEffect(() => {
-    if (!onActionChange) return
-    onActionChange({
-      label: addActionLabel,
-      onClick: openCreateDialog,
-      disabled: isSubmitting,
-    })
-    return () => onActionChange(null)
-  }, [onActionChange, addActionLabel, openCreateDialog, isSubmitting])
-
-  const isCreatePending = pendingActivityAction === 'create'
-  const isUpdatePending =
-    pendingActivityAction === 'update' && editingActivityId !== null && pendingActivityId === editingActivityId
-  const isDialogSubmitting = dialogMode === 'edit' ? isSubmitting || isUpdatePending : isSubmitting || isCreatePending
-  const dialogTitle =
-    dialogMode === 'edit'
-      ? t('customers.people.detail.activities.editTitle', 'Edit activity')
-      : t('customers.people.detail.activities.addTitle')
-
-  const handleSubmit = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      if (
-        !draft.activityType.trim() ||
-        isSubmitting ||
-        (dialogMode === 'edit' && isUpdatePending) ||
-        (dialogMode === 'create' && isCreatePending)
-      ) {
-        flash(t('customers.people.detail.activities.typeRequired'), 'error')
-        return
-      }
-      const payload = {
-        activityType: draft.activityType.trim(),
-        subject: draft.subject.trim() || undefined,
-        body: draft.body.trim() || undefined,
-        occurredAt: draft.occurredAt ? new Date(draft.occurredAt).toISOString() : undefined,
-        appearanceIcon: selectedActivityEntry?.icon ?? null,
-        appearanceColor: selectedActivityEntry?.color ?? null,
-      }
-      try {
-        if (dialogMode === 'edit' && editingActivityId) {
-          await onUpdate(editingActivityId, payload)
-        } else {
-          await onCreate(payload)
-        }
-        closeDialog()
-      } catch {
-        // parent handler surfaces errors via flash messages; keep dialog open for corrections
-      }
-    },
-    [
-      draft,
-      isSubmitting,
-      onCreate,
-      onUpdate,
-      selectedActivityEntry,
-      dialogMode,
-      editingActivityId,
-      closeDialog,
-      isCreatePending,
-      isUpdatePending,
-      t,
-    ]
-  )
-
-  const handleDeleteClick = React.useCallback(
-    (activity: ActivitySummary) => {
-      const confirmed =
-        typeof window === 'undefined'
-          ? true
-          : window.confirm(
-              t('customers.people.detail.activities.deleteConfirm', 'Delete this activity? This action cannot be undone.'),
-            )
-      if (!confirmed) return
-      void onDelete(activity.id)
-    },
-    [onDelete, t],
-  )
-
-  return (
-    <div className="mt-4 space-y-6">
-      <div className="space-y-4">
-        {activities.length === 0 ? (
-          <EmptyState
-            title={emptyState.title}
-            action={{
-              label: emptyState.actionLabel,
-              onClick: openCreateDialog,
-              disabled: isSubmitting,
-            }}
-          />
-        ) : (
-          activities.map((activity) => {
-            const dictionaryEntry = localActivityMap[activity.activityType] ?? activityMap[activity.activityType] ?? null
-            const displayIcon = dictionaryEntry?.icon ?? activity.appearanceIcon ?? null
-            const displayColor = dictionaryEntry?.color ?? activity.appearanceColor ?? null
-            const displayLabel = dictionaryEntry?.label ?? activity.activityType
-            const occurredLabel =
-              formatDateTime(activity.occurredAt) ??
-              formatDateTime(activity.createdAt) ??
-              t('customers.people.detail.activities.noDate', 'No date provided')
-            const relativeLabel = formatRelativeTime(activity.occurredAt ?? activity.createdAt ?? null)
-            const authorLabel = activity.authorName ?? activity.authorEmail ?? null
-            const isActivityPending =
-              pendingActivityAction !== 'create' && pendingActivityId === activity.id && pendingActivityAction !== null
-            return (
-              <div key={activity.id} className="space-y-3 rounded-lg border bg-card p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    {displayIcon ? (
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded border border-border bg-muted/40">
-                        {renderDictionaryIcon(displayIcon, 'h-4 w-4')}
-                      </span>
-                    ) : null}
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold">{displayLabel}</span>
-                        {displayColor ? renderDictionaryColor(displayColor, 'h-3 w-3 rounded-full border border-border') : null}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        <span>{occurredLabel}</span>
-                        {relativeLabel ? <span className="ml-1">({relativeLabel})</span> : null}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => openEditDialog(activity)}
-                      disabled={isSubmitting || isActivityPending}
-                    >
-                      {pendingActivityAction === 'update' && isActivityPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Pencil className="h-4 w-4" />
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDeleteClick(activity)}
-                      disabled={isSubmitting || isActivityPending}
-                    >
-                      {pendingActivityAction === 'delete' && isActivityPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-destructive" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                {activity.subject ? <p className="text-sm font-medium">{activity.subject}</p> : null}
-                {activity.body ? <p className="text-sm whitespace-pre-wrap text-muted-foreground">{activity.body}</p> : null}
-                {authorLabel ? (
-                  <p className="text-xs text-muted-foreground">
-                    {t('customers.people.detail.activities.loggedBy', 'Logged by {{user}}', { user: authorLabel })}
-                  </p>
-                ) : null}
-              </div>
-            )
-          })
-        )}
-      </div>
-      <Dialog open={open} onOpenChange={(next) => { if (!next) closeDialog() }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{dialogTitle}</DialogTitle>
-          </DialogHeader>
-          <form className="space-y-3" onSubmit={handleSubmit}>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">{t('customers.people.detail.activities.fields.type')}</label>
-              <DictionaryEntrySelect
-                value={draft.activityType || undefined}
-                onChange={(next) => setDraft((prev) => ({ ...prev, activityType: next ?? '' }))}
-                fetchOptions={fetchActivityOptions}
-                createOption={createActivityOption}
-                labels={activityLabels}
-                allowAppearance
-                allowInlineCreate
-                appearanceLabels={appearanceLabels}
-                selectClassName="w-full"
-                manageHref="/backend/config/customers"
-                disabled={isDialogSubmitting}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">{t('customers.people.detail.activities.fields.subject')}</label>
-              <input
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={draft.subject}
-                onChange={(event) => setDraft((prev) => ({ ...prev, subject: event.target.value }))}
-                disabled={isDialogSubmitting}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">{t('customers.people.detail.activities.fields.body')}</label>
-              <textarea
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={draft.body}
-                onChange={(event) => setDraft((prev) => ({ ...prev, body: event.target.value }))}
-                disabled={isDialogSubmitting}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">{t('customers.people.detail.activities.fields.occurredAt')}</label>
-              <input
-                type="datetime-local"
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={draft.occurredAt}
-                onChange={(event) => setDraft((prev) => ({ ...prev, occurredAt: event.target.value }))}
-                disabled={isDialogSubmitting}
-                onFocus={(event) => {
-                  const target = event.currentTarget as HTMLInputElement & { showPicker?: () => void }
-                  if (typeof target.showPicker === 'function') {
-                    try {
-                      target.showPicker()
-                    } catch {
-                      // ignore
-                    }
-                  }
-                }}
-                onClick={(event) => {
-                  const target = event.currentTarget as HTMLInputElement & { showPicker?: () => void }
-                  if (typeof target.showPicker === 'function') {
-                    try {
-                      target.showPicker()
-                    } catch {
-                      // ignore
-                    }
-                  }
-                }}
-              />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={closeDialog} disabled={isDialogSubmitting}>
-                {t('customers.people.detail.activities.cancel')}
-              </Button>
-              <Button type="submit" disabled={isDialogSubmitting}>
-                {isDialogSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t('customers.people.detail.activities.saving')}
-                  </>
-                ) : (
-                  dialogMode === 'edit'
-                    ? t('customers.people.detail.activities.update', 'Update activity')
-                    : t('customers.people.detail.activities.save', 'Save activity')
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
-
-type AddressesTabProps = {
-  addresses: AddressSummary[]
-  onCreate: (payload: CustomerAddressInput) => Promise<void>
-  onUpdate: (id: string, payload: CustomerAddressInput) => Promise<void>
-  onDelete: (id: string) => Promise<void>
-  isSubmitting: boolean
-  emptyLabel: string
-  t: Translator
-  addActionLabel: string
-  emptyState: TabEmptyState
-  onActionChange?: (action: SectionAction | null) => void
-}
-
-function AddressesTab({
-  addresses,
-  onCreate,
-  onUpdate,
-  onDelete,
-  isSubmitting,
-  emptyLabel,
-  t,
-  addActionLabel,
-  emptyState,
-  onActionChange,
-}: AddressesTabProps) {
-  const displayAddresses = React.useMemo<CustomerAddressValue[]>(() => {
-    return addresses.map((address) => ({
-      id: address.id,
-      name: address.name ?? null,
-      purpose: address.purpose ?? null,
-      addressLine1: address.addressLine1,
-      addressLine2: address.addressLine2 ?? null,
-      buildingNumber: address.buildingNumber ?? null,
-      flatNumber: address.flatNumber ?? null,
-      city: address.city ?? null,
-      region: address.region ?? null,
-      postalCode: address.postalCode ?? null,
-      country: address.country ?? null,
-      isPrimary: address.isPrimary ?? false,
-    }))
-  }, [addresses])
-
-  const handleAddActionChange = React.useCallback(
-    (action: { openCreateForm: () => void; addDisabled: boolean } | null) => {
-      if (!onActionChange) return
-      if (!action) {
-        onActionChange(null)
-        return
-      }
-      onActionChange({
-        label: addActionLabel,
-        onClick: action.openCreateForm,
-        disabled: action.addDisabled,
-      })
-    },
-    [onActionChange, addActionLabel]
-  )
-
-  return (
-    <div className="mt-4">
-      <CustomerAddressTiles
-        addresses={displayAddresses}
-        onCreate={onCreate}
-        onUpdate={onUpdate}
-        onDelete={onDelete}
-        isSubmitting={isSubmitting}
-        emptyLabel={emptyLabel}
-        t={t}
-        hideAddButton
-        onAddActionChange={handleAddActionChange}
-        emptyStateTitle={emptyState.title}
-        emptyStateActionLabel={emptyState.actionLabel}
-      />
-    </div>
-  )
-}
-
-type TasksTabProps = {
-  tasks: TodoLinkSummary[]
-  onCreate: (payload: { title: string; isDone: boolean }) => Promise<void>
-  isSubmitting: boolean
-  emptyLabel: string
-  t: Translator
-  addActionLabel: string
-  emptyState: TabEmptyState
-  onActionChange?: (action: SectionAction | null) => void
-  onToggle: (task: TodoLinkSummary, nextIsDone: boolean) => Promise<void>
-  pendingTaskId: string | null
-}
-
-function TasksTab({
-  tasks,
-  onCreate,
-  isSubmitting,
-  emptyLabel,
-  t,
-  addActionLabel,
-  emptyState,
-  onActionChange,
-  onToggle,
-  pendingTaskId,
-}: TasksTabProps) {
-  const [open, setOpen] = React.useState(false)
-  const [draft, setDraft] = React.useState({ title: '', isDone: false })
-  const [visibleCount, setVisibleCount] = React.useState(() => Math.min(5, tasks.length))
-  const openDialog = React.useCallback(() => setOpen(true), [])
-
-  React.useEffect(() => {
-    if (!onActionChange) return
-    onActionChange({
-      label: addActionLabel,
-      onClick: openDialog,
-      disabled: isSubmitting,
-    })
-    return () => onActionChange(null)
-  }, [onActionChange, addActionLabel, openDialog, isSubmitting])
-
-  React.useEffect(() => {
-    setVisibleCount((prev) => {
-      if (!tasks.length) return 0
-      const baseline = Math.min(5, tasks.length)
-      if (prev === 0) return baseline
-      return Math.min(Math.max(prev, baseline), tasks.length)
-    })
-  }, [tasks.length])
-
-  const handleLoadMore = React.useCallback(() => {
-    setVisibleCount((prev) => Math.min(prev + 5, tasks.length))
-  }, [tasks.length])
-
-  const visibleTasks = React.useMemo(() => {
-    if (!visibleCount) return []
-    return tasks.slice(0, visibleCount)
-  }, [tasks, visibleCount])
-
-  const handleSubmit = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      if (!draft.title.trim() || isSubmitting) {
-        flash(t('customers.people.detail.tasks.titleRequired'), 'error')
-        return
-      }
-      await onCreate({ title: draft.title.trim(), isDone: draft.isDone })
-      setDraft({ title: '', isDone: false })
-      setOpen(false)
-    },
-    [draft, isSubmitting, onCreate, t]
-  )
-
-  return (
-    <div className="mt-4 space-y-6">
-      <div className="space-y-4">
-        {visibleTasks.length === 0 ? (
-          <EmptyState
-            title={emptyState.title}
-            action={{
-              label: emptyState.actionLabel,
-              onClick: openDialog,
-              disabled: isSubmitting,
-            }}
-          />
-        ) : (
-          visibleTasks.map((task) => {
-            const todoHref = resolveTodoHref(task.todoSource, task.todoId)
-            const createdLabel = formatDateTime(task.createdAt) ?? emptyLabel
-            const dueLabel = task.dueAt ? formatDate(task.dueAt) ?? formatDateTime(task.dueAt) ?? null : null
-            const priorityLabel = task.priority != null ? t('customers.people.detail.tasks.priorityLabel', { priority: task.priority }) : null
-            const title = task.title ?? t('customers.people.detail.tasks.untitled')
-            const isDone = task.isDone === true
-            const checkboxId = `person-task-${task.id}`
-            const isPending = pendingTaskId === task.todoId
-            return (
-              <div key={task.id} className="rounded-lg border bg-card p-4 space-y-3 text-sm">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <label htmlFor={checkboxId} className="flex cursor-pointer items-start gap-2">
-                    <input
-                      id={checkboxId}
-                      type="checkbox"
-                      checked={isDone}
-                      onChange={(event) => { const next = event.target.checked; void onToggle(task, next) }}
-                      disabled={isSubmitting || isPending}
-                      className="mt-1 h-4 w-4"
-                    />
-                    <span className={cn('text-sm font-medium', isDone ? 'line-through text-muted-foreground' : undefined)}>{title}</span>
-                  </label>
-                  <span className="text-xs text-muted-foreground">{createdLabel}</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                  <span>{task.todoSource}</span>
-                  {priorityLabel ? <span>{priorityLabel}</span> : null}
-                  {dueLabel ? <span>{t('customers.people.detail.tasks.dueLabel', { date: dueLabel })}</span> : null}
-                </div>
-                <div className="flex flex-wrap items-center gap-3 text-xs">
-                  {todoHref ? (
-                    <Link href={todoHref} className="text-primary hover:underline">
-                      {t('customers.people.detail.tasks.openTask')}
-                    </Link>
-                  ) : null}
-                </div>
-              </div>
-            )
-          })
-        )}
-        {visibleCount < tasks.length ? (
-          <div className="flex justify-center">
-            <Button variant="outline" size="sm" onClick={handleLoadMore}>
-              {t('customers.people.detail.tasks.loadMore')}
-            </Button>
-          </div>
-        ) : null}
-        {tasks.length > 0 ? (
-          <div className="flex justify-center text-xs">
-            <Link href="/backend/customers/work-plan/todos" className="text-primary hover:underline">
-              {t('customers.people.detail.tasks.viewAll')}
-            </Link>
-          </div>
-        ) : null}
-      </div>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('customers.people.detail.tasks.addTitle')}</DialogTitle>
-          </DialogHeader>
-          <form className="space-y-3" onSubmit={handleSubmit}>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">{t('customers.people.detail.tasks.fields.title')}</label>
-              <input
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={draft.title}
-                onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
-                required
-              />
-            </div>
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={draft.isDone}
-                onChange={(event) => setDraft((prev) => ({ ...prev, isDone: event.target.checked }))}
-              />
-              {t('customers.people.detail.tasks.fields.done')}
-            </label>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSubmitting}>
-                {t('customers.people.detail.tasks.cancel')}
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t('customers.people.detail.tasks.saving')}
-                  </>
-                ) : (
-                  t('customers.people.detail.tasks.save')
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
-
-type DealsTabProps = {
-  deals: DealSummary[]
-  onCreate: (payload: {
-    title: string
-    status?: string
-    pipelineStage?: string
-    valueAmount?: number
-    valueCurrency?: string
-    probability?: number
-    expectedCloseAt?: string
-    description?: string
-  }) => Promise<void>
-  isSubmitting: boolean
-  emptyLabel: string
-  t: Translator
-  addActionLabel: string
-  emptyState: TabEmptyState
-  onActionChange?: (action: SectionAction | null) => void
-}
-
-function DealsTab({
-  deals,
-  onCreate,
-  isSubmitting,
-  emptyLabel,
-  t,
-  addActionLabel,
-  emptyState,
-  onActionChange,
-}: DealsTabProps) {
-  const [open, setOpen] = React.useState(false)
-  const openDialog = React.useCallback(() => setOpen(true), [])
-  const [draft, setDraft] = React.useState({
-    title: '',
-    status: '',
-    pipelineStage: '',
-    valueAmount: '',
-    valueCurrency: '',
-    probability: '',
-    expectedCloseAt: '',
-    description: '',
-  })
-
-  const resetDraft = React.useCallback(() => {
-    setDraft({
-      title: '',
-      status: '',
-      pipelineStage: '',
-      valueAmount: '',
-      valueCurrency: '',
-      probability: '',
-      expectedCloseAt: '',
-      description: '',
-    })
-  }, [])
-
-  React.useEffect(() => {
-    if (!onActionChange) return
-    onActionChange({
-      label: addActionLabel,
-      onClick: openDialog,
-      disabled: isSubmitting,
-    })
-    return () => onActionChange(null)
-  }, [onActionChange, addActionLabel, openDialog, isSubmitting])
-
-  const handleSubmit = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      const trimmedTitle = draft.title.trim()
-      if (!trimmedTitle || isSubmitting) {
-        flash(t('customers.people.detail.deals.titleRequired'), 'error')
-        return
-      }
-      const payload: {
-        title: string
-        status?: string
-        pipelineStage?: string
-        valueAmount?: number
-        valueCurrency?: string
-        probability?: number
-        expectedCloseAt?: string
-        description?: string
-      } = { title: trimmedTitle }
-      const normalizedStatus = draft.status.trim()
-      if (normalizedStatus) payload.status = normalizedStatus
-      const normalizedStage = draft.pipelineStage.trim()
-      if (normalizedStage) payload.pipelineStage = normalizedStage
-      const normalizedAmount = draft.valueAmount.trim()
-      if (normalizedAmount) {
-        const parsed = Number(normalizedAmount)
-        if (!Number.isNaN(parsed)) payload.valueAmount = parsed
-      }
-      const normalizedCurrency = draft.valueCurrency.trim()
-      if (normalizedCurrency) payload.valueCurrency = normalizedCurrency.toUpperCase()
-      const normalizedProbability = draft.probability.trim()
-      if (normalizedProbability) {
-        const parsed = Number(normalizedProbability)
-        if (!Number.isNaN(parsed)) payload.probability = parsed
-      }
-      if (draft.expectedCloseAt) payload.expectedCloseAt = draft.expectedCloseAt
-      const normalizedDescription = draft.description.trim()
-      if (normalizedDescription) payload.description = normalizedDescription
-      try {
-        await onCreate(payload)
-        resetDraft()
-        setOpen(false)
-      } catch {
-        // errors are surfaced via flash notifications in the handler
-      }
-    },
-    [draft, isSubmitting, onCreate, resetDraft, t]
-  )
-
-  const handleClose = React.useCallback(() => {
-    resetDraft()
-    setOpen(false)
-  }, [resetDraft])
-
-  return (
-    <div className="mt-4 space-y-6">
-      <div className="space-y-4">
-        {deals.length === 0 ? (
-          <EmptyState
-            title={emptyState.title}
-            action={{
-              label: emptyState.actionLabel,
-              onClick: openDialog,
-              disabled: isSubmitting,
-            }}
-          />
-        ) : (
-          deals.map((deal) => (
-            <div key={deal.id} className="rounded-lg border p-4 space-y-2 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-base font-semibold">{deal.title}</h3>
-                <span className="text-xs uppercase text-muted-foreground">{deal.status || emptyLabel}</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                {deal.pipelineStage ? <span>{deal.pipelineStage}</span> : null}
-                {typeof deal.probability === 'number' ? <span>{deal.probability}%</span> : null}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {deal.valueAmount && deal.valueCurrency
-                  ? `${deal.valueAmount} ${deal.valueCurrency}`
-                  : emptyLabel}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) : emptyLabel}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-      <Dialog open={open} onOpenChange={(next) => { if (!next) handleClose(); else setOpen(next) }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('customers.people.detail.deals.addTitle')}</DialogTitle>
-          </DialogHeader>
-          <form className="space-y-3" onSubmit={handleSubmit}>
-            <div className="space-y-1">
-              <label className="text-sm font-medium" htmlFor="deal-title">
-                {t('customers.people.detail.deals.fields.title')}
-              </label>
-              <input
-                id="deal-title"
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={draft.title}
-                onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
-                required
-              />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-sm font-medium" htmlFor="deal-status">
-                  {t('customers.people.detail.deals.fields.status')}
-                </label>
-                <input
-                  id="deal-status"
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft.status}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium" htmlFor="deal-stage">
-                  {t('customers.people.detail.deals.fields.pipelineStage')}
-                </label>
-                <input
-                  id="deal-stage"
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft.pipelineStage}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, pipelineStage: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium" htmlFor="deal-value">
-                  {t('customers.people.detail.deals.fields.valueAmount')}
-                </label>
-                <input
-                  id="deal-value"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft.valueAmount}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, valueAmount: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium" htmlFor="deal-currency">
-                  {t('customers.people.detail.deals.fields.valueCurrency')}
-                </label>
-                <input
-                  id="deal-currency"
-                  className="w-full uppercase rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft.valueCurrency}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, valueCurrency: event.target.value }))}
-                  maxLength={3}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium" htmlFor="deal-probability">
-                  {t('customers.people.detail.deals.fields.probability')}
-                </label>
-                <input
-                  id="deal-probability"
-                  type="number"
-                  min="0"
-                  max="100"
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft.probability}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, probability: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium" htmlFor="deal-expected">
-                  {t('customers.people.detail.deals.fields.expectedCloseAt')}
-                </label>
-                <input
-                  id="deal-expected"
-                  type="date"
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft.expectedCloseAt}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, expectedCloseAt: event.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium" htmlFor="deal-description">
-                {t('customers.people.detail.deals.fields.description')}
-              </label>
-              <textarea
-                id="deal-description"
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                value={draft.description}
-                onChange={(event) => setDraft((prev) => ({ ...prev, description: event.target.value }))}
-              />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting}>
-                {t('customers.people.detail.deals.cancel')}
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t('customers.people.detail.deals.saving')}
-                  </>
-                ) : (
-                  t('customers.people.detail.deals.save')
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
-
-type SectionLoaderProps = { isLoading: boolean }
-
-function SectionLoader({ isLoading }: SectionLoaderProps) {
-  if (!isLoading) return null
-  return (
-    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-      <Spinner className="h-4 w-4" />
-      <span>Loading…</span>
-    </div>
-  )
-}
-
-export default function CustomerPersonDetailPage({ params }: { params?: { id?: string } }) {
-  const id = params?.id
-  const t = useT()
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const initialTab = React.useMemo(() => {
-    const raw = searchParams?.get('tab')
-    if (raw === 'notes' || raw === 'activities' || raw === 'deals' || raw === 'addresses' || raw === 'tasks') {
-      return raw
-    }
-    return 'notes'
-  }, [searchParams])
-  const [data, setData] = React.useState<PersonOverview | null>(null)
-  const [isLoading, setIsLoading] = React.useState(true)
-  const [error, setError] = React.useState<string | null>(null)
-  const [activeTab, setActiveTab] = React.useState<'notes' | 'activities' | 'deals' | 'addresses' | 'tasks'>(initialTab)
-  const [sectionPending, setSectionPending] = React.useState<Record<SectionKey, boolean>>({
-    notes: false,
-    activities: false,
-    deals: false,
-    addresses: false,
-    tasks: false,
-  })
-  const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
-  const [pendingActivityId, setPendingActivityId] = React.useState<string | null>(null)
-  const [pendingActivityAction, setPendingActivityAction] = React.useState<'create' | 'update' | 'delete' | null>(null)
-  const [pendingTaskId, setPendingTaskId] = React.useState<string | null>(null)
-  const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
-    setSectionAction(action)
-  }, [])
-  const handleSectionAction = React.useCallback(() => {
-    if (!sectionAction || sectionAction.disabled) return
-    sectionAction.onClick()
-  }, [sectionAction])
-  React.useEffect(() => {
-    setSectionAction(null)
-  }, [activeTab])
-  const scopeVersion = useOrganizationScopeVersion()
-  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<CustomerDictionaryKind, CustomerDictionaryMap>>({
-    statuses: {},
-    sources: {},
-    'lifecycle-stages': {},
-    'address-types': {},
-    'activity-types': {},
-    'job-titles': {},
-  })
-  const personId = data?.person?.id ?? null
-  const [isDeleting, setIsDeleting] = React.useState(false)
-
-  const loadDictionaryEntries = React.useCallback(async (kind: CustomerDictionaryKind, signal?: AbortSignal) => {
-    try {
-      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) return []
-      const normalized = normalizeDictionaryEntries(payload.items)
-      if (signal?.aborted) return normalized
-      setDictionaryMaps((prev) => ({
-        ...prev,
-        [kind]: createDictionaryMap(normalized),
-      }))
-      return normalized
-    } catch {
-      return []
-    }
-  }, [])
-
-  React.useEffect(() => {
-    const controller = new AbortController()
-    async function loadAll() {
-      setDictionaryMaps({
-        statuses: {},
-        sources: {},
-        'lifecycle-stages': {},
-        'address-types': {},
-        'activity-types': {},
-        'job-titles': {},
-      })
-      await Promise.all([
-        loadDictionaryEntries('statuses', controller.signal),
-        loadDictionaryEntries('sources', controller.signal),
-        loadDictionaryEntries('lifecycle-stages', controller.signal),
-        loadDictionaryEntries('address-types', controller.signal),
-        loadDictionaryEntries('activity-types', controller.signal),
-        loadDictionaryEntries('job-titles', controller.signal),
-      ])
-    }
-    loadAll().catch(() => {})
-    return () => {
-      controller.abort()
-    }
-  }, [loadDictionaryEntries, scopeVersion, id])
-
-  const refreshActivityTypes = React.useCallback(() => {
-    loadDictionaryEntries('activity-types').catch(() => {})
-  }, [loadDictionaryEntries])
-
-  const validators = React.useMemo(() => ({
-    email: (value: string) => {
-      if (!value) return null
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-      return emailRegex.test(value) ? null : t('customers.people.detail.inline.emailInvalid')
-    },
-    phone: (value: string) => {
-      if (!value) return null
-      return value.length >= 3 ? null : t('customers.people.detail.inline.phoneInvalid')
-    },
-    displayName: (value: string) => {
-      const trimmed = value.trim()
-      return trimmed.length ? null : t('customers.people.form.displayName.error')
-    },
-    linkedInUrl: (value: string) => {
-      if (!value) return null
-      const candidate = value.trim()
-      return isValidSocialUrl(candidate, { hosts: ['linkedin.com'], pathRequired: true })
-        ? null
-        : t('customers.people.detail.inline.linkedInInvalid')
-    },
-    twitterUrl: (value: string) => {
-      if (!value) return null
-      const candidate = value.trim()
-      return isValidSocialUrl(candidate, { hosts: ['twitter.com', 'x.com'], pathRequired: true })
-        ? null
-        : t('customers.people.detail.inline.twitterInvalid')
-    },
-  }), [t])
-
-  const personName = React.useMemo(
-    () => (data?.person?.displayName ? data.person.displayName : t('customers.people.list.deleteFallbackName')),
-    [data?.person?.displayName, t],
-  )
-
-  const handleDelete = React.useCallback(async () => {
-    if (!personId) return
-    const confirmed = typeof window !== 'undefined'
-      ? window.confirm(t('customers.people.list.deleteConfirm', { name: personName }))
-      : true
-    if (!confirmed) return
-    setIsDeleting(true)
-    try {
-      const res = await apiFetch(`/api/customers/people?id=${encodeURIComponent(personId)}`, {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-      })
-      if (!res.ok) {
-        const details = await res.json().catch(() => ({}))
-        const message = typeof details?.error === 'string' ? details.error : t('customers.people.list.deleteError')
-        throw new Error(message)
-      }
-      flash(t('customers.people.list.deleteSuccess'), 'success')
-      router.push('/backend/customers/people')
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('customers.people.list.deleteError')
-      flash(message, 'error')
-    } finally {
-      setIsDeleting(false)
-    }
-  }, [personId, personName, router, t])
-
-  React.useEffect(() => {
-    if (!id) {
-      setError(t('customers.people.detail.error.notFound'))
-      setIsLoading(false)
-      return
-    }
-    let cancelled = false
-    async function load() {
-      setIsLoading(true)
-      setError(null)
-      try {
-        const res = await apiFetch(`/api/customers/people/${encodeURIComponent(id)}`)
-        if (!res.ok) {
-          const payload = await res.json().catch(() => ({}))
-          const message = typeof payload?.error === 'string' ? payload.error : t('customers.people.detail.error.load')
-          throw new Error(message)
-        }
-        const payload = await res.json()
-        if (cancelled) return
-        setData(payload as PersonOverview)
-      } catch (err) {
-        if (cancelled) return
-        const message = err instanceof Error ? err.message : t('customers.people.detail.error.load')
-        setError(message)
-        setData(null)
-      } finally {
-        if (!cancelled) setIsLoading(false)
-      }
-    }
-    load()
-    return () => { cancelled = true }
-  }, [id, t])
-
-  const savePerson = React.useCallback(
-    async (patch: Record<string, unknown>, apply: (prev: PersonOverview) => PersonOverview) => {
-      if (!data) return
-      const res = await apiFetch('/api/customers/people', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: data.person.id, ...patch }),
-      })
-      if (!res.ok) {
-        let message = t('customers.people.detail.inline.error')
-        try {
-          const details = await res.clone().json()
-          if (details && typeof details.error === 'string') message = details.error
-        } catch {}
-        throw new Error(message)
-      }
-      setData((prev) => (prev ? apply(prev) : prev))
-    },
-    [data, t]
-  )
-
-  const updateDisplayName = React.useCallback(
-    async (next: string | null) => {
-      const send = typeof next === 'string' ? next : ''
-      await savePerson(
-        { displayName: send },
-        (prev) => {
-          if (!prev) return prev
-          const nextValue = next && next.length ? next : prev.person.displayName
-          return { ...prev, person: { ...prev.person, displayName: nextValue } }
-        }
-      )
-    },
-    [savePerson]
-  )
-
-  const updateProfileField = React.useCallback(
-    async (field: ProfileEditableField, next: string | null) => {
-      const send = typeof next === 'string' ? next : ''
-      await savePerson(
-        { [field]: send },
-        (prev) => {
-          if (!prev || !prev.profile) return prev
-          const nextValue = next && next.length ? next : null
-          return { ...prev, profile: { ...prev.profile, [field]: nextValue } }
-        }
-      )
-    },
-    [savePerson]
-  )
-
-  const dictionaryLabels = React.useMemo(() => {
-    const base = {
-      valueLabel: t('customers.people.form.dictionary.valueLabel', 'Name'),
-      valuePlaceholder: t('customers.people.form.dictionary.valuePlaceholder', 'Name'),
-      labelLabel: t('customers.config.dictionaries.dialog.labelLabel', 'Label'),
-      labelPlaceholder: t('customers.people.form.dictionary.labelPlaceholder', 'Display name shown in UI'),
-      emptyError: t('customers.people.form.dictionary.errorRequired'),
-      cancelLabel: t('customers.people.form.dictionary.cancel'),
-      saveLabel: t('customers.people.form.dictionary.save'),
-      errorLoad: t('customers.people.form.dictionary.errorLoad'),
-      errorSave: t('customers.people.form.dictionary.error'),
-      loadingLabel: t('customers.people.form.dictionary.loading'),
-      manageTitle: t('customers.people.form.dictionary.manage'),
-    }
-    return {
-      statuses: {
-        ...base,
-        placeholder: t('customers.people.form.status.placeholder'),
-        addLabel: t('customers.people.form.dictionary.addStatus'),
-        addPrompt: t('customers.people.form.dictionary.promptStatus'),
-        dialogTitle: t('customers.people.form.dictionary.dialogTitleStatus'),
-      },
-      lifecycleStages: {
-        ...base,
-        placeholder: t('customers.people.form.lifecycleStage.placeholder'),
-        addLabel: t('customers.people.form.dictionary.addLifecycleStage'),
-        addPrompt: t('customers.people.form.dictionary.promptLifecycleStage'),
-        dialogTitle: t('customers.people.form.dictionary.dialogTitleLifecycleStage'),
-      },
-      sources: {
-        ...base,
-        placeholder: t('customers.people.form.source.placeholder'),
-        addLabel: t('customers.people.form.dictionary.addSource'),
-        addPrompt: t('customers.people.form.dictionary.promptSource'),
-        dialogTitle: t('customers.people.form.dictionary.dialogTitleSource'),
-      },
-      activityTypes: {
-        ...base,
-        placeholder: t('customers.people.form.activityType.placeholder'),
-        addLabel: t('customers.people.form.dictionary.addActivityType'),
-        addPrompt: t('customers.people.form.dictionary.promptActivityType'),
-        dialogTitle: t('customers.people.form.dictionary.dialogTitleActivityType'),
-      },
-      jobTitles: {
-        ...base,
-        placeholder: t('customers.people.form.jobTitle.placeholder'),
-        addLabel: t('customers.people.form.dictionary.addJobTitle'),
-        addPrompt: t('customers.people.form.dictionary.promptJobTitle'),
-        dialogTitle: t('customers.people.form.dictionary.dialogTitleJobTitle'),
-      },
-    }
-  }, [t])
-
-  const tabs = React.useMemo(
-    () => [
-      { id: 'notes' as const, label: t('customers.people.detail.tabs.notes') },
-      { id: 'activities' as const, label: t('customers.people.detail.tabs.activities') },
-      { id: 'deals' as const, label: t('customers.people.detail.tabs.deals') },
-      { id: 'addresses' as const, label: t('customers.people.detail.tabs.addresses') },
-      { id: 'tasks' as const, label: t('customers.people.detail.tabs.tasks') },
-    ],
-    [t]
-  )
-
-  const handleCreateNote = React.useCallback(
-    async (note: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => {
-      if (!personId) return
-      setSectionPending((prev) => ({ ...prev, notes: true }))
-      try {
-        const body = note.body.trim()
-        const icon = note.appearanceIcon && note.appearanceIcon.trim().length ? note.appearanceIcon.trim() : null
-        const color = note.appearanceColor && /^#([0-9a-f]{6})$/i.test(note.appearanceColor.trim())
-          ? note.appearanceColor.trim().toLowerCase()
-          : null
-        const res = await apiFetch('/api/customers/comments', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            entityId: personId,
-            body,
-            appearanceIcon: icon,
-            appearanceColor: color,
-          }),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.notes.error')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
-        const responseBody = await res.json().catch(() => ({}))
-        const serverAuthorId = typeof responseBody?.authorUserId === 'string' ? responseBody.authorUserId : null
-        const serverAuthorName = typeof responseBody?.authorName === 'string' ? responseBody.authorName : null
-        const serverAuthorEmail = typeof responseBody?.authorEmail === 'string' ? responseBody.authorEmail : null
-        setData((prev) => {
-          if (!prev) return prev
-          const viewerInfo = prev.viewer ?? null
-          const viewerId = viewerInfo?.userId ?? null
-          const viewerNameValue = viewerInfo?.name ?? null
-          const viewerEmailValue = viewerInfo?.email ?? null
-          const resolvedAuthorId = serverAuthorId ?? viewerId ?? null
-          const resolvedAuthorName = (() => {
-            if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
-              return viewerNameValue ?? viewerEmailValue ?? null
-            }
-            return serverAuthorName
-          })()
-          const resolvedAuthorEmail = (() => {
-            if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
-              return viewerEmailValue ?? null
-            }
-            return serverAuthorEmail
-          })()
-          const newNote: CommentSummary = {
-            id: typeof responseBody?.id === 'string' ? responseBody.id : randomId(),
-            body,
-            createdAt: new Date().toISOString(),
-            authorUserId: resolvedAuthorId,
-            authorName: resolvedAuthorName,
-            authorEmail: resolvedAuthorEmail,
-            dealId: null,
-            appearanceIcon: icon,
-            appearanceColor: color,
-          }
-          return { ...prev, comments: [newNote, ...prev.comments] }
-        })
-        flash(t('customers.people.detail.notes.success'), 'success')
-      } finally {
-        setSectionPending((prev) => ({ ...prev, notes: false }))
-      }
-    },
-    [personId, t]
-  )
-
-  const handleUpdateNote = React.useCallback(
-    async (noteId: string, patch: { body?: string; appearanceIcon?: string | null; appearanceColor?: string | null }) => {
-      try {
-        const res = await apiFetch('/api/customers/comments', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: noteId, ...patch }),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.notes.updateError')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
-        setData((prev) => {
-          if (!prev) return prev
-          const nextComments = prev.comments.map((comment) => {
-            if (comment.id !== noteId) return comment
-            const next = { ...comment }
-            if (patch.body !== undefined) next.body = patch.body
-            if (patch.appearanceIcon !== undefined) next.appearanceIcon = patch.appearanceIcon ?? null
-            if (patch.appearanceColor !== undefined) next.appearanceColor = patch.appearanceColor ?? null
-            return next
-          })
-          return { ...prev, comments: nextComments }
-        })
-        flash(t('customers.people.detail.notes.updateSuccess'), 'success')
-      } catch (error) {
-        const message = error instanceof Error ? error.message : t('customers.people.detail.notes.updateError')
-        flash(message, 'error')
-        throw error instanceof Error ? error : new Error(message)
-      }
-    },
-    [t]
-  )
-
-  const handleCreateActivity = React.useCallback(
-    async (payload: {
-      activityType: string
-      subject?: string
-      body?: string
-      occurredAt?: string
-      appearanceIcon?: string | null
-      appearanceColor?: string | null
-    }) => {
+const handleCreateActivity = React.useCallback(
+    async ({ base, custom }: ActivityFormSubmitPayload) => {
       if (!personId) return
       setPendingActivityId(null)
       setPendingActivityAction('create')
       setSectionPending((prev) => ({ ...prev, activities: true }))
       try {
+        const payload: Record<string, unknown> = {
+          entityId: personId,
+          activityType: base.activityType,
+          subject: base.subject ?? undefined,
+          body: base.body ?? undefined,
+          occurredAt: base.occurredAt ?? undefined,
+        }
+        if (Object.keys(custom).length) payload.customFields = custom
         const res = await apiFetch('/api/customers/activities', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ entityId: personId, ...payload }),
+          body: JSON.stringify(payload),
         })
         if (!res.ok) {
           let message = t('customers.people.detail.activities.error')
@@ -3504,27 +1367,23 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           } catch {}
           throw new Error(message)
         }
-        const body = await res.json().catch(() => ({}))
-        const newActivity: ActivitySummary = {
-          id: typeof body?.id === 'string' ? body.id : randomId(),
-          activityType: payload.activityType,
-          subject: payload.subject ?? null,
-          body: payload.body ?? null,
-          occurredAt: payload.occurredAt ?? null,
-          createdAt: new Date().toISOString(),
-          appearanceIcon: payload.appearanceIcon ?? null,
-          appearanceColor: payload.appearanceColor ?? null,
-        }
+        const responseBody = await res.json().catch(() => ({}))
+        const nowIso = new Date().toISOString()
         setData((prev) => {
           if (!prev) return prev
           const viewer = prev.viewer ?? null
           const viewerId = viewer?.userId ?? null
           const viewerNameValue = viewer?.name ?? null
           const viewerEmailValue = viewer?.email ?? null
-          const createdAtIso = new Date().toISOString()
           const trackedActivity: ActivitySummary = {
-            ...newActivity,
-            createdAt: createdAtIso,
+            id: typeof responseBody?.id === 'string' ? responseBody.id : randomId(),
+            activityType: base.activityType,
+            subject: base.subject ?? null,
+            body: base.body ?? null,
+            occurredAt: base.occurredAt ?? null,
+            createdAt: nowIso,
+            appearanceIcon: null,
+            appearanceColor: null,
             authorUserId: viewerId,
             authorName: viewerNameValue ?? viewerEmailValue ?? null,
             authorEmail: viewerEmailValue ?? null,
@@ -3546,17 +1405,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   )
 
   const handleUpdateActivity = React.useCallback(
-    async (
-      activityId: string,
-      payload: {
-        activityType: string
-        subject?: string
-        body?: string
-        occurredAt?: string
-        appearanceIcon?: string | null
-        appearanceColor?: string | null
-      },
-    ) => {
+    async (activityId: string, { base, custom }: ActivityFormSubmitPayload) => {
       if (!personId) return
       setPendingActivityId(activityId)
       setPendingActivityAction('update')
@@ -3565,7 +1414,15 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         const res = await apiFetch('/api/customers/activities', {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: activityId, ...payload }),
+          body: JSON.stringify({
+            id: activityId,
+            entityId: personId,
+            activityType: base.activityType,
+            subject: base.subject ?? undefined,
+            body: base.body ?? undefined,
+            occurredAt: base.occurredAt ?? undefined,
+            ...(Object.keys(custom).length ? { customFields: custom } : {}),
+          }),
         })
         if (!res.ok) {
           let message = t('customers.people.detail.activities.error')
@@ -3581,12 +1438,10 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             if (activity.id !== activityId) return activity
             return {
               ...activity,
-              activityType: payload.activityType,
-              subject: payload.subject ?? null,
-              body: payload.body ?? null,
-              occurredAt: payload.occurredAt ?? null,
-              appearanceIcon: payload.appearanceIcon ?? null,
-              appearanceColor: payload.appearanceColor ?? null,
+              activityType: base.activityType,
+              subject: base.subject ?? null,
+              body: base.body ?? null,
+              occurredAt: base.occurredAt ?? null,
             }
           })
           return { ...prev, activities: nextActivities }
@@ -3643,6 +1498,107 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     },
     [personId, t]
   )
+
+  const handleLoadTags = React.useCallback(async (query?: string) => {
+    try {
+      const params = new URLSearchParams({ pageSize: '200' })
+      if (query) params.set('search', query)
+      const res = await apiFetch(`/api/customers/tags?${params.toString()}`)
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const message =
+          typeof payload?.error === 'string'
+            ? payload.error
+            : t('customers.people.detail.tags.loadError', 'Failed to load tags.')
+        throw new Error(message)
+      }
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      return items
+        .map((item: any) => {
+          if (!item) return null
+          const id = typeof item.id === 'string' ? item.id : String(item.id ?? '')
+          if (!id) return null
+          const labelRaw = typeof item.label === 'string' && item.label.trim().length ? item.label.trim() : null
+          const label = labelRaw ?? (typeof item.slug === 'string' ? item.slug : id)
+          const color = typeof item.color === 'string' && item.color.trim().length ? item.color.trim() : null
+          return { id, label, color }
+        })
+        .filter(Boolean) as TagOption[]
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customers.people.detail.tags.loadError', 'Failed to load tags.')
+      throw new Error(message)
+    }
+  }, [t])
+
+  const handleCreateTag = React.useCallback(async ({ label }: { label: string }) => {
+    const trimmed = label.trim()
+    if (!trimmed.length) {
+      throw new Error(t('customers.people.detail.tags.labelRequired', 'Tag name is required.'))
+    }
+    try {
+      const res = await apiFetch('/api/customers/tags', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          label: trimmed,
+          slug: slugifyTagLabel(trimmed),
+        }),
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const message =
+          typeof payload?.error === 'string'
+            ? payload.error
+            : t('customers.people.detail.tags.createError', 'Failed to create tag.')
+        throw new Error(message)
+      }
+      const id = typeof payload?.id === 'string' ? payload.id : String(payload?.tagId ?? '')
+      if (!id) throw new Error(t('customers.people.detail.tags.createError', 'Failed to create tag.'))
+      const color = typeof payload?.color === 'string' ? payload.color : null
+      return { id, label: trimmed, color } satisfies TagOption
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customers.people.detail.tags.createError', 'Failed to create tag.')
+      throw new Error(message)
+    }
+  }, [t])
+
+  const handleAssignTag = React.useCallback(async (tagId: string) => {
+    if (!personId) throw new Error(t('customers.people.detail.tags.assignError', 'Failed to assign tag.'))
+    const res = await apiFetch('/api/customers/tags/assign', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tagId, entityId: personId }),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}))
+      const message =
+        typeof payload?.error === 'string'
+          ? payload.error
+          : t('customers.people.detail.tags.assignError', 'Failed to assign tag.')
+      throw new Error(message)
+    }
+  }, [personId, t])
+
+  const handleUnassignTag = React.useCallback(async (tagId: string) => {
+    if (!personId) throw new Error(t('customers.people.detail.tags.assignError', 'Failed to remove tag.'))
+    const res = await apiFetch('/api/customers/tags/unassign', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tagId, entityId: personId }),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}))
+      const message =
+        typeof payload?.error === 'string'
+          ? payload.error
+          : t('customers.people.detail.tags.unassignError', 'Failed to remove tag.')
+      throw new Error(message)
+    }
+  }, [personId, t])
+
+  const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
+    setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
+  }, [])
 
   const handleCreateDeal = React.useCallback(
     async (payload: {
@@ -4377,7 +2333,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           <div>
             <SectionLoader isLoading={sectionPending[activeTab as SectionKey]} />
             {activeTab === 'notes' && (
-              <NotesTab
+              <NotesSection
                 notes={data.comments}
                 onCreate={handleCreateNote}
                 onUpdate={handleUpdateNote}
@@ -4386,33 +2342,33 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 viewerUserId={data.viewer?.userId ?? null}
                 viewerName={data.viewer?.name ?? null}
                 viewerEmail={data.viewer?.email ?? null}
-                t={t}
                 addActionLabel={t('customers.people.detail.notes.addLabel')}
                 emptyState={{
                   title: t('customers.people.detail.emptyState.notes.title'),
                   actionLabel: t('customers.people.detail.emptyState.notes.action'),
                 }}
                 onActionChange={handleSectionActionChange}
+                translator={t}
               />
             )}
             {activeTab === 'activities' && (
-              <ActivitiesTab
+              <ActivitiesSection
                 activities={data.activities}
                 onCreate={handleCreateActivity}
                 onUpdate={handleUpdateActivity}
                 onDelete={handleDeleteActivity}
                 isSubmitting={sectionPending.activities}
-                emptyLabel={t('customers.people.detail.empty.activities')}
-                t={t}
                 addActionLabel={t('customers.people.detail.activities.add')}
                 emptyState={{
                   title: t('customers.people.detail.emptyState.activities.title'),
                   actionLabel: t('customers.people.detail.emptyState.activities.action'),
                 }}
+                loadDictionaryOptions={loadActivityTypeOptions}
+                createDictionaryOption={createActivityTypeOption}
+                dictionaryLabels={dictionaryLabels.activityTypes}
+                dictionaryMap={dictionaryMaps['activity-types']}
+                onDictionaryChange={refreshActivityTypes}
                 onActionChange={handleSectionActionChange}
-                activityLabels={dictionaryLabels.activityTypes}
-                activityMap={dictionaryMaps['activity-types']}
-                onActivityDictionaryChange={refreshActivityTypes}
                 pendingActivityId={pendingActivityId}
                 pendingActivityAction={pendingActivityAction}
               />
@@ -4536,36 +2492,22 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             </div>
           </div>
 
-          <CustomFieldsSection
+          <CustomDataSection
             entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
             values={data.customFields ?? {}}
             onSubmit={handleCustomFieldsSubmit}
             title={t('customers.people.detail.sections.customFields')}
           />
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.tags')}</h2>
-              <Button variant="outline" size="sm" disabled>
-                {t('customers.people.detail.actions.manageTags')}
-              </Button>
-            </div>
-            {data.tags.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('customers.people.detail.empty.tags')}</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {data.tags.map((tag) => (
-                  <span
-                    key={tag.id}
-                    className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium"
-                    style={tag.color ? { borderColor: tag.color, color: tag.color } : undefined}
-                  >
-                    {tag.label}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+          <TagsSection
+            tags={data.tags}
+            loadOptions={handleLoadTags}
+            onAssign={handleAssignTag}
+            onUnassign={handleUnassignTag}
+            onCreate={handleCreateTag}
+            onChange={handleTagsChange}
+            isSubmitting={false}
+          />
         </div>
 
         <Separator className="my-4" />

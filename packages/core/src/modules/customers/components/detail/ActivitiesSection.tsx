@@ -11,31 +11,7 @@ import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictiona
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import type { CustomerDictionaryMap } from '../../../../lib/dictionaries'
 import { useT } from '@/lib/i18n/context'
-
-type ActivitySummary = {
-  id: string
-  activityType: string
-  subject?: string | null
-  body?: string | null
-  occurredAt?: string | null
-  createdAt: string
-  appearanceIcon?: string | null
-  appearanceColor?: string | null
-  authorUserId?: string | null
-  authorName?: string | null
-  authorEmail?: string | null
-}
-
-type SectionAction = {
-  label: string
-  onClick: () => void
-  disabled?: boolean
-}
-
-type TabEmptyState = {
-  title: string
-  actionLabel: string
-}
+import type { ActivitySummary, SectionAction, TabEmptyState } from './types'
 
 type DictionaryOption = {
   value: string
