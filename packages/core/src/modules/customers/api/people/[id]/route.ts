@@ -260,6 +260,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   }
 
   const authorIds = new Set<string>()
+  for (const activity of activities) {
+    if (activity.authorUserId) authorIds.add(activity.authorUserId)
+  }
   for (const comment of comments) {
     if (comment.authorUserId) authorIds.add(comment.authorUserId)
   }
@@ -398,6 +401,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       occurredAt: activity.occurredAt ? activity.occurredAt.toISOString() : null,
       dealId: activity.deal ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id) : null,
       authorUserId: activity.authorUserId,
+      authorName: activity.authorUserId ? userMap.get(activity.authorUserId)?.name ?? null : null,
+      authorEmail: activity.authorUserId ? userMap.get(activity.authorUserId)?.email ?? null : null,
       createdAt: activity.createdAt.toISOString(),
       appearanceIcon: activity.appearanceIcon ?? null,
       appearanceColor: activity.appearanceColor ?? null,

@@ -77,6 +77,11 @@ type ActivitySummary = {
   body?: string | null
   occurredAt?: string | null
   createdAt: string
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+  authorUserId?: string | null
+  authorName?: string | null
+  authorEmail?: string | null
 }
 
 type DealSummary = {
@@ -178,6 +183,14 @@ function formatDate(value?: string | null): string | null {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   return date.toLocaleDateString()
+}
+
+function toLocalDateTimeInput(value?: string | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (input: number) => `${input}`.padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function formatRelativeTime(value?: string | null): string | null {
@@ -2068,6 +2081,18 @@ type ActivitiesTabProps = {
     appearanceIcon?: string | null
     appearanceColor?: string | null
   }) => Promise<void>
+  onUpdate: (
+    activityId: string,
+    payload: {
+      activityType: string
+      subject?: string
+      body?: string
+      occurredAt?: string
+      appearanceIcon?: string | null
+      appearanceColor?: string | null
+    },
+  ) => Promise<void>
+  onDelete: (activityId: string) => Promise<void>
   isSubmitting: boolean
   emptyLabel: string
   t: Translator
@@ -2077,11 +2102,15 @@ type ActivitiesTabProps = {
   activityLabels: DictionarySelectLabels
   activityMap: CustomerDictionaryMap
   onActivityDictionaryChange?: () => void
+  pendingActivityId: string | null
+  pendingActivityAction: 'create' | 'update' | 'delete' | null
 }
 
 function ActivitiesTab({
   activities,
   onCreate,
+  onUpdate,
+  onDelete,
   isSubmitting,
   emptyLabel,
   t,
@@ -2091,9 +2120,12 @@ function ActivitiesTab({
   activityLabels,
   activityMap,
   onActivityDictionaryChange,
+  pendingActivityId,
+  pendingActivityAction,
 }: ActivitiesTabProps) {
   const [open, setOpen] = React.useState(false)
-  const openDialog = React.useCallback(() => setOpen(true), [])
+  const [dialogMode, setDialogMode] = React.useState<'create' | 'edit'>('create')
+  const [editingActivityId, setEditingActivityId] = React.useState<string | null>(null)
   const [draft, setDraft] = React.useState({
     activityType: '',
     subject: '',
@@ -2101,6 +2133,41 @@ function ActivitiesTab({
     occurredAt: '',
   })
   const [localActivityMap, setLocalActivityMap] = React.useState<CustomerDictionaryMap>({})
+
+  const resetDraft = React.useCallback(() => {
+    setDraft({
+      activityType: '',
+      subject: '',
+      body: '',
+      occurredAt: '',
+    })
+  }, [])
+
+  const openCreateDialog = React.useCallback(() => {
+    setDialogMode('create')
+    setEditingActivityId(null)
+    resetDraft()
+    setOpen(true)
+  }, [resetDraft])
+
+  const openEditDialog = React.useCallback((activity: ActivitySummary) => {
+    setDialogMode('edit')
+    setEditingActivityId(activity.id)
+    setDraft({
+      activityType: activity.activityType ?? '',
+      subject: activity.subject ?? '',
+      body: activity.body ?? '',
+      occurredAt: toLocalDateTimeInput(activity.occurredAt ?? activity.createdAt ?? null),
+    })
+    setOpen(true)
+  }, [])
+
+  const closeDialog = React.useCallback(() => {
+    setOpen(false)
+    setDialogMode('create')
+    setEditingActivityId(null)
+    resetDraft()
+  }, [resetDraft])
 
   const appearanceLabels = React.useMemo(
     () => ({
@@ -2182,31 +2249,79 @@ function ActivitiesTab({
     if (!onActionChange) return
     onActionChange({
       label: addActionLabel,
-      onClick: openDialog,
+      onClick: openCreateDialog,
       disabled: isSubmitting,
     })
     return () => onActionChange(null)
-  }, [onActionChange, addActionLabel, openDialog, isSubmitting])
+  }, [onActionChange, addActionLabel, openCreateDialog, isSubmitting])
+
+  const isCreatePending = pendingActivityAction === 'create'
+  const isUpdatePending =
+    pendingActivityAction === 'update' && editingActivityId !== null && pendingActivityId === editingActivityId
+  const isDialogSubmitting = dialogMode === 'edit' ? isSubmitting || isUpdatePending : isSubmitting || isCreatePending
+  const dialogTitle =
+    dialogMode === 'edit'
+      ? t('customers.people.detail.activities.editTitle', 'Edit activity')
+      : t('customers.people.detail.activities.addTitle')
 
   const handleSubmit = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault()
-      if (!draft.activityType.trim() || isSubmitting) {
+      if (
+        !draft.activityType.trim() ||
+        isSubmitting ||
+        (dialogMode === 'edit' && isUpdatePending) ||
+        (dialogMode === 'create' && isCreatePending)
+      ) {
         flash(t('customers.people.detail.activities.typeRequired'), 'error')
         return
       }
-      await onCreate({
+      const payload = {
         activityType: draft.activityType.trim(),
         subject: draft.subject.trim() || undefined,
         body: draft.body.trim() || undefined,
         occurredAt: draft.occurredAt ? new Date(draft.occurredAt).toISOString() : undefined,
         appearanceIcon: selectedActivityEntry?.icon ?? null,
         appearanceColor: selectedActivityEntry?.color ?? null,
-      })
-      setDraft({ activityType: '', subject: '', body: '', occurredAt: '' })
-      setOpen(false)
+      }
+      try {
+        if (dialogMode === 'edit' && editingActivityId) {
+          await onUpdate(editingActivityId, payload)
+        } else {
+          await onCreate(payload)
+        }
+        closeDialog()
+      } catch {
+        // parent handler surfaces errors via flash messages; keep dialog open for corrections
+      }
     },
-    [draft, isSubmitting, onCreate, selectedActivityEntry, t]
+    [
+      draft,
+      isSubmitting,
+      onCreate,
+      onUpdate,
+      selectedActivityEntry,
+      dialogMode,
+      editingActivityId,
+      closeDialog,
+      isCreatePending,
+      isUpdatePending,
+      t,
+    ]
+  )
+
+  const handleDeleteClick = React.useCallback(
+    (activity: ActivitySummary) => {
+      const confirmed =
+        typeof window === 'undefined'
+          ? true
+          : window.confirm(
+              t('customers.people.detail.activities.deleteConfirm', 'Delete this activity? This action cannot be undone.'),
+            )
+      if (!confirmed) return
+      void onDelete(activity.id)
+    },
+    [onDelete, t],
   )
 
   return (
@@ -2217,7 +2332,7 @@ function ActivitiesTab({
             title={emptyState.title}
             action={{
               label: emptyState.actionLabel,
-              onClick: openDialog,
+              onClick: openCreateDialog,
               disabled: isSubmitting,
             }}
           />
@@ -2227,27 +2342,79 @@ function ActivitiesTab({
             const displayIcon = dictionaryEntry?.icon ?? activity.appearanceIcon ?? null
             const displayColor = dictionaryEntry?.color ?? activity.appearanceColor ?? null
             const displayLabel = dictionaryEntry?.label ?? activity.activityType
+            const occurredLabel =
+              formatDateTime(activity.occurredAt) ??
+              formatDateTime(activity.createdAt) ??
+              t('customers.people.detail.activities.noDate', 'No date provided')
+            const relativeLabel = formatRelativeTime(activity.occurredAt ?? activity.createdAt ?? null)
+            const authorLabel = activity.authorName ?? activity.authorEmail ?? null
+            const isActivityPending =
+              pendingActivityAction !== 'create' && pendingActivityId === activity.id && pendingActivityAction !== null
             return (
-              <div key={activity.id} className="rounded-lg border p-4 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    {displayIcon ? renderDictionaryIcon(displayIcon, 'h-4 w-4 text-muted-foreground') : null}
-                    <span className="text-sm font-medium text-foreground">{displayLabel}</span>
-                    {displayColor ? renderDictionaryColor(displayColor, 'h-3 w-3 rounded-full border border-border') : null}
+              <div key={activity.id} className="space-y-3 rounded-lg border bg-card p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    {displayIcon ? (
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded border border-border bg-muted/40">
+                        {renderDictionaryIcon(displayIcon, 'h-4 w-4')}
+                      </span>
+                    ) : null}
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold">{displayLabel}</span>
+                        {displayColor ? renderDictionaryColor(displayColor, 'h-3 w-3 rounded-full border border-border') : null}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        <span>{occurredLabel}</span>
+                        {relativeLabel ? <span className="ml-1">({relativeLabel})</span> : null}
+                      </div>
+                    </div>
                   </div>
-                  <span>{formatDateTime(activity.occurredAt) ?? emptyLabel}</span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => openEditDialog(activity)}
+                      disabled={isSubmitting || isActivityPending}
+                    >
+                      {pendingActivityAction === 'update' && isActivityPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Pencil className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDeleteClick(activity)}
+                      disabled={isSubmitting || isActivityPending}
+                    >
+                      {pendingActivityAction === 'delete' && isActivityPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-destructive" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
                 {activity.subject ? <p className="text-sm font-medium">{activity.subject}</p> : null}
                 {activity.body ? <p className="text-sm whitespace-pre-wrap text-muted-foreground">{activity.body}</p> : null}
+                {authorLabel ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t('customers.people.detail.activities.loggedBy', 'Logged by {{user}}', { user: authorLabel })}
+                  </p>
+                ) : null}
               </div>
             )
           })
         )}
       </div>
-      <Dialog open={open} onOpenChange={(next) => { if (!next) setDraft((prev) => ({ ...prev, activityType: prev.activityType })); setOpen(next) }}>
+      <Dialog open={open} onOpenChange={(next) => { if (!next) closeDialog() }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('customers.people.detail.activities.addTitle')}</DialogTitle>
+            <DialogTitle>{dialogTitle}</DialogTitle>
           </DialogHeader>
           <form className="space-y-3" onSubmit={handleSubmit}>
             <div className="space-y-1">
@@ -2259,10 +2426,11 @@ function ActivitiesTab({
                 createOption={createActivityOption}
                 labels={activityLabels}
                 allowAppearance
+                allowInlineCreate
                 appearanceLabels={appearanceLabels}
                 selectClassName="w-full"
                 manageHref="/backend/config/customers"
-                disabled={isSubmitting}
+                disabled={isDialogSubmitting}
               />
             </div>
             <div className="space-y-1">
@@ -2271,6 +2439,7 @@ function ActivitiesTab({
                 className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={draft.subject}
                 onChange={(event) => setDraft((prev) => ({ ...prev, subject: event.target.value }))}
+                disabled={isDialogSubmitting}
               />
             </div>
             <div className="space-y-1">
@@ -2279,6 +2448,7 @@ function ActivitiesTab({
                 className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={draft.body}
                 onChange={(event) => setDraft((prev) => ({ ...prev, body: event.target.value }))}
+                disabled={isDialogSubmitting}
               />
             </div>
             <div className="space-y-1">
@@ -2288,6 +2458,7 @@ function ActivitiesTab({
                 className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={draft.occurredAt}
                 onChange={(event) => setDraft((prev) => ({ ...prev, occurredAt: event.target.value }))}
+                disabled={isDialogSubmitting}
                 onFocus={(event) => {
                   const target = event.currentTarget as HTMLInputElement & { showPicker?: () => void }
                   if (typeof target.showPicker === 'function') {
@@ -2311,17 +2482,19 @@ function ActivitiesTab({
               />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSubmitting}>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={isDialogSubmitting}>
                 {t('customers.people.detail.activities.cancel')}
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
+              <Button type="submit" disabled={isDialogSubmitting}>
+                {isDialogSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     {t('customers.people.detail.activities.saving')}
                   </>
                 ) : (
-                  t('customers.people.detail.activities.save')
+                  dialogMode === 'edit'
+                    ? t('customers.people.detail.activities.update', 'Update activity')
+                    : t('customers.people.detail.activities.save', 'Save activity')
                 )}
               </Button>
             </DialogFooter>
@@ -2912,6 +3085,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     tasks: false,
   })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+  const [pendingActivityId, setPendingActivityId] = React.useState<string | null>(null)
+  const [pendingActivityAction, setPendingActivityAction] = React.useState<'create' | 'update' | 'delete' | null>(null)
   const [pendingTaskId, setPendingTaskId] = React.useState<string | null>(null)
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
     setSectionAction(action)
@@ -3312,6 +3487,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       appearanceColor?: string | null
     }) => {
       if (!personId) return
+      setPendingActivityId(null)
+      setPendingActivityAction('create')
       setSectionPending((prev) => ({ ...prev, activities: true }))
       try {
         const res = await apiFetch('/api/customers/activities', {
@@ -3338,9 +3515,129 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           appearanceIcon: payload.appearanceIcon ?? null,
           appearanceColor: payload.appearanceColor ?? null,
         }
-        setData((prev) => (prev ? { ...prev, activities: [newActivity, ...prev.activities] } : prev))
+        setData((prev) => {
+          if (!prev) return prev
+          const viewer = prev.viewer ?? null
+          const viewerId = viewer?.userId ?? null
+          const viewerNameValue = viewer?.name ?? null
+          const viewerEmailValue = viewer?.email ?? null
+          const createdAtIso = new Date().toISOString()
+          const trackedActivity: ActivitySummary = {
+            ...newActivity,
+            createdAt: createdAtIso,
+            authorUserId: viewerId,
+            authorName: viewerNameValue ?? viewerEmailValue ?? null,
+            authorEmail: viewerEmailValue ?? null,
+          }
+          return { ...prev, activities: [trackedActivity, ...prev.activities] }
+        })
         flash(t('customers.people.detail.activities.success'), 'success')
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.activities.error')
+        flash(message, 'error')
+        throw err instanceof Error ? err : new Error(message)
       } finally {
+        setPendingActivityId(null)
+        setPendingActivityAction(null)
+        setSectionPending((prev) => ({ ...prev, activities: false }))
+      }
+    },
+    [personId, t]
+  )
+
+  const handleUpdateActivity = React.useCallback(
+    async (
+      activityId: string,
+      payload: {
+        activityType: string
+        subject?: string
+        body?: string
+        occurredAt?: string
+        appearanceIcon?: string | null
+        appearanceColor?: string | null
+      },
+    ) => {
+      if (!personId) return
+      setPendingActivityId(activityId)
+      setPendingActivityAction('update')
+      setSectionPending((prev) => ({ ...prev, activities: true }))
+      try {
+        const res = await apiFetch('/api/customers/activities', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: activityId, ...payload }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.activities.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        setData((prev) => {
+          if (!prev) return prev
+          const nextActivities = prev.activities.map((activity) => {
+            if (activity.id !== activityId) return activity
+            return {
+              ...activity,
+              activityType: payload.activityType,
+              subject: payload.subject ?? null,
+              body: payload.body ?? null,
+              occurredAt: payload.occurredAt ?? null,
+              appearanceIcon: payload.appearanceIcon ?? null,
+              appearanceColor: payload.appearanceColor ?? null,
+            }
+          })
+          return { ...prev, activities: nextActivities }
+        })
+        flash(t('customers.people.detail.activities.updateSuccess', 'Activity updated.'), 'success')
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.activities.error')
+        flash(message, 'error')
+        throw err instanceof Error ? err : new Error(message)
+      } finally {
+        setPendingActivityId(null)
+        setPendingActivityAction(null)
+        setSectionPending((prev) => ({ ...prev, activities: false }))
+      }
+    },
+    [personId, t]
+  )
+
+  const handleDeleteActivity = React.useCallback(
+    async (activityId: string) => {
+      if (!personId) return
+      setPendingActivityId(activityId)
+      setPendingActivityAction('delete')
+      setSectionPending((prev) => ({ ...prev, activities: true }))
+      try {
+        const res = await apiFetch('/api/customers/activities', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: activityId }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.activities.deleteError', 'Failed to delete activity.')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        setData((prev) => {
+          if (!prev) return prev
+          return { ...prev, activities: prev.activities.filter((activity) => activity.id !== activityId) }
+        })
+        flash(t('customers.people.detail.activities.deleteSuccess', 'Activity deleted.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : t('customers.people.detail.activities.deleteError', 'Failed to delete activity.')
+        flash(message, 'error')
+        throw err instanceof Error ? err : new Error(message)
+      } finally {
+        setPendingActivityId(null)
+        setPendingActivityAction(null)
         setSectionPending((prev) => ({ ...prev, activities: false }))
       }
     },
@@ -4102,6 +4399,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               <ActivitiesTab
                 activities={data.activities}
                 onCreate={handleCreateActivity}
+                onUpdate={handleUpdateActivity}
+                onDelete={handleDeleteActivity}
                 isSubmitting={sectionPending.activities}
                 emptyLabel={t('customers.people.detail.empty.activities')}
                 t={t}
@@ -4114,6 +4413,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                 activityLabels={dictionaryLabels.activityTypes}
                 activityMap={dictionaryMaps['activity-types']}
                 onActivityDictionaryChange={refreshActivityTypes}
+                pendingActivityId={pendingActivityId}
+                pendingActivityAction={pendingActivityAction}
               />
             )}
             {activeTab === 'deals' && (

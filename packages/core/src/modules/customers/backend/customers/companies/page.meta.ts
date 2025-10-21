@@ -2,14 +2,23 @@ import React from 'react'
 
 const companyIcon = React.createElement(
   'svg',
-  { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 },
-  React.createElement('path', { d: 'M3 21V8a2 2 0 0 1 2-2h5v15' }),
-  React.createElement('path', { d: 'M9 21V5a2 2 0 0 1 2-2h8v18' }),
-  React.createElement('path', { d: 'M3 21h18' }),
-  React.createElement('path', { d: 'M7 10h2' }),
-  React.createElement('path', { d: 'M7 14h2' }),
-  React.createElement('path', { d: 'M15 10h2' }),
-  React.createElement('path', { d: 'M15 14h2' })
+  {
+    width: 16,
+    height: 16,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+  },
+  React.createElement('path', { d: 'M3 22h18' }),
+  React.createElement('path', { d: 'M5 22V9a1 1 0 0 1 .55-.89l6.4-3.2a1 1 0 0 1 .9 0l6.6 3.3A1 1 0 0 1 19 9v13' }),
+  React.createElement('path', { d: 'M9 22v-6h6v6' }),
+  React.createElement('path', { d: 'M9 12h6' }),
+  React.createElement('path', { d: 'M9 16h6' }),
+  React.createElement('path', { d: 'M7 12h.01' }),
+  React.createElement('path', { d: 'M17 12h.01' })
 )
 
 export const metadata = {
