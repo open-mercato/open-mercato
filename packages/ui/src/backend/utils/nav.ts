@@ -11,6 +11,7 @@ export type AdminNavItem = {
   titleKey?: string
   href: string
   enabled: boolean
+  hidden?: boolean
   order?: number
   priority?: number
   icon?: ReactNode

@@ -92,6 +92,7 @@
   "appShell.sidebarCustomizationMoveUp": "Przesuń w górę",
   "appShell.sidebarCustomizationMoveDown": "Przesuń w dół",
   "appShell.sidebarCustomizationGroupLabel": "Nazwa sekcji",
+  "appShell.sidebarCustomizationShowItem": "Pokaż pozycję",
   "appShell.sidebarCustomizationLoading": "Wczytywanie ustawień…",
   "appShell.sidebarCustomizationLoadError": "Nie udało się wczytać ustawień paska bocznego.",
   "appShell.sidebarCustomizationSaveError": "Nie udało się zapisać ustawień paska bocznego.",

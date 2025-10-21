@@ -92,6 +92,7 @@
   "appShell.sidebarCustomizationMoveUp": "Mover arriba",
   "appShell.sidebarCustomizationMoveDown": "Mover abajo",
   "appShell.sidebarCustomizationGroupLabel": "Nombre de la sección",
+  "appShell.sidebarCustomizationShowItem": "Mostrar opción",
   "appShell.sidebarCustomizationLoading": "Cargando preferencias…",
   "appShell.sidebarCustomizationLoadError": "No se pudieron cargar tus preferencias de la barra lateral.",
   "appShell.sidebarCustomizationSaveError": "No se pudieron guardar tus preferencias de la barra lateral.",

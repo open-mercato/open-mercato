@@ -253,11 +253,13 @@ export async function GET(req: Request) {
         title: item.title,
         defaultTitle: item.defaultTitle,
         enabled: item.enabled,
+        hidden: item.hidden,
         children: item.children?.map((child) => ({
           href: child.href,
           title: child.title,
           defaultTitle: child.defaultTitle,
           enabled: child.enabled,
+          hidden: child.hidden,
         })),
       })),
     })),

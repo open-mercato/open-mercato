@@ -92,6 +92,7 @@
   "appShell.sidebarCustomizationMoveUp": "Move up",
   "appShell.sidebarCustomizationMoveDown": "Move down",
   "appShell.sidebarCustomizationGroupLabel": "Section name",
+  "appShell.sidebarCustomizationShowItem": "Show item",
   "appShell.sidebarCustomizationLoading": "Loading preferences…",
   "appShell.sidebarCustomizationLoadError": "We couldn’t load your sidebar preferences.",
   "appShell.sidebarCustomizationSaveError": "We couldn’t save your sidebar preferences.",

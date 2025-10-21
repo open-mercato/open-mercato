@@ -159,18 +159,18 @@ export function applySidebarPreference<T extends SidebarGroupLike>(
   })
   const hiddenSet = new Set(normalized.hiddenItems ?? [])
   const applyItems = <TI extends SidebarItemLike>(items: TI[]): TI[] => {
-    const mapped: TI[] = []
-    for (const item of items) {
-      if (hiddenSet.has(item.href)) continue
+    return items.map((item) => {
       const override = normalized.itemLabels?.[item.href]
       const nextChildren = item.children ? applyItems(item.children) : undefined
-      mapped.push({
+      const hidden = hiddenSet.has(item.href)
+      const next = {
         ...item,
         title: override && override.trim().length > 0 ? override.trim() : item.defaultTitle,
         children: nextChildren,
-      } as TI)
-    }
-    return mapped
+      } as TI & { hidden?: boolean }
+      next.hidden = hidden
+      return next
+    })
   }
   const mapped = groups.map((group) => {
     const override = normalized.groupLabels?.[group.id]
