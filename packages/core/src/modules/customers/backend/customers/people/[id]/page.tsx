@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
@@ -14,7 +13,6 @@ import { FileCode, Linkedin, Loader2, Mail, Pencil, Phone, Plus, Twitter, X } fr
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import {
   DictionarySelectField,
@@ -53,10 +51,7 @@ import type {
   TabEmptyState,
 } from '../../../../components/detail/types'
 import type { ActivityFormSubmitPayload } from '../../../../components/detail/ActivityForm'
-import {
-  DictionaryEntrySelect,
-  type DictionarySelectLabels,
-} from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import {
   ICON_SUGGESTIONS,
   DictionaryValue,
@@ -68,7 +63,7 @@ import {
   type CustomerDictionaryMap,
 } from '../../../../lib/dictionaries'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
-import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../../../../components/AddressTiles'
+import { type CustomerAddressInput } from '../../../../components/AddressTiles'
 import { useEmailDuplicateCheck } from '../../../hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../../../../utils/phoneDuplicates'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
@@ -2015,8 +2010,10 @@ const handleCreateActivity = React.useCallback(
         <PageBody>
           <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
             <p>{error || t('customers.people.detail.error.notFound')}</p>
-            <Button variant="outline" onClick={() => router.push('/backend/customers/people')}>
-              {t('customers.people.detail.actions.backToList')}
+            <Button asChild variant="outline">
+              <Link href="/backend/customers/people">
+                {t('customers.people.detail.actions.backToList')}
+              </Link>
             </Button>
           </div>
         </PageBody>
