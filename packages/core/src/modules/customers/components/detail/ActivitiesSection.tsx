@@ -9,7 +9,7 @@ import { formatDateTime, formatRelativeTime } from './utils'
 import { ActivityForm, type ActivityFormBaseValues, type ActivityFormSubmitPayload } from './ActivityForm'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import type { CustomerDictionaryMap } from '../../../../lib/dictionaries'
+import type { CustomerDictionaryMap } from '../../lib/dictionaries'
 import { useT } from '@/lib/i18n/context'
 import type { ActivitySummary, SectionAction, TabEmptyState } from './types'
 

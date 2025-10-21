@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { TagsInput } from '@open-mercato/ui/backend/CrudForm'
+import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { useT } from '@/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'

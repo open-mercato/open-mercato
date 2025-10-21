@@ -10,6 +10,8 @@ export * from './backend/UserMenu'
 export * from './backend/RowActions'
 export * from './backend/utils/nav'
 export * from './backend/CrudForm'
+
+export * from './backend/inputs'
 export * from './backend/ContextHelp'
 export * from './backend/dashboard'
 export * from './frontend/Layout'

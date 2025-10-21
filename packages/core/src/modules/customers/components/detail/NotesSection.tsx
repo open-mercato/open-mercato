@@ -13,7 +13,7 @@ import { formatDateTime, formatDate, formatRelativeTime } from './utils'
 import type { CommentSummary, Translator, SectionAction, TabEmptyState } from './types'
 import {
   ICON_SUGGESTIONS,
-} from '../../../../lib/dictionaries'
+} from '../../lib/dictionaries'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import {
   DictionaryValue,
@@ -21,6 +21,7 @@ import {
   renderDictionaryIcon,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useT } from '@/lib/i18n/context'
+import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../lib/markdownPreference'
 
 type UiMarkdownEditorProps = {
   value?: string
@@ -32,24 +33,6 @@ type UiMarkdownEditorProps = {
 const UiMarkdownEditor = dynamic<UiMarkdownEditorProps>(() => import('@uiw/react-md-editor'), {
   ssr: false,
 })
-
-const NOTES_MARKDOWN_COOKIE = 'customers_notes_markdown'
-
-function writeMarkdownPreferenceCookie(enabled: boolean) {
-  if (typeof document === 'undefined') return
-  const expires = new Date()
-  expires.setFullYear(expires.getFullYear() + 1)
-  document.cookie = `${NOTES_MARKDOWN_COOKIE}=${enabled ? '1' : '0'}; path=/; expires=${expires.toUTCString()}; SameSite=Lax`
-}
-
-function readMarkdownPreferenceCookie(): boolean | null {
-  if (typeof document === 'undefined') return null
-  const allCookies = document.cookie ? document.cookie.split('; ') : []
-  const match = allCookies.find((entry) => entry.startsWith(`${NOTES_MARKDOWN_COOKIE}=`))
-  if (!match) return null
-  const value = match.split('=').slice(1).join('=')
-  return value === '1'
-}
 
 export type NotesSectionProps = {
   notes: CommentSummary[]
