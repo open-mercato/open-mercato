@@ -29,9 +29,56 @@ export type FilterOverlayProps = {
   onClear?: () => void
 }
 
+const EMPTY_FILTER_VALUES: FilterValues = {}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeKeys(source: FilterValues | null | undefined): string[] {
+  if (!source) return []
+  return Object.keys(source).filter((key) => source[key] !== undefined)
+}
+
+function areFieldValuesEqual(a: any, b: any): boolean {
+  if (a === b) return true
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    for (let i = 0; i < a.length; i += 1) {
+      if (!areFieldValuesEqual(a[i], b[i])) return false
+    }
+    return true
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keysA = normalizeKeys(a as FilterValues)
+    const keysB = normalizeKeys(b as FilterValues)
+    if (keysA.length !== keysB.length) return false
+    for (const key of keysA) {
+      if (!keysB.includes(key)) return false
+      if (!areFieldValuesEqual((a as FilterValues)[key], (b as FilterValues)[key])) return false
+    }
+    return true
+  }
+  return false
+}
+
+function areFilterValuesEqual(a?: FilterValues | null, b?: FilterValues | null): boolean {
+  if (a === b) return true
+  const keysA = normalizeKeys(a || EMPTY_FILTER_VALUES)
+  const keysB = normalizeKeys(b || EMPTY_FILTER_VALUES)
+  if (keysA.length !== keysB.length) return false
+  for (const key of keysA) {
+    if (!keysB.includes(key)) return false
+    if (!areFieldValuesEqual(a?.[key], b?.[key])) return false
+  }
+  return true
+}
+
 export function FilterOverlay({ title = 'Filters', filters, initialValues, open, onOpenChange, onApply, onClear }: FilterOverlayProps) {
   const [values, setValues] = React.useState<FilterValues>(initialValues)
-  React.useEffect(() => setValues(initialValues), [initialValues])
+  React.useEffect(() => {
+    setValues((prev) => (areFilterValuesEqual(prev, initialValues) ? prev : initialValues))
+  }, [initialValues])
 
   // Load dynamic options for filters that request it
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, FilterOption[]>>({})

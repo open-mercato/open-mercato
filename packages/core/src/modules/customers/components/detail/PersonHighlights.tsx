@@ -6,8 +6,6 @@ import { Loader2, Pencil, Trash2, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import type { CustomerDictionaryMap } from '../../lib/dictionaries'
 import { CompanySelectField } from '../formConfig'
 import {
   InlineTextEditor,
@@ -43,10 +41,6 @@ type PersonHighlightsValidators = {
 export type PersonHighlightsProps = {
   person: PersonHighlightsPerson
   profile: PersonHighlightsProfile
-  dictionaryLabels: {
-    statuses: DictionarySelectLabels
-  }
-  dictionaryMap: CustomerDictionaryMap
   validators: PersonHighlightsValidators
   onDisplayNameSave: (value: string | null) => Promise<void>
   onPrimaryEmailSave: (value: string | null) => Promise<void>
@@ -63,8 +57,6 @@ type CompanyInfo = { id: string; name: string }
 export function PersonHighlights({
   person,
   profile,
-  dictionaryLabels,
-  dictionaryMap,
   validators,
   onDisplayNameSave,
   onPrimaryEmailSave,
@@ -102,7 +94,14 @@ export function PersonHighlights({
             : t('customers.people.detail.company.loadError', 'Unable to load company information.')
         throw new Error(message)
       }
-      const item = Array.isArray(payload?.items) ? payload.items.find((entry: any) => entry?.id === companyId) : null
+      const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, unknown>>) : []
+      const item = items.find((entry) => {
+        if (!entry) return false
+        const rawId = (entry as Record<string, unknown>).id
+        if (typeof rawId === 'string') return rawId === companyId
+        if (typeof rawId === 'number') return String(rawId) === companyId
+        return false
+      }) as Record<string, unknown> | undefined
       if (item && typeof item.display_name === 'string') {
         setCompany({ id: companyId, name: item.display_name })
       } else if (item && typeof item.displayName === 'string') {
@@ -345,10 +344,8 @@ export function PersonHighlights({
           label={t('customers.people.detail.highlights.status')}
           value={person.status ?? null}
           emptyLabel={t('customers.people.detail.noValue')}
-          labels={dictionaryLabels.statuses}
           activateOnClick
           onSave={onStatusSave}
-          dictionaryMap={dictionaryMap}
           kind="statuses"
         />
         <InlineNextInteractionEditor

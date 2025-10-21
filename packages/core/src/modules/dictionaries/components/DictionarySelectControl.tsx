@@ -2,8 +2,14 @@
 
 import * as React from 'react'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { DictionaryEntrySelect } from './DictionaryEntrySelect'
+import {
+  ensureDictionaryEntries,
+  invalidateDictionaryEntries,
+} from './hooks/useDictionaryEntries'
 
 type DictionarySelectControlProps = {
   dictionaryId: string
@@ -23,6 +29,8 @@ export function DictionarySelectControl({
   disabled = false,
 }: DictionarySelectControlProps) {
   const t = useT()
+  const queryClient = useQueryClient()
+  const scopeVersion = useOrganizationScopeVersion()
   const [inlineCreateEnabled, setInlineCreateEnabled] = React.useState<boolean>(allowInlineCreate)
 
   React.useEffect(() => {
@@ -57,19 +65,14 @@ export function DictionarySelectControl({
   const effectiveAllowInlineCreate = allowInlineCreate && inlineCreateEnabled
 
   const fetchOptions = React.useCallback(async () => {
-    const res = await apiFetch(`/api/dictionaries/${dictionaryId}/entries`)
-    const payload = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to load dictionary entries')
-    }
-    const items = Array.isArray(payload.items) ? payload.items : []
-    return items.map((item: any) => ({
-      value: String(item.value),
-      label: typeof item.label === 'string' && item.label.length ? item.label : String(item.value),
-      color: typeof item.color === 'string' ? item.color : null,
-      icon: typeof item.icon === 'string' ? item.icon : null,
+    const data = await ensureDictionaryEntries(queryClient, dictionaryId, scopeVersion)
+    return data.entries.map((entry) => ({
+      value: entry.value,
+      label: entry.label,
+      color: entry.color ?? null,
+      icon: entry.icon ?? null,
     }))
-  }, [dictionaryId])
+  }, [dictionaryId, queryClient, scopeVersion])
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
@@ -87,6 +90,7 @@ export function DictionarySelectControl({
       if (!res.ok) {
         throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to create dictionary entry')
       }
+      await invalidateDictionaryEntries(queryClient, dictionaryId)
       return {
         value: String(json.value),
         label: typeof json.label === 'string' && json.label.length ? json.label : String(json.value),
@@ -94,7 +98,7 @@ export function DictionarySelectControl({
         icon: typeof json.icon === 'string' ? json.icon : null,
       }
     },
-    [dictionaryId],
+    [dictionaryId, queryClient],
   )
 
   const labels = React.useMemo(

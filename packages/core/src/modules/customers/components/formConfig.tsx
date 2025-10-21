@@ -5,6 +5,7 @@ import { z } from 'zod'
 import Link from 'next/link'
 import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -28,9 +29,14 @@ import {
   DictionaryEntrySelect,
   type DictionarySelectLabels,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { useQueryClient } from '@tanstack/react-query'
 import { useEmailDuplicateCheck } from '../backend/hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../utils/phoneDuplicates'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from './AddressTiles'
+import {
+  ensureCustomerDictionary,
+  invalidateCustomerDictionary,
+} from './detail/hooks/useCustomerDictionary'
 
 export const metadata = {
   navHidden: true,
@@ -88,6 +94,8 @@ export function DictionarySelectField({
   selectClassName,
 }: DictionarySelectFieldProps) {
   const t = useT()
+  const queryClient = useQueryClient()
+  const scopeVersion = useOrganizationScopeVersion()
   const translate = React.useCallback(
     (key: string, fallback: string) => {
       const result = t(key)
@@ -123,36 +131,14 @@ export function DictionarySelectField({
   )
 
   const fetchOptions = React.useCallback(async () => {
-    const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
-    const payload: Record<string, unknown> = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      const message = typeof payload.error === 'string' ? payload.error : labels.errorLoad
-      throw new Error(message)
-    }
-
-    const itemsSource = Array.isArray(payload.items) ? payload.items : []
-    return itemsSource
-      .map((item) => {
-        if (!item || typeof item !== 'object') return null
-        const candidate = item as Record<string, unknown>
-        const rawValue = typeof candidate.value === 'string' ? candidate.value.trim() : ''
-        if (!rawValue) return null
-        const label =
-          typeof candidate.label === 'string' && candidate.label.trim().length
-            ? candidate.label.trim()
-            : rawValue
-        const color =
-          typeof candidate.color === 'string' && candidate.color.trim().startsWith('#')
-            ? candidate.color.trim()
-            : null
-        const icon =
-          typeof candidate.icon === 'string' && candidate.icon.trim().length
-            ? candidate.icon.trim()
-            : null
-        return { value: rawValue, label, color, icon }
-      })
-      .filter((entry): entry is { value: string; label: string; color: string | null; icon: string | null } => !!entry)
-  }, [kind, labels.errorLoad])
+    const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
+    return data.entries.map((entry) => ({
+      value: entry.value,
+      label: entry.label,
+      color: entry.color ?? null,
+      icon: entry.icon ?? null,
+    }))
+  }, [kind, queryClient, scopeVersion])
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
@@ -171,6 +157,7 @@ export function DictionarySelectField({
         const message = typeof payload.error === 'string' ? payload.error : labels.errorSave
         throw new Error(message)
       }
+      await invalidateCustomerDictionary(queryClient, kind)
       const valueCreated = typeof payload.value === 'string' ? payload.value : input.value
       const label =
         typeof payload.label === 'string' && payload.label.trim().length ? payload.label.trim() : valueCreated
@@ -182,7 +169,7 @@ export function DictionarySelectField({
         typeof payload.icon === 'string' && payload.icon.trim().length ? payload.icon.trim() : null
       return { value: valueCreated, label, color, icon }
     },
-    [kind, labels.errorSave],
+    [kind, labels.errorSave, queryClient],
   )
 
   return (

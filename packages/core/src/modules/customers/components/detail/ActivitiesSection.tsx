@@ -3,15 +3,21 @@
 import * as React from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { formatDateTime, formatRelativeTime } from './utils'
+import { formatDateTime, formatRelativeTime, createDictionarySelectLabels } from './utils'
 import { ActivityForm, type ActivityFormBaseValues, type ActivityFormSubmitPayload } from './ActivityForm'
-import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import type { CustomerDictionaryMap } from '../../lib/dictionaries'
 import { useT } from '@/lib/i18n/context'
+import { useQueryClient } from '@tanstack/react-query'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import type { ActivitySummary, SectionAction, TabEmptyState } from './types'
+import {
+  ensureCustomerDictionary,
+  invalidateCustomerDictionary,
+  useCustomerDictionary,
+} from './hooks/useCustomerDictionary'
 
 type DictionaryOption = {
   value: string
@@ -28,11 +34,6 @@ export type ActivitiesSectionProps = {
   isSubmitting: boolean
   addActionLabel: string
   emptyState: TabEmptyState
-  loadDictionaryOptions: () => Promise<DictionaryOption[]>
-  createDictionaryOption?: (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => Promise<DictionaryOption>
-  dictionaryLabels: DictionarySelectLabels
-  dictionaryMap: CustomerDictionaryMap
-  onDictionaryChange?: () => void
   onActionChange?: (action: SectionAction | null) => void
   pendingActivityId: string | null
   pendingActivityAction: 'create' | 'update' | 'delete' | null
@@ -46,20 +47,86 @@ export function ActivitiesSection({
   isSubmitting,
   addActionLabel,
   emptyState,
-  loadDictionaryOptions,
-  createDictionaryOption,
-  dictionaryLabels,
-  dictionaryMap,
-  onDictionaryChange,
   onActionChange,
   pendingActivityId,
   pendingActivityAction,
 }: ActivitiesSectionProps) {
   const t = useT()
+  const queryClient = useQueryClient()
+  const scopeVersion = useOrganizationScopeVersion()
+  const dictionaryQuery = useCustomerDictionary('activity-types', scopeVersion)
+  const dictionaryMap = dictionaryQuery.data?.map ?? {}
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [dialogMode, setDialogMode] = React.useState<'create' | 'edit'>('create')
   const [editingActivityId, setEditingActivityId] = React.useState<string | null>(null)
   const [initialValues, setInitialValues] = React.useState<ActivityFormBaseValues | undefined>(undefined)
+
+  const translate = React.useCallback(
+    (key: string, fallback: string) => {
+      const result = t(key)
+      return result === key ? fallback : result
+    },
+    [t],
+  )
+
+  const activityTypeLabels = React.useMemo(
+    () => createDictionarySelectLabels('activity-types', translate),
+    [translate],
+  )
+
+  const loadDictionaryOptions = React.useCallback(async (): Promise<DictionaryOption[]> => {
+    const data = await ensureCustomerDictionary(queryClient, 'activity-types', scopeVersion)
+    return data.entries.map((entry) => ({
+      value: entry.value,
+      label: entry.label,
+      color: entry.color ?? null,
+      icon: entry.icon ?? null,
+    }))
+  }, [queryClient, scopeVersion])
+
+  const createDictionaryOption = React.useCallback(
+    async (
+      input: { value: string; label?: string; color?: string | null; icon?: string | null },
+    ): Promise<DictionaryOption> => {
+      const res = await apiFetch('/api/customers/dictionaries/activity-types', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          value: input.value,
+          label: input.label,
+          color: input.color ?? undefined,
+          icon: input.icon ?? undefined,
+        }),
+      })
+      const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>
+      if (!res.ok) {
+        const message =
+          typeof payload.error === 'string'
+            ? payload.error
+            : translate('customers.people.form.dictionary.error', 'Failed to save option')
+        throw new Error(message)
+      }
+      const valueCreated =
+        typeof payload.value === 'string' && payload.value.trim().length
+          ? payload.value
+          : input.value
+      const label =
+        typeof payload.label === 'string' && payload.label.trim().length
+          ? payload.label.trim()
+          : valueCreated
+      const color =
+        typeof payload.color === 'string' && payload.color.trim().startsWith('#')
+          ? payload.color.trim()
+          : input.color ?? null
+      const icon =
+        typeof payload.icon === 'string' && payload.icon.trim().length
+          ? payload.icon.trim()
+          : input.icon ?? null
+      await invalidateCustomerDictionary(queryClient, 'activity-types')
+      return { value: valueCreated, label, color, icon }
+    },
+    [queryClient, translate],
+  )
 
   const isCreatePending = pendingActivityAction === 'create'
   const isUpdatePending =
@@ -109,9 +176,8 @@ export function ActivitiesSection({
         await onCreate(payload)
       }
       closeDialog()
-      if (onDictionaryChange) onDictionaryChange()
     },
-    [closeDialog, dialogMode, editingActivityId, onCreate, onDictionaryChange, onUpdate],
+    [closeDialog, dialogMode, editingActivityId, onCreate, onUpdate],
   )
 
   const handleDelete = React.useCallback(
@@ -120,13 +186,12 @@ export function ActivitiesSection({
         typeof window === 'undefined'
           ? true
           : window.confirm(
-              t('customers.people.detail.activities.deleteConfirm', 'Delete this activity? This action cannot be undone.'),
-            )
+            t('customers.people.detail.activities.deleteConfirm', 'Delete this activity? This action cannot be undone.'),
+          )
       if (!confirmed) return
       await onDelete(activity.id)
-      if (onDictionaryChange) onDictionaryChange()
     },
-    [onDelete, onDictionaryChange, t],
+    [onDelete, t],
   )
 
   const dialogTitle =
@@ -262,7 +327,7 @@ export function ActivitiesSection({
             }
             cancelLabel={t('customers.people.detail.activities.cancel', 'Cancel')}
             isSubmitting={isSubmitting || isCreatePending || isUpdatePending}
-            activityTypeLabels={dictionaryLabels}
+            activityTypeLabels={activityTypeLabels}
             loadActivityOptions={loadDictionaryOptions}
             createActivityOption={createDictionaryOption}
           />

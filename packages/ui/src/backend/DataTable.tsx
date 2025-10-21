@@ -112,6 +112,8 @@ const EXPORT_LABELS: Record<DataTableExportFormat, string> = {
   xml: 'XML',
   markdown: 'Markdown',
 }
+const EMPTY_FILTER_DEFS: FilterDef[] = Object.freeze([]) as FilterDef[]
+const EMPTY_FILTER_VALUES: FilterValues = Object.freeze({}) as FilterValues
 
 type ResolvedExportSection = {
   key: string
@@ -312,8 +314,8 @@ export function DataTable<T>({
   onSearchChange,
   searchPlaceholder,
   searchAlign = 'right',
-  filters: baseFilters = [],
-  filterValues = {},
+  filters: baseFilters = EMPTY_FILTER_DEFS,
+  filterValues = EMPTY_FILTER_VALUES,
   onFiltersApply,
   onFiltersClear,
   entityId,

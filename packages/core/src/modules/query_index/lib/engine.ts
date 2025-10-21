@@ -738,6 +738,7 @@ export class HybridQueryEngine implements QueryEngine {
 
   private debug(message: string, context?: Record<string, unknown>): void {
     if (!this.isDebugVerbosity()) return
+    if (!this.isSqlDebugEnabled()) return
     if (context) console.debug('[HybridQueryEngine]', message, context)
     else console.debug('[HybridQueryEngine]', message)
   }

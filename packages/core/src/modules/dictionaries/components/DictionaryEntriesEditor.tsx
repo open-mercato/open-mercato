@@ -14,19 +14,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { AppearanceSelector, useAppearanceState } from './AppearanceSelector'
 import { DictionaryValue } from './dictionaryAppearance'
+import {
+  invalidateDictionaryEntries,
+  useDictionaryEntries,
+} from './hooks/useDictionaryEntries'
+import type { DictionaryEntryRecord } from './hooks/useDictionaryEntries'
 
-type Entry = {
-  id: string
-  value: string
-  label: string
-  color: string | null
-  icon: string | null
-  createdAt?: string
-  updatedAt?: string
-}
+type Entry = DictionaryEntryRecord
 
 type DictionaryEntriesEditorProps = {
   dictionaryId: string
@@ -45,9 +44,17 @@ type FormState = {
 export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly = false }: DictionaryEntriesEditorProps) {
   const t = useT()
   const readOnlyMessage = t('dictionaries.config.entries.readOnly', 'Inherited dictionaries are managed at the parent organization.')
-  const [entries, setEntries] = React.useState<Entry[]>([])
-  const [loading, setLoading] = React.useState(true)
-  const [error, setError] = React.useState<string | null>(null)
+  const queryClient = useQueryClient()
+  const scopeVersion = useOrganizationScopeVersion()
+  const dictionaryQuery = useDictionaryEntries(dictionaryId, scopeVersion)
+  const entries = React.useMemo<Entry[]>(() => dictionaryQuery.data?.fullEntries ?? [], [dictionaryQuery.data?.fullEntries])
+  const dictionaryMap = dictionaryQuery.data?.map ?? {}
+  const isInitialLoading = dictionaryQuery.isLoading
+  const loadError = dictionaryQuery.isError
+    ? dictionaryQuery.error instanceof Error
+      ? dictionaryQuery.error.message
+      : t('dictionaries.config.entries.error.load', 'Failed to load dictionary entries.')
+    : null
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const [isSaving, setIsSaving] = React.useState(false)
@@ -58,40 +65,6 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
     icon: null,
   }))
   const appearance = useAppearanceState(formState.icon, formState.color)
-
-  const loadEntries = React.useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await apiFetch(`/api/dictionaries/${dictionaryId}/entries`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to load entries')
-      }
-      const items = Array.isArray(payload.items) ? payload.items : []
-      setEntries(
-        items.map((item: any) => ({
-          id: String(item.id),
-          value: String(item.value),
-          label: typeof item.label === 'string' && item.label.length ? item.label : String(item.value),
-          color: typeof item.color === 'string' ? item.color : null,
-          icon: typeof item.icon === 'string' ? item.icon : null,
-          createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
-          updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
-        })),
-      )
-    } catch (err) {
-      console.error('Failed to load dictionary entries', err)
-      setError(t('dictionaries.config.entries.error.load', 'Failed to load dictionary entries.'))
-      flash(t('dictionaries.config.entries.error.load', 'Failed to load dictionary entries.'), 'error')
-    } finally {
-      setLoading(false)
-    }
-  }, [dictionaryId, t])
-
-  React.useEffect(() => {
-    loadEntries().catch(() => {})
-  }, [loadEntries])
 
   const resetForm = React.useCallback(() => {
     setFormState({ value: '', label: '', color: null, icon: null })
@@ -155,9 +128,6 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         if (!res.ok) {
           throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to save dictionary entry')
         }
-        setEntries((prev) =>
-          prev.map((entry) => (entry.id === formState.id ? { ...entry, ...json } : entry)),
-        )
         flash(t('dictionaries.config.entries.success.update', 'Dictionary entry updated.'), 'success')
       } else {
         const res = await apiFetch(`/api/dictionaries/${dictionaryId}/entries`, {
@@ -169,18 +139,9 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         if (!res.ok) {
           throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to create dictionary entry')
         }
-        const entry: Entry = {
-          id: String(json.id),
-          value: String(json.value),
-          label: typeof json.label === 'string' && json.label.length ? json.label : String(json.value),
-          color: typeof json.color === 'string' ? json.color : null,
-          icon: typeof json.icon === 'string' ? json.icon : null,
-          createdAt: typeof json.createdAt === 'string' ? json.createdAt : undefined,
-          updatedAt: typeof json.updatedAt === 'string' ? json.updatedAt : undefined,
-        }
-        setEntries((prev) => [...prev, entry])
         flash(t('dictionaries.config.entries.success.create', 'Dictionary entry created.'), 'success')
       }
+      await invalidateDictionaryEntries(queryClient, dictionaryId)
       setDialogOpen(false)
       setFormState({ value: '', label: '', color: null, icon: null })
       appearance.setColor(null)
@@ -191,7 +152,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
     } finally {
       setIsSaving(false)
     }
-  }, [appearance, dictionaryId, formState.id, formState.label, formState.value, readOnly, readOnlyMessage, t])
+  }, [appearance, dictionaryId, formState.id, formState.label, formState.value, queryClient, readOnly, readOnlyMessage, t])
 
   const handleDelete = React.useCallback(
     async (entry: Entry) => {
@@ -211,7 +172,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           const json = await res.json().catch(() => ({}))
           throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to delete dictionary entry')
         }
-        setEntries((prev) => prev.filter((item) => item.id !== entry.id))
+        await invalidateDictionaryEntries(queryClient, dictionaryId)
         flash(t('dictionaries.config.entries.success.delete', 'Dictionary entry deleted.'), 'success')
       } catch (err) {
         console.error('Failed to delete dictionary entry', err)
@@ -220,11 +181,11 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         setIsDeleting(false)
       }
     },
-    [dictionaryId, readOnly, readOnlyMessage, t],
+    [dictionaryId, queryClient, readOnly, readOnlyMessage, t],
   )
 
   const tableContent = React.useMemo(() => {
-    if (loading) {
+    if (isInitialLoading) {
       return (
         <TableRow>
           <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
@@ -234,11 +195,11 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         </TableRow>
       )
     }
-    if (error) {
+    if (loadError) {
       return (
         <TableRow>
           <TableCell colSpan={4} className="py-6 text-center text-sm text-destructive">
-            {error}
+            {loadError}
           </TableCell>
         </TableRow>
       )
@@ -262,7 +223,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           <TableCell>
             <DictionaryValue
               value={entry.value}
-              map={{ [entry.value]: entry }}
+              map={dictionaryMap}
               fallback={<span className="text-sm text-muted-foreground">{t('dictionaries.config.entries.appearance.none', 'None')}</span>}
             />
           </TableCell>
@@ -295,7 +256,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           </TableCell>
       </TableRow>
       ))
-  }, [entries, error, handleDelete, isDeleting, loading, openDialog, readOnly, t])
+  }, [dictionaryMap, entries, handleDelete, isDeleting, isInitialLoading, loadError, openDialog, readOnly, t])
 
   return (
     <div className="space-y-4">
@@ -309,7 +270,14 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           </p>
         </div>
         <div className="flex gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => loadEntries()}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              dictionaryQuery.refetch().catch(() => {})
+            }}
+          >
             <RefreshCw className="mr-2 h-4 w-4" />
             {t('dictionaries.config.entries.actions.refresh', 'Refresh')}
           </Button>

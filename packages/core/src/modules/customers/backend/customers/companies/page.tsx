@@ -17,8 +17,6 @@ import { useT } from '@/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import {
   DictionaryValue,
-  createDictionaryMap,
-  normalizeDictionaryEntries,
   renderDictionaryColor,
   renderDictionaryIcon,
   type CustomerDictionaryKind,
@@ -28,6 +26,8 @@ import {
   useCustomFieldDefs,
   filterCustomFieldDefs,
 } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { useQueryClient } from '@tanstack/react-query'
+import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
 
 type CompanyRow = {
   id: string
@@ -119,23 +119,21 @@ export default function CustomersCompaniesPage() {
     'job-titles': {},
   })
   const scopeVersion = useOrganizationScopeVersion()
+  const queryClient = useQueryClient()
   const t = useT()
   const router = useRouter()
   const fetchDictionaryEntries = React.useCallback(async (kind: DictionaryKindKey) => {
     try {
-      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) return []
-      const normalized = normalizeDictionaryEntries(payload.items)
+      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
       setDictionaryMaps((prev) => ({
         ...prev,
-        [kind]: createDictionaryMap(normalized),
+        [kind]: data.map,
       }))
-      return normalized
+      return data.entries
     } catch {
       return []
     }
-  }, [])
+  }, [queryClient, scopeVersion])
   const loadDictionaryOptions = React.useCallback(async (kind: 'statuses' | 'sources' | 'lifecycle-stages') => {
     const entries = await fetchDictionaryEntries(kind)
     return entries.map((entry) => ({ value: entry.value, label: entry.label }))

@@ -18,6 +18,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { ensureCustomerDictionary, invalidateCustomerDictionary } from './detail/hooks/useCustomerDictionary'
 import { useT } from '@/lib/i18n/context'
 
 type DictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types' | 'job-titles'
@@ -232,6 +235,8 @@ function DictionarySection({
   const [formState, setFormState] = React.useState<FormState>({ value: '', label: '', color: '', icon: '' })
   const [saving, setSaving] = React.useState(false)
   const hasInherited = React.useMemo(() => entries.some((entry) => entry.isInherited), [entries])
+  const queryClient = useQueryClient()
+  const scopeVersion = useOrganizationScopeVersion()
 
   const resetForm = React.useCallback(() => {
     setFormState({ value: '', label: '', color: '', icon: '' })
@@ -242,35 +247,17 @@ function DictionarySection({
     setLoading(true)
     setError(null)
     try {
-      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message = typeof payload?.error === 'string' ? payload.error : errorLoad
-        setError(message)
-        flash(message, 'error')
-        setEntries([])
-        return
-      }
-      const items = Array.isArray(payload?.items) ? payload.items : []
-      const normalized = items
-        .map((item) => {
-          if (!item || typeof item !== 'object') return null
-          const record = item as Record<string, unknown>
-          const id = typeof record.id === 'string' ? record.id : null
-          const value = typeof record.value === 'string' ? record.value.trim() : ''
-          if (!id || !value) return null
-          const label =
-            typeof record.label === 'string' && record.label.trim().length ? record.label.trim() : value
-          const color =
-            typeof record.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(record.color)
-              ? `#${record.color.slice(1).toLowerCase()}`
-              : null
-          const icon = typeof record.icon === 'string' && record.icon.trim().length ? record.icon.trim() : null
-          const organizationId = typeof record.organizationId === 'string' ? record.organizationId : ''
-          const isInherited = record.isInherited === true
-          return { id, value, label, color, icon, organizationId, isInherited }
-        })
-        .filter((entry): entry is DictionaryEntry => !!entry)
+      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
+      const normalized = data.fullEntries
+        .map((entry) => ({
+          id: entry.id,
+          value: entry.value,
+          label: entry.label,
+          color: entry.color ?? null,
+          icon: entry.icon ?? null,
+          organizationId: entry.organizationId ?? '',
+          isInherited: entry.isInherited,
+        }))
         .sort((a, b) => {
           if (a.isInherited !== b.isInherited) return a.isInherited ? 1 : -1
           return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
@@ -284,7 +271,7 @@ function DictionarySection({
     } finally {
       setLoading(false)
     }
-  }, [kind, errorLoad])
+  }, [errorLoad, kind, queryClient, scopeVersion])
 
   React.useEffect(() => {
     loadEntries().catch(() => {})
@@ -352,13 +339,14 @@ function DictionarySection({
       }
       flash(successSave, 'success')
       closeDialogs()
+      await invalidateCustomerDictionary(queryClient, kind)
       await loadEntries()
     } catch {
       flash(errorSave, 'error')
     } finally {
       setSaving(false)
     }
-  }, [closeDialogs, errorSave, formState.color, formState.icon, formState.label, formState.value, kind, loadEntries, requiredValueMessage, saving, successSave])
+  }, [closeDialogs, errorSave, formState.color, formState.icon, formState.label, formState.value, kind, loadEntries, queryClient, requiredValueMessage, saving, successSave])
 
   const handleUpdate = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -402,13 +390,14 @@ function DictionarySection({
       }
       flash(successSave, 'success')
       closeDialogs()
+      await invalidateCustomerDictionary(queryClient, kind)
       await loadEntries()
     } catch {
       flash(errorSave, 'error')
     } finally {
       setSaving(false)
     }
-  }, [closeDialogs, editTarget, errorSave, formState.color, formState.icon, formState.label, formState.value, inheritedActionBlocked, kind, loadEntries, requiredValueMessage, saving, successSave])
+  }, [closeDialogs, editTarget, errorSave, formState.color, formState.icon, formState.label, formState.value, inheritedActionBlocked, kind, loadEntries, queryClient, requiredValueMessage, saving, successSave])
 
   const handleDelete = React.useCallback(async (entry: DictionaryEntry) => {
     if (entry.isInherited) {
@@ -432,11 +421,12 @@ function DictionarySection({
         return
       }
       flash(successDelete, 'success')
+      await invalidateCustomerDictionary(queryClient, kind)
       await loadEntries()
     } catch {
       flash(errorDelete, 'error')
     }
-  }, [deleteConfirmTemplate, errorDelete, inheritedActionBlocked, kind, loadEntries, successDelete])
+  }, [deleteConfirmTemplate, errorDelete, inheritedActionBlocked, kind, loadEntries, queryClient, successDelete])
 
   const AppearanceInputs = () => {
     return (

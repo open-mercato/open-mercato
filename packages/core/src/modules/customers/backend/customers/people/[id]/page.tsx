@@ -11,11 +11,7 @@ import { Plus } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
-import {
-  DictionarySelectField,
-} from '../../../../components/formConfig'
 import {
   ActivitiesSection,
 } from '../../../../components/detail/ActivitiesSection'
@@ -31,14 +27,10 @@ import { AddressesSection } from '../../../../components/detail/AddressesSection
 import { TasksSection } from '../../../../components/detail/TasksSection'
 import { PersonHighlights } from '../../../../components/detail/PersonHighlights'
 import {
-  InlineDictionaryEditor,
-  InlineMultilineEditor,
-  InlineTextEditor,
   renderLinkedInDisplay,
   renderTwitterDisplay,
-  type InlineFieldProps,
-  type InlineFieldType,
 } from '../../../../components/detail/InlineEditors'
+import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { resolveTodoApiPath } from '../../../../components/detail/utils'
 import type {
   ActivitySummary,
@@ -50,12 +42,6 @@ import type {
   SectionAction,
 } from '../../../../components/detail/types'
 import type { ActivityFormSubmitPayload } from '../../../../components/detail/ActivityForm'
-import {
-  createDictionaryMap,
-  normalizeDictionaryEntries,
-  type CustomerDictionaryKind,
-  type CustomerDictionaryMap,
-} from '../../../../lib/dictionaries'
 import { type CustomerAddressInput } from '../../../../components/AddressTiles'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 
@@ -153,41 +139,6 @@ function isValidSocialUrl(
   return normalizedPath.length > 0
 }
 
-type DetailFieldCommon = {
-  key: string
-  label: string
-  emptyLabel: string
-  gridClassName?: string
-}
-
-type DetailFieldConfig =
-  | (DetailFieldCommon & {
-      kind: 'text'
-      value: string | null | undefined
-      placeholder: string
-      onSave: (value: string | null) => Promise<void>
-      inputType?: InlineFieldType
-      validator?: (value: string) => string | null
-      renderDisplay?: InlineFieldProps['renderDisplay']
-    })
-  | (DetailFieldCommon & {
-      kind: 'multiline'
-      value: string | null | undefined
-      placeholder: string
-      onSave: (value: string | null) => Promise<void>
-      validator?: (value: string) => string | null
-    })
-  | (DetailFieldCommon & {
-      kind: 'dictionary'
-      value: string | null | undefined
-      dictionaryKind: CustomerDictionaryKind
-      labels: Parameters<typeof DictionarySelectField>[0]['labels']
-      onSave: (value: string | null) => Promise<void>
-      dictionaryMap?: CustomerDictionaryMap | null
-      onAfterSave?: () => void | Promise<void>
-      selectClassName?: string
-    })
-
 type ProfileEditableField = 'firstName' | 'lastName' | 'jobTitle' | 'department' | 'linkedInUrl' | 'twitterUrl'
 
 
@@ -228,18 +179,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     tasks: false,
   })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
-  const [pendingTaskId, setPendingTaskId] = React.useState<string | null>(null)
-  const [pendingActivityId, setPendingActivityId] = React.useState<string | null>(null)
-  const [pendingActivityAction, setPendingActivityAction] = React.useState<'create' | 'update' | 'delete' | null>(null)
-  const scopeVersion = useOrganizationScopeVersion()
-  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<CustomerDictionaryKind, CustomerDictionaryMap>>({
-    statuses: {},
-    sources: {},
-    'lifecycle-stages': {},
-    'address-types': {},
-    'activity-types': {},
-    'job-titles': {},
-  })
   const [isDeleting, setIsDeleting] = React.useState(false)
 
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
@@ -254,58 +193,9 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   React.useEffect(() => {
     setSectionAction(null)
   }, [activeTab])
-
-  const personId = data?.person?.id ?? null
-
-  const loadDictionaryEntries = React.useCallback(async (kind: CustomerDictionaryKind, signal?: AbortSignal) => {
-    try {
-      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) return []
-      const normalized = normalizeDictionaryEntries(payload.items)
-      if (signal?.aborted) return normalized
-      setDictionaryMaps((prev) => ({
-        ...prev,
-        [kind]: createDictionaryMap(normalized),
-      }))
-      return normalized
-    } catch {
-      return []
-    }
-  }, [])
-
-  React.useEffect(() => {
-    const controller = new AbortController()
-
-    async function loadAll() {
-      setDictionaryMaps({
-        statuses: {},
-        sources: {},
-        'lifecycle-stages': {},
-        'address-types': {},
-        'activity-types': {},
-        'job-titles': {},
-      })
-      await Promise.all([
-        loadDictionaryEntries('statuses', controller.signal),
-        loadDictionaryEntries('sources', controller.signal),
-        loadDictionaryEntries('lifecycle-stages', controller.signal),
-        loadDictionaryEntries('address-types', controller.signal),
-        loadDictionaryEntries('activity-types', controller.signal),
-        loadDictionaryEntries('job-titles', controller.signal),
-      ])
-    }
-
-    loadAll().catch(() => {})
-    return () => {
-      controller.abort()
-    }
-  }, [id, loadDictionaryEntries, scopeVersion])
-
-  const refreshActivityTypes = React.useCallback(() => {
-    loadDictionaryEntries('activity-types').catch(() => {})
-  }, [loadDictionaryEntries])
-
+  const [pendingTaskId, setPendingTaskId] = React.useState<string | null>(null)
+  const [pendingActivityId, setPendingActivityId] = React.useState<string | null>(null)
+  const [pendingActivityAction, setPendingActivityAction] = React.useState<'create' | 'update' | 'delete' | null>(null)
   const validators = React.useMemo(() => ({
     email: (value: string) => {
       if (!value) return null
@@ -336,108 +226,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     },
   }), [t])
 
-  const dictionaryLabels = React.useMemo(() => {
-    const base = {
-      valueLabel: t('customers.people.form.dictionary.valueLabel', 'Name'),
-      valuePlaceholder: t('customers.people.form.dictionary.valuePlaceholder', 'Name'),
-      labelLabel: t('customers.people.form.dictionary.labelLabel', 'Label'),
-      labelPlaceholder: t('customers.people.form.dictionary.labelPlaceholder', 'Display name shown in UI'),
-      emptyError: t('customers.people.form.dictionary.errorRequired'),
-      cancelLabel: t('customers.people.form.dictionary.cancel'),
-      saveLabel: t('customers.people.form.dictionary.save'),
-      errorLoad: t('customers.people.form.dictionary.errorLoad'),
-      errorSave: t('customers.people.form.dictionary.error'),
-      loadingLabel: t('customers.people.form.dictionary.loading'),
-      manageTitle: t('customers.people.form.dictionary.manage'),
-    }
-    return {
-      statuses: {
-        ...base,
-        placeholder: t('customers.people.form.status.placeholder'),
-        addLabel: t('customers.people.form.dictionary.addStatus'),
-        addPrompt: t('customers.people.form.dictionary.promptStatus'),
-        dialogTitle: t('customers.people.form.dictionary.dialogTitleStatus'),
-      },
-      lifecycleStages: {
-        ...base,
-        placeholder: t('customers.people.form.lifecycleStage.placeholder'),
-        addLabel: t('customers.people.form.dictionary.addLifecycleStage'),
-        addPrompt: t('customers.people.form.dictionary.promptLifecycleStage'),
-        dialogTitle: t('customers.people.form.dictionary.dialogTitleLifecycleStage'),
-      },
-      sources: {
-        ...base,
-        placeholder: t('customers.people.form.source.placeholder'),
-        addLabel: t('customers.people.form.dictionary.addSource'),
-        addPrompt: t('customers.people.form.dictionary.promptSource'),
-        dialogTitle: t('customers.people.form.dictionary.dialogTitleSource'),
-      },
-      activityTypes: {
-        ...base,
-        placeholder: t('customers.people.form.activityType.placeholder'),
-        addLabel: t('customers.people.form.dictionary.addActivityType'),
-        addPrompt: t('customers.people.form.dictionary.promptActivityType'),
-        dialogTitle: t('customers.people.form.dictionary.dialogTitleActivityType'),
-      },
-      jobTitles: {
-        ...base,
-        placeholder: t('customers.people.form.jobTitle.placeholder'),
-        addLabel: t('customers.people.form.dictionary.addJobTitle'),
-        addPrompt: t('customers.people.form.dictionary.promptJobTitle'),
-        dialogTitle: t('customers.people.form.dictionary.dialogTitleJobTitle'),
-      },
-    }
-  }, [t])
-
-  const loadActivityTypeOptions = React.useCallback(async () => {
-    const entries = await loadDictionaryEntries('activity-types')
-    return entries.map((entry) => ({
-      value: entry.value,
-      label: entry.label,
-      color: entry.color ?? null,
-      icon: entry.icon ?? null,
-    }))
-  }, [loadDictionaryEntries])
-
-  const createActivityTypeOption = React.useCallback(
-    async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
-      const res = await apiFetch('/api/customers/dictionaries/activity-types', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          value: input.value,
-          label: input.label,
-          color: input.color ?? undefined,
-          icon: input.icon ?? undefined,
-        }),
-      })
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : dictionaryLabels.activityTypes.errorSave
-        throw new Error(message)
-      }
-      const value = typeof payload?.value === 'string' ? payload.value : input.value
-      const label =
-        typeof payload?.label === 'string' && payload.label.trim().length
-          ? payload.label
-          : input.label ?? value
-      const color = typeof payload?.color === 'string' ? payload.color : input.color ?? null
-      const icon = typeof payload?.icon === 'string' ? payload.icon : input.icon ?? null
-      setDictionaryMaps((prev) => ({
-        ...prev,
-        'activity-types': {
-          ...prev['activity-types'],
-          [value]: { value, label, color, icon },
-        },
-      }))
-      return { value, label, color, icon }
-    },
-    [dictionaryLabels.activityTypes.errorSave]
-  )
-
   const tabs = React.useMemo(
     () => [
       { id: 'notes' as const, label: t('customers.people.detail.tabs.notes') },
@@ -453,6 +241,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     () => (data?.person?.displayName ? data.person.displayName : t('customers.people.list.deleteFallbackName')),
     [data?.person?.displayName, t]
   )
+
+  const personId = data?.person?.id ?? null
 
   React.useEffect(() => {
     if (!id) {
@@ -1422,10 +1212,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         value: profile?.jobTitle ?? null,
         emptyLabel: t('customers.people.detail.noValue'),
         dictionaryKind: 'job-titles',
-        labels: dictionaryLabels.jobTitles,
-        dictionaryMap: dictionaryMaps['job-titles'],
         onSave: async (next) => updateProfileField('jobTitle', next),
-        onAfterSave: () => loadDictionaryEntries('job-titles'),
         selectClassName: 'h-9 w-full rounded border px-3 text-sm',
       },
       {
@@ -1435,8 +1222,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         value: person.lifecycleStage ?? null,
         emptyLabel: t('customers.people.detail.noValue'),
         dictionaryKind: 'lifecycle-stages',
-        labels: dictionaryLabels.lifecycleStages,
-        dictionaryMap: dictionaryMaps['lifecycle-stages'],
         onSave: async (next) => {
           const send = typeof next === 'string' ? next : ''
           await savePerson(
@@ -1447,7 +1232,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             })
           )
         },
-        onAfterSave: () => loadDictionaryEntries('lifecycle-stages'),
         selectClassName: 'h-9 w-full rounded border px-3 text-sm',
       },
       {
@@ -1457,8 +1241,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         value: person.source ?? null,
         emptyLabel: t('customers.people.detail.noValue'),
         dictionaryKind: 'sources',
-        labels: dictionaryLabels.sources,
-        dictionaryMap: dictionaryMaps.sources,
         onSave: async (next) => {
           const send = typeof next === 'string' ? next : ''
           await savePerson(
@@ -1469,7 +1251,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             })
           )
         },
-        onAfterSave: () => loadDictionaryEntries('sources'),
         selectClassName: 'h-9 w-full rounded border px-3 text-sm',
       },
       {
@@ -1532,8 +1313,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           <PersonHighlights
             person={person}
             profile={profile}
-            dictionaryLabels={{ statuses: dictionaryLabels.statuses }}
-            dictionaryMap={dictionaryMaps.statuses}
             validators={{
               email: validators.email,
               phone: validators.phone,
@@ -1578,7 +1357,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                   },
                 })
               )
-              await loadDictionaryEntries('statuses')
             }}
             onNextInteractionSave={async (next) => {
               await savePerson(
@@ -1696,11 +1474,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                     title: t('customers.people.detail.emptyState.activities.title'),
                     actionLabel: t('customers.people.detail.emptyState.activities.action'),
                   }}
-                  loadDictionaryOptions={loadActivityTypeOptions}
-                  createDictionaryOption={createActivityTypeOption}
-                  dictionaryLabels={dictionaryLabels.activityTypes}
-                  dictionaryMap={dictionaryMaps['activity-types']}
-                  onDictionaryChange={refreshActivityTypes}
                   onActionChange={handleSectionActionChange}
                   pendingActivityId={pendingActivityId}
                   pendingActivityAction={pendingActivityAction}
@@ -1761,70 +1534,9 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           <div className="space-y-6">
             <div className="space-y-3">
               <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.details')}</h2>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {detailFields.map((field) => {
-                  const wrapperClassName = field.gridClassName ? field.gridClassName : undefined
-                  if (field.kind === 'text') {
-                    return (
-                      <div key={field.key} className={wrapperClassName}>
-                        <InlineTextEditor
-                          label={field.label}
-                          value={field.value}
-                        placeholder={field.placeholder}
-                        emptyLabel={field.emptyLabel}
-                        onSave={field.onSave}
-                        type={field.inputType}
-                        validator={field.validator}
-                        renderDisplay={field.renderDisplay}
-                          variant="muted"
-                          activateOnClick
-                          containerClassName="rounded border bg-muted/20 p-3"
-                          triggerClassName="h-8 w-8 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
-                        />
-                      </div>
-                    )
-                  }
-                  if (field.kind === 'multiline') {
-                    return (
-                      <div key={field.key} className={wrapperClassName}>
-                        <InlineMultilineEditor
-                          label={field.label}
-                          value={field.value}
-                          placeholder={field.placeholder}
-                          emptyLabel={field.emptyLabel}
-                          onSave={field.onSave}
-                          validator={field.validator}
-                          variant="muted"
-                          activateOnClick
-                          containerClassName="rounded border bg-muted/20 p-3"
-                          triggerClassName="h-8 w-8 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
-                        />
-                      </div>
-                    )
-                  }
-                  return (
-                    <div key={field.key} className={wrapperClassName}>
-                      <InlineDictionaryEditor
-                        label={field.label}
-                        value={field.value}
-                        emptyLabel={field.emptyLabel}
-                        labels={field.labels}
-                        onSave={field.onSave}
-                        dictionaryMap={field.dictionaryMap}
-                        onAfterSave={field.onAfterSave}
-                        kind={field.dictionaryKind}
-                        variant="muted"
-                        activateOnClick
-                        containerClassName="rounded border bg-muted/20 p-3"
-                        triggerClassName="h-8 w-8 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
-                        selectClassName={field.selectClassName}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
+              <DetailFieldsSection fields={detailFields} />
             </div>
-  
+
             <CustomDataSection
               entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
               values={data.customFields ?? {}}

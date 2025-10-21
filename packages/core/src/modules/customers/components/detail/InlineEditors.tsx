@@ -8,6 +8,8 @@ import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberFie
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import { cn } from '@/lib/utils'
+import { useQueryClient } from '@tanstack/react-query'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useEmailDuplicateCheck } from '../../backend/hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../../utils/phoneDuplicates'
 import {
@@ -16,11 +18,14 @@ import {
   renderDictionaryColor,
   renderDictionaryIcon,
   type CustomerDictionaryKind,
-  type CustomerDictionaryMap,
 } from '../../lib/dictionaries'
 import { DictionarySelectField } from '../formConfig'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
-import { formatDateTime } from './utils'
+import { createDictionarySelectLabels, formatDateTime } from './utils'
+import {
+  invalidateCustomerDictionary,
+  useCustomerDictionary,
+} from './hooks/useCustomerDictionary'
 
 export type InlineFieldType = 'text' | 'email' | 'tel' | 'url'
 
@@ -634,10 +639,7 @@ type DictionaryEditorProps = {
   label: string
   value: string | null | undefined
   emptyLabel: string
-  labels: Parameters<typeof DictionarySelectField>[0]['labels']
   onSave: (value: string | null) => Promise<void>
-  dictionaryMap?: CustomerDictionaryMap | null
-  onAfterSave?: () => void | Promise<void>
   kind: CustomerDictionaryKind
   variant?: 'default' | 'muted'
   activateOnClick?: boolean
@@ -650,10 +652,7 @@ export function InlineDictionaryEditor({
   label,
   value,
   emptyLabel,
-  labels,
   onSave,
-  dictionaryMap,
-  onAfterSave,
   kind,
   variant = 'default',
   activateOnClick = false,
@@ -662,9 +661,21 @@ export function InlineDictionaryEditor({
   selectClassName,
 }: DictionaryEditorProps) {
   const t = useT()
+  const queryClient = useQueryClient()
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState<string | undefined>(value && value.length ? value : undefined)
   const [saving, setSaving] = React.useState(false)
+  const translate = React.useCallback(
+    (key: string, fallback: string) => {
+      const result = t(key)
+      return result === key ? fallback : result
+    },
+    [t],
+  )
+  const dictionaryLabels = React.useMemo(() => createDictionarySelectLabels(kind, translate), [kind, translate])
+  const scopeVersion = useOrganizationScopeVersion()
+  const dictionaryQuery = useCustomerDictionary(kind, scopeVersion)
+  const dictionaryMap = dictionaryQuery.data?.map ?? null
   const containerClasses = cn(
     'group',
     variant === 'muted' ? 'relative rounded border bg-muted/20 p-3' : 'rounded-lg border p-4',
@@ -725,9 +736,7 @@ export function InlineDictionaryEditor({
     setSaving(true)
     try {
       await onSave(draft ?? null)
-      if (onAfterSave) {
-        await onAfterSave()
-      }
+      await invalidateCustomerDictionary(queryClient, kind)
       setEditing(false)
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customers.people.detail.inline.error')
@@ -735,7 +744,7 @@ export function InlineDictionaryEditor({
     } finally {
       setSaving(false)
     }
-  }, [draft, onAfterSave, onSave, t])
+  }, [draft, kind, onSave, queryClient, t])
 
   const editingContainerClass = 'mt-2 space-y-3'
   const activateListeners =
@@ -774,9 +783,16 @@ export function InlineDictionaryEditor({
                 kind={kind}
                 value={draft}
                 onChange={setDraft}
-                labels={labels}
+                labels={dictionaryLabels}
                 selectClassName={selectClassName}
               />
+              {dictionaryQuery.isError ? (
+                <p className="text-xs text-red-600">
+                  {dictionaryQuery.error instanceof Error
+                    ? dictionaryQuery.error.message
+                    : translate('customers.people.form.dictionary.errorLoad', 'Failed to load options')}
+                </p>
+              ) : null}
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
@@ -789,15 +805,25 @@ export function InlineDictionaryEditor({
             </div>
           ) : (
             <div className="mt-1 text-sm">
-              <DictionaryValue
-                value={value}
-                map={dictionaryMap}
-                fallback={<span className="text-sm text-muted-foreground">{emptyLabel}</span>}
-                className="text-sm"
-                iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
-                iconClassName="h-4 w-4"
-                colorClassName="h-3 w-3 rounded-full"
-              />
+              {dictionaryMap ? (
+                <DictionaryValue
+                  value={value}
+                  map={dictionaryMap}
+                  fallback={<span className="text-sm text-muted-foreground">{emptyLabel}</span>}
+                  className="text-sm"
+                  iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
+                  iconClassName="h-4 w-4"
+                  colorClassName="h-3 w-3 rounded-full"
+                />
+              ) : value && value.length ? (
+                <span className="break-words text-sm">{value}</span>
+              ) : dictionaryQuery.isLoading ? (
+                <span className="text-sm text-muted-foreground">
+                  {translate('customers.people.form.dictionary.loading', 'Loading…')}
+                </span>
+              ) : (
+                <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+              )}
             </div>
           )}
         </div>

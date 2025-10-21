@@ -20,6 +20,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
+import { useQueryClient } from '@tanstack/react-query'
+import { ensureCustomerDictionary, invalidateCustomerDictionary } from './detail/hooks/useCustomerDictionary'
 
 export type Translator = (key: string, fallback?: string) => string
 
@@ -161,6 +163,7 @@ export function CustomerAddressTiles({
   emptyStateActionLabel,
 }: CustomerAddressTilesProps) {
   const scopeVersion = useOrganizationScopeVersion()
+  const queryClient = useQueryClient()
   const [isFormOpen, setIsFormOpen] = React.useState(false)
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [draft, setDraft] = React.useState<DraftAddressState>(defaultDraft)
@@ -241,48 +244,33 @@ export function CustomerAddressTiles({
     setTypeLoading(true)
     setTypeError(null)
     try {
-      const res = await apiFetch('/api/customers/dictionaries/address-types')
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('customers.people.detail.addresses.types.error')
-        setTypeOptions([])
-        setTypeError(message)
-        return
-      }
-      const items = Array.isArray(payload?.items) ? payload.items : []
-      const normalized = items
-        .map((item) => {
-          if (!item || typeof item !== 'object') return null
-          const raw = item as Record<string, unknown>
-          const value = typeof raw.value === 'string' ? raw.value.trim() : ''
-          if (!value.length) return null
-          const label =
-            typeof raw.label === 'string' && raw.label.trim().length
-              ? raw.label.trim()
-              : value
-          return { value, label }
-        })
-        .filter((entry): entry is { value: string; label: string } => !!entry)
+      const data = await ensureCustomerDictionary(queryClient, 'address-types', scopeVersion)
+      const normalized = data.entries
+        .map((entry) => ({
+          value: entry.value,
+          label: entry.label,
+        }))
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
       setTypeOptions(normalized)
       setTypeMap(
         normalized.reduce((acc, entry) => {
           acc.set(entry.value, entry.label)
           return acc
-        }, new Map<string, string>())
+        }, new Map<string, string>()),
       )
-    } catch {
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('customers.people.detail.addresses.types.error')
       setTypeOptions([])
-      setTypeError(t('customers.people.detail.addresses.types.error'))
-      flash(t('customers.people.detail.addresses.types.error'), 'error')
+      setTypeError(message)
+      flash(message, 'error')
       setTypeMap(new Map())
     } finally {
       setTypeLoading(false)
     }
-  }, [t])
+  }, [queryClient, scopeVersion, t])
 
   React.useEffect(() => {
     loadAddressTypes().catch(() => {})
@@ -362,6 +350,7 @@ export function CustomerAddressTiles({
           flash(errorMessage, 'error')
           return
         }
+        await invalidateCustomerDictionary(queryClient, 'address-types')
         await loadAddressTypes()
         const createdValue = typeof payload?.value === 'string' ? payload.value : trimmed
         setDraft((prev) => ({ ...prev, purpose: createdValue }))
@@ -370,7 +359,7 @@ export function CustomerAddressTiles({
         setTypeSaving(false)
       }
     },
-    [handleTypeDialogChange, loadAddressTypes, t, typeNewOption, typeSaving]
+    [handleTypeDialogChange, loadAddressTypes, queryClient, t, typeNewOption, typeSaving]
   )
 
   const handleFieldChange = React.useCallback(

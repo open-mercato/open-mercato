@@ -5,16 +5,16 @@ import { Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useQueryClient } from '@tanstack/react-query'
 import type { CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { fetchCustomFieldFormFieldsWithDefinitions } from '@open-mercato/ui/backend/utils/customFieldForms'
 import {
   DictionaryValue,
-  createDictionaryMap,
-  normalizeDictionaryEntries,
   type DictionaryMap,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { ensureDictionaryEntries } from '@open-mercato/core/modules/dictionaries/components/hooks/useDictionaryEntries'
 
 type CustomDataSectionProps = {
   entityId?: string
