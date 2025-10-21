@@ -3,12 +3,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { E as AllEntities } from '@/generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
-
-function toBaseTableFromEntityType(entityType: string): string {
-  const [, ent] = (entityType || '').split(':')
-  if (!ent) throw new Error(`Invalid entityType: ${entityType}`)
-  return ent.endsWith('s') ? ent : `${ent}s`
-}
+import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['query_index.status.view'] },
@@ -67,7 +62,7 @@ export async function GET(req: Request) {
 
   async function countBase(entityType: string, tenantIdParam: string | null): Promise<number> {
     // Counts intentionally ignore organization scope. Aggregate across orgs but respect tenant filtering where available.
-    const table = toBaseTableFromEntityType(entityType)
+    const table = resolveEntityTableName(em, entityType)
     const hasTenant = await columnExists(table, 'tenant_id')
     const hasDeleted = await columnExists(table, 'deleted_at')
 

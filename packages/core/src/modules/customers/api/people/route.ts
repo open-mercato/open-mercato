@@ -7,7 +7,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { personCreateSchema, personUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
-import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
+import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -18,6 +18,7 @@ const listSchema = z
     search: z.string().optional(),
     email: z.string().optional(),
     emailStartsWith: z.string().optional(),
+    emailContains: z.string().optional(),
     status: z.string().optional(),
     lifecycleStage: z.string().optional(),
     source: z.string().optional(),
@@ -86,10 +87,13 @@ const crud = makeCrudRoute({
       }
       const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : ''
       const emailStartsWith = typeof query.emailStartsWith === 'string' ? query.emailStartsWith.trim().toLowerCase() : ''
+      const emailContains = typeof query.emailContains === 'string' ? query.emailContains.trim().toLowerCase() : ''
       if (email) {
         filters.primary_email = { $eq: email }
       } else if (emailStartsWith) {
         filters.primary_email = { $ilike: `${emailStartsWith}%` }
+      } else if (emailContains) {
+        filters.primary_email = { $ilike: `%${emailContains}%` }
       }
       if (query.status) {
         filters.status = { $eq: query.status }
@@ -101,7 +105,7 @@ const crud = makeCrudRoute({
         filters.source = { $eq: query.source }
       }
       const hasEmail = query.hasEmail === 'true' ? true : query.hasEmail === 'false' ? false : undefined
-      if (!email && !emailStartsWith && hasEmail !== undefined) {
+      if (!email && !emailStartsWith && !emailContains && hasEmail !== undefined) {
         filters.primary_email = { $exists: hasEmail }
       }
       const hasPhone = query.hasPhone === 'true' ? true : query.hasPhone === 'false' ? false : undefined
@@ -128,7 +132,7 @@ const crud = makeCrudRoute({
         try {
           const em = ctx.container.resolve('em') as any
           const cfFilters = await buildCustomFieldFiltersFromQuery({
-            entityId: E.customers.customer_person_profile,
+            entityIds: [E.customers.customer_entity, E.customers.customer_person_profile],
             query,
             em,
             tenantId: ctx.auth?.tenantId ?? null,
@@ -140,6 +144,15 @@ const crud = makeCrudRoute({
       }
       return filters
     },
+    customFieldSources: [
+      {
+        entityId: E.customers.customer_person_profile,
+        table: 'customer_people',
+        alias: 'person_profile',
+        recordIdColumn: 'id',
+        join: { fromField: 'id', toField: 'entity_id' },
+      },
+    ],
     transformItem: (item: any) => {
       if (!item) return item
       const normalized = { ...item }
@@ -159,7 +172,10 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return personCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(scoped)
+        const parsed = personCreateSchema.parse(base)
+        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       response: ({ result }) => ({
         id: result?.entityId ?? result?.id ?? null,
@@ -172,7 +188,10 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return personUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(scoped)
+        const parsed = personUpdateSchema.parse(base)
+        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       response: () => ({ ok: true }),
     },
@@ -181,7 +200,11 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
-        const id = parsed?.id ?? (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
+        const id =
+          parsed?.body?.id ??
+          parsed?.id ??
+          parsed?.query?.id ??
+          (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
         if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.person_required', 'Person id is required') })
         return { id }
       },

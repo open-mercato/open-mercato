@@ -24,6 +24,8 @@ type CommentSnapshot = {
   dealId: string | null
   body: string
   authorUserId: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
 }
 
 type CommentUndoPayload = {
@@ -42,15 +44,24 @@ async function loadCommentSnapshot(em: EntityManager, id: string): Promise<Comme
     dealId: comment.deal ? (typeof comment.deal === 'string' ? comment.deal : comment.deal.id) : null,
     body: comment.body,
     authorUserId: comment.authorUserId ?? null,
+    appearanceIcon: comment.appearanceIcon ?? null,
+    appearanceColor: comment.appearanceColor ?? null,
   }
 }
 
-const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: string }> = {
+const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: string; authorUserId: string | null }> = {
   id: 'customers.comments.create',
   async execute(rawInput, ctx) {
     const parsed = commentCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const authSub = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
+    const normalizedAuthor = (() => {
+      if (parsed.authorUserId) return parsed.authorUserId
+      if (!authSub) return null
+      const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
+      return uuidRegex.test(authSub) ? authSub : null
+    })()
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
@@ -63,7 +74,9 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       entity,
       deal,
       body: parsed.body,
-      authorUserId: parsed.authorUserId ?? null,
+      authorUserId: normalizedAuthor,
+      appearanceIcon: parsed.appearanceIcon ?? null,
+      appearanceColor: parsed.appearanceColor ?? null,
     })
     em.persist(comment)
     await em.flush()
@@ -80,7 +93,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       },
     })
 
-    return { commentId: comment.id }
+    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = ctx.container.resolve<EntityManager>('em')
@@ -142,6 +155,8 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     }
     if (parsed.body !== undefined) comment.body = parsed.body
     if (parsed.authorUserId !== undefined) comment.authorUserId = parsed.authorUserId ?? null
+    if (parsed.appearanceIcon !== undefined) comment.appearanceIcon = parsed.appearanceIcon ?? null
+    if (parsed.appearanceColor !== undefined) comment.appearanceColor = parsed.appearanceColor ?? null
 
     await em.flush()
 
@@ -170,7 +185,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
         ? buildChanges(
             before as unknown as Record<string, unknown>,
             afterSnapshot as unknown as Record<string, unknown>,
-            ['entityId', 'dealId', 'body', 'authorUserId']
+            ['entityId', 'dealId', 'body', 'authorUserId', 'appearanceIcon', 'appearanceColor']
           )
         : {}
     return {
@@ -208,6 +223,8 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
         deal,
         body: before.body,
         authorUserId: before.authorUserId,
+        appearanceIcon: before.appearanceIcon,
+        appearanceColor: before.appearanceColor,
       })
       em.persist(comment)
     } else {
@@ -215,6 +232,8 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
       comment.deal = deal
       comment.body = before.body
       comment.authorUserId = before.authorUserId
+      comment.appearanceIcon = before.appearanceIcon
+      comment.appearanceColor = before.appearanceColor
     }
     await em.flush()
 

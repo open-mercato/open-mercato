@@ -7,6 +7,11 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { companyCreateSchema, companyUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import {
+  buildCustomFieldFiltersFromQuery,
+  extractAllCustomFieldEntries,
+  splitCustomFieldPayload,
+} from '@open-mercato/shared/lib/crud/custom-fields'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -15,9 +20,19 @@ const listSchema = z
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
+    email: z.string().optional(),
+    emailStartsWith: z.string().optional(),
+    emailContains: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     status: z.string().optional(),
+    lifecycleStage: z.string().optional(),
+    source: z.string().optional(),
+    hasEmail: z.string().optional(),
+    hasPhone: z.string().optional(),
+    hasNextInteraction: z.string().optional(),
+    createdFrom: z.string().optional(),
+    createdTo: z.string().optional(),
     id: z.string().uuid().optional(),
   })
   .passthrough()
@@ -48,6 +63,8 @@ const crud = makeCrudRoute({
       'display_name',
       'description',
       'owner_user_id',
+      'primary_email',
+      'primary_phone',
       'status',
       'lifecycle_stage',
       'source',
@@ -59,13 +76,14 @@ const crud = makeCrudRoute({
       'organization_id',
       'tenant_id',
       'kind',
+      'created_at',
     ],
     sortFieldMap: {
       name: 'display_name',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    buildFilters: async (query: any) => {
+    buildFilters: async (query: any, ctx) => {
       const filters: Record<string, any> = { kind: { $eq: 'company' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
@@ -74,11 +92,82 @@ const crud = makeCrudRoute({
       if (query.status) {
         filters.status = { $eq: query.status }
       }
+      if (query.lifecycleStage) {
+        filters.lifecycle_stage = { $eq: query.lifecycleStage }
+      }
+      if (query.source) {
+        filters.source = { $eq: query.source }
+      }
+      const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : ''
+      const emailStartsWith = typeof query.emailStartsWith === 'string' ? query.emailStartsWith.trim().toLowerCase() : ''
+      const emailContains = typeof query.emailContains === 'string' ? query.emailContains.trim().toLowerCase() : ''
+      if (email) {
+        filters.primary_email = { $eq: email }
+      } else if (emailStartsWith) {
+        filters.primary_email = { $ilike: `${emailStartsWith}%` }
+      } else if (emailContains) {
+        filters.primary_email = { $ilike: `%${emailContains}%` }
+      }
+      const hasEmail = query.hasEmail === 'true' ? true : query.hasEmail === 'false' ? false : undefined
+      if (!email && !emailStartsWith && !emailContains && hasEmail !== undefined) {
+        filters.primary_email = { $exists: hasEmail }
+      }
+      const hasPhone = query.hasPhone === 'true' ? true : query.hasPhone === 'false' ? false : undefined
+      if (hasPhone !== undefined) {
+        filters.primary_phone = { $exists: hasPhone }
+      }
+      const hasNextInteraction = query.hasNextInteraction === 'true' ? true : query.hasNextInteraction === 'false' ? false : undefined
+      if (hasNextInteraction !== undefined) {
+        filters.next_interaction_at = { $exists: hasNextInteraction }
+      }
+      const createdRange: Record<string, Date> = {}
+      if (query.createdFrom) {
+        const from = new Date(query.createdFrom)
+        if (!Number.isNaN(from.getTime())) createdRange.$gte = from
+      }
+      if (query.createdTo) {
+        const to = new Date(query.createdTo)
+        if (!Number.isNaN(to.getTime())) createdRange.$lte = to
+      }
+      if (Object.keys(createdRange).length) {
+        filters.created_at = createdRange
+      }
+      if (ctx) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const cfFilters = await buildCustomFieldFiltersFromQuery({
+            entityIds: [E.customers.customer_entity, E.customers.customer_company_profile],
+            query,
+            em,
+            tenantId: ctx.auth?.tenantId ?? null,
+          })
+          Object.assign(filters, cfFilters)
+        } catch {
+          // ignore custom field filter errors; fall back to base filters
+        }
+      }
       return filters
     },
+    customFieldSources: [
+      {
+        entityId: E.customers.customer_company_profile,
+        table: 'customer_companies',
+        alias: 'company_profile',
+        recordIdColumn: 'id',
+        join: { fromField: 'id', toField: 'entity_id' },
+      },
+    ],
     transformItem: (item: any) => {
-      if (item) delete item.kind
-      return item
+      if (!item) return item
+      const normalized = { ...item }
+      delete normalized.kind
+      const cfEntries = extractAllCustomFieldEntries(item)
+      for (const key of Object.keys(normalized)) {
+        if (key.startsWith('cf:')) {
+          delete normalized[key]
+        }
+      }
+      return { ...normalized, ...cfEntries }
     },
   },
   actions: {
@@ -87,7 +176,10 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return companyCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(scoped)
+        const parsed = companyCreateSchema.parse(base)
+        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       response: ({ result }) => ({
         id: result?.entityId ?? result?.id ?? null,
@@ -100,7 +192,10 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return companyUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(scoped)
+        const parsed = companyUpdateSchema.parse(base)
+        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       response: () => ({ ok: true }),
     },
@@ -109,7 +204,11 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
-        const id = parsed?.id ?? (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
+        const id =
+          parsed?.body?.id ??
+          parsed?.id ??
+          parsed?.query?.id ??
+          (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
         if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.company_required', 'Company id is required') })
         return { id }
       },

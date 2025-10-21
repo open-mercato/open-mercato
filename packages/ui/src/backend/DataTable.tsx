@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
-import { fetchCustomFieldFilterDefs } from './utils/customFieldFilters'
+import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
@@ -101,6 +101,7 @@ export type DataTableProps<T> = {
   onFiltersClear?: () => void
   // When provided, DataTable will fetch custom field definitions and append filter controls for filterable ones.
   entityId?: string
+  entityIds?: string[]
   exporter?: DataTableExportConfig | false
 }
 
@@ -111,6 +112,8 @@ const EXPORT_LABELS: Record<DataTableExportFormat, string> = {
   xml: 'XML',
   markdown: 'Markdown',
 }
+const EMPTY_FILTER_DEFS: FilterDef[] = Object.freeze([]) as FilterDef[]
+const EMPTY_FILTER_VALUES: FilterValues = Object.freeze({}) as FilterValues
 
 type ResolvedExportSection = {
   key: string
@@ -293,7 +296,32 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
   )
 }
 
-export function DataTable<T>({ columns, data, toolbar, title, actions, refreshButton, sortable, sorting: sortingProp, onSortingChange, pagination, isLoading, rowActions, onRowClick, searchValue, onSearchChange, searchPlaceholder, searchAlign = 'right', filters: baseFilters = [], filterValues = {}, onFiltersApply, onFiltersClear, entityId, exporter }: DataTableProps<T>) {
+export function DataTable<T>({
+  columns,
+  data,
+  toolbar,
+  title,
+  actions,
+  refreshButton,
+  sortable,
+  sorting: sortingProp,
+  onSortingChange,
+  pagination,
+  isLoading,
+  rowActions,
+  onRowClick,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder,
+  searchAlign = 'right',
+  filters: baseFilters = EMPTY_FILTER_DEFS,
+  filterValues = EMPTY_FILTER_VALUES,
+  onFiltersApply,
+  onFiltersClear,
+  entityId,
+  entityIds,
+  exporter,
+}: DataTableProps<T>) {
   const router = useRouter()
   React.useEffect(() => {
     return subscribeOrganizationScopeChanged(() => scheduleRouterRefresh(router))
@@ -439,20 +467,26 @@ export function DataTable<T>({ columns, data, toolbar, title, actions, refreshBu
   }
 
   // Auto filters: fetch custom field defs when requested
-  const [cfFilters, setCfFilters] = React.useState<FilterDef[]>([])
-  const [cfLoadedFor, setCfLoadedFor] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    let cancelled = false
-    async function loadEntity(eid: string) {
-      try {
-        const f = await fetchCustomFieldFilterDefs(eid)
-        if (!cancelled) { setCfFilters(f); setCfLoadedFor(eid) }
-      } catch (_) { if (!cancelled) { setCfFilters([]); setCfLoadedFor(eid) } }
+  const resolvedEntityIds = React.useMemo(() => {
+    if (Array.isArray(entityIds) && entityIds.length) {
+      const dedup = new Set<string>()
+      const list: string[] = []
+      entityIds.forEach((id) => {
+        const trimmed = typeof id === 'string' ? id.trim() : ''
+        if (!trimmed || dedup.has(trimmed)) return
+        dedup.add(trimmed)
+        list.push(trimmed)
+      })
+      return list
     }
-    if (entityId && entityId !== cfLoadedFor) loadEntity(entityId)
-    return () => { cancelled = true }
-  }, [entityId, cfLoadedFor])
+    if (typeof entityId === 'string' && entityId.trim().length > 0) {
+      return [entityId.trim()]
+    }
+    return []
+  }, [entityId, entityIds])
+  const entityKey = React.useMemo(() => (resolvedEntityIds.length ? resolvedEntityIds.join('|') : null), [resolvedEntityIds])
+
+  const { data: cfFilters = [] } = useCustomFieldFilterDefs(entityKey ? resolvedEntityIds : [], { enabled: !!entityKey })
 
   const builtToolbar = React.useMemo(() => {
     if (toolbar) return toolbar

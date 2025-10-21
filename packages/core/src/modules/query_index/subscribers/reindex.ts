@@ -1,3 +1,5 @@
+import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+
 export const metadata = { event: 'query_index.reindex', persistent: true }
 
 const deriveOrgFromId = new Set<string>(['directory:organization'])
@@ -13,10 +15,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   const tenantId: string | null | undefined = payload?.tenantId
   const forceFull: boolean = Boolean(payload?.force)
 
-  const table = (() => {
-    const [, ent] = entityType.split(':')
-    return ent.endsWith('s') ? ent : `${ent}s`
-  })()
+  const table = resolveEntityTableName(em, entityType)
 
   const lockScope = () => {
     let query = knex('entity_index_jobs').where('entity_type', entityType)

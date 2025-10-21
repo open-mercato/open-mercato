@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { Loader2, Pencil, Plus, Trash2, X, Settings } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import Link from 'next/link'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -19,6 +20,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
+import { useQueryClient } from '@tanstack/react-query'
+import { ensureCustomerDictionary, invalidateCustomerDictionary } from './detail/hooks/useCustomerDictionary'
 
 export type Translator = (key: string, fallback?: string) => string
 
@@ -50,6 +53,10 @@ type CustomerAddressTilesProps = {
   emptyLabel: string
   isSubmitting?: boolean
   gridClassName?: string
+  hideAddButton?: boolean
+  onAddActionChange?: (action: { openCreateForm: () => void; addDisabled: boolean } | null) => void
+  emptyStateTitle?: string
+  emptyStateActionLabel?: string
 }
 
 type DraftAddressState = {
@@ -150,8 +157,13 @@ export function CustomerAddressTiles({
   emptyLabel,
   isSubmitting = false,
   gridClassName = 'grid gap-4 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
+  hideAddButton = false,
+  onAddActionChange,
+  emptyStateTitle,
+  emptyStateActionLabel,
 }: CustomerAddressTilesProps) {
   const scopeVersion = useOrganizationScopeVersion()
+  const queryClient = useQueryClient()
   const [isFormOpen, setIsFormOpen] = React.useState(false)
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [draft, setDraft] = React.useState<DraftAddressState>(defaultDraft)
@@ -232,48 +244,33 @@ export function CustomerAddressTiles({
     setTypeLoading(true)
     setTypeError(null)
     try {
-      const res = await apiFetch('/api/customers/dictionaries/address-types')
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('customers.people.detail.addresses.types.error')
-        setTypeOptions([])
-        setTypeError(message)
-        return
-      }
-      const items = Array.isArray(payload?.items) ? payload.items : []
-      const normalized = items
-        .map((item) => {
-          if (!item || typeof item !== 'object') return null
-          const raw = item as Record<string, unknown>
-          const value = typeof raw.value === 'string' ? raw.value.trim() : ''
-          if (!value.length) return null
-          const label =
-            typeof raw.label === 'string' && raw.label.trim().length
-              ? raw.label.trim()
-              : value
-          return { value, label }
-        })
-        .filter((entry): entry is { value: string; label: string } => !!entry)
+      const data = await ensureCustomerDictionary(queryClient, 'address-types', scopeVersion)
+      const normalized = data.entries
+        .map((entry) => ({
+          value: entry.value,
+          label: entry.label,
+        }))
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
       setTypeOptions(normalized)
       setTypeMap(
         normalized.reduce((acc, entry) => {
           acc.set(entry.value, entry.label)
           return acc
-        }, new Map<string, string>())
+        }, new Map<string, string>()),
       )
-    } catch {
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('customers.people.detail.addresses.types.error')
       setTypeOptions([])
-      setTypeError(t('customers.people.detail.addresses.types.error'))
-      flash(t('customers.people.detail.addresses.types.error'), 'error')
+      setTypeError(message)
+      flash(message, 'error')
       setTypeMap(new Map())
     } finally {
       setTypeLoading(false)
     }
-  }, [t])
+  }, [queryClient, scopeVersion, t])
 
   React.useEffect(() => {
     loadAddressTypes().catch(() => {})
@@ -353,6 +350,7 @@ export function CustomerAddressTiles({
           flash(errorMessage, 'error')
           return
         }
+        await invalidateCustomerDictionary(queryClient, 'address-types')
         await loadAddressTypes()
         const createdValue = typeof payload?.value === 'string' ? payload.value : trimmed
         setDraft((prev) => ({ ...prev, purpose: createdValue }))
@@ -361,7 +359,7 @@ export function CustomerAddressTiles({
         setTypeSaving(false)
       }
     },
-    [handleTypeDialogChange, loadAddressTypes, t, typeNewOption, typeSaving]
+    [handleTypeDialogChange, loadAddressTypes, queryClient, t, typeNewOption, typeSaving]
   )
 
   const handleFieldChange = React.useCallback(
@@ -512,10 +510,35 @@ export function CustomerAddressTiles({
   const disableActions = saving || isSubmitting || deletingId !== null
   const isEditing = editingId !== null
   const addDisabled = disableActions || isEditing
+  const hasAddresses = addresses.length > 0
+  const emptyTitle = emptyStateTitle ?? emptyLabel
+  const emptyActionLabel = emptyStateActionLabel ?? t('customers.people.detail.addresses.add')
+
+  React.useEffect(() => {
+    if (!onAddActionChange) return
+    onAddActionChange({ openCreateForm, addDisabled })
+  }, [onAddActionChange, openCreateForm, addDisabled])
+
+  React.useEffect(
+    () => () => {
+      if (onAddActionChange) onAddActionChange(null)
+    },
+    [onAddActionChange]
+  )
 
   const renderFormTile = React.useCallback(
     (key: string) => (
-      <div key={key} className="rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/20 p-4 text-sm">
+      <div
+        key={key}
+        className="rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/20 p-4 text-sm"
+        onKeyDown={(event) => {
+          if (!(event.metaKey || event.ctrlKey)) return
+          if (event.key !== 'Enter') return
+          event.preventDefault()
+          if (disableActions) return
+          void handleSave()
+        }}
+      >
         <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <span>
             {editingId
@@ -914,95 +937,104 @@ export function CustomerAddressTiles({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        {addresses.length === 0 ? (
-          <p className="text-sm text-muted-foreground leading-none">{emptyLabel}</p>
-        ) : (
-          <span className="text-sm font-medium text-muted-foreground" aria-hidden="true" />
-        )}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="self-start"
-          onClick={openCreateForm}
-          disabled={addDisabled}
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          {t('customers.people.detail.addresses.add')}
-        </Button>
-      </div>
-      <div className={gridClassName}>
-        {addresses.map((address) => {
-          if (isFormOpen && editingId === address.id) {
-            return renderFormTile(address.id)
-          }
-          const formattedJson = formatAddressJson(address, format)
-          const formattedString = formatAddressString(address, format)
+      {!hideAddButton ? (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={openCreateForm}
+            disabled={addDisabled}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            {t('customers.people.detail.addresses.add')}
+          </Button>
+        </div>
+      ) : null}
+      {hasAddresses ? (
+        <div className={gridClassName}>
+          {addresses.map((address) => {
+            if (isFormOpen && editingId === address.id) {
+              return renderFormTile(address.id)
+            }
+            const formattedJson = formatAddressJson(address, format)
+            const formattedString = formatAddressString(address, format)
 
-          return (
-            <div
-              key={address.id}
-              className="rounded-lg border bg-background p-4 text-sm shadow-sm"
-              title={formattedString}
-              data-address-json={JSON.stringify(formattedJson)}
-              data-address-string={formattedString}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                    {address.name ||
-                      (address.purpose ? typeMap.get(address.purpose) ?? address.purpose : null) ||
-                      t('customers.people.detail.address')}
-                  </span>
-                  {address.isPrimary ? (
-                    <span className="mt-1 inline-flex w-fit rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                      {t('customers.people.detail.primary')}
+            return (
+              <div
+                key={address.id}
+                className="rounded-lg border bg-background p-4 text-sm shadow-sm"
+                title={formattedString}
+                data-address-json={JSON.stringify(formattedJson)}
+                data-address-string={formattedString}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                      {address.name ||
+                        (address.purpose ? typeMap.get(address.purpose) ?? address.purpose : null) ||
+                        t('customers.people.detail.address')}
                     </span>
+                    {address.isPrimary ? (
+                      <span className="mt-1 inline-flex w-fit rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        {t('customers.people.detail.primary')}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => openEditForm(address)}
+                      disabled={disableActions}
+                      aria-label={t('customers.people.detail.addresses.editAction')}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive focus-visible:text-destructive"
+                      onClick={() => handleDelete(address.id)}
+                      disabled={disableActions || !onDelete}
+                      aria-label={t('customers.people.detail.addresses.deleteAction')}
+                    >
+                      {deletingId === address.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-2 space-y-1">
+                  {address.purpose ? (
+                    <p className="text-xs text-muted-foreground">
+                      {typeMap.get(address.purpose) ?? address.purpose}
+                    </p>
                   ) : null}
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => openEditForm(address)}
-                    disabled={disableActions}
-                    aria-label={t('customers.people.detail.addresses.editAction')}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive hover:text-destructive focus-visible:text-destructive"
-                    onClick={() => handleDelete(address.id)}
-                    disabled={disableActions || !onDelete}
-                    aria-label={t('customers.people.detail.addresses.deleteAction')}
-                  >
-                    {deletingId === address.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                  </Button>
+                  <AddressView address={address} format={format} className="space-y-1" lineClassName="text-sm" />
                 </div>
               </div>
-              <div className="mt-2 space-y-1">
-                {address.purpose ? (
-                  <p className="text-xs text-muted-foreground">
-                    {typeMap.get(address.purpose) ?? address.purpose}
-                  </p>
-                ) : null}
-                <AddressView address={address} format={format} className="space-y-1" lineClassName="text-sm" />
-              </div>
-            </div>
-          )
-        })}
-        {isFormOpen && !editingId ? renderFormTile('__new') : null}
-      </div>
+            )
+          })}
+          {isFormOpen && !editingId ? renderFormTile('__new') : null}
+        </div>
+      ) : isFormOpen && !editingId ? (
+        <div className={gridClassName}>{renderFormTile('__new')}</div>
+      ) : (
+        <EmptyState
+          title={emptyTitle}
+          action={{
+            label: emptyActionLabel,
+            onClick: openCreateForm,
+            disabled: addDisabled,
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -11,18 +11,23 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import {
   DictionaryValue,
-  createDictionaryMap,
-  normalizeCustomerDictionaryEntries,
   renderDictionaryColor,
   renderDictionaryIcon,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
-} from '../../../components/dictionaryAppearance'
+} from '../../../lib/dictionaries'
+import {
+  useCustomFieldDefs,
+  filterCustomFieldDefs,
+} from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { useQueryClient } from '@tanstack/react-query'
+import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
 
 type PersonRow = {
   id: string
@@ -111,25 +116,24 @@ export default function CustomersPeoplePage() {
     sources: {},
     'lifecycle-stages': {},
     'address-types': {},
+    'job-titles': {},
   })
   const scopeVersion = useOrganizationScopeVersion()
+  const queryClient = useQueryClient()
   const t = useT()
   const router = useRouter()
   const fetchDictionaryEntries = React.useCallback(async (kind: DictionaryKindKey) => {
     try {
-      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) return []
-      const normalized = normalizeCustomerDictionaryEntries(payload.items)
+      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
       setDictionaryMaps((prev) => ({
         ...prev,
-        [kind]: createDictionaryMap(normalized),
+        [kind]: data.map,
       }))
-      return normalized
+      return data.entries
     } catch {
       return []
     }
-  }, [])
+  }, [queryClient, scopeVersion])
   const loadDictionaryOptions = React.useCallback(async (kind: 'statuses' | 'sources' | 'lifecycle-stages') => {
     const entries = await fetchDictionaryEntries(kind)
     return entries.map((entry) => ({ value: entry.value, label: entry.label }))
@@ -139,7 +143,7 @@ export default function CustomersPeoplePage() {
     let cancelled = false
     async function loadAll() {
       if (cancelled) return
-      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {} })
+      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {}, 'job-titles': {} })
       await Promise.all([
         fetchDictionaryEntries('statuses'),
         fetchDictionaryEntries('sources'),
@@ -151,6 +155,22 @@ export default function CustomersPeoplePage() {
       cancelled = true
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
+
+  const {
+    data: customFieldDefs = [],
+    refetch: refetchCustomFieldDefs,
+    isFetched: customFieldDefsFetched,
+  } = useCustomFieldDefs([E.customers.customer_entity, E.customers.customer_person_profile])
+
+  const hasFetchedCustomFieldsRef = React.useRef(false)
+  React.useEffect(() => {
+    if (!customFieldDefsFetched) return
+    if (!hasFetchedCustomFieldsRef.current) {
+      hasFetchedCustomFieldsRef.current = true
+      return
+    }
+    refetchCustomFieldDefs()
+  }, [customFieldDefsFetched, refetchCustomFieldDefs, reloadToken, scopeVersion])
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {
@@ -175,6 +195,12 @@ export default function CustomersPeoplePage() {
       id: 'createdAt',
       label: t('customers.people.list.filters.createdAt'),
       type: 'dateRange',
+    },
+    {
+      id: 'emailContains',
+      label: t('customers.people.list.filters.emailContains'),
+      type: 'text',
+      placeholder: t('customers.people.list.filters.emailContainsPlaceholder'),
     },
     {
       id: 'hasEmail',
@@ -209,6 +235,10 @@ export default function CustomersPeoplePage() {
       if (createdAt.from) params.set('createdFrom', createdAt.from)
       if (createdAt.to) params.set('createdTo', createdAt.to)
     }
+    const emailContains = filterValues.emailContains
+    if (typeof emailContains === 'string' && emailContains.trim()) {
+      params.set('emailContains', emailContains.trim())
+    }
     const booleanFilters: Array<['hasEmail' | 'hasPhone' | 'hasNextInteraction', string]> = [
       ['hasEmail', 'hasEmail'],
       ['hasPhone', 'hasPhone'],
@@ -221,12 +251,20 @@ export default function CustomersPeoplePage() {
     }
     Object.entries(filterValues).forEach(([key, value]) => {
       if (!key.startsWith('cf_') || value == null) return
-      if (Array.isArray(value) && value.length) {
-        params.set(key, value.join(','))
+      if (Array.isArray(value)) {
+        const normalized = value
+          .map((item) => {
+            if (item == null) return ''
+            if (typeof item === 'string') return item.trim()
+            return String(item).trim()
+          })
+          .filter((item) => item.length > 0)
+        if (normalized.length) params.set(key, normalized.join(','))
       } else if (typeof value === 'object') {
         return
       } else if (value !== '') {
-        params.set(key, String(value))
+        const stringValue = typeof value === 'string' ? value.trim() : String(value)
+        if (stringValue) params.set(key, stringValue)
       }
     })
     return params.toString()
@@ -318,7 +356,35 @@ export default function CustomersPeoplePage() {
       />
     )
 
-    return [
+    const renderCustomFieldCell = (value: unknown) => {
+      if (value == null) return noValue
+      if (Array.isArray(value)) {
+        if (!value.length) return noValue
+        const normalized = value
+          .map((item) => {
+            if (item == null) return ''
+            if (typeof item === 'string') return item.trim()
+            return String(item).trim()
+          })
+          .filter((item) => item.length > 0)
+        if (!normalized.length) return noValue
+        return <span className="text-sm">{normalized.join(', ')}</span>
+      }
+      if (typeof value === 'boolean') {
+        return (
+          <span className="text-sm">
+            {value
+              ? t('customers.people.list.booleanYes', 'Yes')
+              : t('customers.people.list.booleanNo', 'No')}
+          </span>
+        )
+      }
+      const stringValue = typeof value === 'string' ? value.trim() : String(value)
+      if (!stringValue) return noValue
+      return <span className="text-sm">{stringValue}</span>
+    }
+
+    const baseColumns: ColumnDef<PersonRow>[] = [
       {
         accessorKey: 'name',
         header: t('customers.people.list.columns.name'),
@@ -376,7 +442,15 @@ export default function CustomersPeoplePage() {
         cell: ({ row }) => renderDictionaryCell('sources', row.original.source),
       },
     ]
-  }, [dictionaryMaps, t])
+
+    const customColumns = filterCustomFieldDefs(customFieldDefs, 'list').map<ColumnDef<PersonRow>>((def) => ({
+      accessorKey: `cf_${def.key}`,
+      header: def.label || def.key,
+      cell: ({ getValue }) => renderCustomFieldCell(getValue()),
+    }))
+
+    return [...baseColumns, ...customColumns]
+  }, [customFieldDefs, dictionaryMaps, t])
 
   return (
     <Page>
@@ -404,7 +478,7 @@ export default function CustomersPeoplePage() {
           filterValues={filterValues}
           onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
           onFiltersClear={() => { setFilterValues({}); setPage(1) }}
-          entityId="customers:customer_person_profile"
+          entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           onRowClick={(row) => router.push(`/backend/customers/people/${row.id}`)}
           rowActions={(row) => (
             <RowActions

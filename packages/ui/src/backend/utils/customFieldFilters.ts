@@ -1,8 +1,11 @@
+import * as React from 'react'
+import { useCustomFieldDefs, type UseCustomFieldDefsOptions } from './customFieldDefs'
 import { Filter } from '@/lib/query/types'
 import type { FilterDef } from '../FilterOverlay'
 import { apiFetch } from './api'
 import type { CustomFieldDefDto } from './customFieldDefs'
-import { filterCustomFieldDefs } from './customFieldDefs'
+import { filterCustomFieldDefs, fetchCustomFieldDefs as loadCustomFieldDefs } from './customFieldDefs'
+import { type UseQueryResult } from '@tanstack/react-query'
 
 function buildOptionsUrl(base: string, query?: string): string {
   if (!query) return base
@@ -33,7 +36,7 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
     const label = d.label || d.key
     if (d.kind === 'boolean') {
       f.push({ id, label, type: 'checkbox' })
-    } else if (d.kind === 'select' || d.kind === 'relation') {
+    } else if (d.kind === 'select' || d.kind === 'relation' || d.kind === 'dictionary') {
       const options = (d.options || []).map((o) => ({ value: String(o), label: String(o).charAt(0).toUpperCase() + String(o).slice(1) }))
       const base: FilterDef = { id: d.multi ? `${id}In` : id, label, type: 'select', multiple: !!d.multi, options }
       // When optionsUrl is provided, allow async options loading for filters too
@@ -91,9 +94,22 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
   return out
 }
 
-export async function fetchCustomFieldFilterDefs(entityId: string, fetchImpl: typeof fetch = apiFetch): Promise<FilterDef[]> {
-  const res = await fetchImpl(`/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
-  const data = await res.json().catch(() => ({ items: [] }))
-  const defs: CustomFieldDefDto[] = data?.items || []
+export async function fetchCustomFieldFilterDefs(entityIds: string | string[], fetchImpl: typeof fetch = apiFetch): Promise<FilterDef[]> {
+  const defs: CustomFieldDefDto[] = await loadCustomFieldDefs(entityIds, fetchImpl)
   return buildFilterDefsFromCustomFields(defs)
+}
+
+export function useCustomFieldFilterDefs(
+  entityIds: string | string[] | null | undefined,
+  options: UseCustomFieldDefsOptions = {}
+): UseQueryResult<FilterDef[]> {
+  const query = useCustomFieldDefs(entityIds, options)
+  const filters = React.useMemo(
+    () => (query.data ? buildFilterDefsFromCustomFields(query.data) : []),
+    [query.data]
+  )
+  return {
+    ...query,
+    data: filters,
+  } as UseQueryResult<FilterDef[]>
 }

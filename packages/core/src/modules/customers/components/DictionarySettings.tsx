@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
-import { ICON_SUGGESTIONS, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
-import { AppearanceSelector } from './AppearanceSelector'
+import { ICON_SUGGESTIONS, renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -18,9 +18,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { ensureCustomerDictionary, invalidateCustomerDictionary } from './detail/hooks/useCustomerDictionary'
 import { useT } from '@/lib/i18n/context'
 
-type DictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types'
+type DictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types' | 'job-titles'
 
 type DictionaryEntry = {
   id: string
@@ -28,6 +31,8 @@ type DictionaryEntry = {
   label: string
   color: string | null
   icon: string | null
+  organizationId: string
+  isInherited: boolean
 }
 
 export default DictionarySettings
@@ -53,6 +58,9 @@ type DictionarySectionProps = {
   dialogColorHelp: string
   dialogIconLabel: string
   dialogIconPlaceholder: string
+  dialogIconPickerTriggerLabel: string
+  dialogIconSearchPlaceholder: string
+  dialogIconSearchEmptyLabel: string
   dialogIconSuggestionsLabel: string
   dialogIconClearLabel: string
   dialogColorClearLabel: string
@@ -66,6 +74,10 @@ type DictionarySectionProps = {
   errorDelete: string
   successSave: string
   successDelete: string
+  inheritedLabel: string
+  inheritedTooltip: string
+  inheritedNotice: string
+  inheritedActionBlocked: string
 }
 
 export function DictionarySettings() {
@@ -90,6 +102,9 @@ export function DictionarySettings() {
     dialogColorClearLabel: t('customers.config.dictionaries.dialog.colorClear', 'Remove color'),
     dialogIconLabel: t('customers.config.dictionaries.dialog.iconLabel', 'Icon'),
     dialogIconPlaceholder: t('customers.config.dictionaries.dialog.iconPlaceholder', 'Type an emoji or pick one of the suggestions.'),
+    dialogIconPickerTriggerLabel: t('customers.config.dictionaries.dialog.iconBrowse', 'Browse icons and emojis'),
+    dialogIconSearchPlaceholder: t('customers.config.dictionaries.dialog.iconSearchPlaceholder', 'Search icons or emojis…'),
+    dialogIconSearchEmptyLabel: t('customers.config.dictionaries.dialog.iconSearchEmpty', 'No icons match your search.'),
     dialogIconSuggestionsLabel: t('customers.config.dictionaries.dialog.iconSuggestions', 'Suggestions'),
     dialogIconClearLabel: t('customers.config.dictionaries.dialog.iconClear', 'Remove icon'),
     appearanceEmptyLabel: t('customers.config.dictionaries.appearance.empty', 'None'),
@@ -102,6 +117,10 @@ export function DictionarySettings() {
     errorDelete: t('customers.config.dictionaries.error.delete', 'Failed to delete dictionary entry.'),
     successSave: t('customers.config.dictionaries.success.save', 'Dictionary entry saved.'),
     successDelete: t('customers.config.dictionaries.success.delete', 'Dictionary entry deleted.'),
+    inheritedLabel: t('customers.config.dictionaries.inherited.label', 'Inherited'),
+    inheritedTooltip: t('customers.config.dictionaries.inherited.tooltip', 'Managed in parent organization'),
+    inheritedNotice: t('customers.config.dictionaries.inherited.notice', 'Inherited entries are managed at the parent organization.'),
+    inheritedActionBlocked: t('customers.config.dictionaries.inherited.blocked', 'Inherited entries can only be edited from the parent organization.'),
   }), [t])
 
   const sections = React.useMemo(() => ([
@@ -109,6 +128,11 @@ export function DictionarySettings() {
       kind: 'statuses' as const,
       title: t('customers.config.dictionaries.sections.statuses.title', 'Statuses'),
       description: t('customers.config.dictionaries.sections.statuses.description', 'Define the statuses available for customer records.'),
+    },
+    {
+      kind: 'job-titles' as const,
+      title: t('customers.config.dictionaries.sections.jobTitles.title', 'Job titles'),
+      description: t('customers.config.dictionaries.sections.jobTitles.description', 'Configure job titles with their appearance.'),
     },
     {
       kind: 'sources' as const,
@@ -181,6 +205,9 @@ function DictionarySection({
   dialogColorHelp,
   dialogIconLabel,
   dialogIconPlaceholder,
+  dialogIconPickerTriggerLabel,
+  dialogIconSearchPlaceholder,
+  dialogIconSearchEmptyLabel,
   dialogIconSuggestionsLabel,
   dialogIconClearLabel,
   dialogColorClearLabel,
@@ -194,6 +221,10 @@ function DictionarySection({
   errorDelete,
   successSave,
   successDelete,
+  inheritedLabel,
+  inheritedTooltip,
+  inheritedNotice,
+  inheritedActionBlocked,
 }: DictionarySectionProps) {
   const [entries, setEntries] = React.useState<DictionaryEntry[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -203,6 +234,9 @@ function DictionarySection({
   const [editTarget, setEditTarget] = React.useState<DictionaryEntry | null>(null)
   const [formState, setFormState] = React.useState<FormState>({ value: '', label: '', color: '', icon: '' })
   const [saving, setSaving] = React.useState(false)
+  const hasInherited = React.useMemo(() => entries.some((entry) => entry.isInherited), [entries])
+  const queryClient = useQueryClient()
+  const scopeVersion = useOrganizationScopeVersion()
 
   const resetForm = React.useCallback(() => {
     setFormState({ value: '', label: '', color: '', icon: '' })
@@ -213,34 +247,21 @@ function DictionarySection({
     setLoading(true)
     setError(null)
     try {
-      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message = typeof payload?.error === 'string' ? payload.error : errorLoad
-        setError(message)
-        flash(message, 'error')
-        setEntries([])
-        return
-      }
-      const items = Array.isArray(payload?.items) ? payload.items : []
-      const normalized = items
-        .map((item) => {
-          if (!item || typeof item !== 'object') return null
-          const record = item as Record<string, unknown>
-          const id = typeof record.id === 'string' ? record.id : null
-          const value = typeof record.value === 'string' ? record.value.trim() : ''
-          if (!id || !value) return null
-          const label =
-            typeof record.label === 'string' && record.label.trim().length ? record.label.trim() : value
-          const color =
-            typeof record.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(record.color)
-              ? `#${record.color.slice(1).toLowerCase()}`
-              : null
-          const icon = typeof record.icon === 'string' && record.icon.trim().length ? record.icon.trim() : null
-          return { id, value, label, color, icon }
+      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
+      const normalized = data.fullEntries
+        .map((entry) => ({
+          id: entry.id,
+          value: entry.value,
+          label: entry.label,
+          color: entry.color ?? null,
+          icon: entry.icon ?? null,
+          organizationId: entry.organizationId ?? '',
+          isInherited: entry.isInherited,
+        }))
+        .sort((a, b) => {
+          if (a.isInherited !== b.isInherited) return a.isInherited ? 1 : -1
+          return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
         })
-        .filter((entry): entry is DictionaryEntry => !!entry)
-        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
       setEntries(normalized)
     } catch (err) {
       const message = err instanceof Error ? err.message : errorLoad
@@ -250,7 +271,7 @@ function DictionarySection({
     } finally {
       setLoading(false)
     }
-  }, [kind, errorLoad])
+  }, [errorLoad, kind, queryClient, scopeVersion])
 
   React.useEffect(() => {
     loadEntries().catch(() => {})
@@ -262,6 +283,10 @@ function DictionarySection({
   }, [resetForm])
 
   const openEditDialog = React.useCallback((entry: DictionaryEntry) => {
+    if (entry.isInherited) {
+      flash(inheritedActionBlocked, 'info')
+      return
+    }
     setEditTarget(entry)
     setFormState({
       value: entry.value,
@@ -270,7 +295,7 @@ function DictionarySection({
       icon: entry.icon ?? '',
     })
     setEditOpen(true)
-  }, [])
+  }, [inheritedActionBlocked])
 
   const closeDialogs = React.useCallback(() => {
     setAddOpen(false)
@@ -314,17 +339,22 @@ function DictionarySection({
       }
       flash(successSave, 'success')
       closeDialogs()
+      await invalidateCustomerDictionary(queryClient, kind)
       await loadEntries()
     } catch {
       flash(errorSave, 'error')
     } finally {
       setSaving(false)
     }
-  }, [closeDialogs, errorSave, formState.color, formState.icon, formState.label, formState.value, kind, loadEntries, requiredValueMessage, saving, successSave])
+  }, [closeDialogs, errorSave, formState.color, formState.icon, formState.label, formState.value, kind, loadEntries, queryClient, requiredValueMessage, saving, successSave])
 
   const handleUpdate = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (saving || !editTarget) return
+    if (editTarget.isInherited) {
+      flash(inheritedActionBlocked, 'info')
+      return
+    }
     const value = formState.value.trim()
     const label = formState.label.trim()
     const color = formState.color.trim()
@@ -360,15 +390,20 @@ function DictionarySection({
       }
       flash(successSave, 'success')
       closeDialogs()
+      await invalidateCustomerDictionary(queryClient, kind)
       await loadEntries()
     } catch {
       flash(errorSave, 'error')
     } finally {
       setSaving(false)
     }
-  }, [closeDialogs, editTarget, errorSave, formState.color, formState.icon, formState.label, formState.value, kind, loadEntries, requiredValueMessage, saving, successSave])
+  }, [closeDialogs, editTarget, errorSave, formState.color, formState.icon, formState.label, formState.value, inheritedActionBlocked, kind, loadEntries, queryClient, requiredValueMessage, saving, successSave])
 
   const handleDelete = React.useCallback(async (entry: DictionaryEntry) => {
+    if (entry.isInherited) {
+      flash(inheritedActionBlocked, 'info')
+      return
+    }
     const message = deleteConfirmTemplate.replace('{{value}}', entry.label || entry.value)
     if (!window.confirm(message)) return
     try {
@@ -386,11 +421,12 @@ function DictionarySection({
         return
       }
       flash(successDelete, 'success')
+      await invalidateCustomerDictionary(queryClient, kind)
       await loadEntries()
     } catch {
       flash(errorDelete, 'error')
     }
-  }, [deleteConfirmTemplate, errorDelete, kind, loadEntries, successDelete])
+  }, [deleteConfirmTemplate, errorDelete, inheritedActionBlocked, kind, loadEntries, queryClient, successDelete])
 
   const AppearanceInputs = () => {
     return (
@@ -408,6 +444,9 @@ function DictionarySection({
             colorClearLabel: dialogColorClearLabel,
             iconLabel: dialogIconLabel,
             iconPlaceholder: dialogIconPlaceholder,
+            iconPickerTriggerLabel: dialogIconPickerTriggerLabel,
+            iconSearchPlaceholder: dialogIconSearchPlaceholder,
+            iconSearchEmptyLabel: dialogIconSearchEmptyLabel,
             iconSuggestionsLabel: dialogIconSuggestionsLabel,
             iconClearLabel: dialogIconClearLabel,
             previewEmptyLabel: appearanceEmptyLabel,
@@ -492,20 +531,38 @@ function DictionarySection({
         ) : entries.length === 0 ? (
           <div className="py-6 text-sm text-muted-foreground">{emptyLabel}</div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-1/4">{valueLabel}</TableHead>
-                <TableHead className="w-1/4">{labelLabel}</TableHead>
-                <TableHead className="w-1/4">{appearanceLabel}</TableHead>
-                <TableHead className="w-1/4 text-right">{actionsLabel}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {entries.map((entry) => (
-                <TableRow key={entry.id}>
-                  <TableCell className="font-medium">{entry.value}</TableCell>
-                  <TableCell>{entry.label}</TableCell>
+          <>
+            {hasInherited ? (
+              <div className="mb-4 rounded border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                {inheritedNotice}
+              </div>
+            ) : null}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-1/4">{valueLabel}</TableHead>
+                  <TableHead className="w-1/4">{labelLabel}</TableHead>
+                  <TableHead className="w-1/4">{appearanceLabel}</TableHead>
+                  <TableHead className="w-1/4 text-right">{actionsLabel}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entries.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <span>{entry.value}</span>
+                        {entry.isInherited ? (
+                          <span
+                            className="rounded-full border border-border px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                            title={inheritedTooltip}
+                          >
+                            {inheritedLabel}
+                          </span>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell>{entry.label}</TableCell>
                   <TableCell>
                     {entry.icon || entry.color ? (
                       <div className="flex flex-wrap items-center gap-3">
@@ -525,67 +582,75 @@ function DictionarySection({
                       <span className="text-xs text-muted-foreground">{appearanceEmptyLabel}</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Dialog open={editOpen && editTarget?.id === entry.id} onOpenChange={(open) => (open ? openEditDialog(entry) : closeDialogs())}>
-                        <DialogTrigger asChild>
-                          <Button variant="outline" size="sm">
-                            <Pencil className="mr-2 h-4 w-4" />
-                            {editLabel}
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-md">
-                          <DialogHeader>
-                            <DialogTitle>{editDialogTitle}</DialogTitle>
-                            <DialogDescription>{description}</DialogDescription>
-                          </DialogHeader>
-                          <form className="space-y-4" onSubmit={handleUpdate}>
-                            <div className="space-y-2">
-                              <label className="block text-sm font-medium">{dialogValueLabel}</label>
-                              <input
-                                type="text"
-                                value={formState.value}
-                                onChange={(event) => handleInputChange('value', event.target.value)}
-                                className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                                required
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <label className="block text-sm font-medium">{dialogLabelLabel}</label>
-                              <input
-                                type="text"
-                                value={formState.label}
-                                onChange={(event) => handleInputChange('label', event.target.value)}
-                                className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                              />
-                            </div>
-                            <AppearanceInputs />
-                            <DialogFooter>
-                              <Button type="button" variant="outline" onClick={closeDialogs} disabled={saving}>
-                                {dialogCancelLabel}
-                              </Button>
-                              <Button type="submit" disabled={saving}>
-                                {dialogSaveLabel}
-                              </Button>
-                            </DialogFooter>
-                          </form>
-                        </DialogContent>
-                      </Dialog>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDelete(entry)}
-                        title={deleteLabel}
-                        aria-label={deleteLabel}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Dialog open={editOpen && editTarget?.id === entry.id} onOpenChange={(open) => (open ? openEditDialog(entry) : closeDialogs())}>
+                          <DialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={entry.isInherited}
+                              title={entry.isInherited ? inheritedActionBlocked : editLabel}
+                              aria-label={entry.isInherited ? inheritedActionBlocked : editLabel}
+                            >
+                              <Pencil className="mr-2 h-4 w-4" />
+                              {editLabel}
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                              <DialogTitle>{editDialogTitle}</DialogTitle>
+                              <DialogDescription>{description}</DialogDescription>
+                            </DialogHeader>
+                            <form className="space-y-4" onSubmit={handleUpdate}>
+                              <div className="space-y-2">
+                                <label className="block text-sm font-medium">{dialogValueLabel}</label>
+                                <input
+                                  type="text"
+                                  value={formState.value}
+                                  onChange={(event) => handleInputChange('value', event.target.value)}
+                                  className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                  required
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <label className="block text-sm font-medium">{dialogLabelLabel}</label>
+                                <input
+                                  type="text"
+                                  value={formState.label}
+                                  onChange={(event) => handleInputChange('label', event.target.value)}
+                                  className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                />
+                              </div>
+                              <AppearanceInputs />
+                              <DialogFooter>
+                                <Button type="button" variant="outline" onClick={closeDialogs} disabled={saving}>
+                                  {dialogCancelLabel}
+                                </Button>
+                                <Button type="submit" disabled={saving}>
+                                  {dialogSaveLabel}
+                                </Button>
+                              </DialogFooter>
+                            </form>
+                          </DialogContent>
+                        </Dialog>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDelete(entry)}
+                          disabled={entry.isInherited}
+                          title={entry.isInherited ? inheritedActionBlocked : deleteLabel}
+                          aria-label={entry.isInherited ? inheritedActionBlocked : deleteLabel}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </>
         )}
       </div>
     </section>

@@ -3,19 +3,36 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CacheStrategy } from '@open-mercato/cache'
 
-export const dictionaryKindSchema = z.enum(['statuses', 'sources', 'lifecycle-stages', 'address-types'])
+export const dictionaryKindSchema = z.enum([
+  'statuses',
+  'sources',
+  'lifecycle-stages',
+  'address-types',
+  'activity-types',
+  'job-titles',
+])
 
 export type DictionaryRouteParam = z.infer<typeof dictionaryKindSchema>
-export type DictionaryEntityKind = 'status' | 'source' | 'lifecycle_stage' | 'address_type'
+export type DictionaryEntityKind =
+  | 'status'
+  | 'source'
+  | 'lifecycle_stage'
+  | 'address_type'
+  | 'activity_type'
+  | 'job_title'
 
 const KIND_MAP: Record<DictionaryRouteParam, DictionaryEntityKind> = {
   statuses: 'status',
   sources: 'source',
   'lifecycle-stages': 'lifecycle_stage',
   'address-types': 'address_type',
+  'activity-types': 'activity_type',
+  'job-titles': 'job_title',
 }
 
 export const paramsSchema = z.object({
@@ -28,6 +45,8 @@ export type DictionaryRouteContext = {
   em: EntityManager
   organizationId: string
   tenantId: string
+  readableOrganizationIds: string[]
+  cache?: CacheStrategy
 }
 
 export function mapDictionaryKind(kind: string | undefined) {
@@ -52,12 +71,37 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
     throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
   }
 
+  let cache: CacheStrategy | undefined
+  try {
+    cache = container.resolve<CacheStrategy>('cache')
+  } catch {}
+
   const em = container.resolve<EntityManager>('em')
+  const readableOrganizationIds: string[] = [organizationId]
+  try {
+    const organization = await em.findOne(Organization, {
+      id: organizationId,
+      tenant: auth.tenantId as any,
+      deletedAt: null,
+    } as any)
+    if (organization && Array.isArray(organization.ancestorIds)) {
+      for (const ancestorId of organization.ancestorIds) {
+        if (typeof ancestorId === 'string' && ancestorId.trim()) {
+          readableOrganizationIds.push(ancestorId)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[customers.dictionaries.context] Failed to resolve ancestor organizations', err)
+  }
+
   return {
     auth,
     translate,
     em,
     organizationId,
     tenantId: auth.tenantId,
+    readableOrganizationIds,
+    cache,
   }
 }

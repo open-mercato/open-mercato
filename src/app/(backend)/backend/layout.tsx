@@ -81,6 +81,7 @@ export default async function BackendLayout({ children, params }: { children: Re
     title: item.title,
     defaultTitle: item.defaultTitle,
     enabled: item.enabled,
+    hidden: item.hidden,
     icon: item.icon,
     children: item.children?.map(mapItem),
   })
@@ -135,6 +136,7 @@ export default async function BackendLayout({ children, params }: { children: Re
     title: item.title,
     defaultTitle: item.defaultTitle,
     enabled: item.enabled,
+    hidden: item.hidden,
     icon: item.icon,
     children: item.children?.map(materializeItem),
   })

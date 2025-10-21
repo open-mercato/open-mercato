@@ -64,6 +64,11 @@ Limitations and notes
 - The index row appears after create/update events or backfill. Queries still work via fallback when the index is missing.
 - Cross-module relations remain by foreign key id only; no cross-module joins.
 
+## Debugging SQL output
+
+- Standard debug logs honour `LOG_VERBOSITY=debug` (or a development `NODE_ENV`) and describe which path the hybrid engine picks.
+- To additionally print the SQL emitted for the count and data queries, set `QUERY_ENGINE_DEBUG_SQL=true`. The flag is disabled by default to keep development logs readable.
+
 Related files
 - `packages/core/src/modules/query_index/data/entities.ts`
 - `packages/core/src/modules/query_index/lib/indexer.ts`

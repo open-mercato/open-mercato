@@ -64,6 +64,7 @@ export async function GET(req: Request) {
       groupOrder: settings.groupOrder ?? [],
       groupLabels: settings.groupLabels ?? {},
       itemLabels: settings.itemLabels ?? {},
+      hiddenItems: settings.hiddenItems ?? [],
     },
     canApplyToRoles,
     roles: rolesPayload,
@@ -113,6 +114,18 @@ export async function PUT(req: Request) {
     groupOrder,
     groupLabels: sanitizeRecord(parsed.data.groupLabels),
     itemLabels: sanitizeRecord(parsed.data.itemLabels),
+    hiddenItems: (() => {
+      const source = parsed.data.hiddenItems ?? []
+      const seenHidden = new Set<string>()
+      const values: string[] = []
+      for (const href of source) {
+        const trimmed = href.trim()
+        if (!trimmed || seenHidden.has(trimmed)) continue
+        seenHidden.add(trimmed)
+        values.push(trimmed)
+      }
+      return values
+    })(),
   }
 
   const { locale } = await resolveTranslations()

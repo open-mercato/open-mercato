@@ -1,0 +1,81 @@
+"use client"
+
+export type Translator = (key: string, fallback?: string) => string
+
+export type TagSummary = { id: string; label: string; color?: string | null }
+
+export type AddressSummary = {
+  id: string
+  name?: string | null
+  purpose?: string | null
+  addressLine1: string
+  addressLine2?: string | null
+  buildingNumber?: string | null
+  flatNumber?: string | null
+  city?: string | null
+  region?: string | null
+  postalCode?: string | null
+  country?: string | null
+  isPrimary?: boolean
+}
+
+export type CommentSummary = {
+  id: string
+  body: string
+  createdAt: string
+  authorUserId?: string | null
+  authorName?: string | null
+  authorEmail?: string | null
+  dealId?: string | null
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+}
+
+export type ActivitySummary = {
+  id: string
+  activityType: string
+  subject?: string | null
+  body?: string | null
+  occurredAt?: string | null
+  createdAt: string
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+  authorUserId?: string | null
+  authorName?: string | null
+  authorEmail?: string | null
+}
+
+export type DealSummary = {
+  id: string
+  title: string
+  status?: string | null
+  pipelineStage?: string | null
+  valueAmount?: string | null
+  valueCurrency?: string | null
+  probability?: number | null
+  expectedCloseAt?: string | null
+}
+
+export type TodoLinkSummary = {
+  id: string
+  todoId: string
+  todoSource: string
+  createdAt: string
+  createdByUserId?: string | null
+  title?: string | null
+  isDone?: boolean | null
+  priority?: number | null
+  dueAt?: string | null
+  todoOrganizationId?: string | null
+}
+
+export type SectionAction = {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+}
+
+export type TabEmptyState = {
+  title: string
+  actionLabel: string
+}

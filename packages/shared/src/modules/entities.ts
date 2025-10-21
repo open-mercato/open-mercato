@@ -27,6 +27,7 @@ export type CustomFieldKind =
   | 'select'
   | 'relation'
   | 'attachment'
+  | 'dictionary'
 
 export type CustomFieldDefinition = {
   id?: string // stable id; generated if omitted
@@ -56,6 +57,9 @@ export type CustomFieldDefinition = {
   input?: string
   // Relation helper metadata
   relatedEntityId?: string
+  // Backed by global dictionaries module
+  dictionaryId?: string
+  dictionaryInlineCreate?: boolean
   // Advanced validation rules applied in UI + API
   validation?: Array<{ rule: string; param?: unknown; message?: string }>
   // Attachments config passthrough (handled by attachments module)

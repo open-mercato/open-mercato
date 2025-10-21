@@ -24,12 +24,14 @@ export type AppShellProps = {
       defaultTitle?: string
       icon?: React.ReactNode
       enabled?: boolean
+      hidden?: boolean
       children?: {
         href: string
         title: string
         defaultTitle?: string
         icon?: React.ReactNode
         enabled?: boolean
+        hidden?: boolean
       }[]
     }[]
   }[]
@@ -48,6 +50,7 @@ type SidebarCustomizationDraft = {
   order: string[]
   groupLabels: Record<string, string>
   itemLabels: Record<string, string>
+  hiddenItemIds: Record<string, boolean>
 }
 
 type SidebarGroup = AppShellProps['groups'][number]
@@ -179,18 +182,39 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     if (customizing || loadingPreferences) return
     setCustomizationError(null)
     setLoadingPreferences(true)
-    try {
-      const baseSnapshot = AppShell.cloneGroups(navGroups)
-      const res = await apiFetch('/api/auth/sidebar/preferences')
-      let responseSettings: SidebarCustomizationDraft = { order: [], groupLabels: {}, itemLabels: {} }
+   try {
+     const baseSnapshot = AppShell.cloneGroups(navGroups)
+     const res = await apiFetch('/api/auth/sidebar/preferences')
       const data = res.ok ? await res.json().catch(() => null) : null
-      if (data?.settings) {
-        responseSettings = {
-          order: Array.isArray(data.settings?.groupOrder) ? data.settings.groupOrder.filter((id: unknown): id is string => typeof id === 'string') : [],
-          groupLabels: data.settings?.groupLabels && typeof data.settings.groupLabels === 'object' ? data.settings.groupLabels : {},
-          itemLabels: data.settings?.itemLabels && typeof data.settings.itemLabels === 'object' ? data.settings.itemLabels : {},
+      const rawSettings = data?.settings
+      const responseOrder = Array.isArray(rawSettings?.groupOrder)
+        ? rawSettings.groupOrder
+            .map((id: unknown) => (typeof id === 'string' ? id.trim() : ''))
+            .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        : []
+      const responseGroupLabels: Record<string, string> = {}
+      if (rawSettings?.groupLabels && typeof rawSettings.groupLabels === 'object') {
+        for (const [key, value] of Object.entries(rawSettings.groupLabels as Record<string, unknown>)) {
+          if (typeof value !== 'string') continue
+          const trimmedKey = key.trim()
+          if (!trimmedKey) continue
+          responseGroupLabels[trimmedKey] = value
         }
       }
+      const responseItemLabels: Record<string, string> = {}
+      if (rawSettings?.itemLabels && typeof rawSettings.itemLabels === 'object') {
+        for (const [key, value] of Object.entries(rawSettings.itemLabels as Record<string, unknown>)) {
+          if (typeof value !== 'string') continue
+          const trimmedKey = key.trim()
+          if (!trimmedKey) continue
+          responseItemLabels[trimmedKey] = value
+        }
+      }
+      const responseHiddenItems = Array.isArray(rawSettings?.hiddenItems)
+        ? rawSettings.hiddenItems
+            .map((href: unknown) => (typeof href === 'string' ? href.trim() : ''))
+            .filter((href): href is string => typeof href === 'string' && href.length > 0)
+        : []
       const canManageRoles = data?.canApplyToRoles === true
       setCanApplyToRoles(canManageRoles)
       if (canManageRoles) {
@@ -209,11 +233,18 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         setSelectedRoleIds([])
       }
       const currentIds = baseSnapshot.map((group) => resolveGroupKey(group))
-      const order = mergeGroupOrder(responseSettings.order, currentIds)
+      const order = mergeGroupOrder(responseOrder, currentIds)
+      const { itemDefaults } = collectSidebarDefaults(baseSnapshot)
+      const hiddenItemIds: Record<string, boolean> = {}
+      for (const href of responseHiddenItems) {
+        if (!itemDefaults.has(href)) continue
+        hiddenItemIds[href] = true
+      }
       const draft: SidebarCustomizationDraft = {
         order,
-        groupLabels: { ...responseSettings.groupLabels },
-        itemLabels: { ...responseSettings.itemLabels },
+        groupLabels: { ...responseGroupLabels },
+        itemLabels: { ...responseItemLabels },
+        hiddenItemIds,
       }
       originalNavRef.current = baseSnapshot
       setCustomDraft(draft)
@@ -244,7 +275,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     if (!originalNavRef.current) return
     const base = AppShell.cloneGroups(originalNavRef.current)
     const order = base.map((group) => resolveGroupKey(group))
-    const draft: SidebarCustomizationDraft = { order, groupLabels: {}, itemLabels: {} }
+    const draft: SidebarCustomizationDraft = { order, groupLabels: {}, itemLabels: {}, hiddenItemIds: {} }
     originalNavRef.current = base
     setCustomDraft(draft)
     setNavGroups(applyCustomizationDraft(base, draft))
@@ -274,6 +305,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         if (!trimmed || !base) continue
         if (trimmed !== base) sanitizedItemLabels[href] = trimmed
       }
+      const sanitizedHiddenItems: string[] = []
+      for (const [href, hidden] of Object.entries(customDraft.hiddenItemIds)) {
+        if (!hidden) continue
+        if (!itemDefaults.has(href)) continue
+        sanitizedHiddenItems.push(href)
+      }
       const applyToRolesPayload = canApplyToRoles ? [...selectedRoleIds] : []
       const clearRoleIdsPayload = canApplyToRoles
         ? availableRoleTargets
@@ -284,6 +321,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         groupOrder: customDraft.order,
         groupLabels: sanitizedGroupLabels,
         itemLabels: sanitizedItemLabels,
+        hiddenItems: sanitizedHiddenItems,
       }
       if (canApplyToRoles) {
         payload.applyToRoles = applyToRolesPayload
@@ -351,6 +389,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       if (value.trim().length === 0) delete next[href]
       else next[href] = value
       return { ...draft, itemLabels: next }
+    })
+  }, [updateDraft])
+  const setItemHidden = React.useCallback((href: string, hidden: boolean) => {
+    updateDraft((draft) => {
+      const next = { ...draft.hiddenItemIds }
+      if (hidden) next[href] = true
+      else delete next[href]
+      return { ...draft, hiddenItemIds: next }
     })
   }, [updateDraft])
 
@@ -421,12 +467,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           title: i.title,
           defaultTitle: i.defaultTitle,
           enabled: i.enabled,
+          hidden: i.hidden,
           icon: i.icon ?? iconMap.get(i.href),
           children: i.children?.map((c) => ({
             href: c.href,
             title: c.title,
             defaultTitle: c.defaultTitle,
             enabled: c.enabled,
+            hidden: c.hidden,
             icon: c.icon ?? iconMap.get(c.href),
           })),
         })),
@@ -473,11 +521,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           href: i.href,
           title: i.title,
           enabled: i.enabled,
+          hidden: i.hidden,
           icon: i.icon ?? iconMap.get(i.href),
           children: i.children?.map((c) => ({
             href: c.href,
             title: c.title,
             enabled: c.enabled,
+            hidden: c.hidden,
             icon: c.icon ?? iconMap.get(c.href),
           })),
         })),
@@ -514,22 +564,45 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       ? mergeGroupOrder(customDraft.order, Array.from(baseGroupMap.keys()))
       : navGroups.map((group) => resolveGroupKey(group))
 
+    const lastVisibleGroupIndex = (() => {
+      for (let idx = navGroups.length - 1; idx >= 0; idx -= 1) {
+        if (navGroups[idx].items.some((item) => item.hidden !== true)) return idx
+      }
+      return -1
+    })()
+
     const renderEditableItems = (baseItems: SidebarItem[], currentItems: SidebarItem[], depth = 0): React.ReactNode => {
       if (!customDraft) return null
       return baseItems.map((baseItem) => {
         const current = currentItems.find((item) => item.href === baseItem.href) ?? baseItem
         const placeholder = baseItem.defaultTitle ?? baseItem.title
         const value = customDraft.itemLabels[baseItem.href] ?? ''
+        const hidden = customDraft.hiddenItemIds[baseItem.href] === true
         return (
-          <div key={baseItem.href} className="flex flex-col gap-1" style={depth ? { marginLeft: depth * 16 } : undefined}>
+          <div
+            key={baseItem.href}
+            className={`flex flex-col gap-1 ${hidden ? 'opacity-60' : ''}`}
+            style={depth ? { marginLeft: depth * 16 } : undefined}
+          >
             <span className="text-xs font-medium text-muted-foreground">{placeholder}</span>
-            <input
-              value={value}
-              onChange={(event) => setItemLabel(baseItem.href, event.target.value)}
-              placeholder={placeholder}
-              disabled={savingPreferences}
-              className="h-8 rounded border bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-foreground"
+                checked={!hidden}
+                onChange={(event) => setItemHidden(baseItem.href, !event.target.checked)}
+                disabled={savingPreferences}
+                aria-label={t('appShell.sidebarCustomizationShowItem')}
+                title={t('appShell.sidebarCustomizationShowItem')}
+              />
+              <input
+                value={value}
+                onChange={(event) => setItemLabel(baseItem.href, event.target.value)}
+                placeholder={placeholder}
+                disabled={savingPreferences}
+                className="h-8 flex-1 rounded border bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+              />
+            </div>
             {baseItem.children && baseItem.children.length > 0 ? (
               <div className="flex flex-col gap-1">
                 {renderEditableItems(baseItem.children, current.children ?? [], depth + 1)}
@@ -683,6 +756,8 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               {navGroups.map((g, gi) => {
                 const groupId = resolveGroupKey(g)
                 const open = openGroups[groupId] !== false
+                const visibleItems = g.items.filter((item) => item.hidden !== true)
+                if (visibleItems.length === 0) return null
                 return (
                   <div key={groupId}>
                     <button
@@ -696,9 +771,10 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                     </button>
                     {open && (
                       <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
-                        {g.items.map((i) => {
-                          const showChildren = !!pathname && pathname.startsWith(i.href)
-                          const hasActiveChild = !!(i.children && pathname && i.children.some((c) => pathname.startsWith(c.href)))
+                        {visibleItems.map((i) => {
+                          const childItems = (i.children ?? []).filter((child) => child.hidden !== true)
+                          const showChildren = !!pathname && childItems.length > 0 && pathname.startsWith(i.href)
+                          const hasActiveChild = !!(pathname && childItems.some((c) => pathname.startsWith(c.href)))
                           const isParentActive = (pathname === i.href) || (showChildren && !hasActiveChild)
                           const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
                           return (
@@ -720,9 +796,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                 </span>
                                 {!compact && <span>{i.title}</span>}
                               </Link>
-                              {showChildren && i.children && i.children.length > 0 ? (
+                              {showChildren ? (
                                 <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-4' : ''}`}>
-                                  {i.children.map((c) => {
+                                  {childItems.map((c) => {
                                     const childActive = pathname?.startsWith(c.href)
                                     const childBase = compact ? 'w-10 h-8 justify-center' : 'px-2 py-1 gap-2'
                                     return (
@@ -753,7 +829,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                         })}
                       </div>
                     )}
-                    {gi < navGroups.length - 1 && <div className="my-2 border-t border-dotted" />}
+                    {gi !== lastVisibleGroupIndex && <div className="my-2 border-t border-dotted" />}
                   </div>
                 )
               })}
@@ -897,6 +973,7 @@ AppShell.cloneGroups = function cloneGroups(groups: AppShellProps['groups']): Ap
     defaultTitle: item.defaultTitle,
     icon: item.icon,
     enabled: item.enabled,
+    hidden: item.hidden,
     children: item.children ? item.children.map((child) => cloneItem(child)) : undefined,
   })
   return groups.map((group) => ({
@@ -935,10 +1012,16 @@ function applyCustomizationDraft(baseGroups: SidebarGroup[], draft: SidebarCusto
 function applyItemDraft(item: SidebarItem, draft: SidebarCustomizationDraft): SidebarItem {
   const baseTitle = item.defaultTitle ?? item.title
   const override = draft.itemLabels[item.href]?.trim()
+  const children = item.children
+    ? item.children
+        .map((child) => applyItemDraft(child, draft))
+    : undefined
+  const hidden = draft.hiddenItemIds[item.href] === true
   return {
     ...item,
     title: override && override.length > 0 ? override : baseTitle,
-    children: item.children ? item.children.map((child) => applyItemDraft(child, draft)) : undefined,
+    hidden,
+    children,
   }
 }
 

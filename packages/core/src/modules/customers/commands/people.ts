@@ -18,6 +18,7 @@ import {
   CustomerPersonProfile,
   CustomerTagAssignment,
 } from '../data/entities'
+import { resolvePersonCustomFieldRouting, CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID } from '../lib/customFieldRouting'
 import {
   personCreateSchema,
   personUpdateSchema,
@@ -40,8 +41,6 @@ import {
   diffCustomFieldChanges,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-
-const PERSON_ENTITY_ID = 'customers:customer_person_profile'
 
 type PersonAddressSnapshot = {
   id: string
@@ -66,6 +65,8 @@ type PersonCommentSnapshot = {
   createdAt: Date
   updatedAt: Date
   deletedAt: Date | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
 }
 
 type PersonSnapshot = {
@@ -201,6 +202,8 @@ function serializePersonSnapshot(
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,
       deletedAt: comment.deletedAt ?? null,
+      appearanceIcon: comment.appearanceIcon ?? null,
+      appearanceColor: comment.appearanceColor ?? null,
     })),
     custom,
   }
@@ -214,12 +217,25 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
   const tagIds = await loadEntityTagIds(em, entity)
   const addresses = await em.find(CustomerAddress, { entity }, { orderBy: { createdAt: 'asc' } })
   const comments = await em.find(CustomerComment, { entity }, { orderBy: { createdAt: 'asc' }, populate: ['deal'] })
-  const custom = await loadCustomFieldSnapshot(em, {
+  const entityCustom = await loadCustomFieldSnapshot(em, {
+    entityId: CUSTOMER_ENTITY_ID,
+    recordId: entity.id,
+    tenantId: entity.tenantId,
+    organizationId: entity.organizationId,
+  })
+  const profileCustom = await loadCustomFieldSnapshot(em, {
     entityId: PERSON_ENTITY_ID,
     recordId: profile.id,
     tenantId: entity.tenantId,
     organizationId: entity.organizationId,
   })
+  const routing = await resolvePersonCustomFieldRouting(em, entity.tenantId, entity.organizationId)
+  const custom: Record<string, unknown> = { ...entityCustom }
+  for (const [key, value] of Object.entries(profileCustom)) {
+    const target = routing.get(key)
+    if (target === CUSTOMER_ENTITY_ID && Object.prototype.hasOwnProperty.call(custom, key)) continue
+    custom[key] = value
+  }
   return serializePersonSnapshot(entity, profile, tagIds, addresses, comments, custom)
 }
 
@@ -242,22 +258,46 @@ async function resolveCompanyReference(
 
 async function setCustomFieldsForPerson(
   ctx: CommandRuntimeContext,
+  entityId: string,
   profileId: string,
   organizationId: string,
   tenantId: string,
   values: Record<string, unknown>
 ): Promise<void> {
   if (!values || !Object.keys(values).length) return
+  const em = ctx.container.resolve<EntityManager>('em')
+  const routing = await resolvePersonCustomFieldRouting(em, tenantId, organizationId)
+  const entityScoped: Record<string, unknown> = {}
+  const profileScoped: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(values)) {
+    const target = routing.get(key) ?? PERSON_ENTITY_ID
+    if (target === CUSTOMER_ENTITY_ID) entityScoped[key] = value
+    else profileScoped[key] = value
+  }
+
   const de = ctx.container.resolve<DataEngine>('dataEngine')
-  await setCustomFieldsIfAny({
-    dataEngine: de,
-    entityId: PERSON_ENTITY_ID,
-    recordId: profileId,
-    organizationId,
-    tenantId,
-    values,
-    notify: false,
-  })
+  if (Object.keys(entityScoped).length) {
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: CUSTOMER_ENTITY_ID,
+      recordId: entityId,
+      organizationId,
+      tenantId,
+      values: entityScoped,
+      notify: true,
+    })
+  }
+  if (Object.keys(profileScoped).length) {
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: PERSON_ENTITY_ID,
+      recordId: profileId,
+      organizationId,
+      tenantId,
+      values: profileScoped,
+      notify: true,
+    })
+  }
 }
 
 const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string; personId: string }> = {
@@ -340,6 +380,14 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         value: status,
       })
     }
+    if (jobTitle) {
+      await ensureDictionaryEntry(em, {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        kind: 'job_title',
+        value: jobTitle,
+      })
+    }
     if (source) {
       await ensureDictionaryEntry(em, {
         tenantId: parsed.tenantId,
@@ -354,7 +402,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const organizationId = entity.organizationId
     await syncEntityTags(em, entity, parsed.tags)
     await em.flush()
-    await setCustomFieldsForPerson(ctx, profile.id, organizationId, tenantId, custom)
+    await setCustomFieldsForPerson(ctx, entity.id, profile.id, organizationId, tenantId, custom)
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await emitCrudSideEffects({
@@ -473,7 +521,18 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     if (parsed.firstName !== undefined) profile.firstName = normalizeOptionalString(parsed.firstName)
     if (parsed.lastName !== undefined) profile.lastName = normalizeOptionalString(parsed.lastName)
     if (parsed.preferredName !== undefined) profile.preferredName = normalizeOptionalString(parsed.preferredName)
-    if (parsed.jobTitle !== undefined) profile.jobTitle = normalizeOptionalString(parsed.jobTitle)
+    if (parsed.jobTitle !== undefined) {
+      const normalizedJobTitle = normalizeOptionalString(parsed.jobTitle)
+      profile.jobTitle = normalizedJobTitle
+      if (normalizedJobTitle) {
+        await ensureDictionaryEntry(em, {
+          tenantId: record.tenantId,
+          organizationId: record.organizationId,
+          kind: 'job_title',
+          value: normalizedJobTitle,
+        })
+      }
+    }
     if (parsed.department !== undefined) profile.department = normalizeOptionalString(parsed.department)
     if (parsed.seniority !== undefined) profile.seniority = normalizeOptionalString(parsed.seniority)
     if (parsed.timezone !== undefined) profile.timezone = normalizeOptionalString(parsed.timezone)
@@ -495,7 +554,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     await syncEntityTags(em, record, parsed.tags)
     await em.flush()
 
-    await setCustomFieldsForPerson(ctx, profile.id, record.organizationId, record.tenantId, custom)
+    await setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await emitCrudSideEffects({
@@ -667,7 +726,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
     if (Object.keys(resetValues).length) {
-      await setCustomFieldsForPerson(ctx, before.profile.id, before.entity.organizationId, before.entity.tenantId, resetValues)
+      await setCustomFieldsForPerson(ctx, before.entity.id, before.profile.id, before.entity.organizationId, before.entity.tenantId, resetValues)
     }
   },
 }
@@ -870,7 +929,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       })
       const resetValues = buildCustomFieldResetMap(before.custom, null)
       if (Object.keys(resetValues).length) {
-        await setCustomFieldsForPerson(ctx, profile.id, entity.organizationId, entity.tenantId, resetValues)
+        await setCustomFieldsForPerson(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }
     },
   }

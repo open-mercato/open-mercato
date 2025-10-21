@@ -4,6 +4,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerDictionaryEntry } from '../../../../data/entities'
 import { mapDictionaryKind, resolveDictionaryRouteContext } from '../../context'
+import { invalidateDictionaryCache } from '../../cache'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -104,10 +105,24 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
     }
 
     if (!hasChanges) {
-      return NextResponse.json({ id: entry.id, value: entry.value, label: entry.label, color: entry.color, icon: entry.icon })
+      return NextResponse.json({
+        id: entry.id,
+        value: entry.value,
+        label: entry.label,
+        color: entry.color,
+        icon: entry.icon,
+        organizationId: entry.organizationId,
+        isInherited: false,
+      })
     }
 
     await routeContext.em.flush()
+
+    await invalidateDictionaryCache(routeContext.cache, {
+      tenantId: routeContext.tenantId,
+      mappedKind,
+      organizationIds: [routeContext.organizationId],
+    })
 
     return NextResponse.json({
       id: entry.id,
@@ -115,6 +130,8 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
       label: entry.label,
       color: entry.color,
       icon: entry.icon,
+      organizationId: entry.organizationId,
+      isInherited: false,
     })
   } catch (err) {
     if (err instanceof CrudHttpError) {
@@ -139,6 +156,12 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
 
     routeContext.em.remove(entry)
     await routeContext.em.flush()
+
+    await invalidateDictionaryCache(routeContext.cache, {
+      tenantId: routeContext.tenantId,
+      mappedKind,
+      organizationIds: [routeContext.organizationId],
+    })
 
     return NextResponse.json({ success: true })
   } catch (err) {

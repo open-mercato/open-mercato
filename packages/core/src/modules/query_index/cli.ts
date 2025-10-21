@@ -1,5 +1,6 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
+import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { upsertIndexRow } from './lib/indexer'
 
 function parseArgs(rest: string[]) {
@@ -15,12 +16,6 @@ function parseArgs(rest: string[]) {
     }
   }
   return args
-}
-
-function baseTableFromEntity(entityType: string): string {
-  const [, ent] = (entityType || '').split(':')
-  if (!ent) throw new Error(`Invalid entityType: ${entityType}`)
-  return ent.endsWith('s') ? ent : `${ent}s`
 }
 
   const rebuild: ModuleCli = {
@@ -44,7 +39,7 @@ function baseTableFromEntity(entityType: string): string {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     const knex = (em as any).getConnection().getKnex()
-    const table = baseTableFromEntity(entity)
+    const table = resolveEntityTableName(em, entity)
 
     const where: any = {}
     if (!globalFlag) {

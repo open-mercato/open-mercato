@@ -1,0 +1,146 @@
+"use client"
+
+import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import type { CustomerDictionaryKind } from '../../lib/dictionaries'
+
+export function formatDateTime(value?: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString()
+}
+
+export function formatDate(value?: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleDateString()
+}
+
+export function formatRelativeTime(value?: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const now = Date.now()
+  const diffSeconds = (date.getTime() - now) / 1000
+  const absSeconds = Math.abs(diffSeconds)
+  const rtf =
+    typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function'
+      ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+      : null
+  const format = (unit: Intl.RelativeTimeFormatUnit, divisor: number) => {
+    const valueToFormat = Math.round(diffSeconds / divisor)
+    if (rtf) return rtf.format(valueToFormat, unit)
+    const suffix = valueToFormat <= 0 ? 'ago' : 'from now'
+    const magnitude = Math.abs(valueToFormat)
+    return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${suffix}`
+  }
+  if (absSeconds < 45) return format('second', 1)
+  if (absSeconds < 45 * 60) return format('minute', 60)
+  if (absSeconds < 24 * 60 * 60) return format('hour', 60 * 60)
+  if (absSeconds < 7 * 24 * 60 * 60) return format('day', 24 * 60 * 60)
+  if (absSeconds < 30 * 24 * 60 * 60) return format('week', 7 * 24 * 60 * 60)
+  if (absSeconds < 365 * 24 * 60 * 60) return format('month', 30 * 24 * 60 * 60)
+  return format('year', 365 * 24 * 60 * 60)
+}
+
+export function toLocalDateTimeInput(value?: string | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (input: number) => `${input}`.padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(
+    date.getMinutes(),
+  )}`
+}
+
+export function resolveTodoHref(source: string, todoId: string | null | undefined): string | null {
+  if (!todoId) return null
+  if (!source) return null
+  const [module] = source.split(':')
+  if (!module) return null
+  return `/backend/${module}/todos/${encodeURIComponent(todoId)}/edit`
+}
+
+export function resolveTodoApiPath(source: string): string | null {
+  if (!source) return null
+  const [module] = source.split(':')
+  if (!module) return null
+  return `/api/${module}/todos`
+}
+
+export function createDictionarySelectLabels(
+  kind: CustomerDictionaryKind,
+  translate: (key: string, fallback: string) => string,
+): DictionarySelectLabels {
+  const base = {
+    valueLabel: translate('customers.people.form.dictionary.valueLabel', 'Name'),
+    valuePlaceholder: translate('customers.people.form.dictionary.valuePlaceholder', 'Name'),
+    labelLabel: translate('customers.people.form.dictionary.labelLabel', 'Label'),
+    labelPlaceholder: translate('customers.people.form.dictionary.labelPlaceholder', 'Display name shown in UI'),
+    emptyError: translate('customers.people.form.dictionary.errorRequired', 'Please enter a name'),
+    cancelLabel: translate('customers.people.form.dictionary.cancel', 'Cancel'),
+    saveLabel: translate('customers.people.form.dictionary.save', 'Save'),
+    errorLoad: translate('customers.people.form.dictionary.errorLoad', 'Failed to load options'),
+    errorSave: translate('customers.people.form.dictionary.error', 'Failed to save option'),
+    loadingLabel: translate('customers.people.form.dictionary.loading', 'Loading…'),
+    manageTitle: translate('customers.people.form.dictionary.manage', 'Manage dictionary'),
+    placeholder: translate('customers.people.form.dictionary.placeholder', 'Select an option'),
+    addLabel: translate('customers.people.form.dictionary.add', 'Add option'),
+    addPrompt: translate('customers.people.form.dictionary.prompt', 'Name your option'),
+    dialogTitle: translate('customers.people.form.dictionary.dialogTitle', 'Add option'),
+  } satisfies DictionarySelectLabels
+
+  switch (kind) {
+    case 'statuses':
+      return {
+        ...base,
+        placeholder: translate('customers.people.form.status.placeholder', 'Select a status'),
+        addLabel: translate('customers.people.form.dictionary.addStatus', 'Add status'),
+        addPrompt: translate('customers.people.form.dictionary.promptStatus', 'Name the status'),
+        dialogTitle: translate('customers.people.form.dictionary.dialogTitleStatus', 'Add status'),
+      }
+    case 'lifecycle-stages':
+      return {
+        ...base,
+        placeholder: translate('customers.people.form.lifecycleStage.placeholder', 'Select a lifecycle stage'),
+        addLabel: translate('customers.people.form.dictionary.addLifecycleStage', 'Add lifecycle stage'),
+        addPrompt: translate('customers.people.form.dictionary.promptLifecycleStage', 'Name the lifecycle stage'),
+        dialogTitle: translate('customers.people.form.dictionary.dialogTitleLifecycleStage', 'Add lifecycle stage'),
+      }
+    case 'sources':
+      return {
+        ...base,
+        placeholder: translate('customers.people.form.source.placeholder', 'Select a source'),
+        addLabel: translate('customers.people.form.dictionary.addSource', 'Add source'),
+        addPrompt: translate('customers.people.form.dictionary.promptSource', 'Name the source'),
+        dialogTitle: translate('customers.people.form.dictionary.dialogTitleSource', 'Add source'),
+      }
+    case 'activity-types':
+      return {
+        ...base,
+        placeholder: translate('customers.people.form.activityType.placeholder', 'Select an activity type'),
+        addLabel: translate('customers.people.form.dictionary.addActivityType', 'Add activity type'),
+        addPrompt: translate('customers.people.form.dictionary.promptActivityType', 'Name the activity type'),
+        dialogTitle: translate('customers.people.form.dictionary.dialogTitleActivityType', 'Add activity type'),
+      }
+    case 'job-titles':
+      return {
+        ...base,
+        placeholder: translate('customers.people.form.jobTitle.placeholder', 'Select a job title'),
+        addLabel: translate('customers.people.form.dictionary.addJobTitle', 'Add job title'),
+        addPrompt: translate('customers.people.form.dictionary.promptJobTitle', 'Name the job title'),
+        dialogTitle: translate('customers.people.form.dictionary.dialogTitleJobTitle', 'Add job title'),
+      }
+    case 'address-types':
+      return {
+        ...base,
+        placeholder: translate('customers.people.form.addressType.placeholder', 'Select an address type'),
+        addLabel: translate('customers.people.form.dictionary.addAddressType', 'Add address type'),
+        addPrompt: translate('customers.people.form.dictionary.promptAddressType', 'Name the address type'),
+        dialogTitle: translate('customers.people.form.dictionary.dialogTitleAddressType', 'Add address type'),
+      }
+    default:
+      return base
+  }
+}

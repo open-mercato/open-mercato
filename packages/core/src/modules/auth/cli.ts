@@ -271,6 +271,8 @@ const setupApp: ModuleCli = {
         'directory.organizations.view',
         'directory.organizations.manage',
         'customers.*',
+        'dictionaries.view',
+        'dictionaries.manage',
         'example.*',
         'dashboards.*',
         'dashboards.admin.assign-widgets',
@@ -282,6 +284,7 @@ const setupApp: ModuleCli = {
       await ensureRoleAclFor(employeeRole, seedTenantId, [
         'customers.*',
         'customers.people.manage',
+        'dictionaries.view',
         'example.*',
         'example.widgets.*',
         'dashboards.view',

@@ -2,7 +2,20 @@ import type { CrudField } from '../CrudForm'
 import type { CustomFieldDefDto } from './customFieldDefs'
 import { filterCustomFieldDefs } from './customFieldDefs'
 import { apiFetch } from './api'
-import { FieldRegistry } from '../fields/registry'
+import { fetchCustomFieldDefs } from './customFieldDefs'
+import { FieldRegistry, loadGeneratedFieldRegistrations } from '../fields/registry'
+
+let registryReady: Promise<void> | null = null
+
+async function ensureFieldRegistryReady() {
+  if (!registryReady) {
+    registryReady = loadGeneratedFieldRegistrations().catch((err) => {
+      registryReady = null
+      throw err
+    })
+  }
+  await registryReady
+}
 
 function buildOptionsUrl(base: string, query?: string): string {
   if (!query) return base
@@ -113,7 +126,7 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?
           // Try registry-provided input for custom kind
           const input = FieldRegistry.getInput(d.kind)
           if (input) {
-            fields.push({ id, label, type: 'custom', component: (props) => input({ ...props, def: d }) })
+            fields.push({ id, label, type: 'custom', required, description: d.description, component: (props) => input({ ...props, def: d }) })
           } else {
             fields.push({ id, label, type: 'text', description: d.description, required })
           }
@@ -123,9 +136,19 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?
   return fields
 }
 
-export async function fetchCustomFieldFormFields(entityId: string, fetchImpl: typeof fetch = apiFetch, options?: { bareIds?: boolean }): Promise<CrudField[]> {
-  const res = await fetchImpl(`/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`, { headers: { 'content-type': 'application/json' } })
-  const data = await res.json().catch(() => ({ items: [] }))
-  const defs: CustomFieldDefDto[] = data?.items || []
+export async function fetchCustomFieldFormFields(entityIds: string | string[], fetchImpl: typeof fetch = apiFetch, options?: { bareIds?: boolean }): Promise<CrudField[]> {
+  await ensureFieldRegistryReady()
+  const defs: CustomFieldDefDto[] = await fetchCustomFieldDefs(entityIds, fetchImpl)
   return buildFormFieldsFromCustomFields(defs, options)
+}
+
+export async function fetchCustomFieldFormFieldsWithDefinitions(
+  entityIds: string | string[],
+  fetchImpl: typeof fetch = apiFetch,
+  options?: { bareIds?: boolean },
+): Promise<{ fields: CrudField[]; definitions: CustomFieldDefDto[] }> {
+  await ensureFieldRegistryReady()
+  const definitions = await fetchCustomFieldDefs(entityIds, fetchImpl)
+  const fields = buildFormFieldsFromCustomFields(definitions, options)
+  return { fields, definitions }
 }

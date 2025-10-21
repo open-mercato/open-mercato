@@ -11,6 +11,7 @@ import remarkGfm from 'remark-gfm'
 import { Trash2, Save } from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { TagsInput } from './inputs/TagsInput'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -87,6 +88,7 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   // When provided, CrudForm will fetch custom field definitions and append
   // form-editable custom fields automatically to the provided `fields`.
   entityId?: string
+  entityIds?: string[]
   // Optional grouped layout rendered in two responsive columns (1 on mobile).
   groups?: CrudFormGroup[]
   // Loading state for the entire form (e.g., when loading record data)
@@ -94,6 +96,8 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
   loadingMessage?: string
   // User-defined entity mode: all fields are custom, use bare keys (no cf_)
   customEntity?: boolean
+  // Embedded mode hides outer chrome; useful for inline sections
+  embedded?: boolean
 }
 
 // Group-level custom component context
@@ -132,10 +136,12 @@ export function CrudForm<TValues extends Record<string, any>>({
   title,
   backHref,
   entityId,
+  entityIds,
   groups,
   isLoading = false,
   loadingMessage,
   customEntity = false,
+  embedded = false,
   extraActions,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
@@ -162,6 +168,24 @@ export function CrudForm<TValues extends Record<string, any>>({
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
   const [cfFields, setCfFields] = React.useState<CrudField[]>([])
   const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
+  const resolvedEntityIds = React.useMemo(() => {
+    if (Array.isArray(entityIds) && entityIds.length) {
+      const dedup = new Set<string>()
+      const list: string[] = []
+      entityIds.forEach((id) => {
+        const trimmed = typeof id === 'string' ? id.trim() : ''
+        if (!trimmed || dedup.has(trimmed)) return
+        dedup.add(trimmed)
+        list.push(trimmed)
+      })
+      return list
+    }
+    if (typeof entityId === 'string' && entityId.trim().length > 0) {
+      return [entityId.trim()]
+    }
+    return []
+  }, [entityId, entityIds])
+  const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
   // Unified delete handler with confirmation
   const handleDelete = React.useCallback(async () => {
     if (!onDelete) return
@@ -191,7 +215,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   React.useEffect(() => {
     let cancelled = false
     async function load() {
-      if (!entityId) { 
+      if (!resolvedEntityIds.length) { 
         setCfFields([])
         setIsLoadingCustomFields(false)
         return 
@@ -200,7 +224,7 @@ export function CrudForm<TValues extends Record<string, any>>({
       setIsLoadingCustomFields(true)
       try {
         const mod = await import('./utils/customFieldForms')
-        const f = await mod.fetchCustomFieldFormFields(entityId, undefined, { bareIds: customEntity })
+        const f = await mod.fetchCustomFieldFormFields(resolvedEntityIds, undefined, { bareIds: customEntity })
         if (!cancelled) {
           setCfFields(f)
           setIsLoadingCustomFields(false)
@@ -214,7 +238,7 @@ export function CrudForm<TValues extends Record<string, any>>({
     }
     load()
     return () => { cancelled = true }
-  }, [entityId])
+  }, [resolvedEntityIds, customEntity])
 
   const allFields = React.useMemo(() => {
     if (!cfFields.length) return fields
@@ -248,14 +272,14 @@ export function CrudForm<TValues extends Record<string, any>>({
   }, [cfFields, fieldById])
 
   const customFieldsManageHref = React.useMemo(() => {
-    if (!entityId) return null
+    if (!primaryEntityId) return null
     try {
-      const encoded = encodeURIComponent(entityId)
+      const encoded = encodeURIComponent(primaryEntityId)
       return customEntity ? `/backend/entities/user/${encoded}` : `/backend/entities/system/${encoded}`
     } catch {
       return null
     }
-  }, [customEntity, entityId])
+  }, [customEntity, primaryEntityId])
 
   const customFieldsEmptyState = React.useMemo(() => {
     const text = t('entities.customFields.empty')
@@ -425,10 +449,10 @@ export function CrudForm<TValues extends Record<string, any>>({
     }
 
     // Custom fields validation via definitions (rules)
-    if (entityId) {
+    if (resolvedEntityIds.length) {
       try {
         const mod = await import('./utils/customFieldDefs')
-        const defs = await mod.fetchCustomFieldDefs(entityId)
+        const defs = await mod.fetchCustomFieldDefs(resolvedEntityIds)
         const { validateValuesAgainstDefs } = await import('@open-mercato/shared/modules/entities/validation')
         // Build values keyed by def.key for validation
         const cfValues: Record<string, any> = {}
@@ -812,6 +836,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     autoFocus: boolean
     onSubmitRequest: () => void
     wrapperClassName?: string
+    entityIdForField?: string
   }
 
   const FieldControl = React.useMemo(
@@ -827,6 +852,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         autoFocus,
         onSubmitRequest,
         wrapperClassName,
+        entityIdForField,
       }: FieldControlProps) {
     // Memoize the setValue callback for this specific field to prevent unnecessary re-renders
     const fieldSetValue = React.useCallback((v: any) => setValue(f.id, v), [setValue, f.id])
@@ -944,7 +970,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={fieldSetValue} autoFocus={autoFocus} />
         )}
         {f.type === 'custom' && (
-          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue, entityId, recordId: (values as any)?.id, autoFocus })}</>
+          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue, entityId: entityIdForField, recordId: (values as any)?.id, autoFocus })}</>
         )}
         {(f as any).description ? (
           <div className="text-xs text-muted-foreground">{(f as any).description}</div>
@@ -1007,6 +1033,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
               autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
               onSubmitRequest={requestSubmit}
               wrapperClassName={wrapperClassName}
+              entityIdForField={primaryEntityId ?? undefined}
             />
           )
         })}
@@ -1080,6 +1107,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
     return (
       <div className="space-y-4">
+        {!embedded ? (
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             {backHref ? (
@@ -1108,6 +1136,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             </Button>
           </div>
         </div>
+        ) : null}
         <DataLoader
           isLoading={isLoading}
           loadingMessage={resolvedLoadingMessage}
@@ -1172,17 +1201,17 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
               </div>
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            <div className="flex items-center justify-between gap-2">
-              <div />
+            <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'} gap-2`}>
+              {embedded ? null : <div />}
               <div className="flex items-center gap-2">
                 {extraActions}
-                {showDelete ? (
+                {!embedded && showDelete ? (
                   <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50 rounded">
                     <Trash2 className="size-4 mr-2" />
                     {deleteLabel}
                   </Button>
                 ) : null}
-                {cancelHref ? (
+                {!embedded && cancelHref ? (
                   <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
                     {cancelLabel}
                   </Link>
@@ -1202,6 +1231,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   // Default single-card layout (compatible with previous API)
   return (
     <div className="space-y-4">
+      {!embedded ? (
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           {backHref ? (
@@ -1230,6 +1260,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </Button>
         </div>
       </div>
+      ) : null}
       <DataLoader
         isLoading={isLoading}
         loadingMessage={resolvedLoadingMessage}
@@ -1237,7 +1268,11 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
         className="min-h-[400px]"
       >
         <div>
-          <form id={formId} onSubmit={handleSubmit} className="rounded-lg border bg-card p-4 space-y-4">
+          <form
+            id={formId}
+            onSubmit={handleSubmit}
+            className={embedded ? 'space-y-4' : 'rounded-lg border bg-card p-4 space-y-4'}
+          >
             <div className={grid}>
               {allFields.map((f, idx) => {
                 const layout = ((f as any).layout ?? 'full') as CrudFieldBase['layout']
@@ -1255,20 +1290,21 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                     autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
                     onSubmitRequest={requestSubmit}
                     wrapperClassName={wrapperClassName}
+                    entityIdForField={primaryEntityId ?? undefined}
                   />
                 )
               })}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            <div className="flex items-center justify-end gap-2">
+            <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-end'} gap-2`}>
               {extraActions}
-              {showDelete ? (
+              {!embedded && showDelete ? (
                 <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50">
                   <Trash2 className="size-4 mr-2" />
                   {deleteLabel}
                 </Button>
               ) : null}
-              {cancelHref ? (
+              {!embedded && cancelHref ? (
                 <Link href={cancelHref} className="h-9 inline-flex items-center rounded border px-3 text-sm">
                   {cancelLabel}
                 </Link>
@@ -1281,113 +1317,6 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </form>
         </div>
       </DataLoader>
-    </div>
-  )
-}
-
-function TagsInput({
-  value,
-  onChange,
-  placeholder,
-  suggestions,
-  loadSuggestions,
-  autoFocus,
-}: {
-  value: string[]
-  onChange: (v: string[]) => void
-  placeholder?: string
-  suggestions?: string[]
-  loadSuggestions?: (q?: string) => Promise<string[]>
-  autoFocus?: boolean
-}) {
-  const [input, setInput] = React.useState('')
-  const [asyncSugg, setAsyncSugg] = React.useState<string[] | null>(null)
-  const [loading, setLoading] = React.useState(false)
-  const [touched, setTouched] = React.useState(false)
-
-  const add = (v: string) => {
-    const t = v.trim()
-    if (!t) return
-    if (!value.includes(t)) onChange([...value, t])
-  }
-  const remove = (t: string) => onChange(value.filter((x) => x !== t))
-
-  React.useEffect(() => {
-    if (!loadSuggestions || !touched) return
-    const q = input.trim()
-    let cancelled = false
-    const handle = window.setTimeout(async () => {
-      setLoading(true)
-      try {
-        const items = await loadSuggestions(q)
-        if (!cancelled) setAsyncSugg(items)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }, 200)
-    return () => {
-      cancelled = true
-      window.clearTimeout(handle)
-    }
-  }, [input, loadSuggestions, touched])
-
-  const merged = React.useMemo(() => {
-    const base = asyncSugg ?? suggestions ?? []
-    const unique = Array.from(new Set(base))
-    const withoutSelected = unique.filter((t) => !value.includes(t))
-    const q = input.toLowerCase().trim()
-    return q ? withoutSelected.filter((t) => t.toLowerCase().includes(q)) : withoutSelected.slice(0, 8)
-  }, [asyncSugg, suggestions, value, input])
-
-  return (
-    <div className="w-full rounded border px-2 py-1">
-      <div className="flex flex-wrap gap-1">
-        {value.map((t) => (
-          <span
-            key={t}
-            className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs"
-          >
-            {t}
-            <button type="button" className="opacity-60 hover:opacity-100" onClick={() => remove(t)}>
-              ×
-            </button>
-          </span>
-        ))}
-        <input
-          className="flex-1 min-w-[120px] border-0 outline-none py-1 text-sm"
-          value={input}
-          placeholder={placeholder || 'Add tag and press Enter'}
-          autoFocus={autoFocus}
-          data-crud-focus-target=""
-          onFocus={() => setTouched(true)}
-          onChange={(e) => { setTouched(true); setInput(e.target.value) }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ',') {
-              e.preventDefault()
-              add(input)
-              setInput('')
-            } else if (e.key === 'Backspace' && input === '' && value.length > 0) {
-              remove(value[value.length - 1])
-            }
-          }}
-          onBlur={() => {
-            add(input)
-            setInput('')
-          }}
-        />
-        {(loading && touched) ? (
-          <div className="basis-full mt-1 text-xs text-muted-foreground">Loading suggestions…</div>
-        ) : null}
-        {!loading && merged.length ? (
-          <div className="basis-full mt-1 flex flex-wrap gap-1">
-            {merged.map((t) => (
-              <button key={t} type="button" className="text-xs rounded border px-1.5 py-0.5 hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => add(t)}>
-                {t}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
     </div>
   )
 }

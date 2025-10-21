@@ -48,6 +48,8 @@ const crud = makeCrudRoute({
       'deal_id',
       'body',
       'author_user_id',
+      'appearance_icon',
+      'appearance_color',
       'organization_id',
       'tenant_id',
       'created_at',
@@ -72,7 +74,10 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         return commentCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
       },
-      response: ({ result }) => ({ id: result?.commentId ?? result?.id ?? null }),
+      response: ({ result }) => ({
+        id: result?.commentId ?? result?.id ?? null,
+        authorUserId: result?.authorUserId ?? null,
+      }),
       status: 201,
     },
     update: {
@@ -89,7 +94,11 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
-        const id = parsed?.id ?? (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
+        const id =
+          parsed?.body?.id ??
+          parsed?.id ??
+          parsed?.query?.id ??
+          (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
         if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.comment_required', 'Comment id is required') })
         return { id }
       },

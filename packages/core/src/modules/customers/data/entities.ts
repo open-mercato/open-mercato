@@ -344,6 +344,12 @@ export class CustomerActivity {
   @Property({ name: 'author_user_id', type: 'uuid', nullable: true })
   authorUserId?: string | null
 
+  @Property({ name: 'appearance_icon', type: 'text', nullable: true })
+  appearanceIcon?: string | null
+
+  @Property({ name: 'appearance_color', type: 'text', nullable: true })
+  appearanceColor?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
@@ -374,6 +380,12 @@ export class CustomerComment {
 
   @Property({ name: 'author_user_id', type: 'uuid', nullable: true })
   authorUserId?: string | null
+
+  @Property({ name: 'appearance_icon', type: 'text', nullable: true })
+  appearanceIcon?: string | null
+
+  @Property({ name: 'appearance_color', type: 'text', nullable: true })
+  appearanceColor?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

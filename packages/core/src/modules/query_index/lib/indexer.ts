@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 
 type BuildDocParams = {
   entityType: string // '<module>:<entity>'
@@ -9,8 +10,7 @@ type BuildDocParams = {
 
 export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): Promise<Record<string, any> | null> {
   const knex = (em as any).getConnection().getKnex()
-  const [, entity] = params.entityType.split(':')
-  const baseTable = entity.endsWith('s') ? entity : `${entity}s`
+  const baseTable = resolveEntityTableName(em, params.entityType)
 
   // Fetch base row
   const baseRow = await knex(baseTable)

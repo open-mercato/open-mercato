@@ -76,68 +76,6 @@ export function CustomerTodosTable(): JSX.Element {
     return usp.toString()
   }, [page, pageSize, search, filters])
 
-  const viewExportColumns = React.useMemo(() => {
-    return (columns || [])
-      .map((col) => {
-        const accessorKey = (col as any).accessorKey
-        if (!accessorKey || typeof accessorKey !== 'string') return null
-        if ((col as any).meta?.hidden) return null
-        const header = typeof col.header === 'string'
-          ? col.header
-          : accessorKey
-        return { field: accessorKey, header }
-      })
-      .filter((col): col is { field: string; header: string } => !!col)
-  }, [columns])
-
-  const rows = data?.items ?? []
-
-  const exportConfig = React.useMemo(() => ({
-    view: {
-      description: t('customers.workPlan.customerTodos.table.export.view'),
-      prepare: async (): Promise<{ prepared: PreparedExport; filename: string }> => {
-        const rowsForExport = rows.map((row) => {
-          const out: Record<string, unknown> = {}
-          for (const col of viewExportColumns) {
-            out[col.field] = (row as Record<string, unknown>)[col.field]
-          }
-          return out
-        })
-        const prepared: PreparedExport = {
-          columns: viewExportColumns.map((col) => ({ field: col.field, header: col.header })),
-          rows: rowsForExport,
-        }
-        return { prepared, filename: 'customer_todos_view' }
-      },
-    },
-    full: {
-      description: t('customers.workPlan.customerTodos.table.export.full'),
-      getUrl: (format: DataTableExportFormat) =>
-        buildCrudExportUrl('customers/todos', { exportScope: 'full', all: 'true' }, format),
-      filename: () => 'customer_todos_full',
-    },
-  }), [rows, t, viewExportColumns])
-
-  const { data, isLoading, error, refetch, isFetching } = useQuery<CustomerTodosResponse>({
-    queryKey: ['customers-todos', params, scopeVersion],
-    queryFn: async () => {
-      const response = await apiFetch(`/api/customers/todos?${params}`)
-      if (!response.ok) {
-        let message = t('customers.workPlan.customerTodos.table.error.load')
-        try {
-          const parsed = await response.json()
-          if (parsed?.error && typeof parsed.error === 'string') {
-            message = parsed.error
-          }
-        } catch {
-          // ignore parse errors
-        }
-        throw new Error(message)
-      }
-      return response.json() as Promise<CustomerTodosResponse>
-    },
-  })
-
   const columns = React.useMemo<ColumnDef<CustomerTodoItem>[]>(() => [
     {
       accessorKey: 'customer.displayName',
@@ -177,6 +115,68 @@ export function CustomerTodosTable(): JSX.Element {
       meta: { priority: 3 },
     },
   ], [t])
+
+  const viewExportColumns = React.useMemo(() => {
+    return columns
+      .map((col) => {
+        const accessorKey = (col as any).accessorKey
+        if (!accessorKey || typeof accessorKey !== 'string') return null
+        if ((col as any).meta?.hidden) return null
+        const header = typeof col.header === 'string'
+          ? col.header
+          : accessorKey
+        return { field: accessorKey, header }
+      })
+      .filter((col): col is { field: string; header: string } => !!col)
+  }, [columns])
+
+  const { data, isLoading, error, refetch, isFetching } = useQuery<CustomerTodosResponse>({
+    queryKey: ['customers-todos', params, scopeVersion],
+    queryFn: async () => {
+      const response = await apiFetch(`/api/customers/todos?${params}`)
+      if (!response.ok) {
+        let message = t('customers.workPlan.customerTodos.table.error.load')
+        try {
+          const parsed = await response.json()
+          if (parsed?.error && typeof parsed.error === 'string') {
+            message = parsed.error
+          }
+        } catch {
+          // ignore parse errors
+        }
+        throw new Error(message)
+      }
+      return response.json() as Promise<CustomerTodosResponse>
+    },
+  })
+
+  const rows = data?.items ?? []
+
+  const exportConfig = React.useMemo(() => ({
+    view: {
+      description: t('customers.workPlan.customerTodos.table.export.view'),
+      prepare: async (): Promise<{ prepared: PreparedExport; filename: string }> => {
+        const rowsForExport = rows.map((row) => {
+          const out: Record<string, unknown> = {}
+          for (const col of viewExportColumns) {
+            out[col.field] = (row as Record<string, unknown>)[col.field]
+          }
+          return out
+        })
+        const prepared: PreparedExport = {
+          columns: viewExportColumns.map((col) => ({ field: col.field, header: col.header })),
+          rows: rowsForExport,
+        }
+        return { prepared, filename: 'customer_todos_view' }
+      },
+    },
+    full: {
+      description: t('customers.workPlan.customerTodos.table.export.full'),
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('customers/todos', { exportScope: 'full', all: 'true' }, format),
+      filename: () => 'customer_todos_full',
+    },
+  }), [rows, t, viewExportColumns])
 
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {

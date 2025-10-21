@@ -4,6 +4,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerDictionaryEntry } from '../../../data/entities'
 import { ensureDictionaryEntry } from '../../../commands/shared'
 import { mapDictionaryKind, resolveDictionaryRouteContext } from '../context'
+import { createDictionaryCacheKey, createDictionaryCacheTags, invalidateDictionaryCache, DICTIONARY_CACHE_TTL_MS } from '../cache'
 import { z } from 'zod'
 
 const colorSchema = z.string().trim().regex(/^#([0-9A-Fa-f]{6})$/, 'Invalid color hex')
@@ -23,24 +24,78 @@ export const metadata = {
 
 export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
   try {
-    const { translate, em, organizationId, tenantId } = await resolveDictionaryRouteContext(req)
+    const { translate, em, organizationId, tenantId, readableOrganizationIds, cache } = await resolveDictionaryRouteContext(req)
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
+
+    let cacheKey: string | null = null
+    if (cache) {
+      cacheKey = createDictionaryCacheKey({ tenantId, organizationId, mappedKind, readableOrganizationIds })
+      const cached = await cache.get(cacheKey)
+      if (cached) {
+        return NextResponse.json(cached)
+      }
+    }
+
+    const organizationOrder = new Map<string, number>()
+    readableOrganizationIds.forEach((id, index) => organizationOrder.set(id, index))
 
     const entries = await em.find(
       CustomerDictionaryEntry,
-      { tenantId, organizationId, kind: mappedKind },
+      { tenantId, organizationId: { $in: readableOrganizationIds }, kind: mappedKind } as any,
       { orderBy: { label: 'asc' } }
     )
 
-    return NextResponse.json({
-      items: entries.map((entry) => ({
-        id: entry.id,
-        value: entry.value,
-        label: entry.label,
-        color: entry.color,
-        icon: entry.icon,
-      })),
+    const byValue = new Map<string, { entry: CustomerDictionaryEntry; isInherited: boolean; order: number }>()
+    for (const entry of entries) {
+      const normalized = entry.normalizedValue
+      const order = organizationOrder.get(entry.organizationId) ?? Number.MAX_SAFE_INTEGER
+      if (!byValue.has(normalized) || order < byValue.get(normalized)!.order) {
+        byValue.set(normalized, {
+          entry,
+          isInherited: entry.organizationId !== organizationId,
+          order,
+        })
+      }
+    }
+
+    const items = Array.from(byValue.values()).map(({ entry, isInherited, order }) => ({
+      id: entry.id,
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+      organizationId: entry.organizationId,
+      isInherited,
+      __order: order,
+    }))
+
+    items.sort((a, b) => {
+      if (a.isInherited !== b.isInherited) return a.isInherited ? 1 : -1
+      if (a.__order !== b.__order) return a.__order - b.__order
+      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
     })
+
+    const responseBody = {
+      items: items.map(({ __order, ...item }) => item),
+    }
+
+    if (cache && cacheKey) {
+      const tags = createDictionaryCacheTags({
+        tenantId,
+        mappedKind,
+        organizationIds: readableOrganizationIds,
+      })
+      try {
+        await cache.set(cacheKey, responseBody, {
+          ttl: DICTIONARY_CACHE_TTL_MS,
+          tags,
+        })
+      } catch (err) {
+        console.warn('[customers.dictionaries.cache] Failed to set cache entry', err)
+      }
+    }
+
+    return NextResponse.json(responseBody)
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
@@ -89,8 +144,22 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
       throw new CrudHttpError(400, { error: context.translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') })
     }
 
+    await invalidateDictionaryCache(context.cache, {
+      tenantId: context.tenantId,
+      mappedKind,
+      organizationIds: [entry.organizationId],
+    })
+
     return NextResponse.json(
-      { id: entry.id, value: entry.value, label: entry.label, color: entry.color, icon: entry.icon },
+      {
+        id: entry.id,
+        value: entry.value,
+        label: entry.label,
+        color: entry.color,
+        icon: entry.icon,
+        organizationId: entry.organizationId,
+        isInherited: false,
+      },
       { status: existing ? 200 : 201 }
     )
   } catch (err) {

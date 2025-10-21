@@ -1,5 +1,5 @@
 import type { AppContainer } from '@/lib/di/container'
-import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
+import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
 import { markDeleted } from './lib/indexer'
 
@@ -9,11 +9,6 @@ function toEntityTypeFromEvent(event: string): string | null {
   if (parts.length !== 3) return null
   const [mod, ent] = parts
   return `${mod}:${ent}`
-}
-
-function toBaseTableFromEntityType(entityType: string): string {
-  const [, ent] = entityType.split(':')
-  return ent.endsWith('s') ? ent : `${ent}s`
 }
 
 export function register(container: AppContainer) {
@@ -42,7 +37,7 @@ export function register(container: AppContainer) {
         if (!orgId || !tenantId) {
           try {
             const knex = (em as any).getConnection().getKnex()
-            const table = toBaseTableFromEntityType(entityType)
+            const table = resolveEntityTableName(em, entityType)
             const row = await knex(table).select(['organization_id', 'tenant_id']).where({ id }).first()
             orgId = row?.organization_id ?? orgId
             tenantId = row?.tenant_id ?? tenantId
@@ -77,7 +72,7 @@ export function register(container: AppContainer) {
         if (!orgId) {
           try {
             const knex = (em as any).getConnection().getKnex()
-            const table = toBaseTableFromEntityType(entityType)
+            const table = resolveEntityTableName(em, entityType)
             const row = await knex(table).select(['organization_id']).where({ id }).first()
             orgId = row?.organization_id ?? orgId
           } catch {}
