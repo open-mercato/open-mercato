@@ -278,6 +278,7 @@
   "customers.people.detail.notes.appearance.error": "No se pudo actualizar la apariencia",
   "customers.people.detail.notes.appearance.updated": "Apariencia actualizada",
   "customers.people.detail.inline.save": "Guardar",
+  "customers.people.detail.inline.saveShortcut": "Guardar ⌘⏎ / Ctrl+Enter",
   "customers.people.detail.inline.cancel": "Cancelar",
   "customers.people.detail.inline.clear": "Limpiar",
   "customers.people.detail.inline.error": "Algo salió mal",

@@ -676,15 +676,15 @@ function InlineMultilineEditor({
       if (!event.metaKey && !event.ctrlKey) return
       if (event.key !== 'Enter') return
       event.preventDefault()
-      if (isSubmitting) return
-      if (!draftBody.trim()) return
+      if (saving) return
+      if (!draft.trim()) return
       try {
         formRef.current?.requestSubmit()
       } catch {
         // ignore environments without form.requestSubmit
       }
     },
-    [draftBody, isSubmitting]
+    [draft, saving]
   )
 
   const handleSave = React.useCallback(async () => {
@@ -1386,6 +1386,22 @@ function NotesTab({
       setShowAppearance(false)
     },
     [draftBody, draftIcon, draftColor, isMarkdownEnabled, isSubmitting, onCreate]
+  )
+
+  const handleFormKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLFormElement>) => {
+      if (event.key !== 'Enter') return
+      if (!event.metaKey && !event.ctrlKey) return
+      const trimmedBody = draftBody.trim()
+      if (!trimmedBody || isSubmitting) return
+      event.preventDefault()
+      try {
+        formRef.current?.requestSubmit()
+      } catch {
+        // ignore environments without form.requestSubmit
+      }
+    },
+    [draftBody, isSubmitting]
   )
 
   const handleAppearanceSave = React.useCallback(async () => {

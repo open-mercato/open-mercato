@@ -277,6 +277,7 @@
   "customers.people.detail.notes.appearance.error": "Nie udało się zaktualizować wyglądu",
   "customers.people.detail.notes.appearance.updated": "Wygląd zaktualizowany",
   "customers.people.detail.inline.save": "Zapisz",
+  "customers.people.detail.inline.saveShortcut": "Zapisz ⌘⏎ / Ctrl+Enter",
   "customers.people.detail.inline.cancel": "Anuluj",
   "customers.people.detail.inline.clear": "Wyczyść",
   "customers.people.detail.inline.error": "Coś poszło nie tak",

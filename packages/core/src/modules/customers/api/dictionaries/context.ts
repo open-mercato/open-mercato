@@ -6,6 +6,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CacheStrategy } from '@open-mercato/cache'
 
 export const dictionaryKindSchema = z.enum([
   'statuses',
@@ -45,6 +46,7 @@ export type DictionaryRouteContext = {
   organizationId: string
   tenantId: string
   readableOrganizationIds: string[]
+  cache?: CacheStrategy
 }
 
 export function mapDictionaryKind(kind: string | undefined) {
@@ -68,6 +70,11 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
   if (!organizationId) {
     throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
   }
+
+  let cache: CacheStrategy | undefined
+  try {
+    cache = container.resolve<CacheStrategy>('cache')
+  } catch {}
 
   const em = container.resolve<EntityManager>('em')
   const readableOrganizationIds: string[] = [organizationId]
@@ -95,5 +102,6 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
     organizationId,
     tenantId: auth.tenantId,
     readableOrganizationIds,
+    cache,
   }
 }

@@ -4,6 +4,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerDictionaryEntry } from '../../../../data/entities'
 import { mapDictionaryKind, resolveDictionaryRouteContext } from '../../context'
+import { invalidateDictionaryCache } from '../../cache'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -117,6 +118,12 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
 
     await routeContext.em.flush()
 
+    await invalidateDictionaryCache(routeContext.cache, {
+      tenantId: routeContext.tenantId,
+      mappedKind,
+      organizationIds: [routeContext.organizationId],
+    })
+
     return NextResponse.json({
       id: entry.id,
       value: entry.value,
@@ -149,6 +156,12 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
 
     routeContext.em.remove(entry)
     await routeContext.em.flush()
+
+    await invalidateDictionaryCache(routeContext.cache, {
+      tenantId: routeContext.tenantId,
+      mappedKind,
+      organizationIds: [routeContext.organizationId],
+    })
 
     return NextResponse.json({ success: true })
   } catch (err) {

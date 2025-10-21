@@ -279,6 +279,7 @@
   "customers.people.detail.notes.appearance.error": "Failed to update appearance",
   "customers.people.detail.notes.appearance.updated": "Appearance updated",
   "customers.people.detail.inline.save": "Save",
+  "customers.people.detail.inline.saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
   "customers.people.detail.inline.cancel": "Cancel",
   "customers.people.detail.inline.clear": "Clear",
   "customers.people.detail.inline.error": "Something went wrong",

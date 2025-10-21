@@ -4,6 +4,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerDictionaryEntry } from '../../../data/entities'
 import { ensureDictionaryEntry } from '../../../commands/shared'
 import { mapDictionaryKind, resolveDictionaryRouteContext } from '../context'
+import { createDictionaryCacheKey, createDictionaryCacheTags, invalidateDictionaryCache, DICTIONARY_CACHE_TTL_MS } from '../cache'
 import { z } from 'zod'
 
 const colorSchema = z.string().trim().regex(/^#([0-9A-Fa-f]{6})$/, 'Invalid color hex')
@@ -23,8 +24,17 @@ export const metadata = {
 
 export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
   try {
-    const { translate, em, organizationId, tenantId, readableOrganizationIds } = await resolveDictionaryRouteContext(req)
+    const { translate, em, organizationId, tenantId, readableOrganizationIds, cache } = await resolveDictionaryRouteContext(req)
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
+
+    let cacheKey: string | null = null
+    if (cache) {
+      cacheKey = createDictionaryCacheKey({ tenantId, organizationId, mappedKind, readableOrganizationIds })
+      const cached = await cache.get(cacheKey)
+      if (cached) {
+        return NextResponse.json(cached)
+      }
+    }
 
     const organizationOrder = new Map<string, number>()
     readableOrganizationIds.forEach((id, index) => organizationOrder.set(id, index))
@@ -65,9 +75,27 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
     })
 
-    return NextResponse.json({
+    const responseBody = {
       items: items.map(({ __order, ...item }) => item),
-    })
+    }
+
+    if (cache && cacheKey) {
+      const tags = createDictionaryCacheTags({
+        tenantId,
+        mappedKind,
+        organizationIds: readableOrganizationIds,
+      })
+      try {
+        await cache.set(cacheKey, responseBody, {
+          ttl: DICTIONARY_CACHE_TTL_MS,
+          tags,
+        })
+      } catch (err) {
+        console.warn('[customers.dictionaries.cache] Failed to set cache entry', err)
+      }
+    }
+
+    return NextResponse.json(responseBody)
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
@@ -115,6 +143,12 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
     if (!entry) {
       throw new CrudHttpError(400, { error: context.translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') })
     }
+
+    await invalidateDictionaryCache(context.cache, {
+      tenantId: context.tenantId,
+      mappedKind,
+      organizationIds: [entry.organizationId],
+    })
 
     return NextResponse.json(
       {
