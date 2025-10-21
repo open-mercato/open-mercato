@@ -484,10 +484,7 @@ export function DataTable<T>({
   }, [entityId, entityIds])
   const entityKey = React.useMemo(() => (resolvedEntityIds.length ? resolvedEntityIds.join('|') : null), [resolvedEntityIds])
 
-  const { data: cfFilters = [] } = useCustomFieldFilterDefs(
-    entityKey ? resolvedEntityIds : [],
-    { enabled: !!entityKey, extraKey: entityKey ? [entityKey] : [] }
-  )
+  const { data: cfFilters = [] } = useCustomFieldFilterDefs(entityKey ? resolvedEntityIds : [], { enabled: !!entityKey })
 
   const builtToolbar = React.useMemo(() => {
     if (toolbar) return toolbar

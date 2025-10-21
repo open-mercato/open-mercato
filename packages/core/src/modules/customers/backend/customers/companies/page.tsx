@@ -158,10 +158,21 @@ export default function CustomersCompaniesPage() {
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
-  const { data: customFieldDefs = [] } = useCustomFieldDefs(
-    [E.customers.customer_entity, E.customers.customer_company_profile],
-    { extraKey: [scopeVersion, reloadToken] }
-  )
+  const {
+    data: customFieldDefs = [],
+    refetch: refetchCustomFieldDefs,
+    isFetched: customFieldDefsFetched,
+  } = useCustomFieldDefs([E.customers.customer_entity, E.customers.customer_company_profile])
+
+  const hasFetchedCustomCompanyFieldsRef = React.useRef(false)
+  React.useEffect(() => {
+    if (!customFieldDefsFetched) return
+    if (!hasFetchedCustomCompanyFieldsRef.current) {
+      hasFetchedCustomCompanyFieldsRef.current = true
+      return
+    }
+    refetchCustomFieldDefs()
+  }, [customFieldDefsFetched, refetchCustomFieldDefs, reloadToken, scopeVersion])
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {

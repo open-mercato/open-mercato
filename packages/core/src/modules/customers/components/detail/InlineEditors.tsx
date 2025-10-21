@@ -606,6 +606,7 @@ export function InlineMultilineEditor({
 }
 
 function createSocialRenderDisplay(IconComponent: typeof Linkedin): NonNullable<InlineFieldProps['renderDisplay']> {
+  // eslint-disable-next-line react/display-name
   return ({ value, emptyLabel }) => {
     const raw = typeof value === 'string' ? value.trim() : ''
     if (!raw.length) {

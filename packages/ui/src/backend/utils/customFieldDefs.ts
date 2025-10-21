@@ -71,7 +71,6 @@ export type UseCustomFieldDefsOptions = {
   enabled?: boolean
   staleTime?: number
   gcTime?: number
-  extraKey?: Array<string | number | boolean | null | undefined>
   fetchImpl?: typeof fetch
 }
 
@@ -80,12 +79,10 @@ export function useCustomFieldDefs(
   options: UseCustomFieldDefsOptions = {}
 ): UseQueryResult<CustomFieldDefDto[]> {
   const normalizedIds = React.useMemo(() => normalizeEntityIds(entityIds), [entityIds])
-  const extraKeyValues = options.extraKey ?? []
-  const extraKeySignature = React.useMemo(() => JSON.stringify(extraKeyValues), [extraKeyValues])
   const idsSignature = React.useMemo(() => JSON.stringify(normalizedIds), [normalizedIds])
   const queryKey = React.useMemo(
-    () => ['customFieldDefs', ...extraKeyValues, ...normalizedIds],
-    [extraKeySignature, idsSignature]
+    () => ['customFieldDefs', ...normalizedIds],
+    [idsSignature]
   )
   const enabled = (options.enabled ?? true) && normalizedIds.length > 0
   const fetchImpl = options.fetchImpl ?? apiFetch

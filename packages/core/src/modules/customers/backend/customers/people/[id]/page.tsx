@@ -4,13 +4,10 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
-import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { FileCode, Linkedin, Loader2, Mail, Pencil, Phone, Plus, Twitter, X } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -34,13 +31,15 @@ import { AddressesSection } from '../../../../components/detail/AddressesSection
 import { TasksSection } from '../../../../components/detail/TasksSection'
 import { PersonHighlights } from '../../../../components/detail/PersonHighlights'
 import {
-  formatDateTime,
-  formatDate,
-  formatRelativeTime,
-  resolveTodoHref,
-  resolveTodoApiPath,
-  toLocalDateTimeInput,
-} from '../../../../components/detail/utils'
+  InlineDictionaryEditor,
+  InlineMultilineEditor,
+  InlineTextEditor,
+  renderLinkedInDisplay,
+  renderTwitterDisplay,
+  type InlineFieldProps,
+  type InlineFieldType,
+} from '../../../../components/detail/InlineEditors'
+import { resolveTodoApiPath } from '../../../../components/detail/utils'
 import type {
   ActivitySummary,
   AddressSummary,
@@ -48,27 +47,16 @@ import type {
   DealSummary,
   TagSummary,
   TodoLinkSummary,
-  Translator,
   SectionAction,
-  TabEmptyState,
 } from '../../../../components/detail/types'
 import type { ActivityFormSubmitPayload } from '../../../../components/detail/ActivityForm'
-import { type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import {
-  ICON_SUGGESTIONS,
-  DictionaryValue,
   createDictionaryMap,
   normalizeDictionaryEntries,
-  renderDictionaryColor,
-  renderDictionaryIcon,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
 } from '../../../../lib/dictionaries'
-import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
-import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { type CustomerAddressInput } from '../../../../components/AddressTiles'
-import { useEmailDuplicateCheck } from '../../../hooks/useEmailDuplicateCheck'
-import { lookupPhoneDuplicate } from '../../../../utils/phoneDuplicates'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 
 type PersonOverview = {
@@ -701,103 +689,70 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     [t]
   )
 
-  const handleDeleteNote = React.useCallback(
-    async (noteId: string) => {
-      setSectionPending((prev) => ({ ...prev, notes: true }))
+  const handleCreateActivity = React.useCallback(
+    async ({ base, custom }: ActivityFormSubmitPayload) => {
+      if (!personId) return
+      setPendingActivityId(null)
+      setPendingActivityAction('create')
+      setSectionPending((prev) => ({ ...prev, activities: true }))
       try {
-        const res = await apiFetch('/api/customers/comments', {
-          method: 'DELETE',
+        const payload: Record<string, unknown> = {
+          entityId: personId,
+          activityType: base.activityType,
+          subject: base.subject ?? undefined,
+          body: base.body ?? undefined,
+          occurredAt: base.occurredAt ?? undefined,
+        }
+        if (Object.keys(custom).length) payload.customFields = custom
+        const res = await apiFetch('/api/customers/activities', {
+          method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: noteId }),
+          body: JSON.stringify(payload),
         })
         if (!res.ok) {
-          let message = t('customers.people.detail.notes.deleteError')
+          let message = t('customers.people.detail.activities.error')
           try {
             const details = await res.clone().json()
             if (details && typeof details.error === 'string') message = details.error
           } catch {}
           throw new Error(message)
         }
+        const responseBody = await res.json().catch(() => ({}))
+        const nowIso = new Date().toISOString()
         setData((prev) => {
           if (!prev) return prev
-          return { ...prev, comments: prev.comments.filter((comment) => comment.id !== noteId) }
+          const viewer = prev.viewer ?? null
+          const viewerId = viewer?.userId ?? null
+          const viewerNameValue = viewer?.name ?? null
+          const viewerEmailValue = viewer?.email ?? null
+          const trackedActivity: ActivitySummary = {
+            id: typeof responseBody?.id === 'string' ? responseBody.id : randomId(),
+            activityType: base.activityType,
+            subject: base.subject ?? null,
+            body: base.body ?? null,
+            occurredAt: base.occurredAt ?? null,
+            createdAt: nowIso,
+            appearanceIcon: null,
+            appearanceColor: null,
+            authorUserId: viewerId,
+            authorName: viewerNameValue ?? viewerEmailValue ?? null,
+            authorEmail: viewerEmailValue ?? null,
+          }
+          return { ...prev, activities: [trackedActivity, ...prev.activities] }
         })
-        flash(t('customers.people.detail.notes.deleteSuccess'), 'success')
-      } catch (error) {
-        const message = error instanceof Error ? error.message : t('customers.people.detail.notes.deleteError')
+        flash(t('customers.people.detail.activities.success'), 'success')
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.activities.error')
         flash(message, 'error')
-        throw error instanceof Error ? error : new Error(message)
+        throw err instanceof Error ? err : new Error(message)
       } finally {
-        setSectionPending((prev) => ({ ...prev, notes: false }))
+        setPendingActivityId(null)
+        setPendingActivityAction(null)
+        setSectionPending((prev) => ({ ...prev, activities: false }))
       }
     },
-    [t]
+    [personId, t]
   )
-
-  const handleCreateActivity = React.useCallback(
-      async ({ base, custom }: ActivityFormSubmitPayload) => {
-        if (!personId) return
-        setPendingActivityId(null)
-        setPendingActivityAction('create')
-        setSectionPending((prev) => ({ ...prev, activities: true }))
-        try {
-          const payload: Record<string, unknown> = {
-            entityId: personId,
-            activityType: base.activityType,
-            subject: base.subject ?? undefined,
-            body: base.body ?? undefined,
-            occurredAt: base.occurredAt ?? undefined,
-          }
-          if (Object.keys(custom).length) payload.customFields = custom
-          const res = await apiFetch('/api/customers/activities', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          })
-          if (!res.ok) {
-            let message = t('customers.people.detail.activities.error')
-            try {
-              const details = await res.clone().json()
-              if (details && typeof details.error === 'string') message = details.error
-            } catch {}
-            throw new Error(message)
-          }
-          const responseBody = await res.json().catch(() => ({}))
-          const nowIso = new Date().toISOString()
-          setData((prev) => {
-            if (!prev) return prev
-            const viewer = prev.viewer ?? null
-            const viewerId = viewer?.userId ?? null
-            const viewerNameValue = viewer?.name ?? null
-            const viewerEmailValue = viewer?.email ?? null
-            const trackedActivity: ActivitySummary = {
-              id: typeof responseBody?.id === 'string' ? responseBody.id : randomId(),
-              activityType: base.activityType,
-              subject: base.subject ?? null,
-              body: base.body ?? null,
-              occurredAt: base.occurredAt ?? null,
-              createdAt: nowIso,
-              appearanceIcon: null,
-              appearanceColor: null,
-              authorUserId: viewerId,
-              authorName: viewerNameValue ?? viewerEmailValue ?? null,
-              authorEmail: viewerEmailValue ?? null,
-            }
-            return { ...prev, activities: [trackedActivity, ...prev.activities] }
-          })
-          flash(t('customers.people.detail.activities.success'), 'success')
-        } catch (err) {
-          const message = err instanceof Error ? err.message : t('customers.people.detail.activities.error')
-          flash(message, 'error')
-          throw err instanceof Error ? err : new Error(message)
-        } finally {
-          setPendingActivityId(null)
-          setPendingActivityAction(null)
-          setSectionPending((prev) => ({ ...prev, activities: false }))
-        }
-      },
-      [personId, t]
-    )
   
     const handleUpdateActivity = React.useCallback(
       async (activityId: string, { base, custom }: ActivityFormSubmitPayload) => {
@@ -909,16 +864,28 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         }
         const items = Array.isArray(payload?.items) ? payload.items : []
         return items
-          .map((item: any) => {
-            if (!item) return null
-            const id = typeof item.id === 'string' ? item.id : String(item.id ?? '')
+          .map((item) => {
+            if (!item || typeof item !== 'object') return null
+            const raw = item as { id?: unknown; label?: unknown; slug?: unknown; color?: unknown }
+            const rawId = raw.id
+            const id =
+              typeof rawId === 'string'
+                ? rawId
+                : typeof rawId === 'number'
+                  ? String(rawId)
+                  : typeof rawId === 'bigint'
+                    ? rawId.toString()
+                    : ''
             if (!id) return null
-            const labelRaw = typeof item.label === 'string' && item.label.trim().length ? item.label.trim() : null
-            const label = labelRaw ?? (typeof item.slug === 'string' ? item.slug : id)
-            const color = typeof item.color === 'string' && item.color.trim().length ? item.color.trim() : null
+            const labelRaw =
+              typeof raw.label === 'string' && raw.label.trim().length ? raw.label.trim() : null
+            const label =
+              labelRaw ?? (typeof raw.slug === 'string' && raw.slug.trim().length ? raw.slug : id)
+            const color =
+              typeof raw.color === 'string' && raw.color.trim().length ? raw.color.trim() : null
             return { id, label, color }
           })
-          .filter(Boolean) as TagOption[]
+          .filter((value): value is TagOption => value !== null)
       } catch (err) {
         const message = err instanceof Error ? err.message : t('customers.people.detail.tags.loadError', 'Failed to load tags.')
         throw new Error(message)
