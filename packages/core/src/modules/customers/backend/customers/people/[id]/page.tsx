@@ -10,7 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { FileCode, Linkedin, Loader2, Mail, Palette, Pencil, Phone, Plus, Trash2, Twitter, X } from 'lucide-react'
+import { FileCode, Linkedin, Loader2, Mail, Pencil, Phone, Plus, Twitter, X } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -29,6 +29,10 @@ import {
   TagsSection,
   type TagOption,
 } from '../../../../components/detail/TagsSection'
+import { DealsSection } from '../../../../components/detail/DealsSection'
+import { AddressesSection } from '../../../../components/detail/AddressesSection'
+import { TasksSection } from '../../../../components/detail/TasksSection'
+import { PersonHighlights } from '../../../../components/detail/PersonHighlights'
 import {
   formatDateTime,
   formatDate,
@@ -2165,133 +2169,102 @@ const handleCreateActivity = React.useCallback(
   return (
     <Page>
       <PageBody className="space-y-8">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href="/backend/customers/people"
-              className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-            >
-              <span aria-hidden className="mr-1 text-base">←</span>
-              <span className="sr-only">{t('customers.people.detail.actions.backToList')}</span>
-            </Link>
-            <InlineTextEditor
-              label={t('customers.people.form.displayName.label')}
-              value={person.displayName}
-              placeholder={t('customers.people.form.displayName.placeholder')}
-              emptyLabel={t('customers.people.detail.noValue')}
-              validator={validators.displayName}
-              onSave={updateDisplayName}
-              hideLabel
-              variant="plain"
-              activateOnClick
-              triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
-              containerClassName="max-w-full"
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
-            >
-              {isDeleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-              {t('customers.people.list.actions.delete')}
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <InlineTextEditor
-            label={t('customers.people.detail.highlights.primaryEmail')}
-            value={person.primaryEmail || ''}
-            placeholder={t('customers.people.form.primaryEmail')}
-            emptyLabel={t('customers.people.detail.noValue')}
-            type="email"
-            validator={validators.email}
-            recordId={person.id}
-            activateOnClick
-            onSave={async (next) => {
-              const send = typeof next === 'string' ? next : ''
-              await savePerson(
-                { primaryEmail: send },
-                (prev) => ({
+        <PersonHighlights
+          person={person}
+          profile={profile}
+          dictionaryLabels={{ statuses: dictionaryLabels.statuses }}
+          dictionaryMap={dictionaryMaps.statuses}
+          validators={{
+            email: validators.email,
+            phone: validators.phone,
+            displayName: validators.displayName,
+          }}
+          onDisplayNameSave={updateDisplayName}
+          onPrimaryEmailSave={async (next) => {
+            const send = typeof next === 'string' ? next : ''
+            await savePerson(
+              { primaryEmail: send },
+              (prev) => ({
+                ...prev,
+                person: {
+                  ...prev.person,
+                  primaryEmail: next && next.length ? next.toLowerCase() : null,
+                },
+              })
+            )
+          }}
+          onPrimaryPhoneSave={async (next) => {
+            const send = typeof next === 'string' ? next : ''
+            await savePerson(
+              { primaryPhone: send },
+              (prev) => ({
+                ...prev,
+                person: {
+                  ...prev.person,
+                  primaryPhone: next && next.length ? next : null,
+                },
+              })
+            )
+          }}
+          onStatusSave={async (next) => {
+            const send = typeof next === 'string' ? next : ''
+            await savePerson(
+              { status: send },
+              (prev) => ({
+                ...prev,
+                person: {
+                  ...prev.person,
+                  status: next && next.length ? next : null,
+                },
+              })
+            )
+            await loadDictionaryEntries('statuses')
+          }}
+          onNextInteractionSave={async (next) => {
+            await savePerson(
+              {
+                nextInteraction: next
+                  ? {
+                      at: next.at,
+                      name: next.name,
+                      refId: next.refId ?? undefined,
+                      icon: next.icon ?? undefined,
+                      color: next.color ?? undefined,
+                    }
+                  : null,
+              },
+              (prev) => ({
+                ...prev,
+                person: {
+                  ...prev.person,
+                  nextInteractionAt: next ? next.at : null,
+                  nextInteractionName: next ? next.name || null : null,
+                  nextInteractionRefId: next ? next.refId || null : null,
+                  nextInteractionIcon: next ? next.icon || null : null,
+                  nextInteractionColor: next ? next.color || null : null,
+                },
+              })
+            )
+          }}
+          onDelete={handleDelete}
+          isDeleting={isDeleting}
+          onCompanySave={async (next) => {
+            const normalized = typeof next === 'string' && next.trim().length ? next.trim() : null
+            await savePerson(
+              { companyEntityId: normalized },
+              (prev) => {
+                if (!prev.profile) return prev
+                return {
                   ...prev,
-                  person: { ...prev.person, primaryEmail: next && next.length ? next.toLowerCase() : null },
-                })
-              )
-            }}
-          />
-          <InlineTextEditor
-            label={t('customers.people.detail.highlights.primaryPhone')}
-            value={person.primaryPhone || ''}
-            placeholder={t('customers.people.form.primaryPhone')}
-            emptyLabel={t('customers.people.detail.noValue')}
-            type="tel"
-            validator={validators.phone}
-            recordId={person.id}
-            activateOnClick
-            onSave={async (next) => {
-              const send = typeof next === 'string' ? next : ''
-              await savePerson(
-                { primaryPhone: send },
-                (prev) => ({
-                  ...prev,
-                  person: { ...prev.person, primaryPhone: next && next.length ? next : null },
-                })
-              )
-            }}
-          />
-          <InlineDictionaryEditor
-            label={t('customers.people.detail.highlights.status')}
-            value={person.status ?? null}
-            emptyLabel={t('customers.people.detail.noValue')}
-            labels={dictionaryLabels.statuses}
-            activateOnClick
-            onSave={async (next) => {
-              const send = typeof next === 'string' ? next : ''
-              await savePerson(
-                { status: send },
-                (prev) => ({
-                  ...prev,
-                  person: { ...prev.person, status: next && next.length ? next : null },
-                })
-              )
-            }}
-            dictionaryMap={dictionaryMaps.statuses}
-            onAfterSave={() => loadDictionaryEntries('statuses')}
-            kind="statuses"
-            selectClassName="px-3"
-          />
-          <InlineNextInteractionEditor
-            label={t('customers.people.detail.highlights.nextInteraction')}
-            valueAt={person.nextInteractionAt || null}
-            valueName={person.nextInteractionName || null}
-            valueRefId={person.nextInteractionRefId || null}
-            valueIcon={person.nextInteractionIcon || null}
-            valueColor={person.nextInteractionColor || null}
-            emptyLabel={t('customers.people.detail.noValue')}
-            onSave={async (next) => {
-              await savePerson(
-                { nextInteraction: next },
-                (prev) => ({
-                  ...prev,
-                  person: {
-                    ...prev.person,
-                    nextInteractionAt: next ? next.at : null,
-                    nextInteractionName: next ? next.name || null : null,
-                    nextInteractionRefId: next ? next.refId || null : null,
-                    nextInteractionIcon: next ? next.icon || null : null,
-                    nextInteractionColor: next ? next.color || null : null,
+                  profile: {
+                    ...prev.profile,
+                    companyEntityId: normalized,
                   },
-                })
-              )
-            }}
-            activateOnClick
-          />
-        </div>
+                }
+              }
+            )
+          }}
+        />
 
         <div className="space-y-4">
           <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
@@ -2374,44 +2347,43 @@ const handleCreateActivity = React.useCallback(
               />
             )}
             {activeTab === 'deals' && (
-              <DealsTab
+              <DealsSection
                 deals={data.deals}
                 onCreate={handleCreateDeal}
                 isSubmitting={sectionPending.deals}
                 emptyLabel={t('customers.people.detail.empty.deals')}
-                t={t}
                 addActionLabel={t('customers.people.detail.actions.addDeal')}
                 emptyState={{
                   title: t('customers.people.detail.emptyState.deals.title'),
                   actionLabel: t('customers.people.detail.emptyState.deals.action'),
                 }}
                 onActionChange={handleSectionActionChange}
+                translator={t}
               />
             )}
             {activeTab === 'addresses' && (
-              <AddressesTab
+              <AddressesSection
                 addresses={data.addresses}
                 onCreate={handleCreateAddress}
                 onUpdate={handleUpdateAddress}
                 onDelete={handleDeleteAddress}
                 isSubmitting={sectionPending.addresses}
                 emptyLabel={t('customers.people.detail.empty.addresses')}
-                t={t}
                 addActionLabel={t('customers.people.detail.addresses.add')}
                 emptyState={{
                   title: t('customers.people.detail.emptyState.addresses.title'),
                   actionLabel: t('customers.people.detail.emptyState.addresses.action'),
                 }}
                 onActionChange={handleSectionActionChange}
+                translator={t}
               />
             )}
             {activeTab === 'tasks' && (
-              <TasksTab
+              <TasksSection
                 tasks={data.todos}
                 onCreate={handleCreateTask}
                 isSubmitting={sectionPending.tasks}
                 emptyLabel={t('customers.people.detail.empty.todos')}
-                t={t}
                 addActionLabel={t('customers.people.detail.tasks.add')}
                 emptyState={{
                   title: t('customers.people.detail.emptyState.tasks.title'),
@@ -2420,6 +2392,7 @@ const handleCreateActivity = React.useCallback(
                 onActionChange={handleSectionActionChange}
                 onToggle={handleToggleTask}
                 pendingTaskId={pendingTaskId}
+                translator={t}
               />
             )}
           </div>
