@@ -15,6 +15,7 @@ import {
   ICON_SUGGESTIONS,
   renderDictionaryColor,
   renderDictionaryIcon,
+  type CustomerDictionaryKind,
   type CustomerDictionaryMap,
 } from '../../lib/dictionaries'
 import { DictionarySelectField } from '../formConfig'
@@ -636,7 +637,7 @@ type DictionaryEditorProps = {
   onSave: (value: string | null) => Promise<void>
   dictionaryMap?: CustomerDictionaryMap | null
   onAfterSave?: () => void | Promise<void>
-  kind: string
+  kind: CustomerDictionaryKind
   variant?: 'default' | 'muted'
   activateOnClick?: boolean
   containerClassName?: string

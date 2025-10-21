@@ -25,9 +25,8 @@ import {
   type CustomerDictionaryMap,
 } from '../../../lib/dictionaries'
 import {
-  fetchCustomFieldDefs,
+  useCustomFieldDefs,
   filterCustomFieldDefs,
-  type CustomFieldDefDto,
 } from '@open-mercato/ui/backend/utils/customFieldDefs'
 
 type PersonRow = {
@@ -119,7 +118,6 @@ export default function CustomersPeoplePage() {
     'address-types': {},
     'job-titles': {},
   })
-  const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefDto[]>([])
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const router = useRouter()
@@ -160,24 +158,10 @@ export default function CustomersPeoplePage() {
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
-  React.useEffect(() => {
-    let cancelled = false
-    async function loadCustomFields() {
-      try {
-        const defs = await fetchCustomFieldDefs([
-          E.customers.customer_entity,
-          E.customers.customer_person_profile,
-        ])
-        if (!cancelled) setCustomFieldDefs(defs)
-      } catch {
-        if (!cancelled) setCustomFieldDefs([])
-      }
-    }
-    loadCustomFields().catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [scopeVersion, reloadToken])
+  const { data: customFieldDefs = [] } = useCustomFieldDefs(
+    [E.customers.customer_entity, E.customers.customer_person_profile],
+    { extraKey: [scopeVersion, reloadToken] }
+  )
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {

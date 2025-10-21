@@ -1,3 +1,5 @@
+import * as React from 'react'
+import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { apiFetch } from './api'
 
 export type CustomFieldDefDto = {
@@ -32,6 +34,20 @@ export type CustomFieldDefDto = {
   dictionaryInlineCreate?: boolean
 }
 
+export function normalizeEntityIds(entityIds: string | string[] | null | undefined): string[] {
+  if (entityIds == null) return []
+  const list = Array.isArray(entityIds) ? entityIds : [entityIds]
+  const dedup = new Set<string>()
+  const normalized: string[] = []
+  for (const raw of list) {
+    const trimmed = String(raw ?? '').trim()
+    if (!trimmed || dedup.has(trimmed)) continue
+    dedup.add(trimmed)
+    normalized.push(trimmed)
+  }
+  return normalized
+}
+
 function buildDefinitionsQuery(entityIds: string[]): string {
   const params = new URLSearchParams()
   entityIds.forEach((id) => {
@@ -41,8 +57,7 @@ function buildDefinitionsQuery(entityIds: string[]): string {
 }
 
 export async function fetchCustomFieldDefs(entityIds: string | string[], fetchImpl: typeof fetch = apiFetch): Promise<CustomFieldDefDto[]> {
-  const list = Array.isArray(entityIds) ? entityIds : [entityIds]
-  const filtered = list.map((id) => String(id || '').trim()).filter((id) => id.length > 0)
+  const filtered = normalizeEntityIds(entityIds)
   if (!filtered.length) return []
   const query = buildDefinitionsQuery(filtered)
   const res = await fetchImpl(`/api/entities/definitions?${query}`, { headers: { 'content-type': 'application/json' } })
@@ -50,6 +65,38 @@ export async function fetchCustomFieldDefs(entityIds: string | string[], fetchIm
   const items = (data?.items || []) as CustomFieldDefDto[]
   items.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
   return items
+}
+
+export type UseCustomFieldDefsOptions = {
+  enabled?: boolean
+  staleTime?: number
+  gcTime?: number
+  extraKey?: Array<string | number | boolean | null | undefined>
+  fetchImpl?: typeof fetch
+}
+
+export function useCustomFieldDefs(
+  entityIds: string | string[] | null | undefined,
+  options: UseCustomFieldDefsOptions = {}
+): UseQueryResult<CustomFieldDefDto[]> {
+  const normalizedIds = React.useMemo(() => normalizeEntityIds(entityIds), [entityIds])
+  const extraKeyValues = options.extraKey ?? []
+  const extraKeySignature = React.useMemo(() => JSON.stringify(extraKeyValues), [extraKeyValues])
+  const idsSignature = React.useMemo(() => JSON.stringify(normalizedIds), [normalizedIds])
+  const queryKey = React.useMemo(
+    () => ['customFieldDefs', ...extraKeyValues, ...normalizedIds],
+    [extraKeySignature, idsSignature]
+  )
+  const enabled = (options.enabled ?? true) && normalizedIds.length > 0
+  const fetchImpl = options.fetchImpl ?? apiFetch
+
+  return useQuery<CustomFieldDefDto[]>({
+    queryKey,
+    queryFn: () => fetchCustomFieldDefs(normalizedIds, fetchImpl),
+    enabled,
+    staleTime: options.staleTime ?? 5 * 60 * 1000,
+    gcTime: options.gcTime ?? 30 * 60 * 1000,
+  })
 }
 
 export type CustomFieldVisibility = 'list' | 'form' | 'filter'

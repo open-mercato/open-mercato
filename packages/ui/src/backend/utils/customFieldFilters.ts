@@ -1,8 +1,11 @@
+import * as React from 'react'
+import { useCustomFieldDefs, type UseCustomFieldDefsOptions } from './customFieldDefs'
 import { Filter } from '@/lib/query/types'
 import type { FilterDef } from '../FilterOverlay'
 import { apiFetch } from './api'
 import type { CustomFieldDefDto } from './customFieldDefs'
 import { filterCustomFieldDefs, fetchCustomFieldDefs as loadCustomFieldDefs } from './customFieldDefs'
+import { type UseQueryResult } from '@tanstack/react-query'
 
 function buildOptionsUrl(base: string, query?: string): string {
   if (!query) return base
@@ -94,4 +97,19 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
 export async function fetchCustomFieldFilterDefs(entityIds: string | string[], fetchImpl: typeof fetch = apiFetch): Promise<FilterDef[]> {
   const defs: CustomFieldDefDto[] = await loadCustomFieldDefs(entityIds, fetchImpl)
   return buildFilterDefsFromCustomFields(defs)
+}
+
+export function useCustomFieldFilterDefs(
+  entityIds: string | string[] | null | undefined,
+  options: UseCustomFieldDefsOptions = {}
+): UseQueryResult<FilterDef[]> {
+  const query = useCustomFieldDefs(entityIds, options)
+  const filters = React.useMemo(
+    () => (query.data ? buildFilterDefsFromCustomFields(query.data) : []),
+    [query.data]
+  )
+  return {
+    ...query,
+    data: filters,
+  } as UseQueryResult<FilterDef[]>
 }

@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
-import { fetchCustomFieldFilterDefs } from './utils/customFieldFilters'
+import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
@@ -465,8 +465,6 @@ export function DataTable<T>({
   }
 
   // Auto filters: fetch custom field defs when requested
-  const [cfFilters, setCfFilters] = React.useState<FilterDef[]>([])
-  const [cfLoadedFor, setCfLoadedFor] = React.useState<string | null>(null)
   const resolvedEntityIds = React.useMemo(() => {
     if (Array.isArray(entityIds) && entityIds.length) {
       const dedup = new Set<string>()
@@ -486,27 +484,10 @@ export function DataTable<T>({
   }, [entityId, entityIds])
   const entityKey = React.useMemo(() => (resolvedEntityIds.length ? resolvedEntityIds.join('|') : null), [resolvedEntityIds])
 
-  React.useEffect(() => {
-    let cancelled = false
-    async function loadEntities(ids: string[], cacheKey: string) {
-      try {
-        const f = await fetchCustomFieldFilterDefs(ids)
-        if (!cancelled) { setCfFilters(f); setCfLoadedFor(cacheKey) }
-      } catch (_) { if (!cancelled) { setCfFilters([]); setCfLoadedFor(cacheKey) } }
-    }
-    if (!entityKey) {
-      if (!cancelled) {
-        setCfFilters([])
-        setCfLoadedFor(null)
-      }
-      return () => { cancelled = true }
-    }
-    if (entityKey === cfLoadedFor) {
-      return () => { cancelled = true }
-    }
-    loadEntities(resolvedEntityIds, entityKey)
-    return () => { cancelled = true }
-  }, [cfLoadedFor, entityKey, resolvedEntityIds])
+  const { data: cfFilters = [] } = useCustomFieldFilterDefs(
+    entityKey ? resolvedEntityIds : [],
+    { enabled: !!entityKey, extraKey: entityKey ? [entityKey] : [] }
+  )
 
   const builtToolbar = React.useMemo(() => {
     if (toolbar) return toolbar
