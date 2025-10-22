@@ -944,10 +944,17 @@ export function InlineNextInteractionEditor({
   const [draftIcon, setDraftIcon] = React.useState(valueIcon ?? '')
   const [draftColor, setDraftColor] = React.useState<string | null>(valueColor ?? null)
   const [dateError, setDateError] = React.useState<string | null>(null)
+  const [nameError, setNameError] = React.useState<string | null>(null)
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
   const formRef = React.useRef<HTMLFormElement | null>(null)
+  const dateErrorId = React.useId()
+  const nameErrorId = React.useId()
   const containerClasses = cn('group relative rounded-lg border p-4', activateOnClick && !editing ? 'cursor-pointer' : null)
+  const requiredMessage = React.useMemo(
+    () => t('customers.people.detail.inline.required', 'This field is required'),
+    [t],
+  )
 
   React.useEffect(() => {
     if (!editing) {
@@ -957,6 +964,7 @@ export function InlineNextInteractionEditor({
       setDraftIcon(valueIcon ?? '')
       setDraftColor(valueColor ?? null)
       setDateError(null)
+      setNameError(null)
       setSubmitError(null)
     }
   }, [editing, valueAt, valueName, valueRefId, valueIcon, valueColor])
@@ -981,26 +989,24 @@ export function InlineNextInteractionEditor({
   const handleSave = React.useCallback(async () => {
     setSubmitError(null)
     setDateError(null)
+    setNameError(null)
+    const trimmedName = draftName.trim()
+    let hasError = false
     if (!draftDate) {
-      setSaving(true)
-      try {
-        await onSave(null)
-        setEditing(false)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.people.detail.inline.error')
-        setSubmitError(message)
-      } finally {
-        setSaving(false)
-      }
-      return
+      setDateError(requiredMessage)
+      hasError = true
     }
+    if (!trimmedName.length) {
+      setNameError(requiredMessage)
+      hasError = true
+    }
+    if (hasError) return
     const parsedDate = new Date(draftDate)
     if (Number.isNaN(parsedDate.getTime())) {
       setDateError(t('customers.people.detail.inline.nextInteractionInvalid'))
       return
     }
     const iso = parsedDate.toISOString()
-    const trimmedName = draftName.trim()
     const trimmedRef = draftRefId.trim()
     const trimmedIcon = draftIcon.trim()
     const normalizedColor = (() => {
@@ -1024,7 +1030,7 @@ export function InlineNextInteractionEditor({
     } finally {
       setSaving(false)
     }
-  }, [draftColor, draftDate, draftIcon, draftName, draftRefId, onSave, t])
+  }, [draftColor, draftDate, draftIcon, draftName, draftRefId, onSave, requiredMessage, t])
 
   const handleFormSubmit = React.useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
@@ -1131,23 +1137,46 @@ export function InlineNextInteractionEditor({
             >
               <input
                 type="datetime-local"
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className={cn(
+                  'w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring',
+                  dateError ? 'border-destructive focus:border-destructive focus:ring-destructive/40' : null,
+                )}
                 value={draftDate}
+                aria-invalid={dateError ? 'true' : undefined}
+                aria-required="true"
+                aria-describedby={dateError ? dateErrorId : undefined}
                 onChange={(event) => {
                   if (dateError) setDateError(null)
                   if (submitError) setSubmitError(null)
                   setDraftDate(event.target.value)
                 }}
               />
+              {dateError ? (
+                <p id={dateErrorId} className="text-xs text-destructive">
+                  {dateError}
+                </p>
+              ) : null}
               <input
                 placeholder={t('customers.people.detail.inline.nextInteractionName')}
-                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className={cn(
+                  'w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring',
+                  nameError ? 'border-destructive focus:border-destructive focus:ring-destructive/40' : null,
+                )}
                 value={draftName}
+                aria-invalid={nameError ? 'true' : undefined}
+                aria-required="true"
+                aria-describedby={nameError ? nameErrorId : undefined}
                 onChange={(event) => {
                   if (submitError) setSubmitError(null)
+                  if (nameError) setNameError(null)
                   setDraftName(event.target.value)
                 }}
               />
+              {nameError ? (
+                <p id={nameErrorId} className="text-xs text-destructive">
+                  {nameError}
+                </p>
+              ) : null}
               <input
                 placeholder={t('customers.people.detail.inline.nextInteractionRef')}
                 className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -1172,8 +1201,9 @@ export function InlineNextInteractionEditor({
                 disabled={saving}
                 labels={appearanceLabels}
               />
-              {dateError ? <p className="text-xs text-red-600">{dateError}</p> : null}
-              {submitError && !dateError ? <p className="text-xs text-red-600">{submitError}</p> : null}
+              {submitError && !dateError && !nameError ? (
+                <p className="text-xs text-destructive">{submitError}</p>
+              ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
@@ -1193,6 +1223,7 @@ export function InlineNextInteractionEditor({
                     setDraftIcon('')
                     setDraftColor(null)
                     setDateError(null)
+                    setNameError(null)
                     setSubmitError(null)
                     setSaving(true)
                     try {

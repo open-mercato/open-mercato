@@ -291,7 +291,6 @@ export function DealsSection({
           updatedAt,
         })
       })
-      setDeals(mapped)
       setDeals((prev) => {
         if (!append) return mapped
         const mappedById = new Map(mapped.map((deal) => [deal.id, deal]))
@@ -321,6 +320,10 @@ export function DealsSection({
           ? err.message
           : translate('customers.people.detail.deals.loadError', 'Failed to load deals.')
       setLoadError(message)
+      if (!append) {
+        setHasMore(false)
+        hasMoreRef.current = false
+      }
     } finally {
       setIsLoading(false)
       popLoading()
@@ -597,7 +600,7 @@ export function DealsSection({
           const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === deal.id
           const isDeletePending = pendingAction?.kind === 'delete' && pendingAction.id === deal.id
           return (
-            <article key={deal.id} className="rounded-lg border bg-card p-4 shadow-xs transition hover:border-border/80">
+            <article key={deal.id} className="group rounded-lg border bg-card p-4 shadow-xs transition hover:border-border/80">
               <header className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-base font-semibold">{deal.title || emptyLabel}</h3>
@@ -609,40 +612,42 @@ export function DealsSection({
                   <span className="text-xs font-medium uppercase text-muted-foreground">
                     {deal.status ?? emptyLabel}
                   </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      openEditDialog(deal)
-                    }}
-                    disabled={pendingAction !== null}
-                  >
-                    {isUpdatePending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Pencil className="h-4 w-4" />
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      handleDelete(deal)
-                    }}
-                    disabled={pendingAction !== null}
-                  >
-                    {isDeletePending ? (
-                      <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
-                        <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
-                      </span>
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                  </Button>
+                  <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        openEditDialog(deal)
+                      }}
+                      disabled={pendingAction !== null}
+                    >
+                      {isUpdatePending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Pencil className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        handleDelete(deal)
+                      }}
+                      disabled={pendingAction !== null}
+                    >
+                      {isDeletePending ? (
+                        <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
+                          <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
+                        </span>
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </header>
               <dl className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
@@ -683,7 +688,7 @@ export function DealsSection({
             </article>
           )
         })}
-        {isLoading ? (
+        {isLoading && deals.length > 0 ? (
           <div className="flex justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
@@ -696,7 +701,7 @@ export function DealsSection({
               onClick={() => {
                 loadDeals({ append: true }).catch(() => {})
               }}
-              disabled={pendingAction !== null}
+              disabled={pendingAction !== null || isLoading}
             >
               {t('customers.people.detail.deals.loadMore', 'Load more deals')}
             </Button>

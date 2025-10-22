@@ -25,6 +25,7 @@ import {
   ensureSameScope,
   extractUndoPayload,
   requireDealInScope,
+  ensureDictionaryEntry,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -40,6 +41,8 @@ const ACTIVITY_ENTITY_ID = 'customers:customer_activity'
 const activityCrudIndexer: CrudIndexerConfig<CustomerActivity> = {
   entityType: E.customers.customer_activity,
 }
+
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 
 type ActivitySnapshot = {
   activity: {
@@ -124,6 +127,26 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
     const deal = await requireDealInScope(em, parsed.dealId, parsed.tenantId, parsed.organizationId)
 
+    const authSub = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
+    const normalizedAuthor = (() => {
+      if (parsed.authorUserId) return parsed.authorUserId
+      if (!authSub) return null
+      return UUID_REGEX.test(authSub) ? authSub : null
+    })()
+
+    const dictionaryEntry = await ensureDictionaryEntry(em, {
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+      kind: 'activity_type',
+      value: parsed.activityType,
+      color: parsed.appearanceColor,
+      icon: parsed.appearanceIcon,
+    })
+    const resolvedAppearanceIcon =
+      parsed.appearanceIcon !== undefined ? parsed.appearanceIcon ?? null : dictionaryEntry?.icon ?? null
+    const resolvedAppearanceColor =
+      parsed.appearanceColor !== undefined ? parsed.appearanceColor ?? null : dictionaryEntry?.color ?? null
+
     const activity = em.create(CustomerActivity, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -133,9 +156,9 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
       subject: parsed.subject ?? null,
       body: parsed.body ?? null,
       occurredAt: parsed.occurredAt ?? null,
-      authorUserId: parsed.authorUserId ?? null,
-      appearanceIcon: parsed.appearanceIcon ?? null,
-      appearanceColor: parsed.appearanceColor ?? null,
+      authorUserId: normalizedAuthor,
+      appearanceIcon: resolvedAppearanceIcon,
+      appearanceColor: resolvedAppearanceColor,
     })
     em.persist(activity)
     await em.flush()
@@ -215,12 +238,41 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
       activity.deal = await requireDealInScope(em, parsed.dealId, activity.tenantId, activity.organizationId)
     }
     if (parsed.activityType !== undefined) activity.activityType = parsed.activityType
+    const shouldSyncDictionary =
+      parsed.activityType !== undefined ||
+      parsed.appearanceIcon !== undefined ||
+      parsed.appearanceColor !== undefined
+    let dictionaryEntry:
+      | {
+          icon: string | null
+          color: string | null
+        }
+      | null = null
+    if (shouldSyncDictionary) {
+      const nextActivityType = parsed.activityType ?? activity.activityType
+      dictionaryEntry = await ensureDictionaryEntry(em, {
+        tenantId: activity.tenantId,
+        organizationId: activity.organizationId,
+        kind: 'activity_type',
+        value: nextActivityType,
+        color: parsed.appearanceColor,
+        icon: parsed.appearanceIcon,
+      })
+    }
     if (parsed.subject !== undefined) activity.subject = parsed.subject ?? null
     if (parsed.body !== undefined) activity.body = parsed.body ?? null
     if (parsed.occurredAt !== undefined) activity.occurredAt = parsed.occurredAt ?? null
     if (parsed.authorUserId !== undefined) activity.authorUserId = parsed.authorUserId ?? null
-    if (parsed.appearanceIcon !== undefined) activity.appearanceIcon = parsed.appearanceIcon ?? null
-    if (parsed.appearanceColor !== undefined) activity.appearanceColor = parsed.appearanceColor ?? null
+    if (parsed.appearanceIcon !== undefined) {
+      activity.appearanceIcon = parsed.appearanceIcon ?? null
+    } else if (dictionaryEntry) {
+      activity.appearanceIcon = dictionaryEntry.icon ?? null
+    }
+    if (parsed.appearanceColor !== undefined) {
+      activity.appearanceColor = parsed.appearanceColor ?? null
+    } else if (dictionaryEntry) {
+      activity.appearanceColor = dictionaryEntry.color ?? null
+    }
 
     await em.flush()
 

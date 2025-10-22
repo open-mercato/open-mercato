@@ -132,7 +132,9 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const sectionLoaderLabel =
     activeTab === 'activities'
       ? t('customers.people.detail.activities.loading', 'Loading activities…')
-      : t('customers.people.detail.sectionLoading', 'Loading…')
+      : activeTab === 'deals'
+        ? t('customers.people.detail.deals.loading', 'Loading deals…')
+        : t('customers.people.detail.sectionLoading', 'Loading…')
 
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
     setSectionAction(action)
@@ -1074,7 +1076,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               ) : null}
             </div>
             <div>
-              {activeTab !== 'notes' && activeTab !== 'deals' ? (
+              {activeTab !== 'notes' ? (
                 <SectionLoader
                   isLoading={sectionPending[activeTab as SectionKey]}
                   label={sectionLoaderLabel}

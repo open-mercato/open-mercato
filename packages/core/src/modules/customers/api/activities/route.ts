@@ -2,7 +2,7 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerActivity } from '../../data/entities'
+import { CustomerActivity, CustomerDictionaryEntry } from '../../data/entities'
 import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -62,6 +62,8 @@ const crud = makeCrudRoute({
       'created_at',
       'appearance_icon',
       'appearance_color',
+      'cf:meta',
+      'cf:dictcase',
     ],
     sortFieldMap: {
       occurredAt: 'occurred_at',
@@ -73,6 +75,63 @@ const crud = makeCrudRoute({
       if (query.dealId) filters.deal_id = { $eq: query.dealId }
       if (query.activityType) filters.activity_type = { $eq: query.activityType }
       return filters
+    },
+    transformItem: (item: Record<string, unknown>) => {
+      const record = (item ?? {}) as Record<string, unknown>
+      const toIsoString = (value: unknown): string | null => {
+        if (value == null) return null
+        if (value instanceof Date) return value.toISOString()
+        if (typeof value === 'string') {
+          const trimmed = value.trim()
+          if (!trimmed.length) return null
+          const date = new Date(trimmed)
+          return Number.isNaN(date.getTime()) ? trimmed : date.toISOString()
+        }
+        return null
+      }
+      const readString = (value: unknown): string | null => (typeof value === 'string' ? value : null)
+      const idValue = readString(record.id) ?? (record.id != null ? String(record.id) : '')
+      const activityType =
+        readString(record['activity_type']) ??
+        readString(record['activityType']) ??
+        ''
+      const subject =
+        readString(record.subject) ??
+        (record.subject == null ? null : String(record.subject))
+      const body =
+        readString(record.body) ??
+        (record.body == null ? null : String(record.body))
+      const authorUserId =
+        readString(record['author_user_id']) ?? readString(record['authorUserId']) ?? null
+      const appearanceIconRaw =
+        readString(record['appearance_icon']) ?? readString(record['appearanceIcon'])
+      const appearanceColorRaw =
+        readString(record['appearance_color']) ?? readString(record['appearanceColor'])
+      const organizationId =
+        readString(record['organization_id']) ?? readString(record['organizationId'])
+      const tenantId =
+        readString(record['tenant_id']) ?? readString(record['tenantId'])
+      const output: Record<string, unknown> = {
+        id: idValue,
+        entityId: readString(record['entity_id']) ?? readString(record['entityId']) ?? null,
+        dealId: readString(record['deal_id']) ?? readString(record['dealId']) ?? null,
+        activityType,
+        subject,
+        body,
+        occurredAt: toIsoString(record['occurred_at'] ?? record['occurredAt']),
+        createdAt: toIsoString(record['created_at'] ?? record['createdAt']),
+        authorUserId,
+        organizationId,
+        tenantId,
+        appearanceIcon: appearanceIconRaw && appearanceIconRaw.trim().length ? appearanceIconRaw : null,
+        appearanceColor: appearanceColorRaw && appearanceColorRaw.trim().length ? appearanceColorRaw : null,
+      }
+      for (const [key, value] of Object.entries(record)) {
+        if (key.startsWith('cf_') || key.startsWith('cf:')) {
+          output[key] = value
+        }
+      }
+      return output
     },
   },
   actions: {
@@ -121,6 +180,16 @@ const crud = makeCrudRoute({
       if (!items.length) return
       type ActivityRecord = {
         id: string
+        activityType: string
+        subject?: string | null
+        body?: string | null
+        occurredAt?: string | null
+        createdAt?: string | null
+        organizationId?: string | null
+        tenantId?: string | null
+        appearanceIcon?: string | null
+        appearanceColor?: string | null
+        activityTypeLabel?: string | null
         authorUserId?: string | null
         authorName?: string | null
         authorEmail?: string | null
@@ -131,8 +200,90 @@ const crud = makeCrudRoute({
           kind: string | null
           multi: boolean
         }>
-      }
+      } & Record<string, unknown>
       const typedItems = items as ActivityRecord[]
+
+      // Resolve dictionary appearance defaults
+      const tenantId = ctx.auth?.tenantId ?? null
+      const normalizedValues = new Set<string>()
+      const organizationIds = new Set<string>()
+      typedItems.forEach((item) => {
+        const rawType = typeof item.activityType === 'string' ? item.activityType : ''
+        const normalized = rawType.trim().toLowerCase()
+        if (normalized) normalizedValues.add(normalized)
+        const orgId = typeof item.organizationId === 'string' ? item.organizationId : null
+        if (orgId) organizationIds.add(orgId)
+      })
+      if (normalizedValues.size) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const normalizedList = Array.from(normalizedValues)
+          const orgList = Array.from(organizationIds)
+          const where: Record<string, unknown> = {
+            kind: 'activity_type',
+            normalizedValue: { $in: normalizedList as any },
+          }
+          const andClauses: Record<string, unknown>[] = []
+          if (tenantId) {
+            andClauses.push({ $or: [{ tenantId: tenantId as any }, { tenantId: null }] })
+          } else {
+            andClauses.push({ tenantId: null })
+          }
+          if (orgList.length) {
+            andClauses.push({ $or: [{ organizationId: { $in: orgList as any } }, { organizationId: null }] })
+          } else {
+            andClauses.push({ organizationId: null })
+          }
+          if (andClauses.length) where.$and = andClauses
+          const entries: CustomerDictionaryEntry[] = await em.find(CustomerDictionaryEntry, where)
+          type Bucket = { global?: CustomerDictionaryEntry; byOrg: Map<string, CustomerDictionaryEntry> }
+          const entryMap = new Map<string, Bucket>()
+          entries.forEach((entry) => {
+            let normalized: string | null = null
+            if (typeof entry.normalizedValue === 'string') {
+              const trimmed = entry.normalizedValue.trim()
+              if (trimmed.length) normalized = trimmed
+            }
+            if (!normalized && typeof entry.value === 'string') {
+              const trimmedValue = entry.value.trim()
+              if (trimmedValue.length) normalized = trimmedValue.toLowerCase()
+            }
+            if (!normalized) return
+            const bucket = entryMap.get(normalized) ?? { global: undefined, byOrg: new Map<string, CustomerDictionaryEntry>() }
+            if (entry.organizationId) {
+              bucket.byOrg.set(entry.organizationId, entry)
+            } else if (!bucket.global) {
+              bucket.global = entry
+            }
+            entryMap.set(normalized, bucket)
+          })
+          typedItems.forEach((item) => {
+            const rawType = typeof item.activityType === 'string' ? item.activityType : ''
+            const normalized = rawType.trim().toLowerCase()
+            if (!normalized) return
+            const bucket = entryMap.get(normalized)
+            if (!bucket) return
+            const orgId = typeof item.organizationId === 'string' ? item.organizationId : null
+            const entry = (orgId && bucket.byOrg.get(orgId)) ?? bucket.global
+            if (!entry) return
+            const label =
+              typeof entry.label === 'string' && entry.label.trim().length ? entry.label.trim() : rawType
+            item.activityTypeLabel = label
+            const icon =
+              typeof entry.icon === 'string' && entry.icon.trim().length ? entry.icon.trim() : null
+            if (!item.appearanceIcon || (typeof item.appearanceIcon === 'string' && !item.appearanceIcon.trim().length)) {
+              item.appearanceIcon = icon
+            }
+            const color =
+              typeof entry.color === 'string' && entry.color.trim().length ? entry.color.trim().toLowerCase() : null
+            if (!item.appearanceColor || (typeof item.appearanceColor === 'string' && !item.appearanceColor.trim().length)) {
+              item.appearanceColor = color
+            }
+          })
+        } catch (err) {
+          console.warn('[customers.activities] Failed to resolve dictionary appearance', err)
+        }
+      }
 
       // Resolve author metadata
       const authorIds = Array.from(
@@ -162,128 +313,6 @@ const crud = makeCrudRoute({
         } catch (err) {
           console.warn('[customers.activities] Failed to resolve author metadata', err)
         }
-      }
-
-      // Attach custom field metadata
-      const customKeys = new Set<string>()
-      typedItems.forEach((item) => {
-        const raw = valuesById[item.id] ?? {}
-        Object.keys(raw).forEach((key) => {
-          if (key.startsWith('cf_')) {
-            const normalized = key.slice(3)
-            if (normalized) customKeys.add(normalized)
-          }
-        })
-      })
-      if (!customKeys.size) {
-        typedItems.forEach((item) => {
-          item.customFields = []
-        })
-        return
-      }
-
-      const parseConfig = (input: unknown): Record<string, any> => {
-        if (!input) return {}
-        if (typeof input === 'string') {
-          try {
-            const parsed = JSON.parse(input)
-            return parsed && typeof parsed === 'object' ? (parsed as Record<string, any>) : {}
-          } catch {
-            return {}
-          }
-        }
-        if (typeof input === 'object') return input as Record<string, any>
-        return {}
-      }
-
-      const pickDefinition = (
-        defsByKey: Map<string, CustomFieldDef[]>,
-        fieldKey: string,
-        organizationId: string | null,
-        tenantId: string | null,
-      ): CustomFieldDef | null => {
-        const options = defsByKey.get(fieldKey)
-        if (!options || !options.length) return null
-        const active = options.filter((opt) => opt.isActive !== false && !opt.deletedAt)
-        const candidates = active.length ? active : options
-        if (organizationId && tenantId) {
-          const exact = candidates.find(
-            (opt) => opt.organizationId === organizationId && opt.tenantId === tenantId,
-          )
-          if (exact) return exact
-        }
-        if (organizationId) {
-          const orgMatch = candidates.find(
-            (opt) =>
-              opt.organizationId === organizationId &&
-              (!tenantId || opt.tenantId == null || opt.tenantId === tenantId),
-          )
-          if (orgMatch) return orgMatch
-        }
-        if (tenantId) {
-          const tenantMatch = candidates.find(
-            (opt) => opt.organizationId == null && opt.tenantId === tenantId,
-          )
-          if (tenantMatch) return tenantMatch
-        }
-        const global = candidates.find((opt) => opt.organizationId == null && opt.tenantId == null)
-        return global ?? candidates[0] ?? null
-      }
-
-      try {
-        const em = ctx.container.resolve('em') as any
-        const defs = await em.find(
-          CustomFieldDef,
-          {
-            entityId: E.customers.customer_activity as any,
-            key: { $in: Array.from(customKeys) as any },
-            deletedAt: null,
-            $and: [
-              {
-                $or: [
-                  { tenantId: ctx.auth?.tenantId ?? undefined as any },
-                  { tenantId: null },
-                ],
-              },
-            ],
-          } as any,
-        )
-        const defsByKey = new Map<string, CustomFieldDef[]>()
-        defs.forEach((def) => {
-          const key = String(def.key)
-          const list = defsByKey.get(key) ?? []
-          list.push(def)
-          defsByKey.set(key, list)
-        })
-
-        typedItems.forEach((item) => {
-          const raw = valuesById[item.id] ?? {}
-          const entries: ActivityRecord['customFields'] = []
-          Object.entries(raw).forEach(([prefixedKey, value]) => {
-            const rawKey = prefixedKey.startsWith('cf_') ? prefixedKey.slice(3) : prefixedKey
-            if (!rawKey) return
-            const def = pickDefinition(defsByKey, rawKey, item.organizationId ?? null, item.tenantId ?? null)
-            const config = def ? parseConfig(def.configJson) : {}
-            const label =
-              typeof config.label === 'string' && config.label.trim().length
-                ? config.label.trim()
-                : rawKey
-            entries.push({
-              key: rawKey,
-              label,
-              value,
-              kind: def?.kind ?? null,
-              multi: Boolean(config.multi),
-            })
-          })
-          entries.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-          item.customFields = entries
-        })
-      } catch (err) {
-        console.warn('[customers.activities] Failed to enrich custom fields', err)
-        typedItems.forEach((item) => {
-          item.customFields = []
-        })
       }
 
       // Map custom field entries using query engine output (cf_* keys)

@@ -205,7 +205,7 @@ export function ActivityForm({
         setPending(false)
       }
     },
-    [isSubmitting, onSubmit, pending, t],
+    [baseFieldIds, isSubmitting, onSubmit, pending, t],
   )
 
   const embeddedInitialValues = React.useMemo(() => {

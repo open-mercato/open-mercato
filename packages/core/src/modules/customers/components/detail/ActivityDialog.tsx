@@ -69,7 +69,7 @@ export function ActivityDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
         </DialogHeader>
