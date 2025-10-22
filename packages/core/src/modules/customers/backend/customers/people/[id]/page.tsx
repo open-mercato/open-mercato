@@ -1284,10 +1284,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               ) : null}
             </div>
             <div>
-              <SectionLoader
-                isLoading={sectionPending[activeTab as SectionKey]}
-                label={t('customers.people.detail.sectionLoading', 'Loading…')}
-              />
+              {activeTab !== 'notes' ? (
+                <SectionLoader
+                  isLoading={sectionPending[activeTab as SectionKey]}
+                  label={t('customers.people.detail.sectionLoading', 'Loading…')}
+                />
+              ) : null}
               {activeTab === 'notes' && (
                 <NotesSection
                   entityId={personId}

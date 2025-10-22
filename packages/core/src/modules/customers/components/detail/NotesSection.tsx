@@ -525,9 +525,9 @@ export function NotesSection({
   )
 
   return (
-    <div className="mt-4 space-y-3">
-      <div className="rounded-xl bg-muted/10 py-4">
-        <form ref={formRef} onSubmit={handleSubmit} className="space-y-2 px-4">
+    <div className="mt-3 space-y-4">
+      <div className="rounded-xl bg-muted/10 py-3">
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-2 px-0">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-medium">{t('customers.people.detail.notes.addLabel')}</h3>
             <div className="flex items-center gap-1">
@@ -634,7 +634,7 @@ export function NotesSection({
         </form>
       </div>
 
-      {loadError ? <p className="px-4 text-xs text-red-600">{loadError}</p> : null}
+      {loadError ? <p className="text-xs text-red-600">{loadError}</p> : null}
 
       {hasVisibleNotes ? (
         <div className="space-y-3">
