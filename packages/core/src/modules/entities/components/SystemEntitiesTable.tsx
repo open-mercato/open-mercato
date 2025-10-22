@@ -84,6 +84,7 @@ export default function SystemEntitiesTable() {
       sortable
       sorting={sorting}
       onSortingChange={setSorting}
+      perspective={{ tableId: 'entities.system.list' }}
       rowActions={(row) => (
         <RowActions
           items={[

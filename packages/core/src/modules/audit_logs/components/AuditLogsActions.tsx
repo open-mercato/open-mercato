@@ -234,6 +234,7 @@ export function AuditLogsActions({
         data={actionItems}
         columns={columns}
         actions={combinedActions}
+        perspective={{ tableId: 'audit_logs.actions.list' }}
         isLoading={Boolean(isLoading) || Boolean(undoingToken) || Boolean(redoingId)}
         onRowClick={(item) => setSelected(item)}
       />

@@ -100,6 +100,7 @@ export default function UserEntitiesTable() {
       sortable
       sorting={sorting}
       onSortingChange={setSorting}
+      perspective={{ tableId: 'entities.user.list' }}
       rowActions={(row) => (
         <RowActions
           items={[

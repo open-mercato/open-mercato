@@ -16,6 +16,11 @@ export function applyCustomFieldVisibility<T>(columns: ColumnDef<T, any>[], defs
     if (!def) return false
     if (!isDefVisible(def, mode)) return false
     if (!(c as any).header) (c as any).header = def.label || key
+    const existingMeta = ((c as any).meta || {}) as Record<string, unknown>
+    const nextMeta = Object.assign({}, existingMeta, {
+      label: def.label || (typeof (c as any).header === 'string' ? (c as any).header : key),
+    })
+    ;(c as any).meta = nextMeta
     return true
   })
 
@@ -55,7 +60,7 @@ export function applyCustomFieldVisibility<T>(columns: ColumnDef<T, any>[], defs
       accessorKey: `cf_${d.key}` as any,
       header: d.label || `cf_${d.key}`,
       // Respect responsive priority when provided; default leaves it visible
-      meta: { priority: (d as any).priority } as any,
+      meta: { priority: (d as any).priority, label: d.label || `cf_${d.key}` } as any,
     }
     result.push(col)
   }

@@ -88,6 +88,7 @@ export default function QueryIndexesTable() {
       sortable
       sorting={sorting}
       onSortingChange={setSorting}
+      perspective={{ tableId: 'query_index.status.list' }}
       rowActions={(row) => (
         <RowActions
           items={[

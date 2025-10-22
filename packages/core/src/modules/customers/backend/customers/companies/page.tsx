@@ -480,6 +480,7 @@ export default function CustomersCompaniesPage() {
           onFiltersClear={() => { setFilterValues({}); setPage(1) }}
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           onRowClick={(row) => router.push(`/backend/customers/companies/${row.id}`)}
+          perspective={{ tableId: 'customers.companies.list' }}
           rowActions={(row) => (
             <RowActions
               items={[

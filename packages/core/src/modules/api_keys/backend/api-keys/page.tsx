@@ -163,6 +163,7 @@ export default function ApiKeysListPage() {
           data={rows}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
+          perspective={{ tableId: 'api_keys.list' }}
           rowActions={(row) => (
             <RowActions items={[
               { label: t('common.delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
