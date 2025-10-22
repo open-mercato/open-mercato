@@ -303,6 +303,7 @@
   "customers.people.detail.notes.loadMore": "Cargar más notas",
   "customers.people.detail.notes.edit": "Editar nota",
   "customers.people.detail.notes.you": "Tú",
+  "customers.people.detail.notes.unknownAuthor": "Autor desconocido",
   "customers.people.detail.notes.appearance.colorLabel": "Color de la nota",
   "customers.people.detail.notes.appearance.colorHelp": "Elige un color de acento para esta nota.",
   "customers.people.detail.notes.appearance.clearColor": "Quitar color",

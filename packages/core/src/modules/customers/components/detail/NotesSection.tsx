@@ -517,6 +517,7 @@ export function NotesSection({
 
   const handleAppearanceDialogSubmit = React.useCallback(async () => {
     if (!appearanceDialogState) return
+    setAppearanceDialogError(null)
     const sanitizedIcon =
       appearanceDialogState.icon && appearanceDialogState.icon.trim().length
         ? appearanceDialogState.icon.trim()
@@ -529,7 +530,6 @@ export function NotesSection({
       return
     }
     setAppearanceDialogSaving(true)
-    setAppearanceDialogError(null)
     try {
       await handleUpdateNote(appearanceDialogState.noteId, {
         appearanceIcon: sanitizedIcon,
@@ -573,6 +573,16 @@ export function NotesSection({
       setContentSavingId(null)
     }
   }, [contentEditor, handleUpdateNote, t])
+
+  const handleComposerKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLFormElement>) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault()
+        formRef.current?.requestSubmit()
+      }
+    },
+    [],
+  )
 
   const handleContentKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>, note: CommentSummary) => {
@@ -619,144 +629,141 @@ export function NotesSection({
   const appearanceDialogOpen = appearanceDialogState !== null
   const editingAppearanceNoteId =
     appearanceDialogState?.mode === 'edit' ? appearanceDialogState.noteId : null
+  const appearanceDialogPrimaryLabel =
+    appearanceDialogState?.mode === 'edit'
+      ? t('customers.people.detail.notes.appearance.save')
+      : addActionLabel
+  const appearanceDialogSavingLabel =
+    appearanceDialogState?.mode === 'edit'
+      ? t('customers.people.detail.notes.appearance.saving')
+      : t('customers.people.detail.notes.saving', 'Saving note…')
 
   return (
-    <div className="mt-3 space-y-4">
-      <div className="rounded-xl bg-muted/10 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-medium">{t('customers.people.detail.notes.addLabel')}</h3>
-          {composerOpen ? (
-            <div className="flex flex-wrap items-center gap-1">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => {
-                  setAppearanceDialogError(null)
-                  setAppearanceDialogState({ mode: 'create', icon: draftIcon, color: draftColor })
-                }}
-                disabled={isSubmitting || isLoading || !hasEntity}
-              >
-                <Palette className="h-4 w-4" />
-                <span>{t('customers.people.detail.notes.appearance.toggleOpen', 'Customize appearance')}</span>
-              </Button>
-              <Button
-                type="button"
-                variant={isMarkdownEnabled ? 'secondary' : 'ghost'}
-                size="icon"
-                onClick={handleMarkdownToggle}
-                aria-pressed={isMarkdownEnabled}
-                disabled={isSubmitting || isLoading}
-              >
-                <FileCode className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setComposerOpen(false)
-                  setDraftBody('')
-                  setDraftIcon(null)
-                  setDraftColor(null)
-                }}
-                disabled={isSubmitting || isLoading}
-              >
-                {t('customers.people.detail.inline.cancel')}
-              </Button>
-            </div>
-          ) : (
-            <Button
-              type="button"
-              size="sm"
-              onClick={focusComposer}
-              disabled={isSubmitting || isLoading || !hasEntity}
-            >
-              {addActionLabel}
-            </Button>
-          )}
-        </div>
-        <div
-          className={`grid transition-[grid-template-rows,opacity,margin-top] duration-300 ease-out ${
-            composerOpen ? 'mt-4 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0 pointer-events-none'
-          }`}
-          aria-hidden={!composerOpen}
-        >
-          <div className="overflow-hidden">
-            <form ref={formRef} onSubmit={handleSubmit} className="space-y-3">
-              {isMarkdownEnabled ? (
-                <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
-                  <div data-color-mode="light" className="w-full">
-                    <UiMarkdownEditor
-                      value={draftBody}
-                      height={220}
-                      onChange={(value) => setDraftBody(typeof value === 'string' ? value : '')}
-                      previewOptions={{ remarkPlugins: [remarkGfm] }}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <textarea
-                  id="new-note"
-                  ref={textareaRef}
-                  rows={1}
-                  className="w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  placeholder={t('customers.people.detail.notes.placeholder')}
-                  value={draftBody}
-                  onChange={(event) => setDraftBody(event.target.value)}
-                  onInput={(event) => adjustTextareaSize(event.currentTarget)}
+    <div className="mt-3">
+      <div
+        className={[
+          'overflow-hidden rounded-xl transition-all duration-300 ease-out',
+          composerOpen ? 'max-h-[1200px] bg-muted/10 p-4 opacity-100' : 'pointer-events-none max-h-0 p-0 opacity-0',
+        ].join(' ')}
+        aria-hidden={!composerOpen}
+      >
+        {composerOpen ? (
+          <form
+            ref={formRef}
+            onSubmit={handleSubmit}
+            onKeyDown={handleComposerKeyDown}
+            className="space-y-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-medium">{t('customers.people.detail.notes.addLabel')}</h3>
+              <div className="flex flex-wrap items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    setAppearanceDialogError(null)
+                    setAppearanceDialogState({ mode: 'create', icon: draftIcon, color: draftColor })
+                  }}
                   disabled={isSubmitting || isLoading || !hasEntity}
-                />
-              )}
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-muted-foreground/40 px-3 py-2">
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    {draftIcon ? (
-                      <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted/40">
-                        {renderDictionaryIcon(draftIcon, 'h-4 w-4')}
-                      </span>
-                    ) : null}
-                    <span className="font-semibold text-foreground">{composerAuthor}</span>
-                    {draftColor ? (
-                      <span className="flex items-center gap-2">
-                        {renderDictionaryColor(draftColor, 'h-3.5 w-3.5 rounded-full border border-border')}
-                        <span className="text-xs font-medium uppercase text-muted-foreground">{draftColor}</span>
-                      </span>
-                    ) : null}
-                    {!composerHasAppearance ? (
-                      <span className="text-xs text-muted-foreground">{noteAppearanceLabels.previewEmptyLabel}</span>
-                    ) : null}
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setDraftIcon(null)
-                      setDraftColor(null)
-                    }}
-                    disabled={!composerHasAppearance || isSubmitting}
-                  >
-                    {t('customers.people.detail.notes.appearance.clearAll', 'Clear')}
-                  </Button>
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button type="submit" size="sm" disabled={isSubmitting || isLoading || !hasEntity}>
-                  {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {t('customers.people.detail.notes.submit')}
+                >
+                  <span className="sr-only">{t('customers.people.detail.notes.appearance.toggleOpen', 'Customize appearance')}</span>
+                  <Palette className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant={isMarkdownEnabled ? 'secondary' : 'ghost'}
+                  size="icon"
+                  onClick={handleMarkdownToggle}
+                  aria-pressed={isMarkdownEnabled}
+                  disabled={isSubmitting || isLoading}
+                >
+                  <FileCode className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setComposerOpen(false)
+                    setDraftBody('')
+                    setDraftIcon(null)
+                    setDraftColor(null)
+                  }}
+                  disabled={isSubmitting || isLoading}
+                >
+                  {t('customers.people.detail.inline.cancel')}
                 </Button>
               </div>
-            </form>
-          </div>
-        </div>
+            </div>
+            {isMarkdownEnabled ? (
+              <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
+                <div data-color-mode="light" className="w-full">
+                  <UiMarkdownEditor
+                    value={draftBody}
+                    height={220}
+                    onChange={(value) => setDraftBody(typeof value === 'string' ? value : '')}
+                    previewOptions={{ remarkPlugins: [remarkGfm] }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <textarea
+                id="new-note"
+                ref={textareaRef}
+                rows={1}
+                className="w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                placeholder={t('customers.people.detail.notes.placeholder')}
+                value={draftBody}
+                onChange={(event) => setDraftBody(event.target.value)}
+                onInput={(event) => adjustTextareaSize(event.currentTarget)}
+                disabled={isSubmitting || isLoading || !hasEntity}
+              />
+            )}
+            {composerHasAppearance ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-muted-foreground/40 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  {draftIcon ? (
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted/40">
+                      {renderDictionaryIcon(draftIcon, 'h-4 w-4')}
+                    </span>
+                  ) : null}
+                  <span className="font-semibold text-foreground">{composerAuthor}</span>
+                  {draftColor ? (
+                    <span className="flex items-center gap-2">
+                      {renderDictionaryColor(draftColor, 'h-3.5 w-3.5 rounded-full border border-border')}
+                      <span className="text-xs font-medium uppercase text-muted-foreground">{draftColor}</span>
+                    </span>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setDraftIcon(null)
+                    setDraftColor(null)
+                  }}
+                  disabled={isSubmitting}
+                >
+                  {t('customers.people.detail.notes.appearance.clearAll', 'Clear')}
+                </Button>
+              </div>
+            ) : null}
+            <div className="flex justify-end">
+              <Button type="submit" size="sm" disabled={isSubmitting || isLoading || !hasEntity}>
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {addActionLabel}
+              </Button>
+            </div>
+          </form>
+        ) : null}
       </div>
 
-      {loadError ? <p className="text-xs text-red-600">{loadError}</p> : null}
+      {loadError ? <p className="mt-3 text-xs text-red-600">{loadError}</p> : null}
 
       {hasVisibleNotes ? (
-        <div className="space-y-3">
+        <div className="mt-4 space-y-3">
           {visibleNotes.map((note) => {
             const author = noteAuthorLabel(note)
             const isAppearanceSaving = appearanceDialogSaving && editingAppearanceNoteId === note.id
@@ -916,12 +923,14 @@ export function NotesSection({
           ) : null}
         </div>
       ) : isLoading ? (
-        <LoadingMessage
-          label={t('customers.people.detail.notes.loading', 'Loading notes…')}
-          className="min-h-[160px]"
-        />
+        <div className="mt-4">
+          <LoadingMessage
+            label={t('customers.people.detail.notes.loading', 'Loading notes…')}
+            className="min-h-[160px]"
+          />
+        </div>
       ) : (
-        <div className="rounded-xl bg-background p-6">
+        <div className="mt-4 rounded-xl bg-background p-6">
           <EmptyState
             title={emptyState.title}
             action={{
@@ -933,7 +942,19 @@ export function NotesSection({
         </div>
       )}
       <Dialog open={appearanceDialogOpen} onOpenChange={(next) => { if (!next) handleAppearanceDialogClose() }}>
-        <DialogContent className="min-h-[70vh] sm:min-h-0 sm:max-w-md">
+        <DialogContent
+          className="min-h-[70vh] sm:min-h-0 sm:max-w-md"
+          onEscapeKeyDown={(event) => {
+            event.preventDefault()
+            handleAppearanceDialogClose()
+          }}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault()
+              void handleAppearanceDialogSubmit()
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               {appearanceDialogState?.mode === 'edit'
@@ -978,10 +999,10 @@ export function NotesSection({
                   {appearanceDialogSaving ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {t('customers.people.detail.notes.appearance.saving')}
+                      {appearanceDialogSavingLabel}
                     </>
                   ) : (
-                    t('customers.people.detail.notes.appearance.save')
+                    appearanceDialogPrimaryLabel
                   )}
                 </Button>
               </DialogFooter>
