@@ -314,6 +314,7 @@
   "customers.people.detail.notes.appearance.iconSuggestions": "Sugerencias",
   "customers.people.detail.notes.appearance.iconClear": "Quitar icono",
   "customers.people.detail.notes.appearance.previewEmpty": "Sin apariencia seleccionada",
+  "customers.people.detail.notes.appearance.clearAll": "Limpiar",
   "customers.people.detail.notes.appearance.toggleOpen": "Personalizar apariencia",
   "customers.people.detail.notes.appearance.toggleClose": "Ocultar apariencia",
   "customers.people.detail.notes.appearance.none": "Sin apariencia",
