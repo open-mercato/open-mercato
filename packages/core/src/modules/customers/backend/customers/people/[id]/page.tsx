@@ -44,7 +44,6 @@ import type {
   TodoLinkSummary,
   SectionAction,
 } from '../../../../components/detail/types'
-import type { ActivityFormSubmitPayload } from '../../../../components/detail/ActivityForm'
 import { type CustomerAddressInput } from '../../../../components/AddressTiles'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 
@@ -144,8 +143,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     setSectionAction(null)
   }, [activeTab])
   const [pendingTaskId, setPendingTaskId] = React.useState<string | null>(null)
-  const [pendingActivityId, setPendingActivityId] = React.useState<string | null>(null)
-  const [pendingActivityAction, setPendingActivityAction] = React.useState<'create' | 'update' | 'delete' | null>(null)
   const validators = React.useMemo(() => ({
     email: (value: string) => {
       if (!value) return null
@@ -195,6 +192,10 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const personId = data?.person?.id ?? null
   const handleNotesLoadingChange = React.useCallback((loading: boolean) => {
     setSectionPending((prev) => ({ ...prev, notes: loading }))
+  }, [])
+
+  const handleActivitiesLoadingChange = React.useCallback((loading: boolean) => {
+    setSectionPending((prev) => ({ ...prev, activities: loading }))
   }, [])
 
   React.useEffect(() => {
@@ -321,166 +322,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     }
   }, [personId, personName, router, t])
 
-  const handleCreateActivity = React.useCallback(
-    async ({ base, custom }: ActivityFormSubmitPayload) => {
-      if (!personId) return
-      setPendingActivityId(null)
-      setPendingActivityAction('create')
-      setSectionPending((prev) => ({ ...prev, activities: true }))
-      try {
-        const payload: Record<string, unknown> = {
-          entityId: personId,
-          activityType: base.activityType,
-          subject: base.subject ?? undefined,
-          body: base.body ?? undefined,
-          occurredAt: base.occurredAt ?? undefined,
-        }
-        if (Object.keys(custom).length) payload.customFields = custom
-        const res = await apiFetch('/api/customers/activities', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.activities.error')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
-        const responseBody = await res.json().catch(() => ({}))
-        const nowIso = new Date().toISOString()
-        setData((prev) => {
-          if (!prev) return prev
-          const viewer = prev.viewer ?? null
-          const viewerId = viewer?.userId ?? null
-          const viewerNameValue = viewer?.name ?? null
-          const viewerEmailValue = viewer?.email ?? null
-          const trackedActivity: ActivitySummary = {
-            id: typeof responseBody?.id === 'string' ? responseBody.id : generateTempId(),
-            activityType: base.activityType,
-            subject: base.subject ?? null,
-            body: base.body ?? null,
-            occurredAt: base.occurredAt ?? null,
-            createdAt: nowIso,
-            appearanceIcon: null,
-            appearanceColor: null,
-            authorUserId: viewerId,
-            authorName: viewerNameValue ?? viewerEmailValue ?? null,
-            authorEmail: viewerEmailValue ?? null,
-          }
-          return { ...prev, activities: [trackedActivity, ...prev.activities] }
-        })
-        flash(t('customers.people.detail.activities.success'), 'success')
-      } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.people.detail.activities.error')
-        flash(message, 'error')
-        throw err instanceof Error ? err : new Error(message)
-      } finally {
-        setPendingActivityId(null)
-        setPendingActivityAction(null)
-        setSectionPending((prev) => ({ ...prev, activities: false }))
-      }
-    },
-    [personId, t]
-  )
-  
-    const handleUpdateActivity = React.useCallback(
-      async (activityId: string, { base, custom }: ActivityFormSubmitPayload) => {
-        if (!personId) return
-        setPendingActivityId(activityId)
-        setPendingActivityAction('update')
-        setSectionPending((prev) => ({ ...prev, activities: true }))
-        try {
-          const res = await apiFetch('/api/customers/activities', {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              id: activityId,
-              entityId: personId,
-              activityType: base.activityType,
-              subject: base.subject ?? undefined,
-              body: base.body ?? undefined,
-              occurredAt: base.occurredAt ?? undefined,
-              ...(Object.keys(custom).length ? { customFields: custom } : {}),
-            }),
-          })
-          if (!res.ok) {
-            let message = t('customers.people.detail.activities.error')
-            try {
-              const details = await res.clone().json()
-              if (details && typeof details.error === 'string') message = details.error
-            } catch {}
-            throw new Error(message)
-          }
-          setData((prev) => {
-            if (!prev) return prev
-            const nextActivities = prev.activities.map((activity) => {
-              if (activity.id !== activityId) return activity
-              return {
-                ...activity,
-                activityType: base.activityType,
-                subject: base.subject ?? null,
-                body: base.body ?? null,
-                occurredAt: base.occurredAt ?? null,
-              }
-            })
-            return { ...prev, activities: nextActivities }
-          })
-          flash(t('customers.people.detail.activities.updateSuccess', 'Activity updated.'), 'success')
-        } catch (err) {
-          const message = err instanceof Error ? err.message : t('customers.people.detail.activities.error')
-          flash(message, 'error')
-          throw err instanceof Error ? err : new Error(message)
-        } finally {
-          setPendingActivityId(null)
-          setPendingActivityAction(null)
-          setSectionPending((prev) => ({ ...prev, activities: false }))
-        }
-      },
-      [personId, t]
-    )
-  
-    const handleDeleteActivity = React.useCallback(
-      async (activityId: string) => {
-        if (!personId) return
-        setPendingActivityId(activityId)
-        setPendingActivityAction('delete')
-        setSectionPending((prev) => ({ ...prev, activities: true }))
-        try {
-          const res = await apiFetch('/api/customers/activities', {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id: activityId }),
-          })
-          if (!res.ok) {
-            let message = t('customers.people.detail.activities.deleteError', 'Failed to delete activity.')
-            try {
-              const details = await res.clone().json()
-              if (details && typeof details.error === 'string') message = details.error
-            } catch {}
-            throw new Error(message)
-          }
-          setData((prev) => {
-            if (!prev) return prev
-            return { ...prev, activities: prev.activities.filter((activity) => activity.id !== activityId) }
-          })
-          flash(t('customers.people.detail.activities.deleteSuccess', 'Activity deleted.'), 'success')
-        } catch (err) {
-          const message =
-            err instanceof Error ? err.message : t('customers.people.detail.activities.deleteError', 'Failed to delete activity.')
-          flash(message, 'error')
-          throw err instanceof Error ? err : new Error(message)
-        } finally {
-          setPendingActivityId(null)
-          setPendingActivityAction(null)
-          setSectionPending((prev) => ({ ...prev, activities: false }))
-        }
-      },
-      [personId, t]
-    )
-  
     const handleLoadTags = React.useCallback(async (query?: string) => {
       try {
         const params = new URLSearchParams({ pageSize: '200' })
@@ -1309,19 +1150,14 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               )}
               {activeTab === 'activities' && (
                 <ActivitiesSection
-                  activities={data.activities}
-                  onCreate={handleCreateActivity}
-                  onUpdate={handleUpdateActivity}
-                  onDelete={handleDeleteActivity}
-                  isSubmitting={sectionPending.activities}
+                  entityId={personId}
                   addActionLabel={t('customers.people.detail.activities.add')}
                   emptyState={{
                     title: t('customers.people.detail.emptyState.activities.title'),
                     actionLabel: t('customers.people.detail.emptyState.activities.action'),
                   }}
                   onActionChange={handleSectionActionChange}
-                  pendingActivityId={pendingActivityId}
-                  pendingActivityAction={pendingActivityAction}
+                  onLoadingChange={handleActivitiesLoadingChange}
                 />
               )}
               {activeTab === 'deals' && (

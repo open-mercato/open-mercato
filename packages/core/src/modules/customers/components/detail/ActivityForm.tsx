@@ -9,7 +9,6 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import {
   fetchCustomFieldFormFieldsWithDefinitions,
 } from '@open-mercato/ui/backend/utils/customFieldForms'
-import type { CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { toLocalDateTimeInput } from './utils'
@@ -76,7 +75,6 @@ export function ActivityForm({
   createActivityOption,
 }: ActivityFormProps) {
   const t = useT()
-  const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefDto[]>([])
   const [customFields, setCustomFields] = React.useState<CrudField[]>([])
   const [loadingCustomFields, setLoadingCustomFields] = React.useState(false)
   const [pending, setPending] = React.useState(false)
@@ -86,16 +84,14 @@ export function ActivityForm({
     async function load() {
       setLoadingCustomFields(true)
       try {
-        const { definitions, fields } = await fetchCustomFieldFormFieldsWithDefinitions(
+        const { fields } = await fetchCustomFieldFormFieldsWithDefinitions(
           ACTIVITY_ENTITY_IDS,
           apiFetch,
         )
         if (cancelled) return
-        setCustomFieldDefs(definitions)
         setCustomFields(fields)
       } catch {
         if (!cancelled) {
-          setCustomFieldDefs([])
           setCustomFields([])
         }
       } finally {
@@ -248,8 +244,8 @@ export function ActivityForm({
       schema={schema}
       onSubmit={handleSubmit}
       submitLabel={submitLabel ?? (mode === 'edit'
-        ? t('customers.people.detail.activities.update', 'Update activity')
-        : t('customers.people.detail.activities.save', 'Save activity'))}
+        ? t('customers.people.detail.activities.update', 'Update activity (⌘/Ctrl + Enter)')
+        : t('customers.people.detail.activities.save', 'Save activity (⌘/Ctrl + Enter)'))}
       extraActions={(
         <Button
           type="button"

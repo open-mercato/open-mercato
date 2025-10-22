@@ -31,6 +31,14 @@ export type CommentSummary = {
   appearanceColor?: string | null
 }
 
+export type ActivityCustomFieldEntry = {
+  key: string
+  label: string
+  value: unknown
+  kind?: string | null
+  multi?: boolean
+}
+
 export type ActivitySummary = {
   id: string
   activityType: string
@@ -43,6 +51,7 @@ export type ActivitySummary = {
   authorUserId?: string | null
   authorName?: string | null
   authorEmail?: string | null
+  customFields?: ActivityCustomFieldEntry[]
 }
 
 export type DealSummary = {

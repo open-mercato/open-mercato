@@ -7,6 +7,9 @@ import { activityCreateSchema, activityUpdateSchema } from '../../data/validator
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
+import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -57,6 +60,8 @@ const crud = makeCrudRoute({
       'organization_id',
       'tenant_id',
       'created_at',
+      'appearance_icon',
+      'appearance_color',
     ],
     sortFieldMap: {
       occurredAt: 'occurred_at',
@@ -68,6 +73,51 @@ const crud = makeCrudRoute({
       if (query.dealId) filters.deal_id = { $eq: query.dealId }
       if (query.activityType) filters.activity_type = { $eq: query.activityType }
       return filters
+    },
+    transformItem: (item: any) => {
+      if (!item) return item
+      const custom = extractAllCustomFieldEntries(item)
+      const toIso = (value: unknown): string | null => {
+        if (!value) return null
+        if (typeof value === 'string') {
+          const trimmed = value.trim()
+          if (!trimmed) return null
+          const parsed = new Date(trimmed)
+          return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+        }
+        if (value instanceof Date) {
+          const ms = value.getTime()
+          return Number.isNaN(ms) ? null : value.toISOString()
+        }
+        return null
+      }
+      const toStringOrNull = (value: unknown): string | null => {
+        if (typeof value === 'string') {
+          const trimmed = value.trim()
+          return trimmed.length ? trimmed : null
+        }
+        if (typeof value === 'number' || typeof value === 'boolean') {
+          return String(value)
+        }
+        return null
+      }
+      const normalizedId = toStringOrNull(item.id) ?? ''
+      return {
+        id: normalizedId,
+        entityId: toStringOrNull(item.entity_id),
+        dealId: toStringOrNull(item.deal_id),
+        activityType: toStringOrNull(item.activity_type) ?? '',
+        subject: toStringOrNull(item.subject),
+        body: toStringOrNull(item.body),
+        occurredAt: toIso(item.occurred_at),
+        authorUserId: toStringOrNull(item.author_user_id),
+        createdAt: toIso(item.created_at) ?? new Date().toISOString(),
+        appearanceIcon: toStringOrNull(item.appearance_icon),
+        appearanceColor: toStringOrNull(item.appearance_color),
+        organizationId: toStringOrNull(item.organization_id),
+        tenantId: toStringOrNull(item.tenant_id),
+        customFieldsRaw: custom,
+      }
     },
   },
   actions: {
@@ -104,6 +154,185 @@ const crud = makeCrudRoute({
         return { id }
       },
       response: () => ({ ok: true }),
+    },
+  },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      const items = Array.isArray(payload.items) ? payload.items : []
+      if (!items.length) return
+      type ActivityRecord = {
+        id: string
+        authorUserId?: string | null
+        authorName?: string | null
+        authorEmail?: string | null
+        organizationId?: string | null
+        tenantId?: string | null
+        customFieldsRaw?: Record<string, unknown>
+        customFields?: Array<{
+          key: string
+          label: string
+          value: unknown
+          kind: string | null
+          multi: boolean
+        }>
+      }
+      const typedItems = items as ActivityRecord[]
+
+      // Resolve author metadata
+      const authorIds = Array.from(
+        new Set(
+          typedItems
+            .map((item) => (typeof item.authorUserId === 'string' ? item.authorUserId : null))
+            .filter((id): id is string => !!id),
+        ),
+      )
+      if (authorIds.length) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const users = await em.find(User, { id: { $in: authorIds } })
+          const map = new Map<string, { name: string | null; email: string | null }>()
+          users.forEach((user) => {
+            map.set(user.id, {
+              name: user.name ?? null,
+              email: user.email ?? null,
+            })
+          })
+          typedItems.forEach((item) => {
+            if (!item.authorUserId) return
+            const info = map.get(item.authorUserId)
+            item.authorName = info?.name ?? null
+            item.authorEmail = info?.email ?? null
+          })
+        } catch (err) {
+          console.warn('[customers.activities] Failed to resolve author metadata', err)
+        }
+      }
+
+      // Attach custom field metadata
+      const customKeys = new Set<string>()
+      typedItems.forEach((item) => {
+        const raw = item.customFieldsRaw
+        if (!raw) return
+        Object.keys(raw).forEach((key) => {
+          if (key.startsWith('cf_')) {
+            const normalized = key.slice(3)
+            if (normalized) customKeys.add(normalized)
+          }
+        })
+      })
+      if (!customKeys.size) {
+        typedItems.forEach((item) => {
+          item.customFields = []
+          delete item.customFieldsRaw
+        })
+        return
+      }
+
+      const parseConfig = (input: unknown): Record<string, any> => {
+        if (!input) return {}
+        if (typeof input === 'string') {
+          try {
+            const parsed = JSON.parse(input)
+            return parsed && typeof parsed === 'object' ? (parsed as Record<string, any>) : {}
+          } catch {
+            return {}
+          }
+        }
+        if (typeof input === 'object') return input as Record<string, any>
+        return {}
+      }
+
+      const pickDefinition = (
+        defsByKey: Map<string, CustomFieldDef[]>,
+        fieldKey: string,
+        organizationId: string | null,
+        tenantId: string | null,
+      ): CustomFieldDef | null => {
+        const options = defsByKey.get(fieldKey)
+        if (!options || !options.length) return null
+        const active = options.filter((opt) => opt.isActive !== false && !opt.deletedAt)
+        const candidates = active.length ? active : options
+        if (organizationId && tenantId) {
+          const exact = candidates.find(
+            (opt) => opt.organizationId === organizationId && opt.tenantId === tenantId,
+          )
+          if (exact) return exact
+        }
+        if (organizationId) {
+          const orgMatch = candidates.find(
+            (opt) =>
+              opt.organizationId === organizationId &&
+              (!tenantId || opt.tenantId == null || opt.tenantId === tenantId),
+          )
+          if (orgMatch) return orgMatch
+        }
+        if (tenantId) {
+          const tenantMatch = candidates.find(
+            (opt) => opt.organizationId == null && opt.tenantId === tenantId,
+          )
+          if (tenantMatch) return tenantMatch
+        }
+        const global = candidates.find((opt) => opt.organizationId == null && opt.tenantId == null)
+        return global ?? candidates[0] ?? null
+      }
+
+      try {
+        const em = ctx.container.resolve('em') as any
+        const defs = await em.find(
+          CustomFieldDef,
+          {
+            entityId: E.customers.customer_activity as any,
+            key: { $in: Array.from(customKeys) as any },
+            deletedAt: null,
+            $and: [
+              {
+                $or: [
+                  { tenantId: ctx.auth?.tenantId ?? undefined as any },
+                  { tenantId: null },
+                ],
+              },
+            ],
+          } as any,
+        )
+        const defsByKey = new Map<string, CustomFieldDef[]>()
+        defs.forEach((def) => {
+          const key = String(def.key)
+          const list = defsByKey.get(key) ?? []
+          list.push(def)
+          defsByKey.set(key, list)
+        })
+
+        typedItems.forEach((item) => {
+          const raw = item.customFieldsRaw ?? {}
+          const entries: ActivityRecord['customFields'] = []
+          Object.entries(raw).forEach(([prefixedKey, value]) => {
+            const rawKey = prefixedKey.startsWith('cf_') ? prefixedKey.slice(3) : prefixedKey
+            if (!rawKey) return
+            const def = pickDefinition(defsByKey, rawKey, item.organizationId ?? null, item.tenantId ?? null)
+            const config = def ? parseConfig(def.configJson) : {}
+            const label =
+              typeof config.label === 'string' && config.label.trim().length
+                ? config.label.trim()
+                : rawKey
+            entries.push({
+              key: rawKey,
+              label,
+              value,
+              kind: def?.kind ?? null,
+              multi: Boolean(config.multi),
+            })
+          })
+          entries.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+          item.customFields = entries
+          delete item.customFieldsRaw
+        })
+      } catch (err) {
+        console.warn('[customers.activities] Failed to enrich custom fields', err)
+        typedItems.forEach((item) => {
+          item.customFields = []
+          delete item.customFieldsRaw
+        })
+      }
     },
   },
 })
