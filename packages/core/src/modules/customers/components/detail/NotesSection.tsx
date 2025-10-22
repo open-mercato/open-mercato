@@ -613,10 +613,10 @@ export function NotesSection({
   const appearanceDialogOpen = appearanceDialogState !== null
   const editingAppearanceNoteId =
     appearanceDialogState?.mode === 'edit' ? appearanceDialogState.noteId : null
-  const appearanceDialogPrimaryLabel =
-    appearanceDialogState?.mode === 'edit'
-      ? t('customers.people.detail.notes.appearance.save')
-      : addActionLabel
+  const composerSubmitLabel = `${addActionLabel} ${SUBMIT_SHORTCUT_LABEL}`
+  const appearanceDialogPrimaryLabel = `${appearanceDialogState?.mode === 'edit'
+    ? t('customers.people.detail.notes.appearance.save')
+    : addActionLabel} ${SUBMIT_SHORTCUT_LABEL}`
   const appearanceDialogSavingLabel =
     appearanceDialogState?.mode === 'edit'
       ? t('customers.people.detail.notes.appearance.saving')
@@ -739,13 +739,9 @@ export function NotesSection({
                 type="submit"
                 size="sm"
                 disabled={isSubmitting || isLoading || !hasEntity}
-                className="inline-flex items-center gap-2"
               >
-                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                <span>{addActionLabel}</span>
-                <span className="hidden rounded border border-border px-2 py-px text-[10px] font-medium text-muted-foreground sm:inline-flex">
-                  {SUBMIT_SHORTCUT_LABEL}
-                </span>
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {composerSubmitLabel}
               </Button>
             </div>
           </form>
@@ -950,7 +946,6 @@ export function NotesSection({
         primaryLabel={appearanceDialogPrimaryLabel}
         savingLabel={appearanceDialogSavingLabel}
         cancelLabel={t('customers.people.detail.notes.appearance.cancel')}
-        shortcutHint={SUBMIT_SHORTCUT_LABEL}
       />
     </div>
   )

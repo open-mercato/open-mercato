@@ -26,7 +26,6 @@ type AppearanceDialogProps = {
   primaryLabel: string
   savingLabel: string
   cancelLabel: string
-  shortcutHint?: string
 }
 
 export function AppearanceDialog({
@@ -45,7 +44,6 @@ export function AppearanceDialog({
   primaryLabel,
   savingLabel,
   cancelLabel,
-  shortcutHint,
 }: AppearanceDialogProps) {
   const handleSubmit = React.useCallback(() => {
     if (isSaving) return
@@ -86,26 +84,14 @@ export function AppearanceDialog({
           <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
             {cancelLabel}
           </Button>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSaving}
-            className={shortcutHint ? 'inline-flex items-center gap-2' : undefined}
-          >
+          <Button type="button" onClick={handleSubmit} disabled={isSaving}>
             {isSaving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 {savingLabel}
               </>
             ) : (
-              <>
-                <span>{primaryLabel}</span>
-                {shortcutHint ? (
-                  <span className="hidden rounded border border-border px-1 text-[10px] font-medium text-muted-foreground sm:inline-flex">
-                    {shortcutHint}
-                  </span>
-                ) : null}
-              </>
+              primaryLabel
             )}
           </Button>
         </DialogFooter>
