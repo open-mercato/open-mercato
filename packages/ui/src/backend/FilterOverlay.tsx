@@ -79,11 +79,19 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
   React.useEffect(() => {
     setValues((prev) => (areFilterValuesEqual(prev, initialValues) ? prev : initialValues))
   }, [initialValues])
+  const filtersSignature = React.useMemo(
+    () => filters.map((f) => `${f.id}:${f.type}:${Boolean((f as any).loadOptions)}:${(f.options || []).length}`).join('|'),
+    [filters]
+  )
+  const lastLoadedSignatureRef = React.useRef<string | null>(null)
 
   // Load dynamic options for filters that request it
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, FilterOption[]>>({})
   React.useEffect(() => {
     if (!open) return
+    if (lastLoadedSignatureRef.current === filtersSignature) return
+    lastLoadedSignatureRef.current = filtersSignature
+    setDynamicOptions({})
     let cancelled = false
     const loadAll = async () => {
       const loaders = filters
@@ -102,7 +110,12 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
     return () => {
       cancelled = true
     }
-  }, [filters, open])
+  }, [filters, filtersSignature, open])
+  React.useEffect(() => {
+    if (!open) {
+      lastLoadedSignatureRef.current = null
+    }
+  }, [open])
 
   const setValue = (id: string, v: any) => setValues((prev) => ({ ...prev, [id]: v }))
 
