@@ -727,7 +727,7 @@ export function DataTable<T>({
       const changed = filtered.length !== prev.length || filtered.some((id, index) => id !== prev[index])
       return changed ? filtered : prev
     })
-  }, [table])
+  }, [table, columns])
 
   const initialVisibilityApplied = React.useRef(Boolean(mergedInitialSettings?.columnVisibility))
   React.useEffect(() => {
@@ -741,7 +741,7 @@ export function DataTable<T>({
       setColumnVisibility((prev) => ({ ...hidden, ...prev }))
     }
     initialVisibilityApplied.current = true
-  }, [table])
+  }, [table, columns])
 
   const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
     const visibility: Record<string, boolean> = {}
@@ -752,7 +752,7 @@ export function DataTable<T>({
     }
     const filtersRecord: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(filterValues ?? {})) {
-      filtersRecord[key] = value
+      if (typeof key === 'string') filtersRecord[key] = value
     }
     const candidate: PerspectiveSettings = {
       columnOrder,
@@ -886,7 +886,7 @@ export function DataTable<T>({
       visible: columnVisibility[column.id] ?? column.getIsVisible(),
       canHide: column.getCanHide(),
     }))
-  }, [table, columnOrder, resolveColumnLabel, columnVisibility])
+  }, [table, columnOrder, resolveColumnLabel, columnVisibility, columns])
 
   const activePersonalPerspectiveId = React.useMemo(() => {
     if (!perspectiveData || !activePerspectiveId) return null
