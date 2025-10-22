@@ -183,6 +183,7 @@ export function NotesSection({
   const [contentError, setContentError] = React.useState<string | null>(null)
   const contentTextareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const [visibleCount, setVisibleCount] = React.useState(0)
+  const [deletingNoteId, setDeletingNoteId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (!hasEntity) {
@@ -409,6 +410,41 @@ export function NotesSection({
       }
     },
     [t],
+  )
+
+  const handleDeleteNote = React.useCallback(
+    async (note: CommentSummary) => {
+      const confirmed =
+        typeof window === 'undefined'
+          ? true
+          : window.confirm(t('customers.people.detail.notes.deleteConfirm', 'Delete this note? This action cannot be undone.'))
+      if (!confirmed) return
+      setDeletingNoteId(note.id)
+      pushLoading()
+      try {
+        const res = await apiFetch(`/api/customers/comments?id=${encodeURIComponent(note.id)}`, {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.notes.deleteError', 'Failed to delete note')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        setNotes((prev) => prev.filter((existing) => existing.id !== note.id))
+        flash(t('customers.people.detail.notes.deleteSuccess', 'Note deleted'), 'success')
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.notes.deleteError', 'Failed to delete note')
+        flash(message, 'error')
+      } finally {
+        setDeletingNoteId(null)
+        popLoading()
+      }
+    },
+    [popLoading, pushLoading, t],
   )
 
   const handleSubmit = React.useCallback(
@@ -643,11 +679,21 @@ export function NotesSection({
             const isAppearanceSaving = appearanceSavingId === note.id
             const isEditingAppearance = appearanceEditor?.id === note.id
             const isEditingContent = contentEditor.id === note.id
+            const displayIcon = note.appearanceIcon ?? null
+            const displayColor = note.appearanceColor ?? null
             return (
               <div key={note.id} className="space-y-2 rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">{author}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-foreground">{author}</span>
+                      {displayIcon ? (
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-muted/40">
+                          {renderDictionaryIcon(displayIcon, 'h-3.5 w-3.5')}
+                        </span>
+                      ) : null}
+                      {displayColor ? renderDictionaryColor(displayColor, 'h-3 w-3 rounded-full border border-border') : null}
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {formatRelativeTime(note.createdAt) ?? formatDateTime(note.createdAt) ?? emptyLabel}
                     </p>
@@ -665,9 +711,14 @@ export function NotesSection({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      onClick={() =>
-                        setAppearanceEditor({ id: note.id, icon: note.appearanceIcon ?? null, color: note.appearanceColor ?? null })
-                      }
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setAppearanceEditor((prev) =>
+                          prev && prev.id === note.id
+                            ? null
+                            : { id: note.id, icon: note.appearanceIcon ?? null, color: note.appearanceColor ?? null }
+                        )
+                      }}
                     >
                       <Palette className="h-4 w-4" />
                     </Button>
@@ -675,10 +726,19 @@ export function NotesSection({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      onClick={() => flash(t('customers.people.detail.notes.deleteNotImplemented', 'Delete via audit log'), 'info')}
-                      disabled
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleDeleteNote(note)
+                      }}
+                      disabled={deletingNoteId === note.id}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      {deletingNoteId === note.id ? (
+                        <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
+                          <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
+                        </span>
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -784,6 +844,15 @@ export function NotesSection({
                         ) : (
                           t('customers.people.detail.notes.appearance.save')
                         )}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setAppearanceEditor(null)}
+                        disabled={isAppearanceSaving}
+                      >
+                        {t('customers.people.detail.notes.appearance.cancel')}
                       </Button>
                       <Button
                         type="button"
