@@ -1167,7 +1167,7 @@ export function InlineNextInteractionEditor({
                   {valueColor ? renderDictionaryColor(valueColor, 'h-3 w-3 rounded-full border border-border') : null}
                 </div>
               ) : (
-                <span>{emptyLabel}</span>
+                <span className="text-muted-foreground">{emptyLabel}</span>
               )}
             </div>
           )}
