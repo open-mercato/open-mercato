@@ -11,6 +11,7 @@
   "common.language": "Język",
   "ui.forms.actions.save": "Zapisz",
   "ui.forms.actions.cancel": "Anuluj",
+  "ui.forms.actions.clear": "Wyczyść",
   "ui.forms.actions.delete": "Usuń",
   "ui.forms.status.saving": "Zapisywanie…",
   "ui.forms.loading": "Ładowanie danych…",

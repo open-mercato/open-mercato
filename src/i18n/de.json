@@ -11,6 +11,7 @@
   "common.language": "Sprache",
   "ui.forms.actions.save": "Speichern",
   "ui.forms.actions.cancel": "Abbrechen",
+  "ui.forms.actions.clear": "Leeren",
   "ui.forms.actions.delete": "Löschen",
   "ui.forms.status.saving": "Speichern…",
   "ui.forms.loading": "Daten werden geladen…",
