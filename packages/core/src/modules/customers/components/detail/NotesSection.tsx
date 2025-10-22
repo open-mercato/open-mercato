@@ -641,7 +641,7 @@ export function NotesSection({
       : t('customers.people.detail.notes.saving', 'Saving note…')
 
   return (
-    <div className="mt-4">
+    <div className="mt-3 space-y-4">
       <div
         className={[
           'overflow-hidden rounded-xl transition-all duration-300 ease-out',
@@ -769,7 +769,7 @@ export function NotesSection({
       {loadError ? <p className="mt-3 text-xs text-red-600">{loadError}</p> : null}
 
       {hasVisibleNotes ? (
-        <div className="mt-4 space-y-3">
+        <div className="space-y-3">
           {visibleNotes.map((note) => {
             const author = noteAuthorLabel(note)
             const isAppearanceSaving = appearanceDialogSaving && editingAppearanceNoteId === note.id
@@ -779,7 +779,7 @@ export function NotesSection({
             const timestampValue = note.createdAt
             const fallbackTimestampLabel = formatDateTime(note.createdAt) ?? emptyLabel
             return (
-              <div key={note.id} className="space-y-2 rounded-lg border bg-card p-4">
+              <div key={note.id} className="group space-y-2 rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <TimelineItemHeader
                     title={author}
@@ -788,7 +788,11 @@ export function NotesSection({
                     icon={displayIcon}
                     color={displayColor}
                   />
-                  <div className="flex items-center gap-2">
+                  <div
+                    className={`flex items-center gap-2 transition-opacity ${
+                      isEditingContent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+                    }`}
+                  >
                     <Button
                       type="button"
                       variant="ghost"

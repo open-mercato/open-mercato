@@ -450,14 +450,14 @@ export function ActivitiesSection({
     (pendingAction?.kind === 'update' && pendingAction.id === editingActivityId)
 
   return (
-    <div className="mt-4 space-y-6">
+    <div className="mt-3 space-y-4">
       {loadError ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {loadError}
         </div>
       ) : null}
       <div className="space-y-4">
-        {activities.length === 0 && !isLoading ? (
+        {!isLoading && activities.length === 0 ? (
           <EmptyState
             title={emptyState.title}
             action={{
@@ -466,109 +466,110 @@ export function ActivitiesSection({
               disabled: !entityId || pendingAction !== null,
             }}
           />
-        ) : (
-          activities.map((activity) => {
-            const entry = dictionaryMap[activity.activityType]
-            const displayIcon = entry?.icon ?? activity.appearanceIcon ?? null
-            const displayColor = entry?.color ?? activity.appearanceColor ?? null
-            const displayLabel = entry?.label ?? activity.activityType
-            const timestampValue = activity.occurredAt ?? activity.createdAt ?? null
-            const occurredLabel =
-              formatDateTime(timestampValue) ?? t('customers.people.detail.activities.noDate', 'No date provided')
-            const authorLabel = activity.authorName ?? activity.authorEmail ?? null
-            const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === activity.id
-            const isDeletePending = pendingAction?.kind === 'delete' && pendingAction.id === activity.id
-            const customEntries = Array.isArray(activity.customFields)
-              ? activity.customFields.filter((entry) => !isEmptyCustomValue(entry.value))
-              : []
+        ) : null}
+        {activities.length > 0
+          ? activities.map((activity) => {
+              const entry = dictionaryMap[activity.activityType]
+              const displayIcon = entry?.icon ?? activity.appearanceIcon ?? null
+              const displayColor = entry?.color ?? activity.appearanceColor ?? null
+              const displayLabel = entry?.label ?? activity.activityType
+              const timestampValue = activity.occurredAt ?? activity.createdAt ?? null
+              const occurredLabel =
+                formatDateTime(timestampValue) ?? t('customers.people.detail.activities.noDate', 'No date provided')
+              const authorLabel = activity.authorName ?? activity.authorEmail ?? null
+              const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === activity.id
+              const isDeletePending = pendingAction?.kind === 'delete' && pendingAction.id === activity.id
+              const customEntries = Array.isArray(activity.customFields)
+                ? activity.customFields.filter((entry) => !isEmptyCustomValue(entry.value))
+                : []
 
-            return (
-              <div
-                key={activity.id}
-                className="group space-y-3 rounded-lg border bg-card p-4 transition hover:border-border/80 cursor-pointer"
-                role="button"
-                tabIndex={0}
-                onClick={() => openEditDialog(activity)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    openEditDialog(activity)
-                  }
-                }}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <TimelineItemHeader
-                    title={displayLabel}
-                    timestamp={timestampValue}
-                    fallbackTimestampLabel={occurredLabel}
-                    icon={displayIcon}
-                    color={displayColor}
-                  />
-                  <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        openEditDialog(activity)
-                      }}
-                      disabled={pendingAction !== null}
-                    >
-                      {isUpdatePending ? (
-                        <span className="relative flex h-4 w-4 items-center justify-center">
-                          <span className="absolute h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
-                        </span>
-                      ) : (
-                        <Pencil className="h-4 w-4" />
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        handleDelete(activity).catch(() => {})
-                      }}
-                      disabled={pendingAction !== null}
-                    >
-                      {isDeletePending ? (
-                        <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
-                          <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
-                        </span>
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
+              return (
+                <div
+                  key={activity.id}
+                  className="group space-y-3 rounded-lg border bg-card p-4 transition hover:border-border/80 cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openEditDialog(activity)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      openEditDialog(activity)
+                    }
+                  }}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <TimelineItemHeader
+                      title={displayLabel}
+                      timestamp={timestampValue}
+                      fallbackTimestampLabel={occurredLabel}
+                      icon={displayIcon}
+                      color={displayColor}
+                    />
+                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openEditDialog(activity)
+                        }}
+                        disabled={pendingAction !== null}
+                      >
+                        {isUpdatePending ? (
+                          <span className="relative flex h-4 w-4 items-center justify-center">
+                            <span className="absolute h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
+                          </span>
+                        ) : (
+                          <Pencil className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleDelete(activity).catch(() => {})
+                        }}
+                        disabled={pendingAction !== null}
+                      >
+                        {isDeletePending ? (
+                          <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
+                            <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
+                          </span>
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
+                  {activity.subject ? <p className="text-sm font-medium">{activity.subject}</p> : null}
+                  {activity.body ? (
+                    <p className="text-sm whitespace-pre-wrap text-muted-foreground">{activity.body}</p>
+                  ) : null}
+                  {customEntries.length ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {customEntries.map((entry) => {
+                        const valueLabel = stringifyCustomValue(entry.value)
+                        return (
+                          <div key={`${activity.id}-${entry.key}`} className="rounded-md border border-border/60 bg-muted/10 px-3 py-2">
+                            <div className="text-xs font-medium text-muted-foreground">{entry.label}</div>
+                            <div className="text-sm text-foreground">{valueLabel.trim().length ? valueLabel : '—'}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                  {authorLabel ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t('customers.people.detail.activities.loggedBy', 'Logged by {{user}}', { user: authorLabel })}
+                    </p>
+                  ) : null}
                 </div>
-                {activity.subject ? <p className="text-sm font-medium">{activity.subject}</p> : null}
-                {activity.body ? (
-                  <p className="text-sm whitespace-pre-wrap text-muted-foreground">{activity.body}</p>
-                ) : null}
-                {customEntries.length ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {customEntries.map((entry) => {
-                      const valueLabel = stringifyCustomValue(entry.value)
-                      return (
-                        <div key={`${activity.id}-${entry.key}`} className="rounded-md border border-border/60 bg-muted/10 px-3 py-2">
-                          <div className="text-xs font-medium text-muted-foreground">{entry.label}</div>
-                          <div className="text-sm text-foreground">{valueLabel.trim().length ? valueLabel : '—'}</div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : null}
-                {authorLabel ? (
-                  <p className="text-xs text-muted-foreground">
-                    {t('customers.people.detail.activities.loggedBy', 'Logged by {{user}}', { user: authorLabel })}
-                  </p>
-                ) : null}
-              </div>
-            )
-          })
-        )}
+              )
+            })
+          : null}
       </div>
 
       <ActivityDialog
