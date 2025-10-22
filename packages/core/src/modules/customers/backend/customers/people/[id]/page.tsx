@@ -7,6 +7,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { Plus } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -31,7 +32,9 @@ import {
   renderTwitterDisplay,
 } from '../../../../components/detail/InlineEditors'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
+import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import { resolveTodoApiPath } from '../../../../components/detail/utils'
+import { generateTempId, slugifyTagLabel, isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import type {
   ActivitySummary,
   AddressSummary,
@@ -91,68 +94,15 @@ type PersonOverview = {
 
 type SectionKey = 'notes' | 'activities' | 'deals' | 'addresses' | 'tasks'
 
-function cn(...values: Array<string | null | undefined | false>) {
-  return values.filter(Boolean).join(' ')
-}
-
-
-
-
-function randomId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
-  return `tmp-${Math.random().toString(36).slice(2)}`
-}
-
-function slugifyTagLabel(label: string): string {
-  return label
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || `tag-${Math.random().toString(36).slice(2, 10)}`
-}
-
-function isValidSocialUrl(
-  rawValue: string,
-  options: { hosts: string[]; pathRequired?: boolean },
-): boolean {
-  const { hosts, pathRequired = false } = options
-  let parsed: URL
-  try {
-    parsed = new URL(rawValue)
-  } catch {
-    return false
-  }
-  const protocol = parsed.protocol.toLowerCase()
-  if (protocol !== 'https:' && protocol !== 'http:') {
-    return false
-  }
-  const hostname = parsed.hostname.toLowerCase()
-  const matchesHost = hosts.some((host) => hostname === host || hostname.endsWith(`.${host}`))
-  if (!matchesHost) {
-    return false
-  }
-  if (!pathRequired) {
-    return true
-  }
-  const normalizedPath = parsed.pathname.replace(/\/+/g, '/').replace(/^\/|\/$/g, '')
-  return normalizedPath.length > 0
-}
-
 type ProfileEditableField = 'firstName' | 'lastName' | 'jobTitle' | 'department' | 'linkedInUrl' | 'twitterUrl'
 
 
 
-type SectionLoaderProps = { isLoading: boolean }
+type SectionLoaderProps = { isLoading: boolean; label?: string }
 
-function SectionLoader({ isLoading }: SectionLoaderProps) {
+function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) {
   if (!isLoading) return null
-  return (
-    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-      <Spinner className="h-4 w-4" />
-      <span>Loading…</span>
-    </div>
-  )
+  return <LoadingMessage label={label} className="mb-4" />
 }
 
 export default function CustomerPersonDetailPage({ params }: { params?: { id?: string } }) {
@@ -243,6 +193,9 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   )
 
   const personId = data?.person?.id ?? null
+  const handleNotesLoadingChange = React.useCallback((loading: boolean) => {
+    setSectionPending((prev) => ({ ...prev, notes: loading }))
+  }, [])
 
   React.useEffect(() => {
     if (!id) {
@@ -368,117 +321,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     }
   }, [personId, personName, router, t])
 
-  const handleCreateNote = React.useCallback(
-    async (note: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => {
-      if (!personId) return
-      setSectionPending((prev) => ({ ...prev, notes: true }))
-      try {
-        const body = note.body.trim()
-        const icon = note.appearanceIcon && note.appearanceIcon.trim().length ? note.appearanceIcon.trim() : null
-        const color =
-          note.appearanceColor && /^#([0-9a-f]{6})$/i.test(note.appearanceColor.trim())
-            ? note.appearanceColor.trim().toLowerCase()
-            : null
-        const res = await apiFetch('/api/customers/comments', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            entityId: personId,
-            body,
-            appearanceIcon: icon ?? undefined,
-            appearanceColor: color ?? undefined,
-          }),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.notes.error')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
-        const responseBody = await res.json().catch(() => ({}))
-        const serverAuthorId = typeof responseBody?.authorUserId === 'string' ? responseBody.authorUserId : null
-        const serverAuthorName = typeof responseBody?.authorName === 'string' ? responseBody.authorName : null
-        const serverAuthorEmail = typeof responseBody?.authorEmail === 'string' ? responseBody.authorEmail : null
-        setData((prev) => {
-          if (!prev) return prev
-          const viewerInfo = prev.viewer ?? null
-          const viewerId = viewerInfo?.userId ?? null
-          const viewerNameValue = viewerInfo?.name ?? null
-          const viewerEmailValue = viewerInfo?.email ?? null
-          const resolvedAuthorId = serverAuthorId ?? viewerId ?? null
-          const resolvedAuthorName = (() => {
-            if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
-              return viewerNameValue ?? viewerEmailValue ?? null
-            }
-            return serverAuthorName
-          })()
-          const resolvedAuthorEmail = (() => {
-            if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
-              return viewerEmailValue ?? null
-            }
-            return serverAuthorEmail
-          })()
-          const newNote: CommentSummary = {
-            id: typeof responseBody?.id === 'string' ? responseBody.id : randomId(),
-            body,
-            createdAt: new Date().toISOString(),
-            authorUserId: resolvedAuthorId,
-            authorName: resolvedAuthorName,
-            authorEmail: resolvedAuthorEmail,
-            dealId: null,
-            appearanceIcon: icon,
-            appearanceColor: color,
-          }
-          return { ...prev, comments: [newNote, ...prev.comments] }
-        })
-        flash(t('customers.people.detail.notes.success'), 'success')
-      } finally {
-        setSectionPending((prev) => ({ ...prev, notes: false }))
-      }
-    },
-    [personId, t]
-  )
-
-  const handleUpdateNote = React.useCallback(
-    async (noteId: string, patch: { body?: string; appearanceIcon?: string | null; appearanceColor?: string | null }) => {
-      try {
-        const res = await apiFetch('/api/customers/comments', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: noteId, ...patch }),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.notes.updateError')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
-        setData((prev) => {
-          if (!prev) return prev
-          const nextComments = prev.comments.map((comment) => {
-            if (comment.id !== noteId) return comment
-            const next = { ...comment }
-            if (patch.body !== undefined) next.body = patch.body
-            if (patch.appearanceIcon !== undefined) next.appearanceIcon = patch.appearanceIcon ?? null
-            if (patch.appearanceColor !== undefined) next.appearanceColor = patch.appearanceColor ?? null
-            return next
-          })
-          return { ...prev, comments: nextComments }
-        })
-        flash(t('customers.people.detail.notes.updateSuccess'), 'success')
-      } catch (error) {
-        const message = error instanceof Error ? error.message : t('customers.people.detail.notes.updateError')
-        flash(message, 'error')
-        throw error instanceof Error ? error : new Error(message)
-      }
-    },
-    [t]
-  )
-
   const handleCreateActivity = React.useCallback(
     async ({ base, custom }: ActivityFormSubmitPayload) => {
       if (!personId) return
@@ -516,7 +358,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           const viewerNameValue = viewer?.name ?? null
           const viewerEmailValue = viewer?.email ?? null
           const trackedActivity: ActivitySummary = {
-            id: typeof responseBody?.id === 'string' ? responseBody.id : randomId(),
+            id: typeof responseBody?.id === 'string' ? responseBody.id : generateTempId(),
             activityType: base.activityType,
             subject: base.subject ?? null,
             body: base.body ?? null,
@@ -792,7 +634,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           }
           const body = await res.json().catch(() => ({}))
           const newDeal: DealSummary = {
-            id: typeof body?.id === 'string' ? body.id : randomId(),
+            id: typeof body?.id === 'string' ? body.id : generateTempId(),
             title: payload.title,
             status: payload.status ?? null,
             pipelineStage: payload.pipelineStage ?? null,
@@ -867,7 +709,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           }
           const body = await res.json().catch(() => ({}))
           const newAddress: AddressSummary = {
-            id: typeof body?.id === 'string' ? body.id : randomId(),
+            id: typeof body?.id === 'string' ? body.id : generateTempId(),
             name: payload.name ?? null,
             purpose: payload.purpose ?? null,
             addressLine1: payload.addressLine1,
@@ -1025,8 +867,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           }
           const body = await res.json().catch(() => ({}))
           const newTask: TodoLinkSummary = {
-            id: typeof body?.linkId === 'string' ? body.linkId : randomId(),
-            todoId: typeof body?.todoId === 'string' ? body.todoId : randomId(),
+            id: typeof body?.linkId === 'string' ? body.linkId : generateTempId(),
+            todoId: typeof body?.todoId === 'string' ? body.todoId : generateTempId(),
             todoSource: 'example:todo',
             createdAt: new Date().toISOString(),
             createdByUserId: null,
@@ -1442,13 +1284,15 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               ) : null}
             </div>
             <div>
-              <SectionLoader isLoading={sectionPending[activeTab as SectionKey]} />
+              {activeTab !== 'notes' ? (
+                <SectionLoader
+                  isLoading={sectionPending[activeTab as SectionKey]}
+                  label={t('customers.people.detail.sectionLoading', 'Loading…')}
+                />
+              ) : null}
               {activeTab === 'notes' && (
                 <NotesSection
-                  notes={data.comments}
-                  onCreate={handleCreateNote}
-                  onUpdate={handleUpdateNote}
-                  isSubmitting={sectionPending.notes}
+                  entityId={personId}
                   emptyLabel={t('customers.people.detail.empty.comments')}
                   viewerUserId={data.viewer?.userId ?? null}
                   viewerName={data.viewer?.name ?? null}
@@ -1460,6 +1304,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                   }}
                   onActionChange={handleSectionActionChange}
                   translator={t}
+                  onLoadingChange={handleNotesLoadingChange}
                 />
               )}
               {activeTab === 'activities' && (

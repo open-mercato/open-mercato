@@ -2,6 +2,7 @@ import type { AppContainer } from '@/lib/di/container'
 import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
 import { markDeleted } from './lib/indexer'
+import type { EventBus } from '@open-mercato/events'
 
 function toEntityTypeFromEvent(event: string): string | null {
   // Expect '<module>.<entity>.<action>'
@@ -16,7 +17,13 @@ export function register(container: AppContainer) {
   try {
     const em = container.resolve<any>('em')
     const basic = new BasicQueryEngine(em)
-    const hybrid = new HybridQueryEngine(em, basic)
+    const hybrid = new HybridQueryEngine(em, basic, () => {
+      try {
+        return container.resolve<EventBus>('eventBus')
+      } catch {
+        return null
+      }
+    })
     // Replace existing registration
     ;(container as any).register({ queryEngine: { resolve: () => hybrid } })
   } catch {}

@@ -2,10 +2,12 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Loader2, Pencil, Trash2, X } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Building2, Loader2, Pencil, Trash2, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { cn } from '@/lib/utils'
 import { CompanySelectField } from '../formConfig'
 import {
   InlineTextEditor,
@@ -68,12 +70,52 @@ export function PersonHighlights({
   onCompanySave,
 }: PersonHighlightsProps) {
   const t = useT()
+  const router = useRouter()
   const [editingCompany, setEditingCompany] = React.useState(false)
   const [companyDraftId, setCompanyDraftId] = React.useState<string>('')
   const [company, setCompany] = React.useState<CompanyInfo | null>(null)
   const [companyLoading, setCompanyLoading] = React.useState(false)
   const [companyError, setCompanyError] = React.useState<string | null>(null)
   const [companySaving, setCompanySaving] = React.useState(false)
+  const companyHref = React.useMemo(
+    () => (company ? `/backend/customers/companies/${encodeURIComponent(company.id)}` : null),
+    [company],
+  )
+  const isCompanyInteractive = !editingCompany && !companyLoading && !companyError && Boolean(companyHref)
+
+  const navigateToCompany = React.useCallback(() => {
+    if (!companyHref) return
+    router.push(companyHref)
+  }, [companyHref, router])
+
+  const handleCompanyClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!isCompanyInteractive || !companyHref) return
+      const target = event.target as HTMLElement
+      if (target.closest('button')) return
+      if (event.defaultPrevented) return
+      if (event.button !== 0) return
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        if (typeof window !== 'undefined') {
+          window.open(companyHref, '_blank', 'noopener,noreferrer')
+        }
+        return
+      }
+      navigateToCompany()
+    },
+    [companyHref, isCompanyInteractive, navigateToCompany],
+  )
+
+  const handleCompanyKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!isCompanyInteractive) return
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        navigateToCompany()
+      }
+    },
+    [isCompanyInteractive, navigateToCompany],
+  )
 
   const activeCompanyId = profile?.companyEntityId ?? null
 
@@ -164,10 +206,22 @@ export function PersonHighlights({
   }, [companySaving, loadCompany, onCompanySave, t])
 
   const companyPanel = (
-    <div className="group rounded-lg border bg-muted/30 p-3">
+    <div
+      className={cn(
+        'group rounded-lg border bg-muted/30 p-3',
+        isCompanyInteractive
+          ? 'cursor-pointer transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+          : null,
+      )}
+      role={isCompanyInteractive ? 'link' : undefined}
+      tabIndex={isCompanyInteractive ? 0 : undefined}
+      onClick={handleCompanyClick}
+      onKeyDown={handleCompanyKeyDown}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 space-y-1">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+          <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+            <Building2 aria-hidden className="h-3.5 w-3.5" />
             {t('customers.people.detail.company.label', 'Company')}
           </p>
           {editingCompany ? (
@@ -234,12 +288,9 @@ export function PersonHighlights({
                   {t('customers.people.detail.company.loading', 'Loading company…')}
                 </span>
               ) : company ? (
-                <Link
-                  href={`/backend/customers/companies/${encodeURIComponent(company.id)}`}
-                  className="text-primary hover:underline"
-                >
+                <span className="text-primary transition group-hover:underline">
                   {t('customers.people.detail.company.current', { company: company.name })}
-                </Link>
+                </span>
               ) : companyError ? (
                 <span className="text-xs text-red-600">{companyError}</span>
               ) : (

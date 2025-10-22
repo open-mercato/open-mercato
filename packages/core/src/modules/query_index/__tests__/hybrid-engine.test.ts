@@ -67,21 +67,36 @@ function createFakeKnex(config: {
 }
 
 describe('HybridQueryEngine', () => {
+  const originalAutoReindex = process.env.QUERY_INDEX_AUTO_REINDEX
+
+  beforeEach(() => {
+    delete process.env.QUERY_INDEX_AUTO_REINDEX
+  })
+
+  afterEach(() => {
+    if (originalAutoReindex === undefined) delete process.env.QUERY_INDEX_AUTO_REINDEX
+    else process.env.QUERY_INDEX_AUTO_REINDEX = originalAutoReindex
+    jest.clearAllMocks()
+  })
+
   test('falls back when wantsCf but no index rows exist', async () => {
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
-    const engine = new HybridQueryEngine(em, fallback as any)
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
 
     await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
     expect(fallback.query).toHaveBeenCalled()
+    expect(emitEvent).not.toHaveBeenCalled()
   })
 
   test('falls back and warns on partial coverage', async () => {
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
-    const engine = new HybridQueryEngine(em, fallback as any)
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
     await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
@@ -89,6 +104,7 @@ describe('HybridQueryEngine', () => {
     expect(warnSpy).toHaveBeenCalled()
     const msg = (warnSpy.mock.calls[0] || [])[0] as string
     expect(msg).toContain('Partial index coverage')
+    expect(emitEvent).toHaveBeenCalledWith('query_index.reindex', { entityType: 'example:todo', tenantId: 't1', force: false }, { persistent: true })
     warnSpy.mockRestore()
   })
 
@@ -96,17 +112,20 @@ describe('HybridQueryEngine', () => {
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10 })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     const fallback = { query: jest.fn() }
-    const engine = new HybridQueryEngine(em, fallback as any)
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
 
     await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1', page: { page: 1, pageSize: 5 } })
     expect(fallback.query).not.toHaveBeenCalled()
+    expect(emitEvent).not.toHaveBeenCalled()
   })
 
   test('joins entity index aliases for customFieldSources', async () => {
     const fakeKnex = createFakeKnex({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     const fallback = { query: jest.fn() }
-    const engine = new HybridQueryEngine(em, fallback as any)
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
 
     await engine.query('customers:customer_entity', {
       tenantId: 't1',
@@ -150,5 +169,20 @@ describe('HybridQueryEngine', () => {
         ]),
       }),
     ]))
+    expect(emitEvent).not.toHaveBeenCalled()
+  })
+
+  test('does not auto reindex when disabled via env', async () => {
+    process.env.QUERY_INDEX_AUTO_REINDEX = 'false'
+    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
+    expect(emitEvent).not.toHaveBeenCalled()
+    warnSpy.mockRestore()
   })
 })

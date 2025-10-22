@@ -4,6 +4,7 @@ import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import type { Knex } from 'knex'
+import type { EventBus } from '@open-mercato/events'
 
 type ResultRow = Record<string, unknown>
 type ResultBuilder<TResult = ResultRow[]> = Knex.QueryBuilder<ResultRow, TResult>
@@ -23,8 +24,14 @@ export class HybridQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
   private debugVerbosity: boolean | null = null
   private sqlDebugEnabled: boolean | null = null
+  private autoReindexEnabled: boolean | null = null
+  private pendingAutoReindexKeys = new Set<string>()
 
-  constructor(private em: EntityManager, private fallback: BasicQueryEngine) {}
+  constructor(
+    private em: EntityManager,
+    private fallback: BasicQueryEngine,
+    private eventBusResolver?: () => Pick<EventBus, 'emitEvent'> | null | undefined
+  ) {}
 
   async query<T = unknown>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
     const debugEnabled = this.isDebugVerbosity()
@@ -70,14 +77,16 @@ export class HybridQueryEngine implements QueryEngine {
       }
       const coverageOk = await this.indexCoverageComplete(entity, baseTable, opts)
       if (!coverageOk) {
+        let stats: { baseCount: number; indexedCount: number } | undefined
         try {
-          const { baseCount, indexedCount } = await this.indexCoverageStats(entity, baseTable, opts)
-          console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount, indexedCount })
-          if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount, indexedCount })
+          stats = await this.indexCoverageStats(entity, baseTable, opts)
+          console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount: stats.baseCount, indexedCount: stats.indexedCount })
+          if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount: stats.baseCount, indexedCount: stats.indexedCount })
         } catch {
           console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
           if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
         }
+        this.scheduleAutoReindex(entity, opts, stats)
         return this.fallback.query(entity, opts)
       }
     }
@@ -551,6 +560,58 @@ export class HybridQueryEngine implements QueryEngine {
     const indexedCount = this.parseCount(idxRow)
 
     return { baseCount, indexedCount }
+  }
+
+  private scheduleAutoReindex(entity: string, opts: QueryOptions, stats?: { baseCount: number; indexedCount: number }) {
+    if (!this.isAutoReindexEnabled()) return
+    const bus = this.resolveEventBus()
+    if (!bus) return
+    const tenantKey = opts.tenantId ?? '__global__'
+    const cacheKey = `${entity}::${tenantKey}`
+    if (this.pendingAutoReindexKeys.has(cacheKey)) return
+    this.pendingAutoReindexKeys.add(cacheKey)
+
+    const payload = { entityType: entity, tenantId: opts.tenantId ?? null, force: false }
+    const context = stats
+      ? { entity, tenantId: payload.tenantId, baseCount: stats.baseCount, indexedCount: stats.indexedCount }
+      : { entity, tenantId: payload.tenantId }
+
+    void Promise.resolve()
+      .then(async () => {
+        try {
+          await bus.emitEvent('query_index.reindex', payload, { persistent: true })
+          if (this.isDebugVerbosity()) this.debug('query:auto-reindex:scheduled', context)
+        } catch (err) {
+          console.warn('[HybridQueryEngine] Failed to schedule auto reindex:', {
+            ...context,
+            error: err instanceof Error ? err.message : err,
+          })
+        }
+      })
+      .finally(() => {
+        this.pendingAutoReindexKeys.delete(cacheKey)
+      })
+  }
+
+  private resolveEventBus(): Pick<EventBus, 'emitEvent'> | null {
+    if (!this.eventBusResolver) return null
+    try {
+      const bus = this.eventBusResolver()
+      return bus ?? null
+    } catch {
+      return null
+    }
+  }
+
+  private isAutoReindexEnabled(): boolean {
+    if (this.autoReindexEnabled != null) return this.autoReindexEnabled
+    const raw = (process.env.QUERY_INDEX_AUTO_REINDEX ?? '').trim().toLowerCase()
+    if (!raw) {
+      this.autoReindexEnabled = true
+      return true
+    }
+    this.autoReindexEnabled = !['0', 'false', 'no', 'off'].includes(raw)
+    return this.autoReindexEnabled
   }
 
   private async columnExists(table: string, column: string): Promise<boolean> {

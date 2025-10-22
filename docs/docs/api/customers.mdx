@@ -1,0 +1,155 @@
+---
+title: Customers
+description: REST endpoints for people, deals, activities, notes, and addresses in the customers module.
+---
+
+All examples assume the environment variables defined in [REST API Overview](./overview):
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export API_KEY="<paste your API key secret here>"
+export ORG_ID="<organization uuid in scope>"
+export TENANT_ID="<tenant uuid in scope>"
+```
+
+Every create, update, or delete call below automatically enqueues a reindex with the **Query Index** module, so list and search views stay in sync after mutations.
+
+## People
+
+### List People — `GET /customers/people`
+
+**Feature:** `customers.people.view`  
+**Query parameters (selected):**
+
+- `page` / `pageSize` — pagination (defaults `1` / `50`, max `100`).
+- `search` — case-insensitive match on `display_name`.
+- `email`, `emailStartsWith`, `emailContains` — mutually exclusive email filters.
+- `status`, `lifecycleStage`, `source` — dictionary-backed filters.
+- `hasEmail`, `hasPhone`, `hasNextInteraction` — `true`/`false` toggles.
+- `createdFrom` / `createdTo` — ISO date range.
+- Custom fields — prefix query keys with `cf_` to filter via entity field definitions.
+
+```bash
+curl -X GET "$BASE_URL/customers/people?page=1&pageSize=20&search=Acme" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Accept: application/json"
+```
+
+Response includes the matching records plus pagination metadata.
+
+### Create Person — `POST /customers/people`
+
+**Feature:** `customers.people.manage`  
+**Body:** JSON payload that matches the `personCreateSchema`. Required fields: `organizationId`, `tenantId`, `firstName`, `lastName`. Optional helpers include `displayName`, dictionary values (`status`, `source`, `lifecycleStage`), contact data, and custom fields (prefix keys with `cf_`).
+
+```bash
+curl -X POST "$BASE_URL/customers/people" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"organizationId\": \"$ORG_ID\",
+    \"tenantId\": \"$TENANT_ID\",
+    \"firstName\": \"Ada\",
+    \"lastName\": \"Lovelace\",
+    \"primaryEmail\": \"ada@example.com\",
+    \"status\": \"active\",
+    \"tags\": [],
+    \"cf_language\": \"en\"
+  }"
+```
+
+Response: `{ "entityId": "<uuid>", "personId": "<uuid>" }`
+
+### Update Person — `PUT /customers/people`
+
+**Feature:** `customers.people.manage`  
+**Body:** JSON with `id`, `organizationId`, `tenantId`, plus any mutable fields from `personUpdateSchema`. Only provided fields change.
+
+### Delete Person — `DELETE /customers/people?id=<uuid>`
+
+**Feature:** `customers.people.manage`  
+Pass the record id via query string or JSON body (`{ "id": "<uuid>" }`).
+
+## Deals
+
+### List Deals — `GET /customers/deals`
+
+**Feature:** `customers.deals.view`  
+**Query parameters:** `page`, `pageSize`, `search` (`title` substring), `status`, `pipelineStage`, `sortField`, `sortDir`.
+
+### Create Deal — `POST /customers/deals`
+
+**Feature:** `customers.deals.manage`  
+Body fields mirror `dealCreateSchema`: `organizationId`, `tenantId`, `title` required; optional pricing (`valueAmount`, `valueCurrency`), probability, owner, source, `companyIds`, and `personIds`.
+
+### Update Deal — `PUT /customers/deals`
+
+**Feature:** `customers.deals.manage`  
+Include `id`, `organizationId`, `tenantId`, plus any mutable fields.
+
+### Delete Deal — `DELETE /customers/deals?id=<uuid>`
+
+**Feature:** `customers.deals.manage`
+
+## Activities
+
+### List Activities — `GET /customers/activities`
+
+**Feature:** `customers.activities.view`  
+**Query parameters:** `page`, `pageSize`, `entityId`, `dealId`, `activityType`, `sortField`, `sortDir`.
+
+### Create Activity — `POST /customers/activities`
+
+**Feature:** `customers.activities.manage`  
+Body follows `activityCreateSchema`: `organizationId`, `tenantId`, `entityId`, and `activityType` required. Optional content includes `subject`, `body`, `occurredAt`, `dealId`, and appearance overrides.
+
+### Update Activity — `PUT /customers/activities`
+
+**Feature:** `customers.activities.manage`  
+Provide `id`, `organizationId`, `tenantId`, and the fields to change.
+
+### Delete Activity — `DELETE /customers/activities?id=<uuid>`
+
+**Feature:** `customers.activities.manage`
+
+## Notes & Comments
+
+### List Notes — `GET /customers/comments`
+
+**Feature:** `customers.activities.view` (shares the same feature gate as activities)  
+**Query parameters:** `page`, `pageSize`, `entityId`, `dealId`, `sortField`, `sortDir`.
+
+### Create Note — `POST /customers/comments`
+
+**Feature:** `customers.activities.manage`  
+Body: `organizationId`, `tenantId`, `entityId`, plus `body`. Optional `dealId`, `authorUserId`, and appearance overrides.
+
+### Update Note — `PUT /customers/comments`
+
+**Feature:** `customers.activities.manage`  
+Requires `id`, `organizationId`, `tenantId`, and any fields to update.
+
+### Delete Note — `DELETE /customers/comments?id=<uuid>`
+
+**Feature:** `customers.activities.manage`
+
+## Addresses
+
+### List Addresses — `GET /customers/addresses`
+
+**Feature:** `customers.activities.view`  
+**Query parameters:** `page`, `pageSize`, `entityId`, `sortField`, `sortDir`.
+
+### Create Address — `POST /customers/addresses`
+
+**Feature:** `customers.activities.manage`  
+Body requires `organizationId`, `tenantId`, `entityId`, and `addressLine1`. Optional extras: labels, `isPrimary`, and coordinates.
+
+### Update Address — `PUT /customers/addresses`
+
+**Feature:** `customers.activities.manage`  
+Include `id`, `organizationId`, `tenantId`, and changed fields.
+
+### Delete Address — `DELETE /customers/addresses?id=<uuid>`
+
+**Feature:** `customers.activities.manage`

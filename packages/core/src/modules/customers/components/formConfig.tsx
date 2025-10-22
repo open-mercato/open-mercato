@@ -435,48 +435,54 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
     }
   }, [])
 
-  const handleSubmit = React.useCallback<React.FormEventHandler<HTMLFormElement>>(
-    async (event) => {
-      event.preventDefault()
-      if (saving) return
-      const trimmed = newCompany.trim()
-      if (!trimmed) {
-        setFormError(labels.emptyError)
+  const handleDialogSubmit = React.useCallback(async () => {
+    if (saving) return
+    const trimmed = newCompany.trim()
+    if (!trimmed) {
+      setFormError(labels.emptyError)
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await apiFetch('/api/customers/companies', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ displayName: trimmed }),
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const message = typeof payload?.error === 'string' ? payload.error : labels.errorSave
+        flash(message, 'error')
         return
       }
-      setSaving(true)
-      try {
-        const res = await apiFetch('/api/customers/companies', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ displayName: trimmed }),
-        })
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message = typeof payload?.error === 'string' ? payload.error : labels.errorSave
-          flash(message, 'error')
-          return
-        }
-        const createdId =
-          typeof payload?.id === 'string'
-            ? payload.id
-            : typeof payload?.entityId === 'string'
-              ? payload.entityId
-              : null
-        await loadOptions()
-        if (createdId) {
-          onChange(createdId)
-        }
-        setDialogOpen(false)
-        setNewCompany('')
-        setFormError(null)
-      } catch {
-        flash(labels.errorSave, 'error')
-      } finally {
-        setSaving(false)
+      const createdId =
+        typeof payload?.id === 'string'
+          ? payload.id
+          : typeof payload?.entityId === 'string'
+            ? payload.entityId
+            : null
+      await loadOptions()
+      if (createdId) {
+        onChange(createdId)
+      }
+      setDialogOpen(false)
+      setNewCompany('')
+      setFormError(null)
+    } catch {
+      flash(labels.errorSave, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }, [labels.emptyError, labels.errorSave, loadOptions, newCompany, onChange, saving])
+
+  const handleInputKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        handleDialogSubmit().catch(() => {})
       }
     },
-    [labels.emptyError, labels.errorSave, loadOptions, newCompany, onChange, saving]
+    [handleDialogSubmit]
   )
 
   const disabled = loading || saving
@@ -515,7 +521,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
               <DialogTitle>{labels.dialogTitle}</DialogTitle>
               {labels.addPrompt ? <DialogDescription>{labels.addPrompt}</DialogDescription> : null}
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-sm font-medium">{labels.inputLabel}</label>
                 <input
@@ -526,6 +532,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
                     setNewCompany(event.target.value)
                     if (formError) setFormError(null)
                   }}
+                  onKeyDown={handleInputKeyDown}
                   autoFocus
                   disabled={saving}
                 />
@@ -535,11 +542,17 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
                   {labels.cancelLabel}
                 </Button>
-                <Button type="submit" disabled={saving || !newCompany.trim()}>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    handleDialogSubmit().catch(() => {})
+                  }}
+                  disabled={saving || !newCompany.trim()}
+                >
                   {saving ? `${labels.saveLabel}…` : labels.saveLabel}
                 </Button>
               </DialogFooter>
-            </form>
+            </div>
           </DialogContent>
         </Dialog>
       </div>

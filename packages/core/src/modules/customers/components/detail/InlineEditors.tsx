@@ -796,7 +796,7 @@ export function InlineDictionaryEditor({
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('customers.people.detail.inline.save')}
+                  {t('customers.people.detail.inline.saveShortcut')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('customers.people.detail.inline.cancel')}
@@ -885,6 +885,7 @@ export function InlineNextInteractionEditor({
   const [dateError, setDateError] = React.useState<string | null>(null)
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const formRef = React.useRef<HTMLFormElement | null>(null)
   const containerClasses = cn('group relative rounded-lg border p-4', activateOnClick && !editing ? 'cursor-pointer' : null)
 
   React.useEffect(() => {
@@ -918,17 +919,26 @@ export function InlineNextInteractionEditor({
 
   const handleSave = React.useCallback(async () => {
     setSubmitError(null)
+    setDateError(null)
     if (!draftDate) {
-      await onSave(null)
-      setEditing(false)
+      setSaving(true)
+      try {
+        await onSave(null)
+        setEditing(false)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.inline.error')
+        setSubmitError(message)
+      } finally {
+        setSaving(false)
+      }
       return
     }
-    const iso = new Date(draftDate).toISOString()
-    if (Number.isNaN(new Date(iso).getTime())) {
+    const parsedDate = new Date(draftDate)
+    if (Number.isNaN(parsedDate.getTime())) {
       setDateError(t('customers.people.detail.inline.nextInteractionInvalid'))
       return
     }
-    setDateError(null)
+    const iso = parsedDate.toISOString()
     const trimmedName = draftName.trim()
     const trimmedRef = draftRefId.trim()
     const trimmedIcon = draftIcon.trim()
@@ -954,6 +964,35 @@ export function InlineNextInteractionEditor({
       setSaving(false)
     }
   }, [draftColor, draftDate, draftIcon, draftName, draftRefId, onSave, t])
+
+  const handleFormSubmit = React.useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      if (saving) return
+      void handleSave()
+    },
+    [handleSave, saving],
+  )
+
+  const handleFormKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLFormElement>) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setEditing(false)
+        return
+      }
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault()
+        if (saving) return
+        try {
+          formRef.current?.requestSubmit()
+        } catch {
+          void handleSave()
+        }
+      }
+    },
+    [handleSave, saving],
+  )
 
   const handleActivate = React.useCallback(() => {
     if (!editing) setEditing(true)
@@ -1023,21 +1062,11 @@ export function InlineNextInteractionEditor({
         <div className="flex-1">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
           {editing ? (
-            <div
+            <form
+              ref={formRef}
               className="mt-2 space-y-4"
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault()
-                  setEditing(false)
-                  return
-                }
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault()
-                  if (!saving) {
-                    void handleSave()
-                  }
-                }
-              }}
+              onSubmit={handleFormSubmit}
+              onKeyDown={handleFormKeyDown}
             >
               <input
                 type="datetime-local"
@@ -1085,9 +1114,9 @@ export function InlineNextInteractionEditor({
               {dateError ? <p className="text-xs text-red-600">{dateError}</p> : null}
               {submitError && !dateError ? <p className="text-xs text-red-600">{submitError}</p> : null}
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+                <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('customers.people.detail.inline.save')}
+                  {t('customers.people.detail.inline.saveShortcut')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('customers.people.detail.inline.cancel')}
@@ -1120,7 +1149,7 @@ export function InlineNextInteractionEditor({
                   {t('customers.people.detail.inline.clear')}
                 </Button>
               </div>
-            </div>
+            </form>
           ) : (
             <div className="mt-1 text-sm">
               {valueAt ? (
@@ -1138,7 +1167,7 @@ export function InlineNextInteractionEditor({
                   {valueColor ? renderDictionaryColor(valueColor, 'h-3 w-3 rounded-full border border-border') : null}
                 </div>
               ) : (
-                <span>{emptyLabel}</span>
+                <span className="text-muted-foreground">{emptyLabel}</span>
               )}
             </div>
           )}

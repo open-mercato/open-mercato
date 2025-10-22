@@ -6,22 +6,19 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { formatDateTime, formatDate, formatRelativeTime } from './utils'
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { formatDateTime } from './utils'
 import type { CommentSummary, Translator, SectionAction, TabEmptyState } from './types'
-import {
-  ICON_SUGGESTIONS,
-} from '../../lib/dictionaries'
-import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
-import {
-  DictionaryValue,
-  renderDictionaryColor,
-  renderDictionaryIcon,
-} from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { ICON_SUGGESTIONS } from '../../lib/dictionaries'
+import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useT } from '@/lib/i18n/context'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../lib/markdownPreference'
+import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { LoadingMessage } from './LoadingMessage'
+import { TimelineItemHeader } from './TimelineItemHeader'
+import { AppearanceDialog } from './AppearanceDialog'
 
 type UiMarkdownEditorProps = {
   value?: string
@@ -30,18 +27,27 @@ type UiMarkdownEditorProps = {
   previewOptions?: { remarkPlugins?: unknown[] }
 }
 
+function MarkdownEditorFallback() {
+  const t = useT()
+  return (
+    <LoadingMessage
+      label={t('customers.people.detail.notes.editorLoading', 'Loading editor…')}
+      className="min-h-[220px]"
+    />
+  )
+}
+
 const UiMarkdownEditor = dynamic<UiMarkdownEditorProps>(() => import('@uiw/react-md-editor'), {
   ssr: false,
+  loading: () => <MarkdownEditorFallback />,
 })
 
+type AppearanceDialogState =
+  | { mode: 'create'; icon: string | null; color: string | null }
+  | { mode: 'edit'; noteId: string; icon: string | null; color: string | null }
+
 export type NotesSectionProps = {
-  notes: CommentSummary[]
-  onCreate: (input: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => Promise<void>
-  onUpdate: (
-    noteId: string,
-    patch: { body?: string; appearanceIcon?: string | null; appearanceColor?: string | null }
-  ) => Promise<void>
-  isSubmitting: boolean
+  entityId: string | null
   emptyLabel: string
   viewerUserId: string | null
   viewerName?: string | null
@@ -50,13 +56,76 @@ export type NotesSectionProps = {
   emptyState: TabEmptyState
   onActionChange?: (action: SectionAction | null) => void
   translator?: Translator
+  onLoadingChange?: (isLoading: boolean) => void
+}
+
+function sanitizeHexColor(value: string | null): string | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  return /^#([0-9a-f]{6})$/i.test(trimmed) ? trimmed.toLowerCase() : null
+}
+
+function mapComment(input: unknown): CommentSummary {
+  const data = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>
+  const id = typeof data.id === 'string' ? data.id : generateTempId()
+  const body = typeof data.body === 'string' ? data.body : ''
+  const createdAt =
+    typeof data.createdAt === 'string'
+      ? data.createdAt
+      : typeof data.created_at === 'string'
+        ? data.created_at
+        : new Date().toISOString()
+  const authorUserId =
+    typeof data.authorUserId === 'string'
+      ? data.authorUserId
+      : typeof data.author_user_id === 'string'
+        ? data.author_user_id
+        : null
+  const authorName =
+    typeof data.authorName === 'string'
+      ? data.authorName
+      : typeof data.author_name === 'string'
+        ? data.author_name
+        : null
+  const authorEmail =
+    typeof data.authorEmail === 'string'
+      ? data.authorEmail
+      : typeof data.author_email === 'string'
+        ? data.author_email
+        : null
+  const dealId =
+    typeof data.dealId === 'string'
+      ? data.dealId
+      : typeof data.deal_id === 'string'
+        ? data.deal_id
+        : null
+  const appearanceIcon =
+    typeof data.appearanceIcon === 'string'
+      ? data.appearanceIcon
+      : typeof data.appearance_icon === 'string'
+        ? data.appearance_icon
+        : null
+  const appearanceColor =
+    typeof data.appearanceColor === 'string'
+      ? data.appearanceColor
+      : typeof data.appearance_color === 'string'
+        ? data.appearance_color
+        : null
+  return {
+    id,
+    body,
+    createdAt,
+    authorUserId,
+    authorName,
+    authorEmail,
+    dealId,
+    appearanceIcon,
+    appearanceColor,
+  }
 }
 
 export function NotesSection({
-  notes,
-  onCreate,
-  onUpdate,
-  isSubmitting,
+  entityId,
   emptyLabel,
   viewerUserId,
   viewerName,
@@ -65,51 +134,119 @@ export function NotesSection({
   emptyState,
   onActionChange,
   translator,
+  onLoadingChange,
 }: NotesSectionProps) {
   const tHook = useT()
-  const t: Translator = translator ?? ((key, fallback) => {
-    const value = tHook(key)
-    return value === key && fallback ? fallback : value
-  })
+  const fallbackTranslator = React.useMemo<Translator>(
+    () => (key, fallback) => {
+      const value = tHook(key)
+      return value === key && fallback ? fallback : value
+    },
+    [tHook]
+  )
+  const t = translator ?? fallbackTranslator
 
+  const [notes, setNotes] = React.useState<CommentSummary[]>([])
+  const [isLoading, setIsLoading] = React.useState(false)
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
+  const pendingCounterRef = React.useRef(0)
+
+  const pushLoading = React.useCallback(() => {
+    pendingCounterRef.current += 1
+    if (pendingCounterRef.current === 1) {
+      onLoadingChange?.(true)
+    }
+  }, [onLoadingChange])
+
+  const popLoading = React.useCallback(() => {
+    pendingCounterRef.current = Math.max(0, pendingCounterRef.current - 1)
+    if (pendingCounterRef.current === 0) {
+      onLoadingChange?.(false)
+    }
+  }, [onLoadingChange])
+
+  const hasEntity = typeof entityId === 'string' && entityId.length > 0
+
+  const [composerOpen, setComposerOpen] = React.useState(false)
   const [draftBody, setDraftBody] = React.useState('')
   const [draftIcon, setDraftIcon] = React.useState<string | null>(null)
   const [draftColor, setDraftColor] = React.useState<string | null>(null)
-  const [showAppearance, setShowAppearance] = React.useState(false)
   const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(false)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const formRef = React.useRef<HTMLFormElement | null>(null)
   const focusComposer = React.useCallback(() => {
-    const element = textareaRef.current
-    if (!element) return
-    element.focus()
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [])
-  const [appearanceEditor, setAppearanceEditor] = React.useState<{ id: string; icon: string | null; color: string | null } | null>(null)
-  const [appearanceSavingId, setAppearanceSavingId] = React.useState<string | null>(null)
-  const [appearanceError, setAppearanceError] = React.useState<string | null>(null)
+    if (!hasEntity) return
+    setComposerOpen(true)
+    window.requestAnimationFrame(() => {
+      if (isMarkdownEnabled) {
+        const markdownTextarea = formRef.current?.querySelector('textarea')
+        if (markdownTextarea instanceof HTMLTextAreaElement) {
+          markdownTextarea.focus()
+          markdownTextarea.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          return
+        }
+      }
+      const element = textareaRef.current
+      if (!element) return
+      element.focus()
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }, [formRef, hasEntity, isMarkdownEnabled])
+  const [appearanceDialogState, setAppearanceDialogState] = React.useState<AppearanceDialogState | null>(null)
+  const [appearanceDialogSaving, setAppearanceDialogSaving] = React.useState(false)
+  const [appearanceDialogError, setAppearanceDialogError] = React.useState<string | null>(null)
   const [contentEditor, setContentEditor] = React.useState<{ id: string; value: string }>({ id: '', value: '' })
   const [contentSavingId, setContentSavingId] = React.useState<string | null>(null)
   const [contentError, setContentError] = React.useState<string | null>(null)
   const contentTextareaRef = React.useRef<HTMLTextAreaElement | null>(null)
-  const [visibleCount, setVisibleCount] = React.useState(() => Math.min(5, notes.length))
+  const [visibleCount, setVisibleCount] = React.useState(0)
+  const [deletingNoteId, setDeletingNoteId] = React.useState<string | null>(null)
 
-  const noteAppearanceLabels = React.useMemo(
-    () => ({
-      colorLabel: t('customers.people.detail.notes.appearance.colorLabel'),
-      colorHelp: t('customers.people.detail.notes.appearance.colorHelp'),
-      colorClearLabel: t('customers.people.detail.notes.appearance.clearColor'),
-      iconLabel: t('customers.people.detail.notes.appearance.iconLabel'),
-      iconPlaceholder: t('customers.people.detail.notes.appearance.iconPlaceholder'),
-      iconPickerTriggerLabel: t('customers.people.detail.notes.appearance.iconPicker'),
-      iconSearchPlaceholder: t('customers.people.detail.notes.appearance.iconSearchPlaceholder'),
-      iconSearchEmptyLabel: t('customers.people.detail.notes.appearance.iconSearchEmpty'),
-      iconSuggestionsLabel: t('customers.people.detail.notes.appearance.iconSuggestions'),
-      iconClearLabel: t('customers.people.detail.notes.appearance.iconClear'),
-      previewEmptyLabel: t('customers.people.detail.notes.appearance.previewEmpty'),
-    }),
-    [t],
-  )
+  React.useEffect(() => {
+    if (!hasEntity) {
+      setNotes([])
+      setLoadError(null)
+      setIsLoading(false)
+      return
+    }
+    let cancelled = false
+    setIsLoading(true)
+    setLoadError(null)
+    pushLoading()
+    async function loadNotes() {
+      try {
+        const res = await apiFetch(`/api/customers/comments?entityId=${encodeURIComponent(entityId!)}`)
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}))
+          const message =
+            typeof payload?.error === 'string'
+              ? payload.error
+              : t('customers.people.detail.notes.loadError', 'Failed to load notes.')
+          throw new Error(message)
+        }
+        const payload = await res.json().catch(() => ({}))
+        if (cancelled) return
+        const items = Array.isArray(payload?.items) ? payload.items : []
+        const mapped = items.map(mapComment)
+        setNotes(mapped)
+      } catch (err) {
+        if (cancelled) return
+        const message =
+          err instanceof Error ? err.message : t('customers.people.detail.notes.loadError', 'Failed to load notes.')
+        setNotes([])
+        setLoadError(message)
+        flash(message, 'error')
+      } finally {
+        if (!cancelled) setIsLoading(false)
+        popLoading()
+      }
+    }
+    loadNotes().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [entityId, hasEntity, popLoading, pushLoading, t])
 
   const viewerLabel = React.useMemo(() => viewerName ?? viewerEmail ?? null, [viewerEmail, viewerName])
 
@@ -126,10 +263,10 @@ export function NotesSection({
     onActionChange({
       label: addActionLabel,
       onClick: focusComposer,
-      disabled: isSubmitting,
+      disabled: isSubmitting || isLoading || !hasEntity,
     })
     return () => onActionChange(null)
-  }, [onActionChange, addActionLabel, focusComposer, isSubmitting])
+  }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting])
 
   const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
     if (!element) return
@@ -139,7 +276,7 @@ export function NotesSection({
 
   React.useEffect(() => {
     adjustTextareaSize(textareaRef.current)
-  }, [adjustTextareaSize, draftBody, isMarkdownEnabled])
+  }, [adjustTextareaSize, draftBody, isMarkdownEnabled, composerOpen])
 
   React.useEffect(() => {
     const preference = readMarkdownPreferenceCookie()
@@ -160,37 +297,197 @@ export function NotesSection({
     })
   }, [notes.length])
 
+  React.useEffect(() => {
+    if (hasEntity) return
+    setComposerOpen(false)
+    setDraftBody('')
+    setDraftIcon(null)
+    setDraftColor(null)
+  }, [hasEntity])
+
   const visibleNotes = React.useMemo(() => notes.slice(0, visibleCount), [notes, visibleCount])
   const hasVisibleNotes = React.useMemo(() => visibleCount > 0 && notes.length > 0, [visibleCount, notes.length])
+
+  const loadMoreLabel = t('customers.people.detail.notes.loadMore')
+
+  const handleCreateNote = React.useCallback(
+    async (input: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => {
+      if (!hasEntity || !entityId) {
+        flash(t('customers.people.detail.notes.entityMissing', 'Unable to determine current person.'), 'error')
+        return false
+      }
+      const body = input.body.trim()
+      if (!body) {
+        focusComposer()
+        return false
+      }
+      const icon = input.appearanceIcon && input.appearanceIcon.trim().length ? input.appearanceIcon.trim() : null
+      const color = sanitizeHexColor(input.appearanceColor)
+      setIsSubmitting(true)
+      pushLoading()
+      try {
+        const res = await apiFetch('/api/customers/comments', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            entityId,
+            body,
+            appearanceIcon: icon ?? undefined,
+            appearanceColor: color ?? undefined,
+          }),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.notes.error')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        const responseBody = await res.json().catch(() => ({}))
+        setNotes((prev) => {
+          const viewerId = viewerUserId ?? null
+          const resolvedAuthorId =
+            typeof responseBody?.authorUserId === 'string' ? responseBody.authorUserId : viewerId ?? null
+          const resolvedAuthorName = (() => {
+            if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
+              return viewerName ?? viewerEmail ?? null
+            }
+            return typeof responseBody?.authorName === 'string' ? responseBody.authorName : null
+          })()
+          const resolvedAuthorEmail = (() => {
+            if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
+              return viewerEmail ?? null
+            }
+            return typeof responseBody?.authorEmail === 'string' ? responseBody.authorEmail : null
+          })()
+          const newNote: CommentSummary = {
+            id: typeof responseBody?.id === 'string' ? responseBody.id : generateTempId(),
+            body,
+            createdAt: new Date().toISOString(),
+            authorUserId: resolvedAuthorId,
+            authorName: resolvedAuthorName,
+            authorEmail: resolvedAuthorEmail,
+            dealId: null,
+            appearanceIcon: icon,
+            appearanceColor: color,
+          }
+          return [newNote, ...prev]
+        })
+        flash(t('customers.people.detail.notes.success'), 'success')
+        return true
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.notes.error')
+        flash(message, 'error')
+        return false
+      } finally {
+        setIsSubmitting(false)
+        popLoading()
+      }
+    },
+    [entityId, hasEntity, popLoading, pushLoading, viewerEmail, viewerName, viewerUserId, t, focusComposer],
+  )
+
+  const handleUpdateNote = React.useCallback(
+    async (noteId: string, patch: { body?: string; appearanceIcon?: string | null; appearanceColor?: string | null }) => {
+      const sanitizedBody = patch.body
+      const sanitizedIcon =
+        patch.appearanceIcon !== undefined && patch.appearanceIcon !== null && patch.appearanceIcon.trim().length
+          ? patch.appearanceIcon.trim()
+          : patch.appearanceIcon === null
+            ? null
+            : undefined
+      const sanitizedColor =
+        patch.appearanceColor !== undefined ? sanitizeHexColor(patch.appearanceColor ?? null) : undefined
+      try {
+        const payload: Record<string, unknown> = { id: noteId }
+        if (sanitizedBody !== undefined) payload.body = sanitizedBody
+        if (sanitizedIcon !== undefined) payload.appearanceIcon = sanitizedIcon
+        if (sanitizedColor !== undefined) payload.appearanceColor = sanitizedColor
+        const res = await apiFetch('/api/customers/comments', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.notes.updateError')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        setNotes((prev) => {
+          const nextComments = prev.map((comment) => {
+            if (comment.id !== noteId) return comment
+            const next = { ...comment }
+            if (sanitizedBody !== undefined) next.body = sanitizedBody
+            if (sanitizedIcon !== undefined) next.appearanceIcon = sanitizedIcon ?? null
+            if (sanitizedColor !== undefined) next.appearanceColor = sanitizedColor ?? null
+            return next
+          })
+          return nextComments
+        })
+        flash(t('customers.people.detail.notes.updateSuccess'), 'success')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : t('customers.people.detail.notes.updateError')
+        flash(message, 'error')
+        throw error instanceof Error ? error : new Error(message)
+      }
+    },
+    [t],
+  )
+
+  const handleDeleteNote = React.useCallback(
+    async (note: CommentSummary) => {
+      const confirmed =
+        typeof window === 'undefined'
+          ? true
+          : window.confirm(t('customers.people.detail.notes.deleteConfirm', 'Delete this note? This action cannot be undone.'))
+      if (!confirmed) return
+      setDeletingNoteId(note.id)
+      pushLoading()
+      try {
+        const res = await apiFetch(`/api/customers/comments?id=${encodeURIComponent(note.id)}`, {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+        })
+        if (!res.ok) {
+          let message = t('customers.people.detail.notes.deleteError', 'Failed to delete note')
+          try {
+            const details = await res.clone().json()
+            if (details && typeof details.error === 'string') message = details.error
+          } catch {}
+          throw new Error(message)
+        }
+        setNotes((prev) => prev.filter((existing) => existing.id !== note.id))
+        flash(t('customers.people.detail.notes.deleteSuccess', 'Note deleted'), 'success')
+      } catch (err) {
+        const message = err instanceof Error ? err.message : t('customers.people.detail.notes.deleteError', 'Failed to delete note')
+        flash(message, 'error')
+      } finally {
+        setDeletingNoteId(null)
+        popLoading()
+      }
+    },
+    [popLoading, pushLoading, t],
+  )
 
   const handleSubmit = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault()
-      const body = draftBody.trim()
-      if (!body) {
-        focusComposer()
-        return
-      }
-      await onCreate({
-        body,
+      const created = await handleCreateNote({
+        body: draftBody,
         appearanceIcon: draftIcon,
         appearanceColor: draftColor,
       })
-      setDraftBody('')
-      setDraftIcon(null)
-      setDraftColor(null)
-      setShowAppearance(false)
+      if (created) {
+        setDraftBody('')
+        setDraftIcon(null)
+        setDraftColor(null)
+      }
     },
-    [draftBody, draftColor, draftIcon, focusComposer, onCreate],
-  )
-
-  const markdownPreview = React.useMemo(
-    () => (
-      <ReactMarkdown remarkPlugins={[remarkGfm]} className="break-words [&>*]:mb-2 [&>*:last-child]:mb-0">
-        {draftBody || ''}
-      </ReactMarkdown>
-    ),
-    [draftBody],
+    [draftBody, draftColor, draftIcon, handleCreateNote],
   )
 
   const handleLoadMore = React.useCallback(() => {
@@ -200,24 +497,43 @@ export function NotesSection({
     })
   }, [notes.length])
 
-  const handleAppearanceSave = React.useCallback(async () => {
-    if (!appearanceEditor) return
-    setAppearanceSavingId(appearanceEditor.id)
-    setAppearanceError(null)
+  const handleAppearanceDialogSubmit = React.useCallback(async () => {
+    if (!appearanceDialogState) return
+    setAppearanceDialogError(null)
+    const sanitizedIcon =
+      appearanceDialogState.icon && appearanceDialogState.icon.trim().length
+        ? appearanceDialogState.icon.trim()
+        : null
+    const sanitizedColor = sanitizeHexColor(appearanceDialogState.color ?? null)
+    if (appearanceDialogState.mode === 'create') {
+      setDraftIcon(sanitizedIcon)
+      setDraftColor(sanitizedColor)
+      setAppearanceDialogState(null)
+      return
+    }
+    setAppearanceDialogSaving(true)
     try {
-      await onUpdate(appearanceEditor.id, {
-        appearanceIcon: appearanceEditor.icon,
-        appearanceColor: appearanceEditor.color,
+      await handleUpdateNote(appearanceDialogState.noteId, {
+        appearanceIcon: sanitizedIcon,
+        appearanceColor: sanitizedColor,
       })
-      setAppearanceEditor(null)
+      setAppearanceDialogState(null)
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : t('customers.people.detail.notes.appearance.error', 'Failed to update appearance.')
-      setAppearanceError(message)
+        err instanceof Error
+          ? err.message
+          : t('customers.people.detail.notes.appearance.error', 'Failed to update appearance.')
+      setAppearanceDialogError(message)
     } finally {
-      setAppearanceSavingId(null)
+      setAppearanceDialogSaving(false)
     }
-  }, [appearanceEditor, onUpdate, t])
+  }, [appearanceDialogState, handleUpdateNote, t])
+
+  const handleAppearanceDialogClose = React.useCallback(() => {
+    if (appearanceDialogSaving) return
+    setAppearanceDialogState(null)
+    setAppearanceDialogError(null)
+  }, [appearanceDialogSaving])
 
   const handleContentSave = React.useCallback(async () => {
     if (!contentEditor.id) return
@@ -229,7 +545,7 @@ export function NotesSection({
     setContentSavingId(contentEditor.id)
     setContentError(null)
     try {
-      await onUpdate(contentEditor.id, { body: trimmed })
+      await handleUpdateNote(contentEditor.id, { body: trimmed })
       setContentEditor({ id: '', value: '' })
     } catch (err) {
       const message =
@@ -238,7 +554,34 @@ export function NotesSection({
     } finally {
       setContentSavingId(null)
     }
-  }, [contentEditor, onUpdate, t])
+  }, [contentEditor, handleUpdateNote, t])
+
+  const handleContentEditorKeyDown = React.useCallback(
+    (event: React.KeyboardEvent) => {
+      if (!contentEditor.id) return
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault()
+        if (!contentSavingId) void handleContentSave()
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setContentEditor({ id: '', value: '' })
+        setContentError(null)
+      }
+    },
+    [contentEditor.id, contentSavingId, handleContentSave],
+  )
+
+  const handleComposerKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLFormElement>) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault()
+        formRef.current?.requestSubmit()
+      }
+    },
+    [],
+  )
 
   const handleContentKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>, note: CommentSummary) => {
@@ -260,130 +603,191 @@ export function NotesSection({
     [t, viewerLabel, viewerUserId],
   )
 
+  const noteAppearanceLabels = React.useMemo(
+    () => ({
+      colorLabel: t('customers.people.detail.notes.appearance.colorLabel'),
+      colorHelp: t('customers.people.detail.notes.appearance.colorHelp'),
+      colorClearLabel: t('customers.people.detail.notes.appearance.clearColor'),
+      iconLabel: t('customers.people.detail.notes.appearance.iconLabel'),
+      iconPlaceholder: t('customers.people.detail.notes.appearance.iconPlaceholder'),
+      iconPickerTriggerLabel: t('customers.people.detail.notes.appearance.iconPicker'),
+      iconSearchPlaceholder: t('customers.people.detail.notes.appearance.iconSearchPlaceholder'),
+      iconSearchEmptyLabel: t('customers.people.detail.notes.appearance.iconSearchEmpty'),
+      iconSuggestionsLabel: t('customers.people.detail.notes.appearance.iconSuggestions'),
+      iconClearLabel: t('customers.people.detail.notes.appearance.iconClear'),
+      previewEmptyLabel: t('customers.people.detail.notes.appearance.previewEmpty'),
+    }),
+    [t],
+  )
+
+  const composerAuthor = React.useMemo(
+    () => viewerLabel ?? t('customers.people.detail.notes.you'),
+    [t, viewerLabel],
+  )
+  const composerHasAppearance = Boolean(draftIcon) || Boolean(draftColor)
+  const appearanceDialogOpen = appearanceDialogState !== null
+  const editingAppearanceNoteId =
+    appearanceDialogState?.mode === 'edit' ? appearanceDialogState.noteId : null
+  const addNoteShortcutLabel = t('customers.people.detail.notes.addShortcut', 'Add note ⌘⏎ / Ctrl+Enter')
+  const saveAppearanceShortcutLabel = t(
+    'customers.people.detail.notes.appearance.saveShortcut',
+    'Save appearance ⌘⏎ / Ctrl+Enter',
+  )
+  const composerSubmitLabel = addNoteShortcutLabel
+  const appearanceDialogPrimaryLabel = saveAppearanceShortcutLabel
+  const appearanceDialogSavingLabel =
+    appearanceDialogState?.mode === 'edit'
+      ? t('customers.people.detail.notes.appearance.saving')
+      : t('customers.people.detail.notes.saving', 'Saving note…')
+
   return (
-    <div className="mt-4 space-y-3">
-      <div className="rounded-xl bg-muted/10 py-4">
-        <form ref={formRef} onSubmit={handleSubmit} className="space-y-2 px-4">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-medium">{t('customers.people.detail.notes.addLabel')}</h3>
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                variant={showAppearance ? 'secondary' : 'ghost'}
-                size="icon"
-                onClick={() => setShowAppearance((prev) => !prev)}
-                aria-pressed={showAppearance}
-              >
-                <Palette className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                variant={isMarkdownEnabled ? 'secondary' : 'ghost'}
-                size="icon"
-                onClick={handleMarkdownToggle}
-                aria-pressed={isMarkdownEnabled}
-              >
-                <FileCode className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-          {isMarkdownEnabled ? (
-            <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
-              <div data-color-mode="light" className="w-full">
-                <UiMarkdownEditor
-                  value={draftBody}
-                  height={220}
-                  onChange={(value) => setDraftBody(typeof value === 'string' ? value : '')}
-                  previewOptions={{ remarkPlugins: [remarkGfm] }}
-                />
-              </div>
-            </div>
-          ) : (
-            <textarea
-              id="new-note"
-              ref={textareaRef}
-              rows={1}
-              className="w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              placeholder={t('customers.people.detail.notes.placeholder')}
-              value={draftBody}
-              onChange={(event) => setDraftBody(event.target.value)}
-              onInput={(event) => adjustTextareaSize(event.currentTarget)}
-              disabled={isSubmitting}
-            />
-          )}
-          {showAppearance ? (
-            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-              <div className="flex items-center gap-2 rounded-full bg-muted/40 px-2 py-1">
-                {draftIcon ? renderDictionaryIcon(draftIcon, 'h-4 w-4') : null}
-                {draftColor ? renderDictionaryColor(draftColor, 'h-3 w-3 rounded-full border border-border') : null}
-                {!draftColor && !draftIcon ? (
-                  <span>{t('customers.people.detail.notes.appearance.previewEmpty')}</span>
-                ) : null}
-              </div>
-              <div className="flex items-center gap-2">
+    <div className="mt-4">
+      <div
+        className={[
+          'overflow-hidden rounded-xl transition-all duration-300 ease-out',
+          composerOpen ? 'max-h-[1200px] bg-muted/10 p-4 opacity-100' : 'pointer-events-none max-h-0 p-0 opacity-0',
+        ].join(' ')}
+        aria-hidden={!composerOpen}
+      >
+        {composerOpen ? (
+          <form
+            ref={formRef}
+            onSubmit={handleSubmit}
+            onKeyDown={handleComposerKeyDown}
+            className="space-y-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-medium">{t('customers.people.detail.notes.addLabel')}</h3>
+              <div className="flex flex-wrap items-center gap-1">
                 <Button
                   type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setDraftColor(null)}
-                  disabled={!draftColor}
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    setAppearanceDialogError(null)
+                    setAppearanceDialogState({ mode: 'create', icon: draftIcon, color: draftColor })
+                  }}
+                  disabled={isSubmitting || isLoading || !hasEntity}
                 >
-                  {t('customers.people.detail.notes.appearance.clearColor')}
+                  <span className="sr-only">{t('customers.people.detail.notes.appearance.toggleOpen', 'Customize appearance')}</span>
+                  <Palette className="h-4 w-4" />
                 </Button>
                 <Button
                   type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setDraftIcon(null)}
-                  disabled={!draftIcon}
+                  variant={isMarkdownEnabled ? 'secondary' : 'ghost'}
+                  size="icon"
+                  onClick={handleMarkdownToggle}
+                  aria-pressed={isMarkdownEnabled}
+                  disabled={isSubmitting || isLoading}
                 >
-                  {t('customers.people.detail.notes.appearance.iconClear')}
+                  <FileCode className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setComposerOpen(false)
+                    setDraftBody('')
+                    setDraftIcon(null)
+                    setDraftColor(null)
+                  }}
+                  disabled={isSubmitting || isLoading}
+                >
+                  {t('customers.people.detail.inline.cancel')}
                 </Button>
               </div>
             </div>
-          ) : null}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {showAppearance ? (
-                <AppearanceSelector
-                  icon={draftIcon}
-                  color={draftColor}
-                  onIconChange={(next) => setDraftIcon(next ?? null)}
-                  onColorChange={(next) => setDraftColor(next)}
-                  labels={noteAppearanceLabels}
-                  iconSuggestions={ICON_SUGGESTIONS}
+            {isMarkdownEnabled ? (
+              <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
+                <div data-color-mode="light" className="w-full">
+                  <UiMarkdownEditor
+                    value={draftBody}
+                    height={220}
+                    onChange={(value) => setDraftBody(typeof value === 'string' ? value : '')}
+                    previewOptions={{ remarkPlugins: [remarkGfm] }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <textarea
+                id="new-note"
+                ref={textareaRef}
+                rows={1}
+                className="w-full resize-none overflow-hidden rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                placeholder={t('customers.people.detail.notes.placeholder')}
+                value={draftBody}
+                onChange={(event) => setDraftBody(event.target.value)}
+                onInput={(event) => adjustTextareaSize(event.currentTarget)}
+                disabled={isSubmitting || isLoading || !hasEntity}
+              />
+            )}
+            {composerHasAppearance ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-muted-foreground/40 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  {draftIcon ? (
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted/40">
+                      {renderDictionaryIcon(draftIcon, 'h-4 w-4')}
+                    </span>
+                  ) : null}
+                  <span className="font-semibold text-foreground">{composerAuthor}</span>
+                  {draftColor ? (
+                    <span className="flex items-center gap-2">
+                      {renderDictionaryColor(draftColor, 'h-3.5 w-3.5 rounded-full border border-border')}
+                      <span className="text-xs font-medium uppercase text-muted-foreground">{draftColor}</span>
+                    </span>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setDraftIcon(null)
+                    setDraftColor(null)
+                  }}
                   disabled={isSubmitting}
-                />
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button type="submit" size="sm" disabled={isSubmitting}>
+                >
+                  {t('customers.people.detail.notes.appearance.clearAll', 'Clear')}
+                </Button>
+              </div>
+            ) : null}
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmitting || isLoading || !hasEntity}
+              >
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {t('customers.people.detail.notes.submit')}
+                {composerSubmitLabel}
               </Button>
             </div>
-          </div>
-        </form>
+          </form>
+        ) : null}
       </div>
 
+      {loadError ? <p className="mt-3 text-xs text-red-600">{loadError}</p> : null}
+
       {hasVisibleNotes ? (
-        <div className="space-y-3">
+        <div className="mt-4 space-y-3">
           {visibleNotes.map((note) => {
             const author = noteAuthorLabel(note)
-            const isAppearanceSaving = appearanceSavingId === note.id
-            const isEditingAppearance = appearanceEditor?.id === note.id
+            const isAppearanceSaving = appearanceDialogSaving && editingAppearanceNoteId === note.id
             const isEditingContent = contentEditor.id === note.id
+            const displayIcon = note.appearanceIcon ?? null
+            const displayColor = note.appearanceColor ?? null
+            const timestampValue = note.createdAt
+            const fallbackTimestampLabel = formatDateTime(note.createdAt) ?? emptyLabel
             return (
               <div key={note.id} className="space-y-2 rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">{author}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatRelativeTime(note.createdAt) ?? formatDateTime(note.createdAt) ?? emptyLabel}
-                    </p>
-                  </div>
+                  <TimelineItemHeader
+                    title={author}
+                    timestamp={timestampValue}
+                    fallbackTimestampLabel={fallbackTimestampLabel}
+                    icon={displayIcon}
+                    color={displayColor}
+                  />
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
@@ -397,23 +801,42 @@ export function NotesSection({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      onClick={() => setAppearanceEditor({ id: note.id, icon: note.appearanceIcon ?? null, color: note.appearanceColor ?? null })}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setAppearanceDialogError(null)
+                        setAppearanceDialogState({
+                          mode: 'edit',
+                          noteId: note.id,
+                          icon: note.appearanceIcon ?? null,
+                          color: note.appearanceColor ?? null,
+                        })
+                      }}
+                      disabled={appearanceDialogSaving && editingAppearanceNoteId === note.id}
                     >
-                      <Palette className="h-4 w-4" />
+                      {isAppearanceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
                     </Button>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      onClick={() => flash(t('customers.people.detail.notes.deleteNotImplemented', 'Delete via audit log'), 'info')}
-                      disabled
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleDeleteNote(note)
+                      }}
+                      disabled={deletingNoteId === note.id}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      {deletingNoteId === note.id ? (
+                        <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
+                          <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
+                        </span>
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
                     </Button>
                   </div>
                 </div>
                 {isEditingContent ? (
-                  <div className="space-y-2">
+                  <div className="space-y-2" onKeyDown={handleContentEditorKeyDown}>
                     {isMarkdownEnabled ? (
                       <div className="w-full rounded-md border border-muted-foreground/20 bg-background p-2">
                         <div data-color-mode="light" className="w-full">
@@ -448,7 +871,7 @@ export function NotesSection({
                             {t('customers.people.detail.notes.saving')}
                           </>
                         ) : (
-                          t('customers.people.detail.inline.save')
+                          t('customers.people.detail.inline.saveShortcut')
                         )}
                       </Button>
                       <Button
@@ -489,68 +912,59 @@ export function NotesSection({
                     </ReactMarkdown>
                   </div>
                 )}
-                {isEditingAppearance ? (
-                  <div className="space-y-3 rounded-lg border border-dashed border-muted-foreground/30 p-3">
-                    <AppearanceSelector
-                      icon={appearanceEditor?.icon ?? null}
-                      color={appearanceEditor?.color ?? null}
-                      onIconChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
-                      onColorChange={(value) => setAppearanceEditor((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
-                      labels={noteAppearanceLabels}
-                      disabled={isAppearanceSaving}
-                    />
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => void handleAppearanceSave()}
-                        disabled={isAppearanceSaving}
-                      >
-                        {isAppearanceSaving ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            {t('customers.people.detail.notes.appearance.saving')}
-                          </>
-                        ) : (
-                          t('customers.people.detail.notes.appearance.save')
-                        )}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setAppearanceEditor((prev) => (prev ? { ...prev, icon: null, color: null } : prev))}
-                        disabled={isAppearanceSaving}
-                      >
-                        {t('customers.people.detail.notes.appearance.reset')}
-                      </Button>
-                    </div>
-                    {appearanceError ? <p className="text-xs text-red-600">{appearanceError}</p> : null}
-                  </div>
-                ) : null}
               </div>
             )
           })}
           {visibleCount < notes.length ? (
             <div className="flex justify-center">
               <Button variant="outline" size="sm" onClick={handleLoadMore}>
-                {t('customers.people.detail.notes.loadMore')}
+                {loadMoreLabel}
               </Button>
             </div>
           ) : null}
         </div>
+      ) : isLoading ? (
+        <div className="mt-4">
+          <LoadingMessage
+            label={t('customers.people.detail.notes.loading', 'Loading notes…')}
+            className="min-h-[160px]"
+          />
+        </div>
       ) : (
-        <div className="rounded-xl bg-background p-6">
+        <div className="mt-4 rounded-xl bg-background p-6">
           <EmptyState
             title={emptyState.title}
             action={{
               label: emptyState.actionLabel,
               onClick: focusComposer,
-              disabled: isSubmitting,
+              disabled: isSubmitting || !hasEntity,
             }}
           />
         </div>
       )}
+      <AppearanceDialog
+        open={appearanceDialogOpen}
+        title={
+          appearanceDialogState?.mode === 'edit'
+            ? t('customers.people.detail.notes.appearance.edit')
+            : t('customers.people.detail.notes.appearance.toggleOpen', 'Customize appearance')
+        }
+        icon={appearanceDialogState?.icon ?? null}
+        color={appearanceDialogState?.color ?? null}
+        labels={noteAppearanceLabels}
+        iconSuggestions={ICON_SUGGESTIONS}
+        onIconChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
+        onColorChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
+        onSubmit={() => {
+          void handleAppearanceDialogSubmit()
+        }}
+        onClose={handleAppearanceDialogClose}
+        isSaving={appearanceDialogSaving}
+        errorMessage={appearanceDialogError}
+        primaryLabel={appearanceDialogPrimaryLabel}
+        savingLabel={appearanceDialogSavingLabel}
+        cancelLabel={t('customers.people.detail.notes.appearance.cancel')}
+      />
     </div>
   )
 }

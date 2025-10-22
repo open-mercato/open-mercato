@@ -63,6 +63,7 @@ Performance tips
 Limitations and notes
 - The index row appears after create/update events or backfill. Queries still work via fallback when the index is missing.
 - Cross-module relations remain by foreign key id only; no cross-module joins.
+- When the hybrid engine falls back because of partial index coverage it emits a warning and, by default, schedules an asynchronous reindex for the affected entity/tenant scope. Toggle this with `QUERY_INDEX_AUTO_REINDEX` (defaults to `true`) if you prefer to manage reindex jobs manually.
 
 ## Debugging SQL output
 

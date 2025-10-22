@@ -33,8 +33,13 @@ import {
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 const ACTIVITY_ENTITY_ID = 'customers:customer_activity'
+const activityCrudIndexer: CrudIndexerConfig<CustomerActivity> = {
+  entityType: E.customers.customer_activity,
+}
 
 type ActivitySnapshot = {
   activity: {
@@ -147,6 +152,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      indexer: activityCrudIndexer,
     })
 
     return { activityId: activity.id }
@@ -230,6 +236,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      indexer: activityCrudIndexer,
     })
 
     return { activityId: activity.id }
@@ -323,6 +330,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      indexer: activityCrudIndexer,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -369,6 +377,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           organizationId: activity.organizationId,
           tenantId: activity.tenantId,
         },
+        indexer: activityCrudIndexer,
       })
       return { activityId: activity.id }
     },
@@ -433,6 +442,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           organizationId: activity.organizationId,
           tenantId: activity.tenantId,
         },
+        indexer: activityCrudIndexer,
       })
 
       const resetValues = buildCustomFieldResetMap(before.custom, null)

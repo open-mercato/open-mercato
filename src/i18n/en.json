@@ -11,6 +11,7 @@
   "common.language": "Language",
   "ui.forms.actions.save": "Save",
   "ui.forms.actions.cancel": "Cancel",
+  "ui.forms.actions.clear": "Clear",
   "ui.forms.actions.delete": "Delete",
   "ui.forms.status.saving": "Saving…",
   "ui.forms.loading": "Loading data…",

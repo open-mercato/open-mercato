@@ -53,6 +53,7 @@ const sidebars: SidebarsConfig = {
             'api/auth',
             'api/directory',
             'api/dashboards',
+            'api/customers',
             'api/entities',
           ],
         },
