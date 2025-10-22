@@ -7,9 +7,10 @@ import { activityCreateSchema, activityUpdateSchema } from '../../data/validator
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
-import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
+import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -76,7 +77,6 @@ const crud = makeCrudRoute({
     },
     transformItem: (item: any) => {
       if (!item) return item
-      const custom = extractAllCustomFieldEntries(item)
       const toIso = (value: unknown): string | null => {
         if (!value) return null
         if (typeof value === 'string') {
@@ -116,7 +116,6 @@ const crud = makeCrudRoute({
         appearanceColor: toStringOrNull(item.appearance_color),
         organizationId: toStringOrNull(item.organization_id),
         tenantId: toStringOrNull(item.tenant_id),
-        customFieldsRaw: custom,
       }
     },
   },
@@ -126,7 +125,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return activityCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { parsed, custom } = parseWithCustomFields(activityCreateSchema, scoped)
+        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       response: ({ result }) => ({ id: result?.activityId ?? result?.id ?? null }),
       status: 201,
@@ -136,7 +137,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return activityUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { parsed, custom } = parseWithCustomFields(activityUpdateSchema, scoped)
+        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       response: () => ({ ok: true }),
     },
@@ -167,7 +170,6 @@ const crud = makeCrudRoute({
         authorEmail?: string | null
         organizationId?: string | null
         tenantId?: string | null
-        customFieldsRaw?: Record<string, unknown>
         customFields?: Array<{
           key: string
           label: string
@@ -177,6 +179,33 @@ const crud = makeCrudRoute({
         }>
       }
       const typedItems = items as ActivityRecord[]
+
+      const recordIds = typedItems
+        .map((item) => (typeof item.id === 'string' && item.id.trim().length ? item.id : null))
+        .filter((value): value is string => value !== null)
+      let valuesById: Record<string, Record<string, unknown>> = {}
+      if (recordIds.length) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const tenantIdByRecord: Record<string, string | null> = {}
+          const organizationIdByRecord: Record<string, string | null> = {}
+          typedItems.forEach((item) => {
+            if (!item.id) return
+            tenantIdByRecord[item.id] = item.tenantId ?? null
+            organizationIdByRecord[item.id] = item.organizationId ?? null
+          })
+          valuesById = await loadCustomFieldValues({
+            em,
+            entityId: E.customers.customer_activity,
+            recordIds,
+            tenantIdByRecord,
+            organizationIdByRecord,
+            tenantFallbacks: [ctx.auth?.tenantId ?? null].filter((value): value is string => typeof value === 'string' && value.length > 0),
+          })
+        } catch (err) {
+          console.warn('[customers.activities] Failed to load custom field values', err)
+        }
+      }
 
       // Resolve author metadata
       const authorIds = Array.from(
@@ -211,8 +240,7 @@ const crud = makeCrudRoute({
       // Attach custom field metadata
       const customKeys = new Set<string>()
       typedItems.forEach((item) => {
-        const raw = item.customFieldsRaw
-        if (!raw) return
+        const raw = valuesById[item.id] ?? {}
         Object.keys(raw).forEach((key) => {
           if (key.startsWith('cf_')) {
             const normalized = key.slice(3)
@@ -223,7 +251,6 @@ const crud = makeCrudRoute({
       if (!customKeys.size) {
         typedItems.forEach((item) => {
           item.customFields = []
-          delete item.customFieldsRaw
         })
         return
       }
@@ -303,7 +330,7 @@ const crud = makeCrudRoute({
         })
 
         typedItems.forEach((item) => {
-          const raw = item.customFieldsRaw ?? {}
+          const raw = valuesById[item.id] ?? {}
           const entries: ActivityRecord['customFields'] = []
           Object.entries(raw).forEach(([prefixedKey, value]) => {
             const rawKey = prefixedKey.startsWith('cf_') ? prefixedKey.slice(3) : prefixedKey
@@ -324,13 +351,11 @@ const crud = makeCrudRoute({
           })
           entries.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
           item.customFields = entries
-          delete item.customFieldsRaw
         })
       } catch (err) {
         console.warn('[customers.activities] Failed to enrich custom fields', err)
         typedItems.forEach((item) => {
           item.customFields = []
-          delete item.customFieldsRaw
         })
       }
     },

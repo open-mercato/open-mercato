@@ -194,12 +194,20 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   )
 
   const personId = data?.person?.id ?? null
+  const dealsScope = React.useMemo(
+    () => (personId ? ({ kind: 'person', entityId: personId } as const) : null),
+    [personId],
+  )
   const handleNotesLoadingChange = React.useCallback((loading: boolean) => {
     setSectionPending((prev) => ({ ...prev, notes: loading }))
   }, [])
 
   const handleActivitiesLoadingChange = React.useCallback((loading: boolean) => {
     setSectionPending((prev) => ({ ...prev, activities: loading }))
+  }, [])
+
+  const handleDealsLoadingChange = React.useCallback((loading: boolean) => {
+    setSectionPending((prev) => ({ ...prev, deals: loading }))
   }, [])
 
   React.useEffect(() => {
@@ -435,72 +443,9 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       }
     }, [personId, t])
   
-    const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
-      setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
-    }, [])
-  
-    const handleCreateDeal = React.useCallback(
-      async (payload: {
-        title: string
-        status?: string
-        pipelineStage?: string
-        valueAmount?: number
-        valueCurrency?: string
-        probability?: number
-        expectedCloseAt?: string
-        description?: string
-      }) => {
-        if (!personId) return
-        setSectionPending((prev) => ({ ...prev, deals: true }))
-        try {
-          const bodyPayload: Record<string, unknown> = {
-            title: payload.title,
-            personIds: [personId],
-          }
-          if (payload.status) bodyPayload.status = payload.status
-          if (payload.pipelineStage) bodyPayload.pipelineStage = payload.pipelineStage
-          if (typeof payload.valueAmount === 'number') bodyPayload.valueAmount = payload.valueAmount
-          if (payload.valueCurrency) bodyPayload.valueCurrency = payload.valueCurrency.toUpperCase()
-          if (typeof payload.probability === 'number') bodyPayload.probability = payload.probability
-          if (payload.expectedCloseAt) bodyPayload.expectedCloseAt = payload.expectedCloseAt
-          if (payload.description) bodyPayload.description = payload.description
-          const res = await apiFetch('/api/customers/deals', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(bodyPayload),
-          })
-          if (!res.ok) {
-            let message = t('customers.people.detail.deals.error')
-            try {
-              const details = await res.clone().json()
-              if (details && typeof details.error === 'string') message = details.error
-            } catch {}
-            throw new Error(message)
-          }
-          const body = await res.json().catch(() => ({}))
-          const newDeal: DealSummary = {
-            id: typeof body?.id === 'string' ? body.id : generateTempId(),
-            title: payload.title,
-            status: payload.status ?? null,
-            pipelineStage: payload.pipelineStage ?? null,
-            valueAmount:
-              typeof payload.valueAmount === 'number' ? payload.valueAmount.toString() : null,
-            valueCurrency: payload.valueCurrency ? payload.valueCurrency.toUpperCase() : null,
-            probability: typeof payload.probability === 'number' ? payload.probability : null,
-            expectedCloseAt: payload.expectedCloseAt ?? null,
-          }
-          setData((prev) => (prev ? { ...prev, deals: [newDeal, ...prev.deals] } : prev))
-          flash(t('customers.people.detail.deals.success'), 'success')
-        } catch (err) {
-          const message = err instanceof Error ? err.message : t('customers.people.detail.deals.error')
-          flash(message, 'error')
-          throw err instanceof Error ? err : new Error(message)
-        } finally {
-          setSectionPending((prev) => ({ ...prev, deals: false }))
-        }
-      },
-      [personId, t]
-    )
+  const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
+    setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
+  }, [])
   
     const handleCreateAddress = React.useCallback(
       async (payload: CustomerAddressInput) => {
@@ -1166,9 +1111,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               )}
               {activeTab === 'deals' && (
                 <DealsSection
-                  deals={data.deals}
-                  onCreate={handleCreateDeal}
-                  isSubmitting={sectionPending.deals}
+                  scope={dealsScope}
                   emptyLabel={t('customers.people.detail.empty.deals')}
                   addActionLabel={t('customers.people.detail.actions.addDeal')}
                   emptyState={{
@@ -1176,6 +1119,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                     actionLabel: t('customers.people.detail.emptyState.deals.action'),
                   }}
                   onActionChange={handleSectionActionChange}
+                  onLoadingChange={handleDealsLoadingChange}
                   translator={t}
                 />
               )}
