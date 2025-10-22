@@ -18,7 +18,6 @@ import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { LoadingMessage } from './LoadingMessage'
 import { TimelineItemHeader } from './TimelineItemHeader'
-import { registerHotkey } from '@open-mercato/shared/lib/hotkeys'
 import { AppearanceDialog } from './AppearanceDialog'
 
 type UiMarkdownEditorProps = {
@@ -28,8 +27,7 @@ type UiMarkdownEditorProps = {
   previewOptions?: { remarkPlugins?: unknown[] }
 }
 
-const ADD_NOTE_HOTKEY_HINT = '⌥⌘N'
-const SUBMIT_SHORTCUT_HINT = '⌘⏎'
+const SUBMIT_SHORTCUT_LABEL = '⌘⏎ / Ctrl+Enter'
 
 function MarkdownEditorFallback() {
   const t = useT()
@@ -262,20 +260,15 @@ export function NotesSection({
     })
   }, [])
 
-  const addActionLabelWithShortcut = React.useMemo(
-    () => `${addActionLabel} ${ADD_NOTE_HOTKEY_HINT}`,
-    [addActionLabel],
-  )
-
   React.useEffect(() => {
     if (!onActionChange) return
     onActionChange({
-      label: addActionLabelWithShortcut,
+      label: addActionLabel,
       onClick: focusComposer,
       disabled: isSubmitting || isLoading || !hasEntity,
     })
     return () => onActionChange(null)
-  }, [onActionChange, addActionLabelWithShortcut, focusComposer, hasEntity, isLoading, isSubmitting])
+  }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting])
 
   const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
     if (!element) return
@@ -313,21 +306,6 @@ export function NotesSection({
     setDraftIcon(null)
     setDraftColor(null)
   }, [hasEntity])
-
-  React.useEffect(() => {
-    const registration = registerHotkey('meta+alt+n ctrl+alt+n', 'customers.notes.add', (event) => {
-      const target = event.target as HTMLElement | null
-      if (target) {
-        const tagName = target.tagName.toLowerCase()
-        if (tagName === 'input' || tagName === 'textarea' || target.isContentEditable) return
-      }
-      if (!hasEntity || isLoading || isSubmitting) return
-      event.preventDefault()
-      focusComposer()
-    })
-    return () => registration.unbind()
-  }, [focusComposer, hasEntity, isLoading, isSubmitting])
-
 
   const visibleNotes = React.useMemo(() => notes.slice(0, visibleCount), [notes, visibleCount])
   const hasVisibleNotes = React.useMemo(() => visibleCount > 0 && notes.length > 0, [visibleCount, notes.length])
@@ -645,7 +623,7 @@ export function NotesSection({
       : t('customers.people.detail.notes.saving', 'Saving note…')
 
   return (
-    <div className="mt-3">
+    <div className="mt-4">
       <div
         className={[
           'overflow-hidden rounded-xl transition-all duration-300 ease-out',
@@ -762,17 +740,11 @@ export function NotesSection({
                 size="sm"
                 disabled={isSubmitting || isLoading || !hasEntity}
                 className="inline-flex items-center gap-2"
-                onKeyDown={(event) => {
-                  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                    event.preventDefault()
-                    formRef.current?.requestSubmit()
-                  }
-                }}
               >
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 <span>{addActionLabel}</span>
-                <span className="hidden rounded border border-border px-1 text-[10px] font-medium text-muted-foreground sm:inline-flex">
-                  {SUBMIT_SHORTCUT_HINT}
+                <span className="hidden rounded border border-border px-2 py-px text-[10px] font-medium text-muted-foreground sm:inline-flex">
+                  {SUBMIT_SHORTCUT_LABEL}
                 </span>
               </Button>
             </div>
@@ -978,7 +950,7 @@ export function NotesSection({
         primaryLabel={appearanceDialogPrimaryLabel}
         savingLabel={appearanceDialogSavingLabel}
         cancelLabel={t('customers.people.detail.notes.appearance.cancel')}
-        shortcutHint={SUBMIT_SHORTCUT_HINT}
+        shortcutHint={SUBMIT_SHORTCUT_LABEL}
       />
     </div>
   )
