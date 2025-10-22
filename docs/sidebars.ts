@@ -151,6 +151,7 @@ const sidebars: SidebarsConfig = {
             'framework/admin-ui/data-grids',
             'framework/admin-ui/crud-form',
             'framework/admin-ui/field-registry',
+            'framework/admin-ui/perspectives',
             'framework/admin-ui/custom-field-validation',
           ],
         },
