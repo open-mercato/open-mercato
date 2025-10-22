@@ -556,6 +556,23 @@ export function NotesSection({
     }
   }, [contentEditor, handleUpdateNote, t])
 
+  const handleContentEditorKeyDown = React.useCallback(
+    (event: React.KeyboardEvent) => {
+      if (!contentEditor.id) return
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault()
+        if (!contentSavingId) void handleContentSave()
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setContentEditor({ id: '', value: '' })
+        setContentError(null)
+      }
+    },
+    [contentEditor.id, contentSavingId, handleContentSave],
+  )
+
   const handleComposerKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLFormElement>) => {
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -617,8 +634,7 @@ export function NotesSection({
     'Save appearance ⌘⏎ / Ctrl+Enter',
   )
   const composerSubmitLabel = addNoteShortcutLabel
-  const appearanceDialogPrimaryLabel =
-    appearanceDialogState?.mode === 'edit' ? saveAppearanceShortcutLabel : addNoteShortcutLabel
+  const appearanceDialogPrimaryLabel = saveAppearanceShortcutLabel
   const appearanceDialogSavingLabel =
     appearanceDialogState?.mode === 'edit'
       ? t('customers.people.detail.notes.appearance.saving')
@@ -820,7 +836,7 @@ export function NotesSection({
                   </div>
                 </div>
                 {isEditingContent ? (
-                  <div className="space-y-2">
+                  <div className="space-y-2" onKeyDown={handleContentEditorKeyDown}>
                     {isMarkdownEnabled ? (
                       <div className="w-full rounded-md border border-muted-foreground/20 bg-background p-2">
                         <div data-color-mode="light" className="w-full">
@@ -855,7 +871,7 @@ export function NotesSection({
                             {t('customers.people.detail.notes.saving')}
                           </>
                         ) : (
-                          t('customers.people.detail.inline.save')
+                          t('customers.people.detail.inline.saveShortcut')
                         )}
                       </Button>
                       <Button
