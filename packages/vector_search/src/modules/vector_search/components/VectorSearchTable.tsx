@@ -4,9 +4,17 @@ import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@/lib/utils'
+
+function StatusBadge({ variant = 'default', children }: { variant?: 'default' | 'destructive'; children: React.ReactNode }) {
+  const className = cn(
+    'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+    variant === 'destructive' ? 'bg-destructive/15 text-destructive border border-destructive/30' : 'bg-muted text-muted-foreground border border-muted-foreground/20'
+  )
+  return <span className={className}>{children}</span>
+}
 
 export type VectorSearchRecordRow = {
   id: string
@@ -108,7 +116,7 @@ export default function VectorSearchTable() {
       cell: ({ row }) => {
         const record = row.original
         if (record.embeddingError) {
-          return <Badge variant="destructive">Error</Badge>
+          return <StatusBadge variant="destructive">Error</StatusBadge>
         }
         if (!record.embeddingModel) {
           return <span className="text-muted-foreground text-xs">Pending</span>

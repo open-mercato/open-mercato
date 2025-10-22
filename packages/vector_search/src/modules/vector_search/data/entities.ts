@@ -1,4 +1,5 @@
-import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
+import { Entity, PrimaryKey, Property, Index, JsonType } from '@mikro-orm/core'
+import { PgVectorType } from './pgVectorType'
 
 export type VectorSearchRecordLink = {
   href: string
@@ -40,19 +41,19 @@ export class VectorSearchRecord {
   @Property({ name: 'primary_url', type: 'text' })
   primaryUrl!: string
 
-  @Property({ name: 'links', type: 'json', nullable: true })
+  @Property({ name: 'links', type: JsonType, nullable: true })
   links?: VectorSearchRecordLink[] | null
 
-  @Property({ name: 'search_terms', type: 'json', nullable: true })
+  @Property({ name: 'search_terms', type: JsonType, nullable: true })
   searchTerms?: string[] | null
 
-  @Property({ name: 'payload', type: 'json', nullable: true })
+  @Property({ name: 'payload', type: JsonType, nullable: true })
   payload?: Record<string, unknown> | null
 
   @Property({ name: 'combined_text', type: 'text' })
   combinedText!: string
 
-  @Property({ name: 'embedding', columnType: 'vector(1536)', nullable: true })
+  @Property({ type: PgVectorType, columnType: 'vector(1536)', nullable: true })
   embedding?: number[] | null
 
   @Property({ name: 'embedding_model', type: 'text', nullable: true })

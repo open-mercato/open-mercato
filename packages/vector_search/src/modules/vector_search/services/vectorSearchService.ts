@@ -51,6 +51,7 @@ const DEFAULT_EMBEDDING_DIMENSIONS = 1536
 export class VectorSearchService {
   private readonly registry: Map<string, VectorSearchEntityConfig>
   private openAIClient: ReturnType<typeof createOpenAI> | null = null
+  private tableReady = false
 
   constructor(private readonly em: EntityManager) {
     this.registry = resolveVectorSearchConfigs()
@@ -116,6 +117,8 @@ export class VectorSearchService {
       buildResult,
       combinedText,
     })
+
+    if (!(await this.ensureTable(knex))) return
 
     const scopeQuery = this.scopeQuery(knex, {
       entityType,
@@ -195,6 +198,7 @@ export class VectorSearchService {
 
   async markDeleted(payload: DeletePayload): Promise<void> {
     const knex = this.getKnex()
+    if (!(await this.ensureTable(knex))) return
     await this.scopeQuery(knex, payload)
       .update({
         deleted_at: knex.fn.now(),
@@ -207,6 +211,7 @@ export class VectorSearchService {
     if (!sanitized.length) return []
 
     const knex = this.getKnex()
+    if (!(await this.ensureTable(knex))) return []
     const limit = Math.min(Math.max(opts.limit ?? 8, 1), 50)
 
     const embedding = await this.tryEmbed(sanitized, undefined, undefined)
@@ -266,6 +271,9 @@ export class VectorSearchService {
 
   async list(params: { page: number; pageSize: number; query?: string | null; tenantId?: string | null; organizationId?: string | null }) {
     const knex = this.getKnex()
+    if (!(await this.ensureTable(knex))) {
+      return { items: [], total: 0, page: Math.max(params.page, 1), pageSize: Math.max(Math.min(params.pageSize, 100), 1) }
+    }
     const page = Math.max(params.page, 1)
     const pageSize = Math.max(Math.min(params.pageSize, 100), 1)
     const offset = (page - 1) * pageSize
@@ -297,22 +305,47 @@ export class VectorSearchService {
         'last_indexed_at',
         'updated_at',
       ])
-      .orderBy('updated_at', 'desc')
       .limit(pageSize)
       .offset(offset)
 
+    let countQuery = base.clone()
+
     if (params.query && params.query.trim().length) {
       const search = params.query.trim()
-      itemsQuery = itemsQuery.andWhere((qb) => {
-        qb.whereILike('title', `%${search}%`)
-          .orWhereILike('combined_text', `%${search}%`)
-          .orWhereRaw('exists (select 1 from jsonb_array_elements_text(coalesce(search_terms, \'[]\'::jsonb)) as term where term ilike ?)', [`%${search}%`])
-      })
+      const embedding = await this.tryEmbed(search, undefined, undefined)
+
+      if (embedding?.vector && embedding.vector.length) {
+        const literal = this.formatVector(embedding.vector)
+        itemsQuery = itemsQuery
+          .whereNotNull('embedding')
+          .select(knex.raw('1 - ("embedding" <=> ?::vector) as similarity', [literal]))
+          .orderByRaw('"embedding" <=> ?::vector', [literal])
+          .orderBy('updated_at', 'desc')
+        countQuery = countQuery.whereNotNull('embedding')
+      } else {
+        itemsQuery = itemsQuery
+          .select(knex.raw('0.0 as similarity'))
+          .orderBy('updated_at', 'desc')
+          .andWhere((qb) => {
+            qb.whereILike('title', `%${search}%`)
+              .orWhereILike('combined_text', `%${search}%`)
+              .orWhereRaw('exists (select 1 from jsonb_array_elements_text(coalesce(search_terms, \'[]\'::jsonb)) as term where term ilike ?)', [`%${search}%`])
+          })
+        countQuery = countQuery.andWhere((qb) => {
+          qb.whereILike('title', `%${search}%`)
+            .orWhereILike('combined_text', `%${search}%`)
+            .orWhereRaw('exists (select 1 from jsonb_array_elements_text(coalesce(search_terms, \'[]\'::jsonb)) as term where term ilike ?)', [`%${search}%`])
+        })
+      }
+    } else {
+      itemsQuery = itemsQuery
+        .select(knex.raw('0.0 as similarity'))
+        .orderBy('updated_at', 'desc')
     }
 
     const [items, totalRow] = await Promise.all([
       itemsQuery,
-      base.clone().count<{ count: string }>('id as count').first(),
+      countQuery.count<{ count: string }>('id as count').first(),
     ])
 
     const total = totalRow ? Number(totalRow.count) || 0 : 0
@@ -473,5 +506,18 @@ export class VectorSearchService {
 
   private getKnex(): Knex {
     return (this.em.getConnection().getKnex() as Knex)
+  }
+
+  private async ensureTable(knex: Knex): Promise<boolean> {
+    if (this.tableReady) return true
+    try {
+      const exists = await knex.schema.hasTable('vector_search_records')
+      this.tableReady = exists
+      return exists
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('[vector_search] failed to verify table availability', error)
+      return false
+    }
   }
 }

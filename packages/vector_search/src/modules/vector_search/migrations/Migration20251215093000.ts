@@ -2,7 +2,7 @@ import { Migration } from '@mikro-orm/migrations'
 
 export class Migration20251215093000 extends Migration {
   override async up(): Promise<void> {
-    this.addSql('create extension if not exists "vector";')
+    this.addSql('create extension if not exists "vector" schema pg_catalog;')
 
     this.addSql(`
       create table "vector_search_records" (

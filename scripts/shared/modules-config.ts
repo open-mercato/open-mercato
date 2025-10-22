@@ -26,9 +26,15 @@ function pkgDirFor(from?: string) {
   // Support other local packages like '@open-mercato/example' => packages/example/src/modules
   const m = from.match(/^@open-mercato\/(.+)$/)
   if (m) {
-    const raw = path.resolve(`packages/${m[1]}/src/modules`)
+    const rawPkg = path.resolve(`packages/${m[1]}`)
+    const raw = path.join(rawPkg, 'src/modules')
+    const rawHasPkg = fs.existsSync(path.join(rawPkg, 'package.json'))
+    if (rawHasPkg && fs.existsSync(raw)) return raw
+    const underscoredPkg = path.resolve(`packages/${m[1].replace(/-/g, '_')}`)
+    const underscored = path.join(underscoredPkg, 'src/modules')
+    const underscoredHasPkg = fs.existsSync(path.join(underscoredPkg, 'package.json'))
+    if (underscoredHasPkg && fs.existsSync(underscored)) return underscored
     if (fs.existsSync(raw)) return raw
-    const underscored = path.resolve(`packages/${m[1].replace(/-/g, '_')}/src/modules`)
     if (fs.existsSync(underscored)) return underscored
     return raw
   }
