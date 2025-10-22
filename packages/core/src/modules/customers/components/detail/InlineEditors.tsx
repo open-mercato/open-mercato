@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { FileCode, Loader2, Linkedin, Mail, Pencil, Phone, Twitter, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -10,6 +11,7 @@ import { useT } from '@/lib/i18n/context'
 import { cn } from '@/lib/utils'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import remarkGfm from 'remark-gfm'
 import { useEmailDuplicateCheck } from '../../backend/hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../../utils/phoneDuplicates'
 import {
@@ -26,6 +28,7 @@ import {
   invalidateCustomerDictionary,
   useCustomerDictionary,
 } from './hooks/useCustomerDictionary'
+import { LoadingMessage } from './LoadingMessage'
 
 export type InlineFieldType = 'text' | 'email' | 'tel' | 'url'
 
@@ -45,6 +48,28 @@ export type InlineFieldProps = {
   hideLabel?: boolean
   renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string; type: InlineFieldType }) => React.ReactNode
 }
+
+type UiMarkdownEditorProps = {
+  value?: string
+  height?: number
+  onChange?: (value?: string) => void
+  previewOptions?: { remarkPlugins?: unknown[] }
+}
+
+function MarkdownEditorFallback() {
+  const t = useT()
+  return (
+    <LoadingMessage
+      label={t('customers.people.detail.notes.editorLoading', 'Loading editor…')}
+      className="min-h-[200px]"
+    />
+  )
+}
+
+const UiMarkdownEditor = dynamic<UiMarkdownEditorProps>(() => import('@uiw/react-md-editor'), {
+  ssr: false,
+  loading: () => <MarkdownEditorFallback />,
+})
 
 export function InlineTextEditor({
   label,
@@ -396,6 +421,7 @@ export function InlineMultilineEditor({
   const [saving, setSaving] = React.useState(false)
   const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(false)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const markdownEditorRef = React.useRef<HTMLDivElement | null>(null)
   const containerClasses = cn(
     'group rounded-lg border p-4',
     variant === 'muted' ? 'bg-muted/20' : 'bg-card',
@@ -420,6 +446,24 @@ export function InlineMultilineEditor({
   React.useEffect(() => {
     adjustTextareaSize(textareaRef.current)
   }, [adjustTextareaSize, draft, isMarkdownEnabled])
+
+  React.useEffect(() => {
+    if (!editing) return
+    if (isMarkdownEnabled) {
+      const element = markdownEditorRef.current?.querySelector('textarea')
+      if (!element) return
+      window.requestAnimationFrame(() => {
+        element.focus()
+      })
+      return
+    }
+    const element = textareaRef.current
+    if (!element) return
+    window.requestAnimationFrame(() => {
+      adjustTextareaSize(element)
+      element.focus()
+    })
+  }, [adjustTextareaSize, editing, isMarkdownEnabled])
 
   const handleMarkdownToggle = React.useCallback(() => {
     setIsMarkdownEnabled((prev) => !prev)
@@ -527,7 +571,51 @@ export function InlineMultilineEditor({
                 }
               }}
             >
-              <div className="flex w-full items-center justify-end gap-2">
+              {isMarkdownEnabled ? (
+                <div
+                  ref={markdownEditorRef}
+                  className={cn(
+                    'w-full rounded-md border border-muted-foreground/30 bg-background p-2',
+                    saving ? 'pointer-events-none opacity-75' : null,
+                  )}
+                >
+                  <div data-color-mode="light" className="w-full">
+                    <UiMarkdownEditor
+                      value={draft}
+                      height={220}
+                      onChange={(value) => {
+                        if (error) setError(null)
+                        setDraft(typeof value === 'string' ? value : '')
+                      }}
+                      previewOptions={{ remarkPlugins: [remarkGfm] }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <textarea
+                  ref={textareaRef}
+                  rows={3}
+                  className="w-full resize-none overflow-hidden rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={placeholder}
+                  value={draft}
+                  onChange={(event) => {
+                    if (error) setError(null)
+                    setDraft(event.target.value)
+                  }}
+                  onInput={(event) => adjustTextareaSize(event.currentTarget)}
+                  autoFocus
+                  disabled={saving}
+                />
+              )}
+              {error ? <p className="text-xs text-red-600">{error}</p> : null}
+              <div className="flex items-center gap-2">
+                <Button type="submit" size="sm" disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {t('customers.people.detail.inline.saveShortcut')}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+                  {t('customers.people.detail.inline.cancel')}
+                </Button>
                 <Button
                   type="button"
                   variant="ghost"
@@ -553,33 +641,6 @@ export function InlineMultilineEditor({
                       ? t('customers.people.detail.notes.markdownDisable')
                       : t('customers.people.detail.notes.markdownEnable')}
                   </span>
-                </Button>
-              </div>
-              <textarea
-                ref={textareaRef}
-                rows={isMarkdownEnabled ? 6 : 3}
-                className={cn(
-                  'w-full resize-none overflow-hidden rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring',
-                  isMarkdownEnabled ? 'font-mono' : null,
-                )}
-                placeholder={placeholder}
-                value={draft}
-                onChange={(event) => {
-                  if (error) setError(null)
-                  setDraft(event.target.value)
-                }}
-                onInput={(event) => adjustTextareaSize(event.currentTarget)}
-                autoFocus
-                disabled={saving}
-              />
-              {error ? <p className="text-xs text-red-600">{error}</p> : null}
-              <div className="flex items-center gap-2">
-                <Button type="submit" size="sm" disabled={saving}>
-                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('customers.people.detail.inline.saveShortcut')}
-                </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
-                  {t('customers.people.detail.inline.cancel')}
                 </Button>
               </div>
             </form>

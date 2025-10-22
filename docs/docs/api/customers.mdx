@@ -37,6 +37,22 @@ curl -X GET "$BASE_URL/customers/people?page=1&pageSize=20&search=Acme" \
 
 Response includes the matching records plus pagination metadata.
 
+### Retrieve Person — `GET /customers/people/{id}`
+
+**Feature:** `customers.people.view`  
+By default, the detail payload contains the core person entity, profile, addresses, tags, custom fields, and viewer metadata. Pass the repeatable `include` query parameter to hydrate heavier related collections on demand:
+
+- `include=comments` (or `include=notes`) — latest comments attached to the person.
+- `include=activities` — recent timeline activities.
+- `include=deals` — attached deals (mirrors `/customers/deals` response shape).
+- `include=todos` (or `include=tasks`) — linked tasks with resolved metadata.
+
+```bash
+curl -X GET "$BASE_URL/customers/people/$PERSON_ID?include=todos&include=comments" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Accept: application/json"
+```
+
 ### Create Person — `POST /customers/people`
 
 **Feature:** `customers.people.manage`  
@@ -75,7 +91,7 @@ Pass the record id via query string or JSON body (`{ "id": "<uuid>" }`).
 ### List Deals — `GET /customers/deals`
 
 **Feature:** `customers.deals.view`  
-**Query parameters:** `page`, `pageSize`, `search` (`title` substring), `status`, `pipelineStage`, `sortField`, `sortDir`.
+**Query parameters:** `page`, `pageSize`, `search` (`title` substring), `status`, `pipelineStage`, `sortField`, `sortDir`, `personEntityId`, `companyEntityId`.
 
 ### Create Deal — `POST /customers/deals`
 

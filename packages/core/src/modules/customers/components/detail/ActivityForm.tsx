@@ -155,6 +155,8 @@ export function ActivityForm({
     ]
   }, [activityTypeLabels, createActivityOption, dictionaryAppearanceLabels, loadActivityOptions, t])
 
+  const baseFieldIds = React.useMemo(() => new Set(baseFields.map((field) => field.id)), [baseFields])
+
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
       id: 'details',
@@ -192,6 +194,10 @@ export function ActivityForm({
         Object.entries(values).forEach(([key, value]) => {
           if (key.startsWith('cf_')) {
             customEntries[key.slice(3)] = value
+            return
+          }
+          if (!baseFieldIds.has(key) && key !== 'id') {
+            customEntries[key] = value
           }
         })
         await onSubmit({ base, custom: customEntries })
@@ -224,7 +230,6 @@ export function ActivityForm({
       fields={baseFields}
       groups={groups}
       initialValues={embeddedInitialValues}
-      schema={schema}
       onSubmit={handleSubmit}
       submitLabel={submitLabel ?? (mode === 'edit'
         ? t('customers.people.detail.activities.update', 'Update activity (⌘/Ctrl + Enter)')

@@ -7,10 +7,9 @@ import { activityCreateSchema, activityUpdateSchema } from '../../data/validator
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
-import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
-import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
+import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -75,49 +74,6 @@ const crud = makeCrudRoute({
       if (query.activityType) filters.activity_type = { $eq: query.activityType }
       return filters
     },
-    transformItem: (item: any) => {
-      if (!item) return item
-      const toIso = (value: unknown): string | null => {
-        if (!value) return null
-        if (typeof value === 'string') {
-          const trimmed = value.trim()
-          if (!trimmed) return null
-          const parsed = new Date(trimmed)
-          return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
-        }
-        if (value instanceof Date) {
-          const ms = value.getTime()
-          return Number.isNaN(ms) ? null : value.toISOString()
-        }
-        return null
-      }
-      const toStringOrNull = (value: unknown): string | null => {
-        if (typeof value === 'string') {
-          const trimmed = value.trim()
-          return trimmed.length ? trimmed : null
-        }
-        if (typeof value === 'number' || typeof value === 'boolean') {
-          return String(value)
-        }
-        return null
-      }
-      const normalizedId = toStringOrNull(item.id) ?? ''
-      return {
-        id: normalizedId,
-        entityId: toStringOrNull(item.entity_id),
-        dealId: toStringOrNull(item.deal_id),
-        activityType: toStringOrNull(item.activity_type) ?? '',
-        subject: toStringOrNull(item.subject),
-        body: toStringOrNull(item.body),
-        occurredAt: toIso(item.occurred_at),
-        authorUserId: toStringOrNull(item.author_user_id),
-        createdAt: toIso(item.created_at) ?? new Date().toISOString(),
-        appearanceIcon: toStringOrNull(item.appearance_icon),
-        appearanceColor: toStringOrNull(item.appearance_color),
-        organizationId: toStringOrNull(item.organization_id),
-        tenantId: toStringOrNull(item.tenant_id),
-      }
-    },
   },
   actions: {
     create: {
@@ -168,8 +124,6 @@ const crud = makeCrudRoute({
         authorUserId?: string | null
         authorName?: string | null
         authorEmail?: string | null
-        organizationId?: string | null
-        tenantId?: string | null
         customFields?: Array<{
           key: string
           label: string
@@ -179,33 +133,6 @@ const crud = makeCrudRoute({
         }>
       }
       const typedItems = items as ActivityRecord[]
-
-      const recordIds = typedItems
-        .map((item) => (typeof item.id === 'string' && item.id.trim().length ? item.id : null))
-        .filter((value): value is string => value !== null)
-      let valuesById: Record<string, Record<string, unknown>> = {}
-      if (recordIds.length) {
-        try {
-          const em = ctx.container.resolve('em') as any
-          const tenantIdByRecord: Record<string, string | null> = {}
-          const organizationIdByRecord: Record<string, string | null> = {}
-          typedItems.forEach((item) => {
-            if (!item.id) return
-            tenantIdByRecord[item.id] = item.tenantId ?? null
-            organizationIdByRecord[item.id] = item.organizationId ?? null
-          })
-          valuesById = await loadCustomFieldValues({
-            em,
-            entityId: E.customers.customer_activity,
-            recordIds,
-            tenantIdByRecord,
-            organizationIdByRecord,
-            tenantFallbacks: [ctx.auth?.tenantId ?? null].filter((value): value is string => typeof value === 'string' && value.length > 0),
-          })
-        } catch (err) {
-          console.warn('[customers.activities] Failed to load custom field values', err)
-        }
-      }
 
       // Resolve author metadata
       const authorIds = Array.from(
@@ -358,6 +285,22 @@ const crud = makeCrudRoute({
           item.customFields = []
         })
       }
+
+      // Map custom field entries using query engine output (cf_* keys)
+      typedItems.forEach((item) => {
+        const raw = extractAllCustomFieldEntries(item as any)
+        const entries = Object.entries(raw).map(([prefixedKey, value]) => {
+          const key = prefixedKey.replace(/^cf_/, '')
+          return {
+            key,
+            label: key,
+            value,
+            kind: null,
+            multi: Array.isArray(value),
+          }
+        })
+        item.customFields = entries
+      })
     },
   },
 })

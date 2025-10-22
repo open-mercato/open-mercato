@@ -221,7 +221,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       setIsLoading(true)
       setError(null)
       try {
-        const res = await apiFetch(`/api/customers/people/${encodeURIComponent(id)}`)
+        const res = await apiFetch(`/api/customers/people/${encodeURIComponent(id)}?include=todos`)
         if (!res.ok) {
           const payload = await res.json().catch(() => ({}))
           const message =
@@ -1074,7 +1074,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               ) : null}
             </div>
             <div>
-              {activeTab !== 'notes' ? (
+              {activeTab !== 'notes' && activeTab !== 'deals' ? (
                 <SectionLoader
                   isLoading={sectionPending[activeTab as SectionKey]}
                   label={sectionLoaderLabel}

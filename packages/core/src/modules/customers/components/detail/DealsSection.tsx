@@ -14,6 +14,8 @@ import { DealDialog } from './DealDialog'
 import type { DealFormBaseValues, DealFormSubmitPayload } from './DealForm'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 
+const DEALS_PAGE_SIZE = 10
+
 type DealsScope =
   | { kind: 'person'; entityId: string }
   | { kind: 'company'; entityId: string }
@@ -151,6 +153,9 @@ export function DealsSection({
   const [isLoading, setIsLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null)
+  const [hasMore, setHasMore] = React.useState(false)
+  const pageRef = React.useRef(0)
+  const hasMoreRef = React.useRef(true)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [dialogMode, setDialogMode] = React.useState<'create' | 'edit'>('create')
   const [editingDealId, setEditingDealId] = React.useState<string | null>(null)
@@ -177,31 +182,138 @@ export function DealsSection({
     [t],
   )
 
-  const loadDeals = React.useCallback(async () => {
+  const loadDeals = React.useCallback(async ({ append }: { append: boolean }) => {
     if (!scope) {
       setDeals([])
       setLoadError(null)
+      setHasMore(false)
+      pageRef.current = 0
+      hasMoreRef.current = false
       return
+    }
+    if (append && !hasMoreRef.current) return
+    const nextPage = append ? pageRef.current + 1 : 1
+    if (!append) {
+      pageRef.current = 0
+      hasMoreRef.current = true
+      setHasMore(true)
+      setDeals([])
     }
     pushLoading()
     setIsLoading(true)
     try {
-      if (scope.kind === 'person') {
-        const res = await apiFetch(`/api/customers/people/${encodeURIComponent(scope.entityId)}`)
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof payload?.error === 'string'
-              ? payload.error
-              : translate('customers.people.detail.deals.loadError', 'Failed to load deals.')
-          throw new Error(message)
-        }
-        const items = Array.isArray(payload?.deals) ? (payload.deals as DealSummary[]) : []
-        setDeals(items.map((item) => normalizeDeal({ ...item })))
-      } else {
-        // Company scope loader is not yet available; clear list for now.
-        setDeals([])
+      const params = new URLSearchParams({
+        page: String(nextPage),
+        pageSize: String(DEALS_PAGE_SIZE),
+        sortField: 'updatedAt',
+        sortDir: 'desc',
+      })
+      if (scope.kind === 'person') params.set('personEntityId', scope.entityId)
+      if (scope.kind === 'company') params.set('companyEntityId', scope.entityId)
+      const res = await apiFetch(`/api/customers/deals?${params.toString()}`)
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const message =
+          typeof payload?.error === 'string'
+            ? payload.error
+            : translate('customers.people.detail.deals.loadError', 'Failed to load deals.')
+        throw new Error(message)
       }
+      const rawItems = Array.isArray(payload?.items) ? payload.items : []
+      const mapped = rawItems.map((item) => {
+        const record = (item && typeof item === 'object') ? (item as Record<string, unknown>) : {}
+        const id =
+          typeof record.id === 'string' && record.id.trim().length ? record.id : generateTempId()
+        const title =
+          typeof record.title === 'string' && record.title.trim().length ? record.title.trim() : ''
+        const status =
+          typeof record.status === 'string' && record.status.trim().length
+            ? record.status.trim()
+            : null
+        const pipelineStage =
+          typeof record.pipelineStage === 'string' && record.pipelineStage.trim().length
+            ? record.pipelineStage.trim()
+            : typeof record.pipeline_stage === 'string' && record.pipeline_stage.trim().length
+              ? record.pipeline_stage.trim()
+              : null
+        const valueAmount = record.valueAmount ?? record.value_amount ?? null
+        const valueCurrencyRaw = record.valueCurrency ?? record.value_currency ?? null
+        const valueCurrency =
+          typeof valueCurrencyRaw === 'string' && valueCurrencyRaw.trim().length
+            ? valueCurrencyRaw.trim().toUpperCase()
+            : null
+        const probability = record.probability ?? null
+        const expectedCloseAt =
+          typeof record.expectedCloseAt === 'string' && record.expectedCloseAt.trim().length
+            ? record.expectedCloseAt
+            : typeof record.expected_close_at === 'string' && record.expected_close_at.trim().length
+              ? record.expected_close_at
+              : null
+        const description =
+          typeof record.description === 'string' && record.description.trim().length
+            ? record.description
+            : null
+        const ownerUserId =
+          typeof record.ownerUserId === 'string' && record.ownerUserId.trim().length
+            ? record.ownerUserId
+            : typeof record.owner_user_id === 'string' && record.owner_user_id.trim().length
+              ? record.owner_user_id
+              : null
+        const source =
+          typeof record.source === 'string' && record.source.trim().length
+            ? record.source
+            : null
+        const createdAt =
+          typeof record.createdAt === 'string' && record.createdAt.trim().length
+            ? record.createdAt
+            : typeof record.created_at === 'string' && record.created_at.trim().length
+              ? record.created_at
+              : null
+        const updatedAt =
+          typeof record.updatedAt === 'string' && record.updatedAt.trim().length
+            ? record.updatedAt
+            : typeof record.updated_at === 'string' && record.updated_at.trim().length
+              ? record.updated_at
+              : null
+        return normalizeDeal({
+          id,
+          title,
+          status,
+          pipelineStage,
+          valueAmount: valueAmount as number | string | null,
+          valueCurrency,
+          probability: probability as number | string | null,
+          expectedCloseAt,
+          description,
+          ownerUserId,
+          source,
+          createdAt,
+          updatedAt,
+        })
+      })
+      setDeals(mapped)
+      setDeals((prev) => {
+        if (!append) return mapped
+        const mappedById = new Map(mapped.map((deal) => [deal.id, deal]))
+        const prevIds = new Set(prev.map((deal) => deal.id))
+        const updatedPrev = prev.map((deal) => mappedById.get(deal.id) ?? deal)
+        const appended = mapped.filter((deal) => !prevIds.has(deal.id))
+        return [...updatedPrev, ...appended]
+      })
+      pageRef.current = nextPage
+      const totalPagesRaw = payload?.totalPages
+      const totalPages =
+        typeof totalPagesRaw === 'number'
+          ? totalPagesRaw
+          : typeof totalPagesRaw === 'string' && totalPagesRaw.trim().length
+            ? Number(totalPagesRaw)
+            : null
+      const nextHasMore =
+        totalPages && Number.isFinite(totalPages)
+          ? nextPage < totalPages
+          : mapped.length === DEALS_PAGE_SIZE
+      hasMoreRef.current = nextHasMore
+      setHasMore(nextHasMore)
       setLoadError(null)
     } catch (err) {
       const message =
@@ -216,11 +328,7 @@ export function DealsSection({
   }, [popLoading, pushLoading, scope, translate])
 
   React.useEffect(() => {
-    if (!scope) {
-      setDeals([])
-      return
-    }
-    loadDeals().catch(() => {})
+    loadDeals({ append: false }).catch(() => {})
   }, [loadDeals, scope])
 
   const openCreateDialog = React.useCallback(() => {
@@ -578,6 +686,20 @@ export function DealsSection({
         {isLoading ? (
           <div className="flex justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : null}
+        {!isLoading && hasMore ? (
+          <div className="flex justify-center">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                loadDeals({ append: true }).catch(() => {})
+              }}
+              disabled={pendingAction !== null}
+            >
+              {t('customers.people.detail.deals.loadMore', 'Load more deals')}
+            </Button>
           </div>
         ) : null}
       </div>

@@ -2,11 +2,12 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerDeal } from '../../data/entities'
+import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '../../data/entities'
 import { dealCreateSchema, dealUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -19,6 +20,8 @@ const listSchema = z
     pipelineStage: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
+    personEntityId: z.string().uuid().optional(),
+    companyEntityId: z.string().uuid().optional(),
   })
   .passthrough()
 
@@ -31,7 +34,9 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-const crud = makeCrudRoute({
+type DealListQuery = z.infer<typeof listSchema>
+
+const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
   metadata: routeMetadata,
   orm: {
     entity: CustomerDeal,
@@ -117,6 +122,89 @@ const crud = makeCrudRoute({
         return { id }
       },
       response: () => ({ ok: true }),
+    },
+  },
+  hooks: {
+    beforeList: (query, ctx) => {
+      const personEntityId = query.personEntityId ?? null
+      const companyEntityId = query.companyEntityId ?? null
+      ;(ctx as any).__dealsFilters = {
+        personEntityId,
+        companyEntityId,
+      }
+    },
+    afterList: async (payload, ctx) => {
+      const filters = ((ctx as any).__dealsFilters || {}) as {
+        personEntityId?: string | null
+        companyEntityId?: string | null
+      }
+      const personEntityId =
+        typeof filters.personEntityId === 'string' && filters.personEntityId.trim().length
+          ? filters.personEntityId
+          : null
+      const companyEntityId =
+        typeof filters.companyEntityId === 'string' && filters.companyEntityId.trim().length
+          ? filters.companyEntityId
+          : null
+      if (!personEntityId && !companyEntityId) return
+      const items = Array.isArray(payload.items) ? payload.items : []
+      if (!items.length) return
+      const ids = items
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null
+          const candidate = (item as Record<string, unknown>).id
+          return typeof candidate === 'string' && candidate.trim().length ? candidate : null
+        })
+        .filter((value): value is string => !!value)
+      if (!ids.length) {
+        payload.items = []
+        payload.total = 0
+        return
+      }
+      try {
+        const em = ctx.container.resolve<EntityManager>('em')
+        const personMatches = new Set<string>()
+        const companyMatches = new Set<string>()
+        if (personEntityId) {
+          const personLinks = await em.find(CustomerDealPersonLink, {
+            deal: { $in: ids },
+            person: personEntityId,
+          })
+          personLinks.forEach((link) => {
+            const deal = link.deal
+            if (typeof deal === 'string') personMatches.add(deal)
+            else if (deal && typeof deal === 'object' && 'id' in deal && typeof (deal as any).id === 'string') {
+              personMatches.add((deal as any).id)
+            }
+          })
+        }
+        if (companyEntityId) {
+          const companyLinks = await em.find(CustomerDealCompanyLink, {
+            deal: { $in: ids },
+            company: companyEntityId,
+          })
+          companyLinks.forEach((link) => {
+            const deal = link.deal
+            if (typeof deal === 'string') companyMatches.add(deal)
+            else if (deal && typeof deal === 'object' && 'id' in deal && typeof (deal as any).id === 'string') {
+              companyMatches.add((deal as any).id)
+            }
+          })
+        }
+        const filtered = items.filter((item) => {
+          if (!item || typeof item !== 'object') return false
+          const candidate = (item as Record<string, unknown>).id
+          if (typeof candidate !== 'string' || !candidate.trim().length) return false
+          const matchesPerson = personEntityId ? personMatches.has(candidate) : true
+          const matchesCompany = companyEntityId ? companyMatches.has(candidate) : true
+          return matchesPerson && matchesCompany
+        })
+        payload.items = filtered
+        payload.total = filtered.length
+      } catch (err) {
+        console.warn('[customers.deals] failed to filter by person/company link', err)
+        // fall back to unfiltered list to avoid breaking the endpoint
+      }
     },
   },
 })
