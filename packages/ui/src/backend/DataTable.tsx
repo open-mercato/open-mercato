@@ -215,6 +215,14 @@ function writePerspectiveCookie(tableId: string, perspectiveId: string | null): 
   document.cookie = `${key}=${value}; Path=/; ${expires}; SameSite=Lax`
 }
 
+function normalizeLabel(input: string): string {
+  if (!input) return ''
+  return input
+    .replace(/^cf[_:]/, '')
+    .replace(/[_:\-]+/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
+
 function ExportMenu({ config, sections }: { config: DataTableExportConfig; sections: ResolvedExportSection[] }) {
   if (!sections.length) return null
   const { label = 'Export' } = config
@@ -374,17 +382,30 @@ export function DataTable<T>({
   const [columnOrder, setColumnOrder] = React.useState<string[]>([])
   const [deletingIds, setDeletingIds] = React.useState<string[]>([])
   const [roleClearingIds, setRoleClearingIds] = React.useState<string[]>([])
+  const [perspectiveApiMissing, setPerspectiveApiMissing] = React.useState(false)
 
   const perspectiveQuery = useQuery<PerspectivesIndexResponse>({
     queryKey: ['table-perspectives', perspectiveTableId],
     queryFn: async () => {
       if (!perspectiveTableId) throw new Error('Missing table id')
       const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}`)
+      if (res.status === 404) {
+        setPerspectiveApiMissing(true)
+        return {
+          tableId: perspectiveTableId,
+          perspectives: [],
+          defaultPerspectiveId: null,
+          rolePerspectives: [],
+          roles: [],
+          canApplyToRoles: false,
+        }
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => null)
         const error = body?.error ?? 'Failed to load perspectives'
         throw new Error(error)
       }
+      setPerspectiveApiMissing(false)
       return await res.json() as PerspectivesIndexResponse
     },
     enabled: perspectiveEnabled,
@@ -509,6 +530,20 @@ export function DataTable<T>({
     if (ids.length) setColumnOrder(ids)
   }, [table, columnOrder.length])
 
+  const initialVisibilityApplied = React.useRef(false)
+  React.useEffect(() => {
+    if (initialVisibilityApplied.current) return
+    const hidden: VisibilityState = {}
+    table.getAllLeafColumns().forEach((column) => {
+      const hiddenMeta = (column.columnDef as any)?.meta?.hidden
+      if (hiddenMeta) hidden[column.id] = false
+    })
+    if (Object.keys(hidden).length) {
+      setColumnVisibility((prev) => ({ ...hidden, ...prev }))
+    }
+    initialVisibilityApplied.current = true
+  }, [table])
+
   const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
     const settings: PerspectiveSettings = {}
     if (columnOrder.length) settings.columnOrder = [...columnOrder]
@@ -567,6 +602,9 @@ export function DataTable<T>({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
+      if (res.status === 404) {
+        throw new Error('Perspectives API is not available. Run `npm run modules:prepare` to regenerate module routes and restart the dev server.')
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => null)
         const error = body?.error ?? 'Failed to save perspective'
@@ -598,7 +636,7 @@ export function DataTable<T>({
         // ignore header rendering errors
       }
     }
-    return column.id
+    return normalizeLabel(column.id)
   }, [])
 
   const columnOptions = React.useMemo(() => {
@@ -617,10 +655,10 @@ export function DataTable<T>({
     return ordered.map((column) => ({
       id: column.id,
       label: resolveColumnLabel(column),
-      visible: column.getIsVisible(),
+      visible: columnVisibility[column.id] ?? column.getIsVisible(),
       canHide: column.getCanHide(),
     }))
-  }, [table, columnOrder, resolveColumnLabel])
+  }, [table, columnOrder, resolveColumnLabel, columnVisibility])
 
   const activePersonalPerspectiveId = React.useMemo(() => {
     if (!perspectiveData || !activePerspectiveId) return null
@@ -628,50 +666,6 @@ export function DataTable<T>({
     return found ? found.id : null
   }, [perspectiveData, activePerspectiveId])
 
-  const handlePerspectiveActivate = React.useCallback((item: PerspectiveDto | RolePerspectiveDto, _source?: 'personal' | 'role') => {
-    applyPerspectiveSettings(item.settings, item.id)
-    setPerspectiveOpen(false)
-  }, [applyPerspectiveSettings])
-
-  const handlePerspectiveSave = React.useCallback(async (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean }) => {
-    const normalizedRoles = Array.from(new Set(input.applyToRoles))
-    await savePerspectiveMutation.mutateAsync({
-      name: input.name.trim(),
-      isDefault: input.isDefault,
-      applyToRoles: normalizedRoles,
-      setRoleDefault: normalizedRoles.length > 0 ? input.setRoleDefault : false,
-      perspectiveId: activePersonalPerspectiveId,
-    })
-  }, [savePerspectiveMutation, activePersonalPerspectiveId])
-
-  const handlePerspectiveDelete = React.useCallback(async (perspectiveId: string) => {
-    await deletePerspectiveMutation.mutateAsync({ perspectiveId })
-  }, [deletePerspectiveMutation])
-
-  const handleClearRole = React.useCallback(async (roleId: string) => {
-    await clearRoleMutation.mutateAsync({ roleId })
-  }, [clearRoleMutation])
-
-  const handleToggleColumn = React.useCallback((columnId: string, visible: boolean) => {
-    const column = table.getColumn(columnId)
-    if (!column) return
-    column.toggleVisibility(visible)
-  }, [table])
-
-  const handleMoveColumn = React.useCallback((columnId: string, direction: 'up' | 'down') => {
-    setColumnOrder((prev) => {
-      const idx = prev.indexOf(columnId)
-      if (idx === -1) return prev
-      const swap = direction === 'up' ? idx - 1 : idx + 1
-      if (swap < 0 || swap >= prev.length) return prev
-      const next = [...prev]
-      const tmp = next[swap]
-      next[swap] = next[idx]
-      next[idx] = tmp
-      table.setColumnOrder(next)
-      return next
-    })
-  }, [table])
 
   const deletePerspectiveMutation = useMutation<void, Error, { perspectiveId: string }>({
     mutationFn: async ({ perspectiveId }) => {
@@ -679,6 +673,7 @@ export function DataTable<T>({
       const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`, {
         method: 'DELETE',
       })
+      if (res.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
       if (!res.ok) {
         const body = await res.json().catch(() => null)
         const error = body?.error ?? 'Failed to delete perspective'
@@ -713,6 +708,7 @@ export function DataTable<T>({
       const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`, {
         method: 'DELETE',
       })
+      if (res.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
       if (!res.ok) {
         const body = await res.json().catch(() => null)
         const error = body?.error ?? 'Failed to clear role perspectives'
@@ -740,6 +736,61 @@ export function DataTable<T>({
       }
     },
   })
+
+  const handlePerspectiveActivate = React.useCallback((item: PerspectiveDto | RolePerspectiveDto, _source?: 'personal' | 'role') => {
+    applyPerspectiveSettings(item.settings, item.id)
+    setPerspectiveOpen(false)
+  }, [applyPerspectiveSettings])
+
+  const handlePerspectiveSave = React.useCallback(async (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean }) => {
+    const normalizedRoles = Array.from(new Set(input.applyToRoles))
+    await savePerspectiveMutation.mutateAsync({
+      name: input.name.trim(),
+      isDefault: input.isDefault,
+      applyToRoles: normalizedRoles,
+      setRoleDefault: normalizedRoles.length > 0 ? input.setRoleDefault : false,
+      perspectiveId: activePersonalPerspectiveId,
+    })
+  }, [savePerspectiveMutation, activePersonalPerspectiveId])
+
+  const handlePerspectiveDelete = React.useCallback(async (perspectiveId: string) => {
+    await deletePerspectiveMutation.mutateAsync({ perspectiveId })
+  }, [deletePerspectiveMutation])
+
+  const handleClearRole = React.useCallback(async (roleId: string) => {
+    await clearRoleMutation.mutateAsync({ roleId })
+  }, [clearRoleMutation])
+
+  const handleToggleColumn = React.useCallback((columnId: string, visible: boolean) => {
+    const column = table.getColumn(columnId)
+    if (!column) return
+    setColumnVisibility((prev) => {
+      const next = { ...prev }
+      if (visible) delete next[columnId]
+      else next[columnId] = false
+      return next
+    })
+    column.toggleVisibility(visible)
+  }, [table])
+
+  const handleMoveColumn = React.useCallback((columnId: string, direction: 'up' | 'down') => {
+    setColumnOrder((prev) => {
+      const idx = prev.indexOf(columnId)
+      if (idx === -1) return prev
+      const swap = direction === 'up' ? idx - 1 : idx + 1
+      if (swap < 0 || swap >= prev.length) return prev
+      const next = [...prev]
+      const tmp = next[swap]
+      next[swap] = next[idx]
+      next[idx] = tmp
+      table.setColumnOrder(next)
+      return next
+    })
+  }, [table])
+
+  const perspectiveApiWarning = perspectiveApiMissing
+    ? 'Perspectives API is not available yet. Run `npm run modules:prepare` to regenerate module routes, then restart the server.'
+    : null
 
   React.useLayoutEffect(() => {
     if (!perspectiveEnabled) return
@@ -1066,6 +1117,7 @@ export function DataTable<T>({
           saving={savePerspectiveMutation.isLoading}
           deletingIds={deletingIds}
           roleClearingIds={roleClearingIds}
+          apiWarning={perspectiveApiWarning}
         />
       ) : null}
     </div>

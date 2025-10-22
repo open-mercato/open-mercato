@@ -41,7 +41,12 @@ export default function ExampleProductsListPage() {
     <Page>
       <PageHeader title="Products" actions={toolbar} />
       <PageBody>
-        <DataTable columns={columns} data={rows} toolbar={<Button variant="outline">Add filter</Button>} />
+        <DataTable
+          columns={columns}
+          data={rows}
+          toolbar={<Button variant="outline">Add filter</Button>}
+          perspective={{ tableId: 'example.products.list' }}
+        />
       </PageBody>
     </Page>
   )

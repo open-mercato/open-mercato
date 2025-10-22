@@ -4,3 +4,5 @@ export const features = [
   'perspectives.delete',
   'perspectives.role_defaults',
 ] as const
+
+export default features

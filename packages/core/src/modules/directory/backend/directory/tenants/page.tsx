@@ -145,6 +145,7 @@ export default function DirectoryTenantsPage() {
           sortable
           sorting={sorting}
           onSortingChange={(state) => { setSorting(state); setPage(1) }}
+          perspective={{ tableId: 'directory.tenants.list' }}
           rowActions={(row) => (
             canManage ? (
               <RowActions

@@ -33,6 +33,7 @@ export type PerspectiveSidebarProps = {
   saving: boolean
   deletingIds: string[]
   roleClearingIds: string[]
+  apiWarning?: string | null
 }
 
 const emptyArray: any[] = []
@@ -60,6 +61,7 @@ export function PerspectiveSidebar({
   saving,
   deletingIds,
   roleClearingIds,
+  apiWarning,
 }: PerspectiveSidebarProps) {
   const [name, setName] = React.useState('')
   const [isDefault, setIsDefault] = React.useState(false)
@@ -233,6 +235,11 @@ export function PerspectiveSidebar({
           </section>
           <section className="p-4 space-y-3">
             <h3 className="text-sm font-semibold uppercase text-muted-foreground">Save current view</h3>
+            {apiWarning ? (
+              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                {apiWarning}
+              </div>
+            ) : null}
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground uppercase">Name</label>
               <input
@@ -281,7 +288,7 @@ export function PerspectiveSidebar({
               </div>
             ) : null}
             {error ? <div className="text-sm text-red-600">{error}</div> : null}
-            <Button size="sm" onClick={() => void handleSave()} disabled={saving || !name.trim()}>
+            <Button size="sm" onClick={() => void handleSave()} disabled={saving || !name.trim() || Boolean(apiWarning)}>
               {saving ? 'Saving…' : 'Save perspective'}
             </Button>
           </section>
