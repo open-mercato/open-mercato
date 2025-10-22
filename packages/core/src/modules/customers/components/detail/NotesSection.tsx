@@ -6,20 +6,20 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { formatDateTime, formatRelativeTime } from './utils'
+import { formatDateTime } from './utils'
 import type { CommentSummary, Translator, SectionAction, TabEmptyState } from './types'
 import { ICON_SUGGESTIONS } from '../../lib/dictionaries'
-import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useT } from '@/lib/i18n/context'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../lib/markdownPreference'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { LoadingMessage } from './LoadingMessage'
 import { TimelineItemHeader } from './TimelineItemHeader'
+import { registerHotkey } from '@open-mercato/shared/lib/hotkeys'
+import { AppearanceDialog } from './AppearanceDialog'
 
 type UiMarkdownEditorProps = {
   value?: string
@@ -28,7 +28,8 @@ type UiMarkdownEditorProps = {
   previewOptions?: { remarkPlugins?: unknown[] }
 }
 
-const NOTE_SHORTCUT_HINT = '⌥⌘N'
+const ADD_NOTE_HOTKEY_HINT = '⌥⌘N'
+const SUBMIT_SHORTCUT_HINT = '⌘⏎'
 
 function MarkdownEditorFallback() {
   const t = useT()
@@ -262,7 +263,7 @@ export function NotesSection({
   }, [])
 
   const addActionLabelWithShortcut = React.useMemo(
-    () => `${addActionLabel} ${NOTE_SHORTCUT_HINT}`,
+    () => `${addActionLabel} ${ADD_NOTE_HOTKEY_HINT}`,
     [addActionLabel],
   )
 
@@ -314,22 +315,17 @@ export function NotesSection({
   }, [hasEntity])
 
   React.useEffect(() => {
-    const handleShortcut = (event: KeyboardEvent) => {
-      const isMacShortcut = event.metaKey && event.altKey
-      const isWindowsShortcut = event.ctrlKey && event.altKey
-      if (!isMacShortcut && !isWindowsShortcut) return
-      if (event.key.toLowerCase() !== 'n') return
+    const registration = registerHotkey('meta+alt+n ctrl+alt+n', 'customers.notes.add', (event) => {
       const target = event.target as HTMLElement | null
       if (target) {
         const tagName = target.tagName.toLowerCase()
         if (tagName === 'input' || tagName === 'textarea' || target.isContentEditable) return
       }
-      event.preventDefault()
       if (!hasEntity || isLoading || isSubmitting) return
+      event.preventDefault()
       focusComposer()
-    }
-    window.addEventListener('keydown', handleShortcut)
-    return () => window.removeEventListener('keydown', handleShortcut)
+    })
+    return () => registration.unbind()
   }, [focusComposer, hasEntity, isLoading, isSubmitting])
 
 
@@ -766,11 +762,17 @@ export function NotesSection({
                 size="sm"
                 disabled={isSubmitting || isLoading || !hasEntity}
                 className="inline-flex items-center gap-2"
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                    event.preventDefault()
+                    formRef.current?.requestSubmit()
+                  }
+                }}
               >
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 <span>{addActionLabel}</span>
                 <span className="hidden rounded border border-border px-1 text-[10px] font-medium text-muted-foreground sm:inline-flex">
-                  {NOTE_SHORTCUT_HINT}
+                  {SUBMIT_SHORTCUT_HINT}
                 </span>
               </Button>
             </div>
@@ -788,21 +790,15 @@ export function NotesSection({
             const isEditingContent = contentEditor.id === note.id
             const displayIcon = note.appearanceIcon ?? null
             const displayColor = note.appearanceColor ?? null
-            const absoluteCreatedLabel = formatDateTime(note.createdAt) ?? emptyLabel
-            const relativeCreatedLabel = formatRelativeTime(note.createdAt)
+            const timestampValue = note.createdAt
+            const fallbackTimestampLabel = formatDateTime(note.createdAt) ?? emptyLabel
             return (
               <div key={note.id} className="space-y-2 rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <TimelineItemHeader
                     title={author}
-                    subtitle={
-                      <>
-                        <span>{absoluteCreatedLabel}</span>
-                        {relativeCreatedLabel ? (
-                          <span className="ml-1">({relativeCreatedLabel})</span>
-                        ) : null}
-                      </>
-                    }
+                    timestamp={timestampValue}
+                    fallbackTimestampLabel={fallbackTimestampLabel}
                     icon={displayIcon}
                     color={displayColor}
                   />
@@ -960,75 +956,30 @@ export function NotesSection({
           />
         </div>
       )}
-      <Dialog open={appearanceDialogOpen} onOpenChange={(next) => { if (!next) handleAppearanceDialogClose() }}>
-        <DialogContent
-          className="min-h-[70vh] sm:min-h-0 sm:max-w-md"
-          onEscapeKeyDown={(event) => {
-            event.preventDefault()
-            handleAppearanceDialogClose()
-          }}
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-              event.preventDefault()
-              void handleAppearanceDialogSubmit()
-            }
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {appearanceDialogState?.mode === 'edit'
-                ? t('customers.people.detail.notes.appearance.edit')
-                : t('customers.people.detail.notes.appearance.toggleOpen', 'Customize appearance')}
-            </DialogTitle>
-          </DialogHeader>
-          {appearanceDialogState ? (
-            <>
-              <div className="flex flex-1 flex-col gap-4">
-                <AppearanceSelector
-                  icon={appearanceDialogState.icon}
-                  color={appearanceDialogState.color}
-                  onIconChange={(value) =>
-                    setAppearanceDialogState((prev) => (prev ? { ...prev, icon: value ?? null } : prev))
-                  }
-                  onColorChange={(value) =>
-                    setAppearanceDialogState((prev) => (prev ? { ...prev, color: value ?? null } : prev))
-                  }
-                  labels={noteAppearanceLabels}
-                  iconSuggestions={ICON_SUGGESTIONS}
-                  disabled={appearanceDialogSaving}
-                />
-                {appearanceDialogError ? <p className="text-sm text-red-600">{appearanceDialogError}</p> : null}
-              </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleAppearanceDialogClose}
-                  disabled={appearanceDialogSaving}
-                >
-                  {t('customers.people.detail.notes.appearance.cancel')}
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    void handleAppearanceDialogSubmit()
-                  }}
-                  disabled={appearanceDialogSaving}
-                >
-                  {appearanceDialogSaving ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {appearanceDialogSavingLabel}
-                    </>
-                  ) : (
-                    appearanceDialogPrimaryLabel
-                  )}
-                </Button>
-              </DialogFooter>
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      <AppearanceDialog
+        open={appearanceDialogOpen}
+        title={
+          appearanceDialogState?.mode === 'edit'
+            ? t('customers.people.detail.notes.appearance.edit')
+            : t('customers.people.detail.notes.appearance.toggleOpen', 'Customize appearance')
+        }
+        icon={appearanceDialogState?.icon ?? null}
+        color={appearanceDialogState?.color ?? null}
+        labels={noteAppearanceLabels}
+        iconSuggestions={ICON_SUGGESTIONS}
+        onIconChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
+        onColorChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
+        onSubmit={() => {
+          void handleAppearanceDialogSubmit()
+        }}
+        onClose={handleAppearanceDialogClose}
+        isSaving={appearanceDialogSaving}
+        errorMessage={appearanceDialogError}
+        primaryLabel={appearanceDialogPrimaryLabel}
+        savingLabel={appearanceDialogSavingLabel}
+        cancelLabel={t('customers.people.detail.notes.appearance.cancel')}
+        shortcutHint={SUBMIT_SHORTCUT_HINT}
+      />
     </div>
   )
 }

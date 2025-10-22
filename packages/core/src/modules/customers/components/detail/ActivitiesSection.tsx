@@ -6,7 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { formatDateTime, formatRelativeTime, createDictionarySelectLabels } from './utils'
+import { formatDateTime, createDictionarySelectLabels } from './utils'
 import { ActivityForm, type ActivityFormBaseValues, type ActivityFormSubmitPayload } from './ActivityForm'
 import { useT } from '@/lib/i18n/context'
 import { useQueryClient } from '@tanstack/react-query'
@@ -217,11 +217,9 @@ export function ActivitiesSection({
             const displayIcon = entry?.icon ?? activity.appearanceIcon ?? null
             const displayColor = entry?.color ?? activity.appearanceColor ?? null
             const displayLabel = entry?.label ?? activity.activityType
+            const timestampValue = activity.occurredAt ?? activity.createdAt ?? null
             const occurredLabel =
-              formatDateTime(activity.occurredAt) ??
-              formatDateTime(activity.createdAt) ??
-              t('customers.people.detail.activities.noDate', 'No date provided')
-            const relativeLabel = formatRelativeTime(activity.occurredAt ?? activity.createdAt ?? null)
+              formatDateTime(timestampValue) ?? t('customers.people.detail.activities.noDate', 'No date provided')
             const authorLabel = activity.authorName ?? activity.authorEmail ?? null
             const isPending =
               pendingActivityAction !== 'create' && pendingActivityId === activity.id && pendingActivityAction !== null
@@ -243,12 +241,8 @@ export function ActivitiesSection({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <TimelineItemHeader
                     title={displayLabel}
-                    subtitle={
-                      <>
-                        <span>{occurredLabel}</span>
-                        {relativeLabel ? <span className="ml-1">({relativeLabel})</span> : null}
-                      </>
-                    }
+                    timestamp={timestampValue}
+                    fallbackTimestampLabel={occurredLabel}
                     icon={displayIcon}
                     color={displayColor}
                   />
