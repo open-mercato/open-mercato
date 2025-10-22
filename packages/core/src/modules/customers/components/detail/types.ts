@@ -31,6 +31,14 @@ export type CommentSummary = {
   appearanceColor?: string | null
 }
 
+export type ActivityCustomFieldEntry = {
+  key: string
+  label: string
+  value: unknown
+  kind?: string | null
+  multi?: boolean
+}
+
 export type ActivitySummary = {
   id: string
   activityType: string
@@ -43,6 +51,7 @@ export type ActivitySummary = {
   authorUserId?: string | null
   authorName?: string | null
   authorEmail?: string | null
+  customFields?: ActivityCustomFieldEntry[]
 }
 
 export type DealSummary = {
@@ -50,10 +59,16 @@ export type DealSummary = {
   title: string
   status?: string | null
   pipelineStage?: string | null
-  valueAmount?: string | null
+  valueAmount?: number | string | null
   valueCurrency?: string | null
-  probability?: number | null
+  probability?: number | string | null
   expectedCloseAt?: string | null
+  description?: string | null
+  ownerUserId?: string | null
+  source?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  customValues?: Record<string, unknown> | null
 }
 
 export type TodoLinkSummary = {

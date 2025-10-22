@@ -3,13 +3,8 @@
 import * as React from 'react'
 import { z } from 'zod'
 import { useT } from '@/lib/i18n/context'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import {
-  fetchCustomFieldFormFieldsWithDefinitions,
-} from '@open-mercato/ui/backend/utils/customFieldForms'
-import type { CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { toLocalDateTimeInput } from './utils'
@@ -76,37 +71,7 @@ export function ActivityForm({
   createActivityOption,
 }: ActivityFormProps) {
   const t = useT()
-  const [customFieldDefs, setCustomFieldDefs] = React.useState<CustomFieldDefDto[]>([])
-  const [customFields, setCustomFields] = React.useState<CrudField[]>([])
-  const [loadingCustomFields, setLoadingCustomFields] = React.useState(false)
   const [pending, setPending] = React.useState(false)
-
-  React.useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoadingCustomFields(true)
-      try {
-        const { definitions, fields } = await fetchCustomFieldFormFieldsWithDefinitions(
-          ACTIVITY_ENTITY_IDS,
-          apiFetch,
-        )
-        if (cancelled) return
-        setCustomFieldDefs(definitions)
-        setCustomFields(fields)
-      } catch {
-        if (!cancelled) {
-          setCustomFieldDefs([])
-          setCustomFields([])
-        }
-      } finally {
-        if (!cancelled) setLoadingCustomFields(false)
-      }
-    }
-    load().catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const dictionaryAppearanceLabels = React.useMemo(
     () => ({
@@ -190,7 +155,22 @@ export function ActivityForm({
     ]
   }, [activityTypeLabels, createActivityOption, dictionaryAppearanceLabels, loadActivityOptions, t])
 
-  const allFields = React.useMemo(() => [...baseFields, ...customFields], [baseFields, customFields])
+  const baseFieldIds = React.useMemo(() => new Set(baseFields.map((field) => field.id)), [baseFields])
+
+  const groups = React.useMemo<CrudFormGroup[]>(() => [
+    {
+      id: 'details',
+      title: t('customers.people.detail.activities.form.details', 'Activity details'),
+      column: 1,
+      fields: ['activityType', 'subject', 'occurredAt', 'body'],
+    },
+    {
+      id: 'custom',
+      title: t('customers.people.detail.activities.form.customFields', 'Custom fields'),
+      column: 2,
+      kind: 'customFields',
+    },
+  ], [t])
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
@@ -214,6 +194,10 @@ export function ActivityForm({
         Object.entries(values).forEach(([key, value]) => {
           if (key.startsWith('cf_')) {
             customEntries[key.slice(3)] = value
+            return
+          }
+          if (!baseFieldIds.has(key) && key !== 'id') {
+            customEntries[key] = value
           }
         })
         await onSubmit({ base, custom: customEntries })
@@ -221,7 +205,7 @@ export function ActivityForm({
         setPending(false)
       }
     },
-    [isSubmitting, onSubmit, pending, t],
+    [baseFieldIds, isSubmitting, onSubmit, pending, t],
   )
 
   const embeddedInitialValues = React.useMemo(() => {
@@ -243,13 +227,13 @@ export function ActivityForm({
   return (
     <CrudForm<Record<string, unknown>>
       embedded
-      fields={allFields}
+      fields={baseFields}
+      groups={groups}
       initialValues={embeddedInitialValues}
-      schema={schema}
       onSubmit={handleSubmit}
       submitLabel={submitLabel ?? (mode === 'edit'
-        ? t('customers.people.detail.activities.update', 'Update activity')
-        : t('customers.people.detail.activities.save', 'Save activity'))}
+        ? t('customers.people.detail.activities.update', 'Update activity (⌘/Ctrl + Enter)')
+        : t('customers.people.detail.activities.save', 'Save activity (⌘/Ctrl + Enter)'))}
       extraActions={(
         <Button
           type="button"
@@ -260,7 +244,7 @@ export function ActivityForm({
           {cancelLabel ?? t('customers.people.detail.activities.cancel', 'Cancel')}
         </Button>
       )}
-      isLoading={loadingCustomFields}
+      entityIds={ACTIVITY_ENTITY_IDS}
     />
   )
 }

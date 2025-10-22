@@ -26,6 +26,21 @@ const paramsSchema = z.object({
   id: z.string().uuid(),
 })
 
+function parseIncludeParams(request: Request): Set<string> {
+  const url = new URL(request.url)
+  const raw = url.searchParams.getAll('include')
+  const tokens = new Set<string>()
+  raw.forEach((entry) => {
+    if (!entry) return
+    entry
+      .split(',')
+      .map((part) => part.trim().toLowerCase())
+      .filter((part) => part.length > 0)
+      .forEach((part) => tokens.add(part))
+  })
+  return tokens
+}
+
 function forbidden(message: string) {
   return NextResponse.json({ error: message }, { status: 403 })
 }
@@ -213,6 +228,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const parse = paramsSchema.safeParse({ id: ctx.params?.id })
   if (!parse.success) return NextResponse.json({ error: 'Invalid person id' }, { status: 400 })
 
+  const includeTokens = parseIncludeParams(_req)
+  const includeActivities = includeTokens.has('activities')
+  const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
+  const includeDeals = includeTokens.has('deals')
+  const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
+
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
   const em = container.resolve<EntityManager>('em')
@@ -241,30 +262,43 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
   const profile = await em.findOne(CustomerPersonProfile, { entity: person })
   const addresses = await em.find(CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } })
-  const comments = await em.find(CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
-  const activities = await em.find(CustomerActivity, { entity: person.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 })
   const tagAssignments = await em.find(CustomerTagAssignment, { entity: person.id }, { populate: ['tag'] })
-  const todoLinks = await em.find(CustomerTodoLink, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
 
-  const queryEngine = container.resolve<QueryEngine>('queryEngine')
+  const comments = includeComments
+    ? await em.find(CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
+    : []
+  const activities = includeActivities
+    ? await em.find(CustomerActivity, { entity: person.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 })
+    : []
+  const todoLinks = includeTodos
+    ? await em.find(CustomerTodoLink, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
+    : []
+
   let todoDetails = new Map<string, TodoDetail>()
-  try {
-    todoDetails = await resolveTodoDetails(
-      queryEngine,
-      todoLinks,
-      person.tenantId ?? auth.tenantId ?? null,
-      [person.organizationId ?? null, ...(scope?.filterIds ?? [])],
-    )
-  } catch (err) {
-    console.warn('customers.people.detail: failed to enrich todo links', err)
+  if (includeTodos && todoLinks.length) {
+    const queryEngine = container.resolve<QueryEngine>('queryEngine')
+    try {
+      todoDetails = await resolveTodoDetails(
+        queryEngine,
+        todoLinks,
+        person.tenantId ?? auth.tenantId ?? null,
+        [person.organizationId ?? null, ...(scope?.filterIds ?? [])],
+      )
+    } catch (err) {
+      console.warn('customers.people.detail: failed to enrich todo links', err)
+    }
   }
 
   const authorIds = new Set<string>()
-  for (const activity of activities) {
-    if (activity.authorUserId) authorIds.add(activity.authorUserId)
+  if (includeActivities) {
+    for (const activity of activities) {
+      if (activity.authorUserId) authorIds.add(activity.authorUserId)
+    }
   }
-  for (const comment of comments) {
-    if (comment.authorUserId) authorIds.add(comment.authorUserId)
+  if (includeComments) {
+    for (const comment of comments) {
+      if (comment.authorUserId) authorIds.add(comment.authorUserId)
+    }
   }
   const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
   if (viewerUserId) authorIds.add(viewerUserId)
@@ -284,11 +318,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     )
   }
 
-  const dealLinks = await em.find(CustomerDealPersonLink, { person: person.id }, { populate: ['deal'] })
-  const deals: CustomerDeal[] = []
-  for (const link of dealLinks) {
-    const deal = (link.deal as CustomerDeal | string | null) ?? null
-    if (deal && typeof deal !== 'string') deals.push(deal)
+  let deals: CustomerDeal[] = []
+  if (includeDeals) {
+    const dealLinks = await em.find(CustomerDealPersonLink, { person: person.id }, { populate: ['deal'] })
+    deals = dealLinks
+      .map((link) => (link.deal as CustomerDeal | string | null) ?? null)
+      .filter((deal): deal is CustomerDeal => !!deal && typeof deal !== 'string')
   }
 
   const entityCustomFieldValues = await loadCustomFieldValues({
@@ -379,65 +414,73 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       isPrimary: address.isPrimary,
       createdAt: address.createdAt.toISOString(),
     })),
-    comments: comments.map((comment) => {
-      const authorInfo = comment.authorUserId ? userMap.get(comment.authorUserId) : null
-      return {
-        id: comment.id,
-        body: comment.body,
-        authorUserId: comment.authorUserId,
-        authorName: authorInfo?.name ?? null,
-        authorEmail: authorInfo?.email ?? null,
-        dealId: comment.deal ? (typeof comment.deal === 'string' ? comment.deal : comment.deal.id) : null,
-        createdAt: comment.createdAt.toISOString(),
-        appearanceIcon: comment.appearanceIcon ?? null,
-        appearanceColor: comment.appearanceColor ?? null,
-      }
-    }),
-    activities: activities.map((activity) => ({
-      id: activity.id,
-      activityType: activity.activityType,
-      subject: activity.subject,
-      body: activity.body,
-      occurredAt: activity.occurredAt ? activity.occurredAt.toISOString() : null,
-      dealId: activity.deal ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id) : null,
-      authorUserId: activity.authorUserId,
-      authorName: activity.authorUserId ? userMap.get(activity.authorUserId)?.name ?? null : null,
-      authorEmail: activity.authorUserId ? userMap.get(activity.authorUserId)?.email ?? null : null,
-      createdAt: activity.createdAt.toISOString(),
-      appearanceIcon: activity.appearanceIcon ?? null,
-      appearanceColor: activity.appearanceColor ?? null,
-    })),
-    deals: deals.map((deal) => ({
-      id: deal.id,
-      title: deal.title,
-      status: deal.status,
-      pipelineStage: deal.pipelineStage,
-      valueAmount: deal.valueAmount,
-      valueCurrency: deal.valueCurrency,
-      probability: deal.probability,
-      expectedCloseAt: deal.expectedCloseAt ? deal.expectedCloseAt.toISOString() : null,
-      ownerUserId: deal.ownerUserId,
-      source: deal.source,
-      createdAt: deal.createdAt.toISOString(),
-      updatedAt: deal.updatedAt.toISOString(),
-    })),
-    todos: todoLinks.map((link) => {
-      const source = typeof link.todoSource === 'string' && link.todoSource.trim().length > 0 ? link.todoSource : 'example:todo'
-      const key = `${source}:${link.todoId}`
-      const detail = todoDetails.get(key)
-      return {
-        id: link.id,
-        todoId: link.todoId,
-        todoSource: source,
-        createdAt: link.createdAt.toISOString(),
-        createdByUserId: link.createdByUserId,
-        title: detail?.title ?? null,
-        isDone: detail?.isDone ?? null,
-        priority: detail?.priority ?? null,
-        dueAt: detail?.dueAt ?? null,
-        todoOrganizationId: detail?.organizationId ?? null,
-      }
-    }),
+    comments: includeComments
+      ? comments.map((comment) => {
+          const authorInfo = comment.authorUserId ? userMap.get(comment.authorUserId) : null
+          return {
+            id: comment.id,
+            body: comment.body,
+            authorUserId: comment.authorUserId,
+            authorName: authorInfo?.name ?? null,
+            authorEmail: authorInfo?.email ?? null,
+            dealId: comment.deal ? (typeof comment.deal === 'string' ? comment.deal : comment.deal.id) : null,
+            createdAt: comment.createdAt.toISOString(),
+            appearanceIcon: comment.appearanceIcon ?? null,
+            appearanceColor: comment.appearanceColor ?? null,
+          }
+        })
+      : [],
+    activities: includeActivities
+      ? activities.map((activity) => ({
+          id: activity.id,
+          activityType: activity.activityType,
+          subject: activity.subject,
+          body: activity.body,
+          occurredAt: activity.occurredAt ? activity.occurredAt.toISOString() : null,
+          dealId: activity.deal ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id) : null,
+          authorUserId: activity.authorUserId,
+          authorName: activity.authorUserId ? userMap.get(activity.authorUserId)?.name ?? null : null,
+          authorEmail: activity.authorUserId ? userMap.get(activity.authorUserId)?.email ?? null : null,
+          createdAt: activity.createdAt.toISOString(),
+          appearanceIcon: activity.appearanceIcon ?? null,
+          appearanceColor: activity.appearanceColor ?? null,
+        }))
+      : [],
+    deals: includeDeals
+      ? deals.map((deal) => ({
+          id: deal.id,
+          title: deal.title,
+          status: deal.status,
+          pipelineStage: deal.pipelineStage,
+          valueAmount: deal.valueAmount,
+          valueCurrency: deal.valueCurrency,
+          probability: deal.probability,
+          expectedCloseAt: deal.expectedCloseAt ? deal.expectedCloseAt.toISOString() : null,
+          ownerUserId: deal.ownerUserId,
+          source: deal.source,
+          createdAt: deal.createdAt.toISOString(),
+          updatedAt: deal.updatedAt.toISOString(),
+        }))
+      : [],
+    todos: includeTodos
+      ? todoLinks.map((link) => {
+          const source = typeof link.todoSource === 'string' && link.todoSource.trim().length > 0 ? link.todoSource : 'example:todo'
+          const key = `${source}:${link.todoId}`
+          const detail = todoDetails.get(key)
+          return {
+            id: link.id,
+            todoId: link.todoId,
+            todoSource: source,
+            createdAt: link.createdAt.toISOString(),
+            createdByUserId: link.createdByUserId,
+            title: detail?.title ?? null,
+            isDone: detail?.isDone ?? null,
+            priority: detail?.priority ?? null,
+            dueAt: detail?.dueAt ?? null,
+            todoOrganizationId: detail?.organizationId ?? null,
+          }
+        })
+      : [],
     viewer: {
       userId: viewerUserId,
       name: viewerUserId ? userMap.get(viewerUserId)?.name ?? null : null,

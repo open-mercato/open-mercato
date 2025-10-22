@@ -15,6 +15,7 @@ import {
   type DictionaryMap,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { ensureDictionaryEntries } from '@open-mercato/core/modules/dictionaries/components/hooks/useDictionaryEntries'
+import { cn } from '@open-mercato/shared/lib/utils'
 
 type CustomDataSectionProps = {
   entityId?: string
@@ -348,7 +349,10 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
           </div>
         ) : (
           <div
-            className="rounded-lg border bg-muted/20 p-4 space-y-3 transition hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className={cn(
+              'rounded-lg border bg-muted/20 p-4 space-y-3 transition hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              loading ? 'cursor-default' : 'cursor-pointer',
+            )}
             role="button"
             tabIndex={loading ? -1 : 0}
             onClick={handleActivate}
