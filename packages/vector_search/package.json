@@ -1,0 +1,11 @@
+{
+  "name": "@open-mercato/vector-search",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./modules/*": "./src/modules/*",
+    "./datamodel/entities": "./generated/entities.ids.generated.ts",
+    ".": "./src/index.js"
+  }
+}

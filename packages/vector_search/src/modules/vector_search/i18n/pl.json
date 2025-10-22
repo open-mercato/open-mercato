@@ -1,0 +1,9 @@
+{
+  "vector_search.nav.index": "Indeks wyszukiwania wektorowego",
+  "vector_search.empty.configure": "Ustaw zmienną VECTOR_SEARCH_OPENAI_API_KEY, aby włączyć embeddingi.",
+  "vector_search.overlay.placeholder": "Szukaj rekordów w modułach",
+  "vector_search.overlay.trigger": "Szukaj",
+  "vector_search.table.title": "Rekordy wyszukiwania wektorowego",
+  "vector_search.table.no_results": "Brak pasujących rekordów.",
+  "vector_search.table.search_hint": "Wpisz co najmniej {min} znaki, aby wyszukać."
+}

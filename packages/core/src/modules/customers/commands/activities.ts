@@ -1,5 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
@@ -33,6 +34,7 @@ import {
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 const ACTIVITY_ENTITY_ID = 'customers:customer_activity'
 
@@ -57,6 +59,22 @@ type ActivitySnapshot = {
 type ActivityUndoPayload = {
   before?: ActivitySnapshot | null
   after?: ActivitySnapshot | null
+}
+
+const customerActivityIndexer: CrudIndexerConfig<CustomerActivity> = {
+  entityType: E.customers.customer_activity,
+  buildUpsertPayload: (ctx) => ({
+    entityType: E.customers.customer_activity,
+    recordId: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+  buildDeletePayload: (ctx) => ({
+    entityType: E.customers.customer_activity,
+    recordId: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 async function loadActivitySnapshot(em: EntityManager, id: string): Promise<ActivitySnapshot | null> {
@@ -147,6 +165,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      indexer: customerActivityIndexer,
     })
 
     return { activityId: activity.id }
@@ -230,6 +249,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      indexer: customerActivityIndexer,
     })
 
     return { activityId: activity.id }
@@ -323,6 +343,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      indexer: customerActivityIndexer,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -369,6 +390,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           organizationId: activity.organizationId,
           tenantId: activity.tenantId,
         },
+        indexer: customerActivityIndexer,
       })
       return { activityId: activity.id }
     },
@@ -433,6 +455,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           organizationId: activity.organizationId,
           tenantId: activity.tenantId,
         },
+        indexer: customerActivityIndexer,
       })
 
       const resetValues = buildCustomFieldResetMap(before.custom, null)

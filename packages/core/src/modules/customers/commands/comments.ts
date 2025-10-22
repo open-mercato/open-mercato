@@ -1,6 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerComment } from '../data/entities'
@@ -15,6 +16,7 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 type CommentSnapshot = {
   id: string
@@ -31,6 +33,22 @@ type CommentSnapshot = {
 type CommentUndoPayload = {
   before?: CommentSnapshot | null
   after?: CommentSnapshot | null
+}
+
+const customerCommentIndexer: CrudIndexerConfig<CustomerComment> = {
+  entityType: E.customers.customer_comment,
+  buildUpsertPayload: (ctx) => ({
+    entityType: E.customers.customer_comment,
+    recordId: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+  buildDeletePayload: (ctx) => ({
+    entityType: E.customers.customer_comment,
+    recordId: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 async function loadCommentSnapshot(em: EntityManager, id: string): Promise<CommentSnapshot | null> {
@@ -91,6 +109,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      indexer: customerCommentIndexer,
     })
 
     return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
@@ -170,6 +189,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      indexer: customerCommentIndexer,
     })
 
     return { commentId: comment.id }
@@ -247,6 +267,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      indexer: customerCommentIndexer,
     })
   },
 }
@@ -280,6 +301,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: comment.organizationId,
           tenantId: comment.tenantId,
         },
+        indexer: customerCommentIndexer,
       })
       return { commentId: comment.id }
     },

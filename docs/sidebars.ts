@@ -33,6 +33,7 @@ const sidebars: SidebarsConfig = {
         'user-guide/user-entities',
         'user-guide/organizations',
         'user-guide/audit-logs',
+        'user-guide/vector-search',
       ],
     },
     {
@@ -55,6 +56,7 @@ const sidebars: SidebarsConfig = {
             'api/directory',
             'api/dashboards',
             'api/entities',
+            'api/vector-search',
           ],
         },
       ],
@@ -141,6 +143,7 @@ const sidebars: SidebarsConfig = {
             'framework/database/query-engine',
             'framework/database/hybrid-query-engine',
             'framework/database/query-index',
+            'framework/database/vector-search',
           ],
         },
         'framework/custom-entities/overview',

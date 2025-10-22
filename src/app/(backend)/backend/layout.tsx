@@ -4,7 +4,7 @@ import { getAuthFromCookies } from '@/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
 import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
-import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
+import { UserMenu, GlobalVectorSearch } from '@open-mercato/ui'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@/lib/di/container'
@@ -169,6 +169,7 @@ export default async function BackendLayout({ children, params }: { children: Re
 
   const rightHeaderContent = (
     <div className="flex items-center gap-3">
+      <GlobalVectorSearch />
       <OrganizationSwitcher />
       <UserMenu email={auth?.email} />
     </div>

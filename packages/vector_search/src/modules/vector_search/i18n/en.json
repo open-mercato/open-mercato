@@ -1,0 +1,9 @@
+{
+  "vector_search.nav.index": "Vector Search Index",
+  "vector_search.empty.configure": "Set VECTOR_SEARCH_OPENAI_API_KEY to enable embeddings.",
+  "vector_search.overlay.placeholder": "Search records across modules",
+  "vector_search.overlay.trigger": "Search",
+  "vector_search.table.title": "Vector Search Records",
+  "vector_search.table.no_results": "No matching records found.",
+  "vector_search.table.search_hint": "Type at least {min} characters to search."
+}

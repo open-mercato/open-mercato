@@ -25,7 +25,13 @@ function pkgDirFor(from?: string) {
   if (!from || from === '@open-mercato/core') return path.resolve('packages/core/src/modules')
   // Support other local packages like '@open-mercato/example' => packages/example/src/modules
   const m = from.match(/^@open-mercato\/(.+)$/)
-  if (m) return path.resolve(`packages/${m[1]}/src/modules`)
+  if (m) {
+    const raw = path.resolve(`packages/${m[1]}/src/modules`)
+    if (fs.existsSync(raw)) return raw
+    const underscored = path.resolve(`packages/${m[1].replace(/-/g, '_')}/src/modules`)
+    if (fs.existsSync(underscored)) return underscored
+    return raw
+  }
   // Fallback to core modules path
   return path.resolve('packages/core/src/modules')
 }

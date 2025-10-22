@@ -1,5 +1,7 @@
 // Shared entity/extension/custom-field types used by generators and DI
 
+import type { VectorSearchEntitySpec } from './vector-search'
+
 export type EntityId = string // format: '<module>:<entity>' e.g., 'auth:user'
 
 export type EntityExtension = {
@@ -90,4 +92,5 @@ export type CustomEntitySpec = {
   showInSidebar?: boolean
   global?: boolean
   fields?: CustomFieldDefinition[]
+  vectorSearch?: VectorSearchEntitySpec
 }

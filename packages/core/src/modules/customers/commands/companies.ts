@@ -1,5 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
@@ -13,6 +14,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerCompanyProfile, CustomerEntity, CustomerTagAssignment } from '../data/entities'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   companyCreateSchema,
   companyUpdateSchema,
@@ -73,6 +75,22 @@ type CompanySnapshot = {
 type CompanyUndoPayload = {
   before?: CompanySnapshot | null
   after?: CompanySnapshot | null
+}
+
+const customerEntityIndexer: CrudIndexerConfig<CustomerEntity> = {
+  entityType: E.customers.customer_entity,
+  buildUpsertPayload: (ctx) => ({
+    entityType: E.customers.customer_entity,
+    recordId: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+  buildDeletePayload: (ctx) => ({
+    entityType: E.customers.customer_entity,
+    recordId: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 async function loadCompanySnapshot(em: EntityManager, id: string): Promise<CompanySnapshot | null> {
@@ -217,6 +235,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
         organizationId: entity.organizationId,
         tenantId: entity.tenantId,
       },
+      indexer: customerEntityIndexer,
     })
 
     return { entityId: entity.id, companyId: profile.id }
@@ -323,6 +342,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      indexer: customerEntityIndexer,
     })
 
     return { entityId: record.id }
@@ -500,6 +520,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         },
+        indexer: customerEntityIndexer,
       })
       return { entityId: record.id }
     },

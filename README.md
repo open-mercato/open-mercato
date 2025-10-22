@@ -107,6 +107,8 @@ Follow these steps after the prerequisites are in place:
    ```
    Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
 
+   > Optional: create a `.env.local` file with `VECTOR_SEARCH_OPENAI_API_KEY=<your OpenAI key>` (or reuse `OPENAI_API_KEY`) so the new vector search overlay can generate embeddings.
+
 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything.
 
 Full installation guide (including prerequisites and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)

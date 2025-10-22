@@ -2,6 +2,7 @@ import '@open-mercato/example/modules/example/commands/todos'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -21,6 +22,7 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { CommandHandler as ExampleCommandHandler } from '@open-mercato/shared/lib/commands'
 import type { Todo } from '@open-mercato/example/modules/example/data/entities'
 
@@ -49,6 +51,22 @@ type LinkedTodoUndoPayload = {
 }
 
 const DEFAULT_TODO_SOURCE = 'example:todo'
+
+const customerTodoLinkIndexer: CrudIndexerConfig<CustomerTodoLink> = {
+  entityType: E.customers.customer_todo_link,
+  buildUpsertPayload: (ctx) => ({
+    entityType: E.customers.customer_todo_link,
+    recordId: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+  buildDeletePayload: (ctx) => ({
+    entityType: E.customers.customer_todo_link,
+    recordId: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 async function loadTodoLinkSnapshot(em: EntityManager, id: string): Promise<TodoLinkSnapshot | null> {
   const link = await em.findOne(CustomerTodoLink, { id })
@@ -150,6 +168,7 @@ const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { tod
         organizationId: link.organizationId,
         tenantId: link.tenantId,
       },
+      indexer: customerTodoLinkIndexer,
     })
 
     return { todoId: String(todo.id), linkId: link.id, todoSnapshot: serializedTodo }
@@ -196,6 +215,7 @@ const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { tod
           organizationId: payload.link.organizationId,
           tenantId: payload.link.tenantId,
         },
+        indexer: customerTodoLinkIndexer,
       })
     }
 
@@ -256,6 +276,7 @@ const linkExistingTodoCommand: CommandHandler<TodoLinkCreateInput, { linkId: str
         organizationId: link.organizationId,
         tenantId: link.tenantId,
       },
+      indexer: customerTodoLinkIndexer,
     })
 
     return { linkId: link.id }
@@ -320,6 +341,7 @@ const unlinkTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           organizationId: link.organizationId,
           tenantId: link.tenantId,
         },
+        indexer: customerTodoLinkIndexer,
       })
       return { linkId: link.id ?? null }
     },
@@ -373,6 +395,7 @@ const unlinkTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           organizationId: existing.organizationId,
           tenantId: existing.tenantId,
         },
+        indexer: customerTodoLinkIndexer,
       })
     },
   }

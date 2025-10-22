@@ -1,0 +1,40 @@
+---
+title: Vector Search
+description: Use the global overlay and the Data Designer index to find records across modules.
+---
+
+The vector search feature lets admins and operators find CRM records by semantic context rather than exact keywords. It ships with out-of-the-box support for customers, notes, activities, deals, linked todos, and example todos.
+
+## Global overlay (`⌘K` / `Ctrl+K`)
+
+1. Click the magnifying-glass button in the top bar or press the keyboard shortcut.
+2. Start typing – once you type at least two characters the backend streams ranked results.
+3. Choose a result to navigate to the source page; secondary links (customer, deal, todo) stay available in the quick actions menu.
+4. When the `VECTOR_SEARCH_OPENAI_API_KEY` variable is missing you'll see a reminder banner and the results fall back to lexical filtering.
+
+Each result includes:
+
+- Title and lead (e.g., "Note for Jane Doe" / "Follow-up call scheduled")
+- Source module (`customers`, `example`, …)
+- Similarity percentage
+- Quick links (open note, open customer, open todo)
+
+## Data Designer index
+
+Visit **Data Designer → Vector Search Index** to audit stored entries and debug embeddings.
+
+- Column view shows module, embedding model, timestamps, and the raw navigation links.
+- Use the search bar to filter by title, entity id, or keyword.
+- The refresh button performs a lightweight API reload while the yellow warning banner reminds you to configure the OpenAI key.
+
+## Configuration checklist
+
+1. Set `VECTOR_SEARCH_OPENAI_API_KEY` (or reuse `OPENAI_API_KEY`) so the service can call OpenAI via the Vercel AI SDK.
+2. Ensure relevant users/roles carry the `vector_search.search` and/or `vector_search.view` features.
+3. Optional: review `packages/core/src/modules/customers/ce.ts` (or your modules) to adjust how records are formatted in search results.
+
+## Extending
+
+- Register a `vectorSearch` builder inside the module's `ce.ts` file for every entity that should surface in the overlay.
+- Add a `CrudIndexerConfig` to your command handlers so create/update/delete events trigger reindex operations.
+- Re-run `npm run modules:prepare` if you add new modules or entity ids.

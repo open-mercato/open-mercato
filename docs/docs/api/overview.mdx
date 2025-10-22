@@ -18,9 +18,10 @@ All paths shown below are relative to the `/api` base.
 export BASE_URL="http://localhost:3000/api"
 export API_KEY="<paste your API key secret here>"
 export ORG_ID="<optional active organization id>"
+export VECTOR_SEARCH_OPENAI_API_KEY="<optional OpenAI key for embeddings>"
 ```
 
-`API_KEY` comes from the admin UI table (**Admin → Security → API keys**) or the [`mercato api_keys add`](../cli/api-keys) CLI command. All `curl` examples reuse these variables so you can copy, tweak, and run them immediately.
+`API_KEY` comes from the admin UI table (**Admin → Security → API keys**) or the [`mercato api_keys add`](../cli/api-keys) CLI command. All `curl` examples reuse these variables so you can copy, tweak, and run them immediately. `VECTOR_SEARCH_OPENAI_API_KEY` is optional but recommended when you rely on the semantic search endpoints documented [here](./vector-search).
 
 ## Authentication Flow
 

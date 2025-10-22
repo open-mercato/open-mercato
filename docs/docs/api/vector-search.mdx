@@ -1,0 +1,92 @@
+---
+title: Vector Search API
+description: REST endpoints that surface the global semantic search index.
+---
+
+The vector_search module exposes two routes for querying the centralized pgvector index.
+
+## `POST /api/vector-search/search`
+
+| Property        | Value                                      |
+| --------------- | ------------------------------------------ |
+| Auth            | Required                                   |
+| Feature flag    | `vector_search.search`                     |
+| Body            | `{ "query": string, "limit"?: number }` |
+| Response        | `{ items: Result[], embeddingReady: bool }`|
+
+Each `Result` contains:
+
+```jsonc
+{
+  "id": "uuid",
+  "entityType": "customers:customer_entity",
+  "recordId": "uuid",
+  "moduleId": "customers",
+  "title": "Acme Corp",
+  "lead": "Prospect • SaaS",
+  "icon": "Building",
+  "url": "/backend/customers/companies/…",
+  "links": [{ "href": "/backend/customers/companies/…", "label": "Open company" }],
+  "similarity": 0.82,
+  "payload": {
+    "metadata": { "kind": "company" },
+    "indexDoc": { /* raw flattened record */ }
+  }
+}
+```
+
+When `embeddingReady` is `false` the service fell back to lexical filtering because an OpenAI key is missing.
+
+## `GET /api/vector-search/records`
+
+| Property        | Value                                      |
+| --------------- | ------------------------------------------ |
+| Auth            | Required                                   |
+| Feature flag    | `vector_search.view`                       |
+| Query params    | `page`, `pageSize`, `query` (optional)     |
+| Response        | `{ items, page, pageSize, total, embeddingReady }` |
+
+This route powers the Data Designer list page. It returns enriched metadata, embedding model details, and raw links so admins can audit or debug indexing.
+
+### Example response payload
+
+```jsonc
+{
+  "items": [
+    {
+      "id": "…",
+      "entity_type": "customers:customer_comment",
+      "record_id": "…",
+      "module_id": "customers",
+      "title": "Note for Jane Doe",
+      "lead": "Follow-up call scheduled",
+      "icon": "StickyNote",
+      "primary_url": "/backend/customers/people/…?tab=notes&note=…",
+      "links": [
+        { "href": "/backend/customers/people/…?tab=notes&note=…", "label": "Open note", "relation": "primary" },
+        { "href": "/backend/customers/people/…", "label": "Customer · Jane Doe" }
+      ],
+      "embedding_model": "text-embedding-3-small",
+      "embedding_dimensions": 1536,
+      "embedding_error": null,
+      "last_indexed_at": "2025-01-12T09:30:00.000Z"
+    }
+  ],
+  "page": 1,
+  "pageSize": 25,
+  "total": 320,
+  "embeddingReady": true
+}
+```
+
+## Error handling
+
+Both endpoints return standard JSON error objects (`{ error: string }`) with appropriate HTTP status codes (`400` for invalid payloads, `401/403` for missing context, `500` when embedding fetch fails).
+
+## Feature toggles
+
+Grant features through RBAC to make the API available to specific roles/users:
+
+- `vector_search.search` – use the global search overlay (also displayed in the top-bar button)
+- `vector_search.view` – list index entries inside the Data Designer section
+- `vector_search.manage` – reserved for future admin tooling (manual reindex, purge)

@@ -1,3 +1,27 @@
+import type { VectorSearchEntitySpec } from '@open-mercato/shared/modules/vector-search'
+import { Todo } from './data/entities'
+
+const todoVectorSearch: VectorSearchEntitySpec = {
+  async build({ recordId, em }) {
+    const todo = await em.findOne(Todo, { id: recordId })
+    if (!todo) return null
+    const url = `/backend/example/todos/${recordId}/edit`
+    const statusLabel = todo.isDone ? 'Completed' : 'Open'
+    return {
+      title: todo.title,
+      lead: statusLabel,
+      icon: todo.isDone ? 'CheckSquare' : 'SquareDashed',
+      url,
+      links: [{ href: url, label: 'Open todo', relation: 'primary' }],
+      text: [statusLabel],
+      metadata: {
+        isDone: todo.isDone,
+      },
+      searchTerms: [statusLabel.toLowerCase()],
+    }
+  },
+}
+
 // Declare module-level custom entities (virtual) for discovery
 export const entities = [
   {
@@ -87,6 +111,7 @@ export const entities = [
         formEditable: true,
       },
     ],
+    vectorSearch: todoVectorSearch,
   },
 ]
 

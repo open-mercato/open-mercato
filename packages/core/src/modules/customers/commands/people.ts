@@ -1,5 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
@@ -18,6 +19,7 @@ import {
   CustomerPersonProfile,
   CustomerTagAssignment,
 } from '../data/entities'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolvePersonCustomFieldRouting, CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID } from '../lib/customFieldRouting'
 import {
   personCreateSchema,
@@ -111,6 +113,22 @@ type PersonSnapshot = {
 type PersonUndoPayload = {
   before?: PersonSnapshot | null
   after?: PersonSnapshot | null
+}
+
+const customerEntityIndexer: CrudIndexerConfig<CustomerEntity> = {
+  entityType: E.customers.customer_entity,
+  buildUpsertPayload: (ctx) => ({
+    entityType: E.customers.customer_entity,
+    recordId: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+  buildDeletePayload: (ctx) => ({
+    entityType: E.customers.customer_entity,
+    recordId: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | null {
@@ -414,6 +432,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         tenantId,
         organizationId,
       },
+      indexer: customerEntityIndexer,
     })
 
     return { entityId: entity.id, personId: profile.id }
@@ -566,6 +585,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         tenantId: record.tenantId,
         organizationId: record.organizationId,
       },
+      indexer: customerEntityIndexer,
     })
 
     return { entityId: record.id }
@@ -765,6 +785,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         },
+        indexer: customerEntityIndexer,
       })
       return { entityId: record.id }
     },

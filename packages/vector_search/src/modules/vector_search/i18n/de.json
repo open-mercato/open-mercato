@@ -1,0 +1,9 @@
+{
+  "vector_search.nav.index": "Vektor-Suchindex",
+  "vector_search.empty.configure": "Setzen Sie VECTOR_SEARCH_OPENAI_API_KEY, um Embeddings zu aktivieren.",
+  "vector_search.overlay.placeholder": "Datensätze modulübergreifend durchsuchen",
+  "vector_search.overlay.trigger": "Suchen",
+  "vector_search.table.title": "Vektor-Suchtreffer",
+  "vector_search.table.no_results": "Keine passenden Datensätze gefunden.",
+  "vector_search.table.search_hint": "Geben Sie mindestens {min} Zeichen ein, um zu suchen."
+}

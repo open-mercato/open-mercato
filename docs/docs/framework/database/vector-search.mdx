@@ -1,0 +1,89 @@
+---
+title: Vector Search Index
+description: Centralized pgvector-backed index for cross-module semantic search.
+---
+
+The **vector_search** module collects data from other modules, stores OpenAI embeddings in PostgreSQL via `pgvector`, and serves the global search overlay as well as the Data Designer index page. It complements the JSON query index by adding semantic similarity across built-in CRM entities.
+
+## Architecture
+
+- **Storage**: `vector_search_records` table stores flattened payloads, metadata, `vector(1536)` embeddings, and a checksum to skip unchanged records.
+- **Embeddings**: We use the [Vercel AI SDK](https://sdk.vercel.ai) with OpenAI's `text-embedding-3-small` model by default. Set `VECTOR_SEARCH_OPENAI_API_KEY` (or fall back to `OPENAI_API_KEY`) so the service can generate vectors. When the key is missing, search still works but falls back to lexical filtering and the UI warns the user.
+- **Events**: Modules emit `query_index.upsert_one/delete_one` events; the vector_search subscribers replay them, rebuild payloads, and write embeddings.
+- **Consumers**: Two APIs expose the index (`/api/vector-search/search` and `/api/vector-search/records`) and the admin UI renders both the global overlay and the Data Designer list.
+
+## Declaring searchable entities
+
+Vector search metadata is colocated with entity registrations. Each module can augment its `ce.ts` definitions with a `vectorSearch` configuration describing how to load a record, build human-friendly labels, and produce links. Example (`packages/core/src/modules/customers/ce.ts`):
+
+```ts
+import type { VectorSearchEntitySpec } from '@open-mercato/shared/modules/vector-search'
+import { CustomerEntity } from './data/entities'
+
+const customerEntityVectorSearch: VectorSearchEntitySpec = {
+  async build({ recordId, em }) {
+    const entity = await em.findOne(CustomerEntity, { id: recordId, deletedAt: null })
+    if (!entity) return null
+    const url = `/backend/customers/people/${entity.id}`
+    return {
+      title: entity.displayName,
+      lead: entity.status ?? null,
+      icon: 'User',
+      url,
+      links: [{ href: url, label: 'Open person', relation: 'primary' }],
+      text: [entity.description ?? ''],
+      searchTerms: [entity.primaryEmail ?? '', entity.primaryPhone ?? ''].filter(Boolean),
+      metadata: { kind: entity.kind },
+    }
+  },
+}
+```
+
+Attach the spec to the entity entry in `entities`:
+
+```ts
+export const entities = [
+  {
+    id: 'customers:customer_entity',
+    label: 'Customer',
+    fields: [],
+    vectorSearch: customerEntityVectorSearch,
+  },
+  // ...
+]
+```
+
+The builder receives a MikroORM `EntityManager`, the underlying index document (JSON payload with base columns + custom fields), and a knex instance if raw SQL is needed.
+
+## Supported entities out of the box
+
+- `customers:customer_entity`, `customer_comment`, `customer_activity`, `customer_deal`, `customer_todo_link`
+- `example:todo`
+
+Each registration provides:
+
+- Primary link (e.g., `/backend/customers/people/:id`)
+- Supplementary links (customer records, deals, source todos)
+- Rich metadata (status, assigned contacts) to help the React overlay render context.
+
+## Extending other modules
+
+1. Add a `vectorSearch` spec to the entity entry in the module's `ce.ts` file.
+2. Ensure the relevant commands call `emitCrudSideEffects` with a `CrudIndexerConfig` pointing at the entity id so query_index + vector_search receive events.
+3. Optionally adjust custom field handling or provide additional search terms.
+
+## Reindexing and maintenance
+
+- Records reindex automatically on create/update/delete events. The checksum skips redundant embedding requests.
+- Use the Data Designer "Vector Search Index" page to audit and filter stored rows.
+- For bulk rebuilds emit a `query_index.reindex` event (the vector_search subscriber mirrors it) or iterate through records from the admin API.
+
+## Environment variables
+
+Add the following to your `.env.local` (or hosting provider secrets):
+
+```bash
+VECTOR_SEARCH_OPENAI_API_KEY=sk-...
+```
+
+If you already expose `OPENAI_API_KEY`, the module uses it as a fallback. Without a key the overlay degrades gracefully and displays a configuration reminder.
