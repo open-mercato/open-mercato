@@ -19,6 +19,7 @@ import { useT } from '@/lib/i18n/context'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../lib/markdownPreference'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { LoadingMessage } from './LoadingMessage'
+import { TimelineItemHeader } from './TimelineItemHeader'
 
 type UiMarkdownEditorProps = {
   value?: string
@@ -26,6 +27,8 @@ type UiMarkdownEditorProps = {
   onChange?: (value?: string) => void
   previewOptions?: { remarkPlugins?: unknown[] }
 }
+
+const NOTE_SHORTCUT_HINT = '⌥⌘N'
 
 function MarkdownEditorFallback() {
   const t = useT()
@@ -258,15 +261,20 @@ export function NotesSection({
     })
   }, [])
 
+  const addActionLabelWithShortcut = React.useMemo(
+    () => `${addActionLabel} ${NOTE_SHORTCUT_HINT}`,
+    [addActionLabel],
+  )
+
   React.useEffect(() => {
     if (!onActionChange) return
     onActionChange({
-      label: addActionLabel,
+      label: addActionLabelWithShortcut,
       onClick: focusComposer,
       disabled: isSubmitting || isLoading || !hasEntity,
     })
     return () => onActionChange(null)
-  }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting])
+  }, [onActionChange, addActionLabelWithShortcut, focusComposer, hasEntity, isLoading, isSubmitting])
 
   const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
     if (!element) return
@@ -307,7 +315,9 @@ export function NotesSection({
 
   React.useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey)) return
+      const isMacShortcut = event.metaKey && event.altKey
+      const isWindowsShortcut = event.ctrlKey && event.altKey
+      if (!isMacShortcut && !isWindowsShortcut) return
       if (event.key.toLowerCase() !== 'n') return
       const target = event.target as HTMLElement | null
       if (target) {
@@ -751,9 +761,17 @@ export function NotesSection({
               </div>
             ) : null}
             <div className="flex justify-end">
-              <Button type="submit" size="sm" disabled={isSubmitting || isLoading || !hasEntity}>
-                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {addActionLabel}
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmitting || isLoading || !hasEntity}
+                className="inline-flex items-center gap-2"
+              >
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                <span>{addActionLabel}</span>
+                <span className="hidden rounded border border-border px-1 text-[10px] font-medium text-muted-foreground sm:inline-flex">
+                  {NOTE_SHORTCUT_HINT}
+                </span>
               </Button>
             </div>
           </form>
@@ -770,23 +788,24 @@ export function NotesSection({
             const isEditingContent = contentEditor.id === note.id
             const displayIcon = note.appearanceIcon ?? null
             const displayColor = note.appearanceColor ?? null
+            const absoluteCreatedLabel = formatDateTime(note.createdAt) ?? emptyLabel
+            const relativeCreatedLabel = formatRelativeTime(note.createdAt)
             return (
               <div key={note.id} className="space-y-2 rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-foreground">{author}</span>
-                      {displayIcon ? (
-                        <span className="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-muted/40">
-                          {renderDictionaryIcon(displayIcon, 'h-3.5 w-3.5')}
-                        </span>
-                      ) : null}
-                      {displayColor ? renderDictionaryColor(displayColor, 'h-3 w-3 rounded-full border border-border') : null}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {formatRelativeTime(note.createdAt) ?? formatDateTime(note.createdAt) ?? emptyLabel}
-                    </p>
-                  </div>
+                  <TimelineItemHeader
+                    title={author}
+                    subtitle={
+                      <>
+                        <span>{absoluteCreatedLabel}</span>
+                        {relativeCreatedLabel ? (
+                          <span className="ml-1">({relativeCreatedLabel})</span>
+                        ) : null}
+                      </>
+                    }
+                    icon={displayIcon}
+                    color={displayColor}
+                  />
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"

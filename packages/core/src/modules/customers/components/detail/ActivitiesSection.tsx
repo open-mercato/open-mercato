@@ -8,7 +8,6 @@ import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { formatDateTime, formatRelativeTime, createDictionarySelectLabels } from './utils'
 import { ActivityForm, type ActivityFormBaseValues, type ActivityFormSubmitPayload } from './ActivityForm'
-import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useT } from '@/lib/i18n/context'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -18,6 +17,7 @@ import {
   invalidateCustomerDictionary,
   useCustomerDictionary,
 } from './hooks/useCustomerDictionary'
+import { TimelineItemHeader } from './TimelineItemHeader'
 
 type DictionaryOption = {
   value: string
@@ -241,23 +241,17 @@ export function ActivitiesSection({
                 }}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    {displayIcon ? (
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded border border-border bg-muted/40">
-                        {renderDictionaryIcon(displayIcon, 'h-4 w-4')}
-                      </span>
-                    ) : null}
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold">{displayLabel}</span>
-                        {displayColor ? renderDictionaryColor(displayColor, 'h-3 w-3 rounded-full border border-border') : null}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
+                  <TimelineItemHeader
+                    title={displayLabel}
+                    subtitle={
+                      <>
                         <span>{occurredLabel}</span>
                         {relativeLabel ? <span className="ml-1">({relativeLabel})</span> : null}
-                      </div>
-                    </div>
-                  </div>
+                      </>
+                    }
+                    icon={displayIcon}
+                    color={displayColor}
+                  />
                   <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <Button
                       type="button"
