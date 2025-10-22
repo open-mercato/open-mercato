@@ -87,6 +87,7 @@ export type DataTablePerspectiveConfig = {
   initialState?: {
     response?: PerspectivesIndexResponse
     activePerspectiveId?: string | null
+    initialSettings?: PerspectiveSettings | null
   }
 }
 
@@ -198,6 +199,13 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
 }
 
 const PERSPECTIVE_COOKIE_PREFIX = 'om_table_perspective'
+const PERSPECTIVE_STORAGE_PREFIX = 'om_table_perspective_snapshot'
+
+type PerspectiveSnapshot = {
+  perspectiveId: string | null
+  settings: PerspectiveSettings
+  updatedAt: number
+}
 
 function readPerspectiveCookie(tableId: string): string | null {
   if (typeof document === 'undefined') return null
@@ -213,6 +221,99 @@ function writePerspectiveCookie(tableId: string, perspectiveId: string | null): 
   const expires = perspectiveId ? 'Max-Age=31536000' : 'Max-Age=0'
   const value = perspectiveId ? encodeURIComponent(perspectiveId) : ''
   document.cookie = `${key}=${value}; Path=/; ${expires}; SameSite=Lax`
+}
+
+function readPerspectiveSnapshot(tableId: string): PerspectiveSnapshot | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(`${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    const perspectiveId =
+      typeof parsed.perspectiveId === 'string' && parsed.perspectiveId.trim().length > 0
+        ? parsed.perspectiveId
+        : null
+    const settings = typeof parsed.settings === 'object' && parsed.settings !== null
+      ? parsed.settings as PerspectiveSettings
+      : null
+    const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now()
+    if (!settings) return null
+    return { perspectiveId, settings, updatedAt }
+  } catch {
+    return null
+  }
+}
+
+function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveSnapshot | null) {
+  if (typeof window === 'undefined') return
+  const key = `${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`
+  try {
+    if (!snapshot) {
+      window.localStorage.removeItem(key)
+      return
+    }
+    window.localStorage.setItem(key, JSON.stringify(snapshot))
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): PerspectiveSettings | null {
+  if (!source || typeof source !== 'object') return null
+  const forbidden = new Set(['__proto__', 'prototype', 'constructor'])
+  const result: PerspectiveSettings = {}
+
+  if (Array.isArray(source.columnOrder)) {
+    const seen = new Set<string>()
+    const order = source.columnOrder
+      .map((id) => (typeof id === 'string' ? id.trim() : ''))
+      .filter((id) => id.length > 0 && !seen.has(id) && (seen.add(id), true))
+    if (order.length) result.columnOrder = order
+  }
+
+  if (source.columnVisibility && typeof source.columnVisibility === 'object') {
+    const entries = Object.entries(source.columnVisibility)
+      .filter(([key, value]) => typeof key === 'string' && key.trim().length > 0 && !forbidden.has(key) && typeof value === 'boolean')
+    if (entries.length) {
+      const visibility: Record<string, boolean> = {}
+      entries.forEach(([key, value]) => { visibility[key] = value })
+      result.columnVisibility = visibility
+    }
+  }
+
+  if (Array.isArray(source.sorting)) {
+    const sorting = source.sorting
+      .map((item) => {
+        const id = typeof item?.id === 'string' ? item.id.trim() : ''
+        if (!id || forbidden.has(id)) return null
+        return { id, desc: Boolean(item?.desc) }
+      })
+      .filter((item): item is { id: string; desc?: boolean } => item !== null)
+    if (sorting.length) result.sorting = sorting
+  }
+
+  if (typeof source.pageSize === 'number' && Number.isFinite(source.pageSize)) {
+    const pageSize = Math.max(1, Math.min(500, Math.floor(source.pageSize)))
+    result.pageSize = pageSize
+  }
+
+  if (typeof source.searchValue === 'string' && source.searchValue.trim().length > 0) {
+    result.searchValue = source.searchValue.trim().slice(0, 200)
+  }
+
+  if (source.filters && typeof source.filters === 'object') {
+    const filters: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(source.filters)) {
+      if (typeof key === 'string') {
+        const trimmed = key.trim()
+        if (trimmed.length > 0 && !forbidden.has(trimmed)) filters[trimmed] = value
+      }
+    }
+    if (Object.keys(filters).length) result.filters = filters
+  }
+
+  return Object.keys(result).length ? result : null
 }
 
 function normalizeLabel(input: string): string {
@@ -376,10 +477,26 @@ export function DataTable<T>({
   const perspectiveConfig = perspective ?? null
   const perspectiveTableId = perspectiveConfig?.tableId ?? null
   const perspectiveEnabled = Boolean(perspectiveTableId)
+  const initialSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
+  const snapshotTableIdRef = React.useRef<string | null>(null)
+  if (typeof window !== 'undefined') {
+    if (perspectiveTableId !== snapshotTableIdRef.current) {
+      initialSnapshotRef.current = perspectiveTableId ? readPerspectiveSnapshot(perspectiveTableId) : null
+      snapshotTableIdRef.current = perspectiveTableId ?? null
+    }
+  } else if (snapshotTableIdRef.current !== perspectiveTableId) {
+    snapshotTableIdRef.current = perspectiveTableId ?? null
+    initialSnapshotRef.current = null
+  }
+  const initialSnapshot = initialSnapshotRef.current
+  const initialSettingsFromConfig = sanitizePerspectiveSettings(perspectiveConfig?.initialState?.initialSettings ?? null)
+  const initialSettingsFromSnapshot = sanitizePerspectiveSettings(initialSnapshot?.settings ?? null)
+  const mergedInitialSettings = initialSettingsFromConfig ?? initialSettingsFromSnapshot ?? null
+  const initialActiveId = perspectiveConfig?.initialState?.activePerspectiveId ?? initialSnapshot?.perspectiveId ?? null
   const [isPerspectiveOpen, setPerspectiveOpen] = React.useState(false)
-  const [activePerspectiveId, setActivePerspectiveId] = React.useState<string | null>(perspectiveConfig?.initialState?.activePerspectiveId ?? null)
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
-  const [columnOrder, setColumnOrder] = React.useState<string[]>([])
+  const [activePerspectiveId, setActivePerspectiveId] = React.useState<string | null>(initialActiveId)
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(() => mergedInitialSettings?.columnVisibility ?? {})
+  const [columnOrder, setColumnOrder] = React.useState<string[]>(() => mergedInitialSettings?.columnOrder ?? [])
   const [deletingIds, setDeletingIds] = React.useState<string[]>([])
   const [roleClearingIds, setRoleClearingIds] = React.useState<string[]>([])
   const [perspectiveApiMissing, setPerspectiveApiMissing] = React.useState(false)
@@ -429,6 +546,18 @@ export function DataTable<T>({
     }
   }, [canUsePerspectives, isPerspectiveOpen])
 
+  React.useEffect(() => {
+    if (!perspectiveTableId) return
+    if (!mergedInitialSettings) return
+    const snapshot: PerspectiveSnapshot = {
+      perspectiveId: initialActiveId,
+      settings: mergedInitialSettings,
+      updatedAt: Date.now(),
+    }
+    writePerspectiveSnapshot(perspectiveTableId, snapshot)
+    initialSnapshotRef.current = snapshot
+  }, [perspectiveTableId, mergedInitialSettings, initialActiveId])
+
   const perspectiveQuery = useQuery<PerspectivesIndexResponse>({
     queryKey: ['table-perspectives', perspectiveTableId],
     queryFn: async () => {
@@ -455,9 +584,11 @@ export function DataTable<T>({
     },
     enabled: canUsePerspectives,
     initialData: perspectiveConfig?.initialState?.response,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   })
   const perspectiveData = perspectiveQuery.data
-  const initialPerspectiveAppliedRef = React.useRef(false)
+  const initialPerspectiveAppliedRef = React.useRef(Boolean(mergedInitialSettings))
 
   // Date formatting setup
   const DATE_FORMAT = (process.env.NEXT_PUBLIC_DATE_FORMAT || 'YYYY-MM-DD HH:mm') as string
@@ -547,7 +678,17 @@ export function DataTable<T>({
     return index <= 1 ? 1 : 2
   }, [])
 
-  const [sorting, setSorting] = React.useState<SortingState>(sortingProp ?? [])
+  const initialSorting = React.useMemo<SortingState>(() => {
+    if (mergedInitialSettings?.sorting) {
+      return mergedInitialSettings.sorting.map((item) => ({ id: item.id, desc: Boolean(item.desc) }))
+    }
+    return []
+  }, [mergedInitialSettings])
+  const [sorting, setSorting] = React.useState<SortingState>(() => {
+    if (sortingProp && sortingProp.length) return sortingProp
+    if (initialSorting.length) return initialSorting
+    return []
+  })
   const table = useReactTable<T>({
     data,
     columns,
@@ -570,12 +711,25 @@ export function DataTable<T>({
   })
   React.useEffect(() => { if (sortingProp) setSorting(sortingProp) }, [sortingProp])
   React.useEffect(() => {
-    if (columnOrder.length > 0) return
     const ids = table.getAllLeafColumns().map((column) => column.id)
-    if (ids.length) setColumnOrder(ids)
-  }, [table, columnOrder.length])
+    if (!ids.length) return
+    setColumnOrder((prev) => {
+      if (!prev.length) return ids
+      const allowed = ids
+      const filtered = prev.filter((id) => allowed.includes(id))
+      const seen = new Set(filtered)
+      for (const id of allowed) {
+        if (!seen.has(id)) {
+          filtered.push(id)
+          seen.add(id)
+        }
+      }
+      const changed = filtered.length !== prev.length || filtered.some((id, index) => id !== prev[index])
+      return changed ? filtered : prev
+    })
+  }, [table])
 
-  const initialVisibilityApplied = React.useRef(false)
+  const initialVisibilityApplied = React.useRef(Boolean(mergedInitialSettings?.columnVisibility))
   React.useEffect(() => {
     if (initialVisibilityApplied.current) return
     const hidden: VisibilityState = {}
@@ -590,61 +744,61 @@ export function DataTable<T>({
   }, [table])
 
   const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
-    const settings: PerspectiveSettings = {}
-    const cleanOrder = columnOrder.filter((id) => typeof id === 'string' && id.trim().length > 0)
-    if (cleanOrder.length) settings.columnOrder = cleanOrder
-
-    const forbiddenKeys = new Set(['__proto__', 'prototype', 'constructor'])
-    const visibilityEntries = Object.entries(columnVisibility)
-      .filter(([key, value]) => typeof key === 'string' && key.trim().length > 0 && !forbiddenKeys.has(key) && typeof value === 'boolean')
-    if (visibilityEntries.length) {
-      const visibility: Record<string, boolean> = {}
-      visibilityEntries.forEach(([key, value]) => { visibility[key] = value })
-      settings.columnVisibility = visibility
+    const visibility: Record<string, boolean> = {}
+    for (const [key, value] of Object.entries(columnVisibility)) {
+      if (typeof key === 'string' && typeof value === 'boolean') {
+        visibility[key] = value
+      }
     }
-
-    if (sorting.length) {
-      const cleanedSorting = sorting
-        .map((item) => ({ id: item.id, desc: item.desc }))
-        .filter((item) => typeof item.id === 'string' && item.id.trim().length > 0)
-      if (cleanedSorting.length) settings.sorting = cleanedSorting
+    const filtersRecord: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(filterValues ?? {})) {
+      filtersRecord[key] = value
     }
-
-    const filterEntries = Object.entries(filterValues ?? {})
-      .filter(([key]) => typeof key === 'string' && key.trim().length > 0 && !forbiddenKeys.has(key))
-    if (filterEntries.length) {
-      const filters: Record<string, unknown> = {}
-      filterEntries.forEach(([key, value]) => { filters[key] = value })
-      settings.filters = filters
+    const candidate: PerspectiveSettings = {
+      columnOrder,
+      columnVisibility: visibility,
+      sorting,
+      filters: filtersRecord,
+      searchValue,
     }
-
-    const trimmedSearch = typeof searchValue === 'string' ? searchValue.trim() : ''
-    if (trimmedSearch.length) settings.searchValue = trimmedSearch
-
-    return settings
+    return sanitizePerspectiveSettings(candidate) ?? {}
   }, [columnOrder, columnVisibility, sorting, filterValues, searchValue])
 
   const applyPerspectiveSettings = React.useCallback((settings: PerspectiveSettings, nextId: string | null) => {
-    if (settings.columnOrder && settings.columnOrder.length) {
-      setColumnOrder(settings.columnOrder)
+    const normalized = sanitizePerspectiveSettings(settings) ?? {}
+    if (normalized.columnOrder && normalized.columnOrder.length) {
+      setColumnOrder(normalized.columnOrder)
     } else {
       const ids = table.getAllLeafColumns().map((column) => column.id)
       if (ids.length) setColumnOrder(ids)
     }
-    if (settings.columnVisibility) setColumnVisibility(settings.columnVisibility)
+    if (normalized.columnVisibility) setColumnVisibility(normalized.columnVisibility)
     else setColumnVisibility({})
-    if (settings.sorting) {
-      setSorting(settings.sorting)
-      onSortingChange?.(settings.sorting)
+    if (normalized.sorting) {
+      setSorting(normalized.sorting)
+      onSortingChange?.(normalized.sorting)
+    } else {
+      setSorting([])
+      onSortingChange?.([])
     }
     if (onFiltersApply) {
-      onFiltersApply((settings.filters ?? {}) as FilterValues)
+      onFiltersApply((normalized.filters ?? {}) as FilterValues)
     }
-    if (onSearchChange && settings.searchValue !== undefined) {
-      onSearchChange(settings.searchValue ?? '')
+    if (onSearchChange) {
+      onSearchChange(normalized.searchValue ?? '')
     }
     setActivePerspectiveId(nextId)
-    if (perspectiveTableId) writePerspectiveCookie(perspectiveTableId, nextId)
+    if (perspectiveTableId) {
+      writePerspectiveCookie(perspectiveTableId, nextId)
+      if (nextId) {
+        const snapshot: PerspectiveSnapshot = { perspectiveId: nextId, settings: normalized, updatedAt: Date.now() }
+        writePerspectiveSnapshot(perspectiveTableId, snapshot)
+        initialSnapshotRef.current = snapshot
+      } else {
+        writePerspectiveSnapshot(perspectiveTableId, null)
+        initialSnapshotRef.current = null
+      }
+    }
   }, [onFiltersApply, onSearchChange, onSortingChange, perspectiveTableId, table])
 
   type SavePerspectivePayload = {
@@ -767,6 +921,8 @@ export function DataTable<T>({
         if (removedActive) {
           setActivePerspectiveId(null)
           writePerspectiveCookie(perspectiveTableId, null)
+          writePerspectiveSnapshot(perspectiveTableId, null)
+          initialSnapshotRef.current = null
           initialPerspectiveAppliedRef.current = false
         }
       } else if (removedActive) {
@@ -805,6 +961,8 @@ export function DataTable<T>({
         if (match && match.roleId === variables.roleId) {
           setActivePerspectiveId(null)
           if (perspectiveTableId) writePerspectiveCookie(perspectiveTableId, null)
+          if (perspectiveTableId) writePerspectiveSnapshot(perspectiveTableId, null)
+          initialSnapshotRef.current = null
           initialPerspectiveAppliedRef.current = false
         }
       }
