@@ -4,7 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { deleteUserPerspective } from '@open-mercato/core/modules/perspectives/services/perspectiveService'
 
 export const metadata = {
-  DELETE: { requireAuth: true, requireFeatures: ['perspectives.delete'] },
+  DELETE: { requireAuth: true, requireFeatures: ['perspectives.use'] },
 }
 
 const decodeParam = (value: string | string[] | undefined): string => {

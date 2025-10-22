@@ -3,8 +3,8 @@ import type { PerspectiveSettings } from '@open-mercato/shared/modules/perspecti
 
 export const perspectiveSettingsSchema: z.ZodType<PerspectiveSettings> = z.object({
   columnOrder: z.array(z.string().min(1)).max(120).optional(),
-  columnVisibility: z.record(z.boolean()).optional(),
-  filters: z.record(z.unknown()).optional(),
+  columnVisibility: z.record(z.string(), z.boolean()).optional(),
+  filters: z.record(z.string(), z.unknown()).optional(),
   sorting: z
     .array(z.object({ id: z.string().min(1), desc: z.boolean().optional() }))
     .max(20)

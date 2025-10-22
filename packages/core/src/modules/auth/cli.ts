@@ -277,6 +277,8 @@ const setupApp: ModuleCli = {
         'dashboards.*',
         'dashboards.admin.assign-widgets',
         'api_keys.*',
+        'perspectives.use',
+        'perspectives.role_defaults',
       ]
       await ensureRoleAclFor(adminRole, seedTenantId, adminFeatures, { remove: ['directory.organizations.*'] })
     }
@@ -290,6 +292,7 @@ const setupApp: ModuleCli = {
         'dashboards.view',
         'dashboards.configure',
         'audit_logs.undo_self',
+        'perspectives.use',
       ])
     }
 

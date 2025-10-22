@@ -12,8 +12,8 @@ import {
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 
 export const metadata = {
-  GET: { requireAuth: true },
-  POST: { requireAuth: true, requireFeatures: ['perspectives.save'] },
+  GET: { requireAuth: true, requireFeatures: ['perspectives.use'] },
+  POST: { requireAuth: true, requireFeatures: ['perspectives.use'] },
 }
 
 const decodeParam = (value: string | string[] | undefined): string => {

@@ -384,6 +384,51 @@ export function DataTable<T>({
   const [roleClearingIds, setRoleClearingIds] = React.useState<string[]>([])
   const [perspectiveApiMissing, setPerspectiveApiMissing] = React.useState(false)
 
+  const perspectiveFeatureQuery = useQuery<{ use: boolean; roleDefaults: boolean }>({
+    queryKey: ['feature-check', 'perspectives'],
+    enabled: perspectiveEnabled,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      try {
+        const res = await apiFetch('/api/auth/feature-check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ features: ['perspectives.use', 'perspectives.role_defaults'] }),
+        })
+        if (!res.ok) throw new Error(`feature-check failed (${res.status})`)
+        const data = await res.json().catch(() => ({}))
+        const granted = Array.isArray(data?.granted) ? data.granted.map((f: any) => String(f)) : []
+        const has = (feature: string) => granted.some((grantedFeature) => {
+          if (grantedFeature === '*') return true
+          if (grantedFeature === feature) return true
+          if (grantedFeature.endsWith('.*')) {
+            const prefix = grantedFeature.slice(0, -2)
+            return feature === prefix || feature.startsWith(`${prefix}.`)
+          }
+          return false
+        })
+        return {
+          use: has('perspectives.use'),
+          roleDefaults: has('perspectives.role_defaults'),
+        }
+      } catch {
+        return {
+          use: true,
+          roleDefaults: true,
+        }
+      }
+    },
+  })
+  const perspectivePermissions = perspectiveFeatureQuery.data
+  const canUsePerspectives = perspectiveEnabled && Boolean(perspectivePermissions?.use)
+  const canUseRoleDefaultsFeature = Boolean(perspectivePermissions?.roleDefaults)
+
+  React.useEffect(() => {
+    if (!canUsePerspectives && isPerspectiveOpen) {
+      setPerspectiveOpen(false)
+    }
+  }, [canUsePerspectives, isPerspectiveOpen])
+
   const perspectiveQuery = useQuery<PerspectivesIndexResponse>({
     queryKey: ['table-perspectives', perspectiveTableId],
     queryFn: async () => {
@@ -408,7 +453,7 @@ export function DataTable<T>({
       setPerspectiveApiMissing(false)
       return await res.json() as PerspectivesIndexResponse
     },
-    enabled: perspectiveEnabled,
+    enabled: canUsePerspectives,
     initialData: perspectiveConfig?.initialState?.response,
   })
   const perspectiveData = perspectiveQuery.data
@@ -546,11 +591,36 @@ export function DataTable<T>({
 
   const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
     const settings: PerspectiveSettings = {}
-    if (columnOrder.length) settings.columnOrder = [...columnOrder]
-    if (Object.keys(columnVisibility).length) settings.columnVisibility = { ...columnVisibility }
-    if (sorting.length) settings.sorting = sorting.map((item) => ({ ...item }))
-    settings.filters = { ...(filterValues ?? {}) }
-    settings.searchValue = searchValue ?? ''
+    const cleanOrder = columnOrder.filter((id) => typeof id === 'string' && id.trim().length > 0)
+    if (cleanOrder.length) settings.columnOrder = cleanOrder
+
+    const forbiddenKeys = new Set(['__proto__', 'prototype', 'constructor'])
+    const visibilityEntries = Object.entries(columnVisibility)
+      .filter(([key, value]) => typeof key === 'string' && key.trim().length > 0 && !forbiddenKeys.has(key) && typeof value === 'boolean')
+    if (visibilityEntries.length) {
+      const visibility: Record<string, boolean> = {}
+      visibilityEntries.forEach(([key, value]) => { visibility[key] = value })
+      settings.columnVisibility = visibility
+    }
+
+    if (sorting.length) {
+      const cleanedSorting = sorting
+        .map((item) => ({ id: item.id, desc: item.desc }))
+        .filter((item) => typeof item.id === 'string' && item.id.trim().length > 0)
+      if (cleanedSorting.length) settings.sorting = cleanedSorting
+    }
+
+    const filterEntries = Object.entries(filterValues ?? {})
+      .filter(([key]) => typeof key === 'string' && key.trim().length > 0 && !forbiddenKeys.has(key))
+    if (filterEntries.length) {
+      const filters: Record<string, unknown> = {}
+      filterEntries.forEach(([key, value]) => { filters[key] = value })
+      settings.filters = filters
+    }
+
+    const trimmedSearch = typeof searchValue === 'string' ? searchValue.trim() : ''
+    if (trimmedSearch.length) settings.searchValue = trimmedSearch
+
     return settings
   }, [columnOrder, columnVisibility, sorting, filterValues, searchValue])
 
@@ -596,6 +666,10 @@ export function DataTable<T>({
         isDefault: input.isDefault,
         applyToRoles: input.applyToRoles,
         setRoleDefault: input.setRoleDefault,
+      }
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.debug('[DataTable] perspective payload', payload)
       }
       const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}`, {
         method: 'POST',
@@ -788,20 +862,22 @@ export function DataTable<T>({
     })
   }, [table])
 
-  const perspectiveApiWarning = perspectiveApiMissing
+  const perspectiveApiWarning = perspectiveApiMissing && canUsePerspectives
     ? 'Perspectives API is not available yet. Run `npm run modules:prepare` to regenerate module routes, then restart the server.'
     : null
 
   React.useLayoutEffect(() => {
-    if (!perspectiveEnabled) return
-    if (!perspectiveData) return
+    if (!canUsePerspectives) return
     if (!perspectiveTableId) return
     if (initialPerspectiveAppliedRef.current && activePerspectiveId != null) return
 
+    const source = perspectiveData ?? perspectiveConfig?.initialState?.response
+    if (!source) return
+
     const tryResolve = (id: string | null | undefined): PerspectiveDto | RolePerspectiveDto | undefined => {
       if (!id) return undefined
-      return perspectiveData.perspectives.find((p) => p.id === id)
-        ?? perspectiveData.rolePerspectives.find((p) => p.id === id)
+      return source.perspectives.find((p) => p.id === id)
+        ?? source.rolePerspectives.find((p) => p.id === id)
     }
 
     let target: PerspectiveDto | RolePerspectiveDto | undefined
@@ -810,20 +886,20 @@ export function DataTable<T>({
     }
     const cookieId = readPerspectiveCookie(perspectiveTableId)
     if (!target && cookieId) target = tryResolve(cookieId)
-    if (!target && perspectiveData.defaultPerspectiveId) {
-      target = tryResolve(perspectiveData.defaultPerspectiveId)
+    if (!target && source.defaultPerspectiveId) {
+      target = tryResolve(source.defaultPerspectiveId)
     }
     if (!target) {
-      target = perspectiveData.rolePerspectives.find((p) => p.isDefault)
+      target = source.rolePerspectives.find((p) => p.isDefault)
     }
     if (!target) {
-      target = perspectiveData.perspectives[0]
+      target = source.perspectives[0]
     }
     if (target) {
       applyPerspectiveSettings(target.settings, target.id)
     }
     initialPerspectiveAppliedRef.current = true
-  }, [perspectiveEnabled, perspectiveData, perspectiveTableId, applyPerspectiveSettings, activePerspectiveId])
+  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId])
 
   const renderPagination = () => {
     if (!pagination) return null
@@ -894,7 +970,7 @@ export function DataTable<T>({
     const existing = new Set(baseList.map((f) => f.id))
     const cfOnly = (cfFilters || []).filter((f) => !existing.has(f.id))
     const combined: FilterDef[] = [...baseList, ...cfOnly]
-    const perspectiveButton = perspectiveEnabled ? (
+    const perspectiveButton = canUsePerspectives ? (
       <Button variant="outline" className="h-9" onClick={() => setPerspectiveOpen(true)}>
         <SlidersHorizontal className="mr-2 h-4 w-4" />
         Perspectives
@@ -913,7 +989,7 @@ export function DataTable<T>({
         leadingItems={perspectiveButton}
       />
     )
-  }, [toolbar, searchValue, onSearchChange, searchPlaceholder, searchAlign, baseFilters, cfFilters, filterValues, onFiltersApply, onFiltersClear, perspectiveEnabled])
+  }, [toolbar, searchValue, onSearchChange, searchPlaceholder, searchAlign, baseFilters, cfFilters, filterValues, onFiltersApply, onFiltersClear, canUsePerspectives])
 
   const hasTitle = title != null
   const hasActions = actions !== undefined && actions !== null && actions !== false
@@ -956,7 +1032,7 @@ export function DataTable<T>({
                       <span className="sr-only">{refreshButtonConfig.label}</span>
                     </Button>
                   ) : null}
-                  {perspectiveEnabled ? (
+                  {canUsePerspectives ? (
                     <Button
                       type="button"
                       variant="ghost"
@@ -1097,7 +1173,7 @@ export function DataTable<T>({
         </Table>
       </div>
       {renderPagination()}
-      {perspectiveEnabled ? (
+      {canUsePerspectives ? (
         <PerspectiveSidebar
           open={isPerspectiveOpen}
           onOpenChange={setPerspectiveOpen}
@@ -1110,7 +1186,7 @@ export function DataTable<T>({
           onDeletePerspective={handlePerspectiveDelete}
           onClearRole={handleClearRole}
           onSave={handlePerspectiveSave}
-          canApplyToRoles={perspectiveData?.canApplyToRoles ?? false}
+          canApplyToRoles={Boolean(perspectiveData?.canApplyToRoles && canUseRoleDefaultsFeature)}
           columnOptions={columnOptions}
           onToggleColumn={handleToggleColumn}
           onMoveColumn={handleMoveColumn}
