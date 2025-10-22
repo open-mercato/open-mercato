@@ -14,6 +14,12 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
+
+const addressCrudIndexer: CrudIndexerConfig<CustomerAddress> = {
+  entityType: E.customers.customer_address,
+}
 
 type AddressSnapshot = {
   id: string
@@ -119,6 +125,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
         organizationId: address.organizationId,
         tenantId: address.tenantId,
       },
+      indexer: addressCrudIndexer,
     })
 
     return { addressId: address.id }
@@ -209,6 +216,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         organizationId: address.organizationId,
         tenantId: address.tenantId,
       },
+      indexer: addressCrudIndexer,
     })
 
     return { addressId: address.id }
@@ -319,6 +327,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         organizationId: address.organizationId,
         tenantId: address.tenantId,
       },
+      indexer: addressCrudIndexer,
     })
   },
 }
@@ -352,6 +361,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: address.organizationId,
           tenantId: address.tenantId,
         },
+        indexer: addressCrudIndexer,
       })
       return { addressId: address.id }
     },
@@ -433,6 +443,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: address.organizationId,
           tenantId: address.tenantId,
         },
+        indexer: addressCrudIndexer,
       })
     },
   }

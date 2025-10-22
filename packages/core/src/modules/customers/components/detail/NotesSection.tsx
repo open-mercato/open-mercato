@@ -27,8 +27,6 @@ type UiMarkdownEditorProps = {
   previewOptions?: { remarkPlugins?: unknown[] }
 }
 
-const SUBMIT_SHORTCUT_LABEL = '⌘⏎ / Ctrl+Enter'
-
 function MarkdownEditorFallback() {
   const t = useT()
   return (
@@ -613,10 +611,14 @@ export function NotesSection({
   const appearanceDialogOpen = appearanceDialogState !== null
   const editingAppearanceNoteId =
     appearanceDialogState?.mode === 'edit' ? appearanceDialogState.noteId : null
-  const composerSubmitLabel = `${addActionLabel} ${SUBMIT_SHORTCUT_LABEL}`
-  const appearanceDialogPrimaryLabel = `${appearanceDialogState?.mode === 'edit'
-    ? t('customers.people.detail.notes.appearance.save')
-    : addActionLabel} ${SUBMIT_SHORTCUT_LABEL}`
+  const addNoteShortcutLabel = t('customers.people.detail.notes.addShortcut', 'Add note ⌘⏎ / Ctrl+Enter')
+  const saveAppearanceShortcutLabel = t(
+    'customers.people.detail.notes.appearance.saveShortcut',
+    'Save appearance ⌘⏎ / Ctrl+Enter',
+  )
+  const composerSubmitLabel = addNoteShortcutLabel
+  const appearanceDialogPrimaryLabel =
+    appearanceDialogState?.mode === 'edit' ? saveAppearanceShortcutLabel : addNoteShortcutLabel
   const appearanceDialogSavingLabel =
     appearanceDialogState?.mode === 'edit'
       ? t('customers.people.detail.notes.appearance.saving')

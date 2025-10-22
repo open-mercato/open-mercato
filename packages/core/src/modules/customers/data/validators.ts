@@ -38,7 +38,7 @@ const baseEntitySchema = {
   status: z.string().trim().max(100).optional(),
   lifecycleStage: z.string().trim().max(100).optional(),
   source: z.string().trim().max(150).optional(),
-  nextInteraction: nextInteractionSchema.optional(),
+  nextInteraction: nextInteractionSchema.nullable().optional(),
   tags: z.array(uuid()).optional(),
 }
 

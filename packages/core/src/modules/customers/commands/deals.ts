@@ -31,8 +31,13 @@ import {
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
+const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
+  entityType: E.customers.customer_deal,
+}
 
 type DealSnapshot = {
   deal: {
@@ -200,6 +205,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
         organizationId: deal.organizationId,
         tenantId: deal.tenantId,
       },
+      indexer: dealCrudIndexer,
     })
 
     return { dealId: deal.id }
@@ -291,6 +297,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      indexer: dealCrudIndexer,
     })
 
     return { dealId: record.id }
@@ -399,6 +406,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         organizationId: deal.organizationId,
         tenantId: deal.tenantId,
       },
+      indexer: dealCrudIndexer,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -448,6 +456,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         },
+        indexer: dealCrudIndexer,
       })
       return { dealId: record.id }
     },
@@ -508,6 +517,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           organizationId: deal.organizationId,
           tenantId: deal.tenantId,
         },
+        indexer: dealCrudIndexer,
       })
 
       const resetValues = buildCustomFieldResetMap(before.custom, null)

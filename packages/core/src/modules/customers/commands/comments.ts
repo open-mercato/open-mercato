@@ -15,6 +15,12 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
+
+const commentCrudIndexer: CrudIndexerConfig<CustomerComment> = {
+  entityType: E.customers.customer_comment,
+}
 
 type CommentSnapshot = {
   id: string
@@ -91,6 +97,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      indexer: commentCrudIndexer,
     })
 
     return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
@@ -170,6 +177,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      indexer: commentCrudIndexer,
     })
 
     return { commentId: comment.id }
@@ -247,6 +255,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      indexer: commentCrudIndexer,
     })
   },
 }
@@ -280,6 +289,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: comment.organizationId,
           tenantId: comment.tenantId,
         },
+        indexer: commentCrudIndexer,
       })
       return { commentId: comment.id }
     },
@@ -338,6 +348,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: comment.organizationId,
           tenantId: comment.tenantId,
         },
+        indexer: commentCrudIndexer,
       })
     },
   }

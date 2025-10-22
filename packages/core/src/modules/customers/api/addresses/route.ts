@@ -37,6 +37,9 @@ const crud = makeCrudRoute({
     orgField: 'organizationId',
     tenantField: 'tenantId',
   },
+  indexer: {
+    entityType: E.customers.customer_address,
+  },
   list: {
     schema: listSchema,
     entityId: E.customers.customer_address,
