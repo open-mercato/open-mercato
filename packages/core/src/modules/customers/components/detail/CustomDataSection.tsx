@@ -147,6 +147,8 @@ function formatFieldValue(field: CrudField, value: unknown, emptyLabel: string, 
 
 export function CustomDataSection({ entityId, entityIds, values, onSubmit, title }: CustomDataSectionProps) {
   const t = useT()
+  const queryClient = useQueryClient()
+  const scopeVersion = useOrganizationScopeVersion()
   const emptyLabel = t('customers.people.detail.noValue')
   const [fields, setFields] = React.useState<CrudField[]>([])
   const [dictionaryMapsByField, setDictionaryMapsByField] = React.useState<Record<string, DictionaryMap>>({})
@@ -250,13 +252,8 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
           await Promise.all(
             uniqueDictionaryIds.map(async (dictionaryId) => {
               try {
-                const res = await apiFetch(`/api/dictionaries/${dictionaryId}/entries`)
-                const json = await res.json().catch(() => ({}))
-                if (!res.ok) {
-                  throw new Error('Failed to load dictionary entries')
-                }
-                const normalized = normalizeDictionaryEntries(json?.items)
-                mapsByDictionaryId[dictionaryId] = createDictionaryMap(normalized)
+                const data = await ensureDictionaryEntries(queryClient, dictionaryId, scopeVersion)
+                mapsByDictionaryId[dictionaryId] = data.map
               } catch {
                 mapsByDictionaryId[dictionaryId] = {}
               }
@@ -301,7 +298,7 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
 
     load().catch(() => {})
     return () => { cancelled = true }
-  }, [resolvedEntityIds])
+  }, [queryClient, resolvedEntityIds, scopeVersion])
 
   const handleSubmit = React.useCallback(async (input: Record<string, unknown>) => {
     await onSubmit(input)

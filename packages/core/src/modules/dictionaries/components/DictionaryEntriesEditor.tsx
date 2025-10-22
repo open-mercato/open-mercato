@@ -51,9 +51,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
   const dictionaryMap = dictionaryQuery.data?.map ?? {}
   const isInitialLoading = dictionaryQuery.isLoading
   const loadError = dictionaryQuery.isError
-    ? dictionaryQuery.error instanceof Error
-      ? dictionaryQuery.error.message
-      : t('dictionaries.config.entries.error.load', 'Failed to load dictionary entries.')
+    ? t('dictionaries.config.entries.error.load', 'Failed to load dictionary entries.')
     : null
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [isDeleting, setIsDeleting] = React.useState(false)

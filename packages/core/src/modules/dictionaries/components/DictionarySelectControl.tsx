@@ -60,7 +60,7 @@ export function DictionarySelectControl({
     return () => {
       cancelled = true
     }
-  }, [allowInlineCreate, dictionaryId])
+  }, [allowInlineCreate, dictionaryId, scopeVersion])
 
   const effectiveAllowInlineCreate = allowInlineCreate && inlineCreateEnabled
 

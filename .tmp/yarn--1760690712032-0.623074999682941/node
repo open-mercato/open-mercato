@@ -1,3 +1,0 @@
-#!/bin/sh
-
-exec "/Users/piotrkarwatka/.nvm/versions/node/v23.2.0/bin/node" "$@"

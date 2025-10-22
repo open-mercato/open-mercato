@@ -68,3 +68,5 @@ packages/*/src/**/*.jsx
 ./data
 ./.data
 data/*
+
+tmp/
