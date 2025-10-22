@@ -104,6 +104,7 @@ export function ActivitiesSection({
   const [dialogMode, setDialogMode] = React.useState<'create' | 'edit'>('create')
   const [editingActivityId, setEditingActivityId] = React.useState<string | null>(null)
   const [initialValues, setInitialValues] = React.useState<Partial<ActivityFormBaseValues & Record<string, unknown>> | undefined>(undefined)
+  const [visibleCount, setVisibleCount] = React.useState(0)
   const pendingCounterRef = React.useRef(0)
 
   const translate = React.useCallback(
@@ -187,10 +188,25 @@ export function ActivitiesSection({
     [queryClient, translate],
   )
 
+  const updateVisibleCount = React.useCallback((length: number) => {
+    if (!length) {
+      setVisibleCount(0)
+      return
+    }
+    const baseline = Math.min(5, length)
+    setVisibleCount((prev) => {
+      if (prev >= length) {
+        return Math.min(prev, length)
+      }
+      return Math.min(Math.max(prev, baseline), length)
+    })
+  }, [])
+
   const loadActivities = React.useCallback(async () => {
     if (!entityId) {
       setActivities([])
       setLoadError(null)
+      updateVisibleCount(0)
       return
     }
     pushLoading()
@@ -214,6 +230,7 @@ export function ActivitiesSection({
       const items = Array.isArray(payload?.items) ? (payload.items as ActivitySummary[]) : []
       setActivities(items)
       setLoadError(null)
+      updateVisibleCount(items.length)
     } catch (err) {
       const message =
         err instanceof Error
@@ -224,7 +241,11 @@ export function ActivitiesSection({
       setIsLoading(false)
       popLoading()
     }
-  }, [entityId, popLoading, pushLoading, t])
+  }, [entityId, popLoading, pushLoading, t, updateVisibleCount])
+
+  React.useEffect(() => {
+    updateVisibleCount(activities.length)
+  }, [activities.length, updateVisibleCount])
 
   React.useEffect(() => {
     if (!entityId) {
@@ -233,10 +254,11 @@ export function ActivitiesSection({
       setIsLoading(false)
       pendingCounterRef.current = 0
       onLoadingChange?.(false)
+      updateVisibleCount(0)
       return
     }
     loadActivities().catch(() => {})
-  }, [entityId, loadActivities, onLoadingChange])
+  }, [entityId, loadActivities, onLoadingChange, updateVisibleCount])
 
   const openCreateDialog = React.useCallback(() => {
     if (!entityId) return
@@ -448,6 +470,19 @@ export function ActivitiesSection({
   const isFormPending =
     pendingAction?.kind === 'create' ||
     (pendingAction?.kind === 'update' && pendingAction.id === editingActivityId)
+  const visibleActivities = React.useMemo(
+    () => activities.slice(0, visibleCount),
+    [activities, visibleCount],
+  )
+  const hasMoreActivities = visibleCount < activities.length
+  const loadMoreLabel = t('customers.people.detail.activities.loadMore', 'Load more activities')
+
+  const handleLoadMore = React.useCallback(() => {
+    setVisibleCount((prev) => {
+      if (prev >= activities.length) return prev
+      return Math.min(prev + 5, activities.length)
+    })
+  }, [activities.length])
 
   return (
     <div className="mt-3 space-y-4">
@@ -467,8 +502,8 @@ export function ActivitiesSection({
             }}
           />
         ) : null}
-        {activities.length > 0
-          ? activities.map((activity) => {
+        {visibleActivities.length > 0
+          ? visibleActivities.map((activity) => {
               const entry = dictionaryMap[activity.activityType]
               const displayIcon = entry?.icon ?? activity.appearanceIcon ?? null
               const displayColor = entry?.color ?? activity.appearanceColor ?? null
@@ -570,6 +605,13 @@ export function ActivitiesSection({
               )
             })
           : null}
+        {hasMoreActivities ? (
+          <div className="flex justify-center">
+            <Button variant="outline" size="sm" onClick={handleLoadMore} disabled={pendingAction !== null}>
+              {loadMoreLabel}
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <ActivityDialog

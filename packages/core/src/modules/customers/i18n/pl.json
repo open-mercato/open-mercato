@@ -490,6 +490,8 @@
   "customers.people.detail.activities.success": "Aktywność zapisana",
   "customers.people.detail.activities.error": "Nie udało się zapisać aktywności",
   "customers.people.detail.activities.loadError": "Nie udało się wczytać aktywności.",
+  "customers.people.detail.activities.loading": "Ładowanie aktywności…",
+  "customers.people.detail.activities.loadMore": "Wczytaj więcej aktywności",
   "customers.people.detail.activities.typeRequired": "Typ aktywności jest wymagany",
   "customers.people.detail.activities.subjectPlaceholder": "Dodaj temat (opcjonalnie)",
   "customers.people.detail.activities.bodyPlaceholder": "Opisz interakcję",

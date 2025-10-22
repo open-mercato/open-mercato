@@ -306,7 +306,7 @@ export function NotesSection({
   }, [hasEntity])
 
   const visibleNotes = React.useMemo(() => notes.slice(0, visibleCount), [notes, visibleCount])
-  const hasVisibleNotes = React.useMemo(() => visibleCount > 0 && notes.length > 0, [visibleCount, notes.length])
+  const hasVisibleNotes = React.useMemo(() => visibleCount > 0, [visibleCount])
 
   const loadMoreLabel = t('customers.people.detail.notes.loadMore')
 
@@ -641,7 +641,7 @@ export function NotesSection({
       : t('customers.people.detail.notes.saving', 'Saving note…')
 
   return (
-    <div className="mt-3 space-y-4">
+    <div className="mt-0 space-y-2">
       <div
         className={[
           'overflow-hidden rounded-xl transition-all duration-300 ease-out',
@@ -768,9 +768,11 @@ export function NotesSection({
 
       {loadError ? <p className="mt-3 text-xs text-red-600">{loadError}</p> : null}
 
-      {hasVisibleNotes ? (
-        <div className="space-y-3">
-          {visibleNotes.map((note) => {
+      <div className="space-y-3">
+        {isLoading ? (
+          <LoadingMessage label={t('customers.people.detail.notes.loading', 'Loading notes…')} className="py-8" />
+        ) : hasVisibleNotes ? (
+          visibleNotes.map((note) => {
             const author = noteAuthorLabel(note)
             const isAppearanceSaving = appearanceDialogSaving && editingAppearanceNoteId === note.id
             const isEditingContent = contentEditor.id === note.id
@@ -918,34 +920,27 @@ export function NotesSection({
                 )}
               </div>
             )
-          })}
-          {visibleCount < notes.length ? (
-            <div className="flex justify-center">
-              <Button variant="outline" size="sm" onClick={handleLoadMore}>
-                {loadMoreLabel}
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : isLoading ? (
-        <div className="mt-4">
-          <LoadingMessage
-            label={t('customers.people.detail.notes.loading', 'Loading notes…')}
-            className="min-h-[160px]"
-          />
-        </div>
-      ) : (
-        <div className="mt-4 rounded-xl bg-background p-6">
-          <EmptyState
-            title={emptyState.title}
-            action={{
-              label: emptyState.actionLabel,
-              onClick: focusComposer,
-              disabled: isSubmitting || !hasEntity,
-            }}
-          />
-        </div>
-      )}
+          })
+        ) : (
+          <div className="rounded-xl bg-background p-6">
+            <EmptyState
+              title={emptyState.title}
+              action={{
+                label: emptyState.actionLabel,
+                onClick: focusComposer,
+                disabled: isSubmitting || !hasEntity,
+              }}
+            />
+          </div>
+        )}
+        {isLoading || visibleCount >= notes.length ? null : (
+          <div className="flex justify-center">
+            <Button variant="outline" size="sm" onClick={handleLoadMore}>
+              {loadMoreLabel}
+            </Button>
+          </div>
+        )}
+      </div>
       <AppearanceDialog
         open={appearanceDialogOpen}
         title={

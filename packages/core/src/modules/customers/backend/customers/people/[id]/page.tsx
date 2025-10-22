@@ -101,7 +101,7 @@ type SectionLoaderProps = { isLoading: boolean; label?: string }
 
 function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) {
   if (!isLoading) return null
-  return <LoadingMessage label={label} className="mb-4" />
+  return <LoadingMessage label={label} className="mb-4 mt-4 min-h-[160px]" />
 }
 
 export default function CustomerPersonDetailPage({ params }: { params?: { id?: string } }) {
@@ -129,6 +129,10 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
+  const sectionLoaderLabel =
+    activeTab === 'activities'
+      ? t('customers.people.detail.activities.loading', 'Loading activities…')
+      : t('customers.people.detail.sectionLoading', 'Loading…')
 
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
     setSectionAction(action)
@@ -1128,7 +1132,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               {activeTab !== 'notes' ? (
                 <SectionLoader
                   isLoading={sectionPending[activeTab as SectionKey]}
-                  label={t('customers.people.detail.sectionLoading', 'Loading…')}
+                  label={sectionLoaderLabel}
                 />
               ) : null}
               {activeTab === 'notes' && (

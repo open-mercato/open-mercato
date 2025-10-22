@@ -492,6 +492,8 @@
   "customers.people.detail.activities.success": "Activity saved",
   "customers.people.detail.activities.error": "Failed to save activity",
   "customers.people.detail.activities.loadError": "Failed to load activities.",
+  "customers.people.detail.activities.loading": "Loading activities…",
+  "customers.people.detail.activities.loadMore": "Load more activities",
   "customers.people.detail.activities.typeRequired": "Activity type is required",
   "customers.people.detail.activities.subjectPlaceholder": "Add a subject (optional)",
   "customers.people.detail.activities.bodyPlaceholder": "Describe the interaction",
