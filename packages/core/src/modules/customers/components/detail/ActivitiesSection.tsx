@@ -512,6 +512,20 @@ export function ActivitiesSection({
               const occurredLabel =
                 formatDateTime(timestampValue) ?? t('customers.people.detail.activities.noDate', 'No date provided')
               const authorLabel = activity.authorName ?? activity.authorEmail ?? null
+              const loggedByText = authorLabel
+                ? (() => {
+                    const translated = t('customers.people.detail.activities.loggedBy', { user: authorLabel })
+                    if (
+                      !translated ||
+                      translated === 'customers.people.detail.activities.loggedBy' ||
+                      translated.includes('{{') ||
+                      translated.includes('{user')
+                    ) {
+                      return `Logged by ${authorLabel}`
+                    }
+                    return translated
+                  })()
+                : null
               const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === activity.id
               const isDeletePending = pendingAction?.kind === 'delete' && pendingAction.id === activity.id
               const customEntries = Array.isArray(activity.customFields)
@@ -596,10 +610,8 @@ export function ActivitiesSection({
                       })}
                     </div>
                   ) : null}
-                  {authorLabel ? (
-                    <p className="text-xs text-muted-foreground">
-                      {t('customers.people.detail.activities.loggedBy', 'Logged by {{user}}', { user: authorLabel })}
-                    </p>
+                  {loggedByText ? (
+                    <p className="text-xs text-muted-foreground">{loggedByText}</p>
                   ) : null}
                 </div>
               )
