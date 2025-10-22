@@ -168,10 +168,10 @@ export default async function BackendLayout({ children, params }: { children: Re
   }
 
   const rightHeaderContent = (
-    <div className="flex items-center gap-3">
+    <>
       <OrganizationSwitcher />
       <UserMenu email={auth?.email} />
-    </div>
+    </>
   )
 
   const productName = translate('appShell.productName', 'Open Mercato')

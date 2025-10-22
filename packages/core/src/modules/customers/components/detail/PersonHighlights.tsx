@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Loader2, Pencil, Trash2, X } from 'lucide-react'
+import { Building2, Loader2, Pencil, Trash2, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -167,7 +167,8 @@ export function PersonHighlights({
     <div className="group rounded-lg border bg-muted/30 p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 space-y-1">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+          <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+            <Building2 aria-hidden className="h-3.5 w-3.5" />
             {t('customers.people.detail.company.label', 'Company')}
           </p>
           {editingCompany ? (

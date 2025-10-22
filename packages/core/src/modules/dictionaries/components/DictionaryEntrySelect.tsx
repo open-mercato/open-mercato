@@ -144,10 +144,20 @@ export function DictionaryEntrySelect({
       const payload = await createOption({
         value: trimmedValue,
         label: showLabelInput ? newLabel.trim() || undefined : undefined,
-        color: allowAppearance ? appearance.color : null,
-        icon: allowAppearance ? appearance.icon : null,
+        color: allowAppearance && appearance.color ? appearance.color : undefined,
+        icon: allowAppearance && appearance.icon ? appearance.icon : undefined,
       })
       if (!payload) throw new Error('createOption did not return an entry')
+      setOptions((previous) => {
+        const map = new Map(previous.map((option) => [option.value, option]))
+        map.set(payload.value, {
+          value: payload.value,
+          label: payload.label,
+          color: payload.color ?? null,
+          icon: payload.icon ?? null,
+        })
+        return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+      })
       await loadOptions()
       onChange(payload.value)
       setDialogOpen(false)
@@ -167,12 +177,38 @@ export function DictionaryEntrySelect({
     createOption,
     labels.emptyError,
     labels.errorSave,
-    labels.saveLabel,
+    labels.successCreateLabel,
     loadOptions,
     newLabel,
     newValue,
     onChange,
   ])
+
+  const handleDialogKeyDown = React.useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        if (!saving) {
+          setDialogOpen(false)
+        }
+        return
+      }
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault()
+        if (!saving && newValue.trim().length) {
+          handleCreate().catch(() => {})
+        } else if (!saving && !newValue.trim().length) {
+          setFormError(labels.emptyError)
+        }
+      }
+    },
+    [handleCreate, labels.emptyError, newValue, saving],
+  )
+
+  const shortcutHint = React.useMemo(() => {
+    if (typeof navigator === 'undefined') return 'Cmd/Ctrl+Enter'
+    return /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? 'Cmd+Enter' : 'Ctrl+Enter'
+  }, [])
 
   const disabled = disabledProp || loading || saving
   const manageLink = manageHref ?? '/backend/config/dictionaries'
@@ -213,7 +249,7 @@ export function DictionaryEntrySelect({
                   <Plus className="h-4 w-4" />
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
+              <DialogContent className="sm:max-w-md" onKeyDown={handleDialogKeyDown}>
                 <DialogHeader>
                   <DialogTitle>{labels.dialogTitle}</DialogTitle>
                   {labels.addPrompt ? <DialogDescription>{labels.addPrompt}</DialogDescription> : null}
@@ -264,7 +300,10 @@ export function DictionaryEntrySelect({
                   </Button>
                   <Button type="button" onClick={handleCreate} disabled={saving || !newValue.trim()}>
                     {saving ? <Spinner className="mr-2 h-4 w-4" /> : null}
-                    {labels.saveLabel}
+                    <span>{labels.saveLabel}</span>
+                    {!saving ? (
+                      <span className="ml-2 text-xs text-muted-foreground">{`(${shortcutHint})`}</span>
+                    ) : null}
                   </Button>
                 </DialogFooter>
               </DialogContent>
