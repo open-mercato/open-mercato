@@ -156,21 +156,10 @@ export default function CustomersPeoplePage() {
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
-  const {
-    data: customFieldDefs = [],
-    refetch: refetchCustomFieldDefs,
-    isFetched: customFieldDefsFetched,
-  } = useCustomFieldDefs([E.customers.customer_entity, E.customers.customer_person_profile])
-
-  const hasFetchedCustomFieldsRef = React.useRef(false)
-  React.useEffect(() => {
-    if (!customFieldDefsFetched) return
-    if (!hasFetchedCustomFieldsRef.current) {
-      hasFetchedCustomFieldsRef.current = true
-      return
-    }
-    refetchCustomFieldDefs()
-  }, [customFieldDefsFetched, refetchCustomFieldDefs, reloadToken, scopeVersion])
+  const { data: customFieldDefs = [] } = useCustomFieldDefs(
+    [E.customers.customer_entity, E.customers.customer_person_profile],
+    { keyExtras: [scopeVersion, reloadToken] },
+  )
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {

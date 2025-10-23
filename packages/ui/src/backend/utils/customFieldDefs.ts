@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { useQuery, type UseQueryResult, type QueryClient } from '@tanstack/react-query'
 import { apiFetch } from './api'
 
 export type CustomFieldDefDto = {
@@ -72,27 +72,35 @@ export type UseCustomFieldDefsOptions = {
   staleTime?: number
   gcTime?: number
   fetchImpl?: typeof fetch
+  keyExtras?: Array<string | number | boolean | null | undefined>
 }
 
 export function useCustomFieldDefs(
   entityIds: string | string[] | null | undefined,
   options: UseCustomFieldDefsOptions = {}
 ): UseQueryResult<CustomFieldDefDto[]> {
+  const {
+    enabled: enabledOption = true,
+    staleTime,
+    gcTime,
+    fetchImpl = apiFetch,
+    keyExtras,
+  } = options
   const normalizedIds = React.useMemo(() => normalizeEntityIds(entityIds), [entityIds])
   const idsSignature = React.useMemo(() => JSON.stringify(normalizedIds), [normalizedIds])
+  const extrasSignature = React.useMemo(() => JSON.stringify(keyExtras ?? []), [keyExtras])
   const queryKey = React.useMemo(
-    () => ['customFieldDefs', ...normalizedIds],
-    [idsSignature]
+    () => ['customFieldDefs', ...(keyExtras ?? []), ...normalizedIds],
+    [idsSignature, extrasSignature]
   )
-  const enabled = (options.enabled ?? true) && normalizedIds.length > 0
-  const fetchImpl = options.fetchImpl ?? apiFetch
+  const enabled = enabledOption && normalizedIds.length > 0
 
   return useQuery<CustomFieldDefDto[]>({
     queryKey,
     queryFn: () => fetchCustomFieldDefs(normalizedIds, fetchImpl),
     enabled,
-    staleTime: options.staleTime ?? 5 * 60 * 1000,
-    gcTime: options.gcTime ?? 30 * 60 * 1000,
+    staleTime: staleTime ?? 5 * 60 * 1000,
+    gcTime: gcTime ?? 30 * 60 * 1000,
   })
 }
 
@@ -115,4 +123,24 @@ export function filterCustomFieldDefs(defs: CustomFieldDefDto[], mode: CustomFie
   return defs
     .filter((d) => isDefVisible(d, mode))
     .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
+}
+
+export async function invalidateCustomFieldDefs(
+  queryClient: QueryClient,
+  entityIds?: string | string[] | null,
+): Promise<void> {
+  const normalizedIds = normalizeEntityIds(entityIds)
+  if (!normalizedIds.length) {
+    await queryClient.invalidateQueries({
+      predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'customFieldDefs',
+    })
+    return
+  }
+  await queryClient.invalidateQueries({
+    predicate: (query) => {
+      if (!Array.isArray(query.queryKey)) return false
+      if (query.queryKey[0] !== 'customFieldDefs') return false
+      return normalizedIds.every((id) => query.queryKey.includes(id))
+    },
+  })
 }

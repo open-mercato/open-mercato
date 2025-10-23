@@ -6,6 +6,7 @@ import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { invalidateCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { upsertCustomEntitySchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -507,6 +508,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       setDefs(loaded)
       setDeletedKeys(Array.isArray(j2.deletedKeys) ? j2.deletedKeys : [])
       flash(`Restored ${key}`, 'success')
+      await invalidateCustomFieldDefs(queryClient, entityId)
     } catch (e: any) {
       flash(e?.message || 'Failed to restore field', 'error')
     }
@@ -538,6 +540,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         const j = await res.json().catch(() => ({}))
         throw new Error(j?.error || 'Failed to save definitions')
       }
+      await invalidateCustomFieldDefs(queryClient, entityId)
       router.push(`/backend/entities/user?flash=Definitions%20saved&type=success`)
     } catch (e: any) {
       setError(e.message || 'Failed to save')
@@ -547,11 +550,29 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   }
 
   async function removeField(idx: number) {
-    const d = defs[idx]
+    const def = defs[idx]
+    if (!def) return
+    if (def.key) {
+      try {
+        const res = await apiFetch('/api/entities/definitions', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityId, key: def.key }),
+        })
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}))
+          throw new Error((payload as any)?.error || 'Failed to delete field')
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to delete field'
+        flash(message, 'error')
+        return
+      }
+    }
     setDefs((arr) => arr.filter((_, i) => i !== idx))
     setOrderDirty(true)
-    if (d?.key) {
-      await apiFetch('/api/entities/definitions', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, key: d.key }) })
+    if (def.key) {
+      await invalidateCustomFieldDefs(queryClient, entityId)
     }
   }
 
@@ -579,6 +600,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       }
       setOrderDirty(false)
       flash('Order saved', 'success')
+      await invalidateCustomFieldDefs(queryClient, entityId)
     } catch (e: any) {
       flash(e?.message || 'Failed to save order', 'error')
     } finally {
@@ -787,7 +809,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             }
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
             // Invalidate all custom field definition caches so DataTables refresh with new labels
-            await queryClient.invalidateQueries({ queryKey: ['cf-defs'] })
+            await invalidateCustomFieldDefs(queryClient, entityId)
             flash('Definitions saved', 'success')
           }}
         onDelete={entitySource === 'custom' ? async () => {

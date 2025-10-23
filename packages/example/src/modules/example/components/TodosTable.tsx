@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
@@ -11,7 +11,7 @@ import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend
 import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList, buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { fetchCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -118,15 +118,14 @@ export default function TodosTable() {
     return params.toString()
   }, [page, sorting, title, values])
 
-  const { data: cfDefs } = useQuery({
-    queryKey: ['cf-defs', 'example:todo'],
-    queryFn: async () => fetchCustomFieldDefs('example:todo'),
+  const { data: cfDefs = [] } = useCustomFieldDefs('example:todo', {
+    keyExtras: [scopeVersion],
   })
 
   const [columns, setColumns] = React.useState<ColumnDef<TodoRow>[]>([])
   const computedColumns = React.useMemo(() => {
     const base = buildBaseColumns(t)
-    if (!cfDefs) return base
+    if (!cfDefs.length) return base
     return applyCustomFieldVisibility(base, cfDefs)
   }, [cfDefs, t])
 
