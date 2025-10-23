@@ -503,7 +503,6 @@ export function DealsSection({
             )
       if (!confirmed) return
       setPendingAction({ kind: 'delete', id: deal.id })
-      pushLoading()
       try {
         const res = await apiFetch('/api/customers/deals', {
           method: 'DELETE',
@@ -528,10 +527,9 @@ export function DealsSection({
         flash(message, 'error')
       } finally {
         setPendingAction(null)
-        popLoading()
       }
     },
-    [popLoading, pushLoading, translate],
+    [translate],
   )
 
   const handleDialogSubmit = React.useCallback(
