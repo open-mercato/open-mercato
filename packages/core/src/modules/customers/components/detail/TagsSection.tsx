@@ -44,7 +44,7 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
   }, [tags])
 
   const fetchTags = React.useCallback(async (query?: string) => {
-    const params = new URLSearchParams({ pageSize: '200' })
+    const params = new URLSearchParams({ pageSize: '100' })
     if (query) params.set('search', query)
     const res = await apiFetch(`/api/customers/tags?${params.toString()}`)
     const payload = await res.json().catch(() => ({}))

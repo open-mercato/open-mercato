@@ -119,6 +119,7 @@ export default function CustomersPeoplePage() {
     'address-types': {},
     'job-titles': {},
   })
+  const [tagIdToLabel, setTagIdToLabel] = React.useState<Record<string, string>>({})
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
   const t = useT()
@@ -140,9 +141,11 @@ export default function CustomersPeoplePage() {
     return entries.map((entry) => ({ value: entry.value, label: entry.label }))
   }, [fetchDictionaryEntries])
 
-  const loadTagOptions = React.useCallback(async (): Promise<FilterOption[]> => {
+  const loadTagOptions = React.useCallback(async (query?: string): Promise<FilterOption[]> => {
     try {
       const params = new URLSearchParams({ pageSize: '200' })
+      const trimmedQuery = typeof query === 'string' ? query.trim() : ''
+      if (trimmedQuery) params.set('search', trimmedQuery)
       const res = await apiFetch(`/api/customers/tags?${params.toString()}`)
       const payload = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -169,12 +172,34 @@ export default function CustomersPeoplePage() {
             : rawId
         options.push({ value: rawId, label })
       }
+      if (options.length) {
+        setTagIdToLabel((prev) => {
+          let changed = false
+          const next = { ...prev }
+          for (const option of options) {
+            if (next[option.value] !== option.label) {
+              next[option.value] = option.label
+              changed = true
+            }
+          }
+          return changed ? next : prev
+        })
+      }
       return options
     } catch (err) {
       console.error('customers.people.list.loadTagOptions', err)
       return []
     }
-  }, [t])
+  }, [setTagIdToLabel, t])
+
+  const tagLabelToId = React.useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const [id, label] of Object.entries(tagIdToLabel)) {
+      if (!label) continue
+      map[label] = id
+    }
+    return map
+  }, [tagIdToLabel])
 
   React.useEffect(() => {
     let cancelled = false
@@ -220,8 +245,7 @@ export default function CustomersPeoplePage() {
     {
       id: 'tagIds',
       label: t('customers.people.list.filters.tags'),
-      type: 'select',
-      multiple: true,
+      type: 'tags',
       loadOptions: loadTagOptions,
     },
     {
@@ -282,13 +306,18 @@ export default function CustomersPeoplePage() {
       if (value === true) params.set(queryKey, 'true')
       if (value === false) params.set(queryKey, 'false')
     }
-    const tagIds = Array.isArray(filterValues.tagIds)
+    const tagLabels = Array.isArray(filterValues.tagIds)
       ? filterValues.tagIds
           .map((value) => (typeof value === 'string' ? value.trim() : String(value || '').trim()))
           .filter((value) => value.length > 0)
       : []
-    if (tagIds.length > 0) {
-      params.set('tagIds', tagIds.join(','))
+    if (tagLabels.length > 0) {
+      const normalizedTagIds = tagLabels
+        .map((label) => tagLabelToId[label])
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      if (normalizedTagIds.length > 0) {
+        params.set('tagIds', normalizedTagIds.join(','))
+      }
     }
     Object.entries(filterValues).forEach(([key, value]) => {
       if (!key.startsWith('cf_') || value == null) return
@@ -309,7 +338,7 @@ export default function CustomersPeoplePage() {
       }
     })
     return params.toString()
-  }, [filterValues, page, pageSize, search])
+  }, [filterValues, page, pageSize, search, tagLabelToId])
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
   const exportConfig = React.useMemo(() => ({
@@ -382,6 +411,28 @@ export default function CustomersPeoplePage() {
       flash(message, 'error')
     }
   }, [handleRefresh, t])
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    const next: FilterValues = {}
+    Object.entries(values).forEach(([key, value]) => {
+      if (value !== undefined) {
+        next[key] = value
+      }
+    })
+    const rawTags = Array.isArray(values.tagIds) ? (values.tagIds as string[]) : []
+    const sanitizedTags = rawTags
+      .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+      .filter((tag) => tag.length > 0)
+    if (sanitizedTags.length) next.tagIds = sanitizedTags
+    else delete next.tagIds
+    setFilterValues(next)
+    setPage(1)
+  }, [setFilterValues, setPage])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
+    setPage(1)
+  }, [setFilterValues, setPage])
 
   const columns = React.useMemo<ColumnDef<PersonRow>[]>(() => {
     const noValue = <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>
@@ -517,8 +568,8 @@ export default function CustomersPeoplePage() {
           searchPlaceholder={t('customers.people.list.searchPlaceholder')}
           filters={filters}
           filterValues={filterValues}
-          onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
-          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           perspective={{ tableId: 'customers.people.list' }}
           onRowClick={(row) => router.push(`/backend/customers/people/${row.id}`)}

@@ -7,8 +7,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
-import { DealForm, type DealFormSubmitPayload, type DealFormBaseValues } from '../../../../../components/detail/DealForm'
-import { useCurrencyDictionary } from '../../../../../components/detail/hooks/useCurrencyDictionary'
+import { DealForm, type DealFormSubmitPayload, type DealFormBaseValues } from '../../../../components/detail/DealForm'
+import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
 
 type DealInitialValues = Partial<DealFormBaseValues & Record<string, unknown>> & { id?: string }
 

@@ -229,13 +229,13 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
 
   React.useEffect(() => {
     if (!resolvedEntityIds.length) {
-      setDictionaryLoading(false)
-      setDictionaryMapsByField({})
+      setDictionaryLoading((prev) => (prev ? false : prev))
+      setDictionaryMapsByField((prev) => (Object.keys(prev).length ? {} : prev))
       return
     }
     if (!definitions.length) {
-      setDictionaryLoading(false)
-      setDictionaryMapsByField({})
+      setDictionaryLoading((prev) => (prev ? false : prev))
+      setDictionaryMapsByField((prev) => (Object.keys(prev).length ? {} : prev))
       return
     }
 
@@ -252,7 +252,9 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
           .filter((entry): entry is { keyLower: string; dictionaryId: string } => !!entry)
 
         if (!dictionaryDefs.length) {
-          if (!cancelled) setDictionaryMapsByField({})
+          if (!cancelled) {
+            setDictionaryMapsByField((prev) => (Object.keys(prev).length ? {} : prev))
+          }
           return
         }
 
@@ -288,11 +290,21 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
         })
 
         if (!cancelled) {
-          setDictionaryMapsByField(nextMaps)
+          setDictionaryMapsByField((prev) => {
+            const prevKeys = Object.keys(prev)
+            const nextKeys = Object.keys(nextMaps)
+            if (
+              prevKeys.length === nextKeys.length &&
+              prevKeys.every((key) => prev[key] === nextMaps[key])
+            ) {
+              return prev
+            }
+            return nextMaps
+          })
         }
       } catch {
         if (!cancelled) {
-          setDictionaryMapsByField({})
+          setDictionaryMapsByField((prev) => (Object.keys(prev).length ? {} : prev))
         }
       } finally {
         if (!cancelled) {

@@ -170,11 +170,11 @@ export function DictionariesManager() {
         flash(t('dictionaries.config.error.system', 'System dictionaries cannot be deleted.'), 'error')
         return
       }
-      const confirmed = window.confirm(
-        t('dictionaries.config.delete.confirm', 'Delete dictionary "{{name}}"?', {
-          name: dictionary.name,
-        }),
-      )
+      const rawConfirm = t('dictionaries.config.delete.confirm', { name: dictionary.name })
+      const confirmMessage = rawConfirm && rawConfirm !== 'dictionaries.config.delete.confirm'
+        ? rawConfirm
+        : `Delete dictionary "${dictionary.name}"?`
+      const confirmed = window.confirm(confirmMessage)
       if (!confirmed) return
       setDeleting(dictionary.id)
       try {
