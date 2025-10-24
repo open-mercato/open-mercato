@@ -33,6 +33,9 @@ export type ActivityDialogProps = {
     edit?: string
   }
   cancelLabel?: string
+  dealOptions?: Array<{ id: string; label: string }>
+  entityOptions?: Array<{ id: string; label: string }>
+  defaultEntityId?: string | null
 }
 
 export function ActivityDialog({
@@ -48,6 +51,9 @@ export function ActivityDialog({
   titles,
   submitLabels,
   cancelLabel,
+  dealOptions,
+  entityOptions,
+  defaultEntityId,
 }: ActivityDialogProps) {
   const t = useT()
 
@@ -84,6 +90,9 @@ export function ActivityDialog({
           activityTypeLabels={activityTypeLabels}
           loadActivityOptions={loadActivityOptions}
           createActivityOption={createActivityOption}
+          dealOptions={dealOptions}
+          entityOptions={entityOptions}
+          defaultEntityId={defaultEntityId}
         />
       </DialogContent>
     </Dialog>

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
@@ -16,6 +17,7 @@ import {
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { ensureDictionaryEntries } from '@open-mercato/core/modules/dictionaries/components/hooks/useDictionaryEntries'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { extractDictionaryValue } from './customFieldUtils'
 
 type CustomDataSectionProps = {
   entityId?: string
@@ -23,21 +25,6 @@ type CustomDataSectionProps = {
   values: Record<string, unknown>
   onSubmit: (values: Record<string, unknown>) => Promise<void>
   title: string
-}
-
-function extractDictionaryValue(entry: unknown): string | null {
-  if (typeof entry === 'string') {
-    const trimmed = entry.trim()
-    return trimmed.length ? trimmed : null
-  }
-  if (!entry || typeof entry !== 'object') return null
-  const record = entry as Record<string, unknown>
-  const candidate = record.value ?? record.name ?? record.id ?? record.key ?? record.label
-  if (typeof candidate === 'string') {
-    const trimmed = candidate.trim()
-    return trimmed.length ? trimmed : null
-  }
-  return null
 }
 
 function formatFieldValue(field: CrudField, value: unknown, emptyLabel: string, dictionaryMap?: DictionaryMap): React.ReactNode {
@@ -179,10 +166,26 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
     gcTime: 30 * 60 * 1000,
     queryFn: async () => fetchCustomFieldFormFieldsWithDefinitions(resolvedEntityIds),
   })
-  const fields = customFieldFormsQuery.data?.fields ?? []
-  const definitions = customFieldFormsQuery.data?.definitions ?? []
+  const fields = React.useMemo(
+    () => customFieldFormsQuery.data?.fields ?? [],
+    [customFieldFormsQuery.data],
+  )
+  const definitions = React.useMemo(
+    () => customFieldFormsQuery.data?.definitions ?? [],
+    [customFieldFormsQuery.data],
+  )
   const [dictionaryLoading, setDictionaryLoading] = React.useState(false)
   const loading = customFieldFormsQuery.isLoading || dictionaryLoading
+  const hasFields = fields.length > 0
+  const definitionHref = primaryEntityId
+    ? `/backend/entities/system/${encodeURIComponent(primaryEntityId)}`
+    : undefined
+
+  React.useEffect(() => {
+    if (!hasFields && editing) {
+      setEditing(false)
+    }
+  }, [editing, hasFields])
 
   const submitActiveForm = React.useCallback(() => {
     const node = sectionRef.current?.querySelector('form')
@@ -212,19 +215,19 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
   )
 
   const handleActivate = React.useCallback(() => {
-    if (loading || editing) return
+    if (loading || editing || !hasFields) return
     setEditing(true)
-  }, [editing, loading])
+  }, [editing, hasFields, loading])
 
   const handleReadOnlyKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (loading || editing) return
+      if (loading || editing || !hasFields) return
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
         setEditing(true)
       }
     },
-    [editing, loading],
+    [editing, hasFields, loading],
   )
 
   React.useEffect(() => {
@@ -332,8 +335,11 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
           type="button"
           variant="ghost"
           size="icon"
-          onClick={() => setEditing((prev) => !prev)}
-          disabled={loading}
+          onClick={() => {
+            if (!hasFields || loading) return
+            setEditing((prev) => !prev)
+          }}
+          disabled={loading || !hasFields}
           className={editing
             ? 'opacity-100 transition-opacity duration-150'
             : 'opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100'}
@@ -369,15 +375,25 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
           <div
             className={cn(
               'rounded-lg border bg-muted/20 p-4 space-y-3 transition hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-              loading ? 'cursor-default' : 'cursor-pointer',
+              hasFields && !loading ? 'cursor-pointer' : 'cursor-default',
             )}
-            role="button"
-            tabIndex={loading ? -1 : 0}
-            onClick={handleActivate}
-            onKeyDown={handleReadOnlyKeyDown}
+            role={hasFields && !loading ? 'button' : undefined}
+            tabIndex={hasFields && !loading ? 0 : -1}
+            onClick={hasFields && !loading ? handleActivate : undefined}
+            onKeyDown={hasFields && !loading ? handleReadOnlyKeyDown : undefined}
           >
-            {fields.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('entities.customFields.empty')}</p>
+            {!hasFields ? (
+              <p className="text-sm text-muted-foreground">
+                {t('entities.customFields.empty')}{' '}
+                {definitionHref ? (
+                  <Link
+                    href={definitionHref}
+                    className="font-medium text-primary underline-offset-2 hover:underline focus-visible:underline"
+                  >
+                    {t('customers.people.detail.customFields.defineFirst')}
+                  </Link>
+                ) : null}
+              </p>
             ) : (
               fields.map((field) => (
                 <div key={field.id} className="space-y-1">

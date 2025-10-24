@@ -9,7 +9,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import type { SectionAction, TabEmptyState, Translator } from './types'
 import { useT } from '@/lib/i18n/context'
-import { formatDate } from './utils'
+import { formatDate, formatTemplate } from './utils'
 
 export type CompanyPersonSummary = {
   id: string
@@ -48,8 +48,18 @@ export function CompanyPeopleSection({
   onLoadingChange,
 }: CompanyPeopleSectionProps) {
   const router = useRouter()
-  const t = useT()
-  const translate = translator ?? t
+  const tHook = useT()
+  const translate = React.useMemo<Translator>(
+    () =>
+      translator ??
+      ((key, fallback, params) => {
+        const value = tHook(key, params)
+        if (value !== key) return value
+        if (!fallback) return key
+        return formatTemplate(fallback, params)
+      }),
+    [translator, tHook],
+  )
   const [people, setPeople] = React.useState<CompanyPersonSummary[]>(initialPeople)
   const [removingId, setRemovingId] = React.useState<string | null>(null)
 

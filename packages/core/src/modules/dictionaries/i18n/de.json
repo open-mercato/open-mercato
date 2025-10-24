@@ -68,6 +68,7 @@
   "dictionaries.config.entries.dialog.previewEmpty": "Keine Darstellung ausgewählt",
   "dictionaries.config.entries.dialog.cancel": "Abbrechen",
   "dictionaries.config.entries.dialog.save": "Speichern",
+  "dictionaries.config.entries.dialog.saveShortcut": "⌘/Ctrl + Enter",
   "dictionaries.customFields.dictionaryLabel": "Quelle des Wörterbuchs",
   "dictionaries.customFields.dictionaryPlaceholder": "Wählen Sie ein Wörterbuch",
   "dictionaries.customFields.inactive": "inaktiv",

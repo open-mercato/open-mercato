@@ -1,189 +1,226 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { Pencil, MousePointerClick } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
-import { DealForm, type DealFormSubmitPayload, type DealFormBaseValues } from '../../../../components/detail/DealForm'
-import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { NotesSection } from '../../../../components/detail/NotesSection'
+import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
+import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
+import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
+import type { SectionAction } from '../../../../components/detail/types'
+import { useCustomerDictionary } from '../../../../components/detail/hooks/useCustomerDictionary'
+import type { CustomerDictionaryMap } from '../../../../lib/dictionaries'
 
-type DealInitialValues = Partial<DealFormBaseValues & Record<string, unknown>> & { id?: string }
+type DealAssociation = {
+  id: string
+  label: string
+  subtitle: string | null
+  kind: 'person' | 'company'
+}
 
-function mapDealForForm(item: Record<string, unknown>): DealInitialValues | null {
-  const id = typeof item.id === 'string' ? item.id : null
-  if (!id) return null
-
-  const parseNumber = (value: unknown): number | null => {
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-    if (typeof value === 'string') {
-      const trimmed = value.trim()
-      if (!trimmed.length) return null
-      const parsed = Number(trimmed)
-      return Number.isNaN(parsed) ? null : parsed
-    }
-    return null
+type DealDetailPayload = {
+  deal: {
+    id: string
+    title: string
+    description: string | null
+    status: string | null
+    pipelineStage: string | null
+    valueAmount: string | null
+    valueCurrency: string | null
+    probability: number | null
+    expectedCloseAt: string | null
+    ownerUserId: string | null
+    source: string | null
+    organizationId: string | null
+    tenantId: string | null
+    createdAt: string
+    updatedAt: string
   }
+  people: DealAssociation[]
+  companies: DealAssociation[]
+  customFields: Record<string, unknown>
+  viewer?: {
+    userId: string | null
+    name?: string | null
+    email?: string | null
+  } | null
+}
 
-  const toIdList = (value: unknown): string[] => {
-    if (!Array.isArray(value)) return []
-    const set = new Set<string>()
-    value.forEach((entry) => {
-      if (typeof entry !== 'string') return
-      const trimmed = entry.trim()
-      if (!trimmed.length) return
-      set.add(trimmed)
-    })
-    return Array.from(set)
-  }
+type SectionLoaderProps = { isLoading: boolean; label?: string }
 
-  const parseAssociations = (value: unknown): { id: string; label: string }[] => {
-    if (!Array.isArray(value)) return []
-    const seen = new Set<string>()
-    const result: { id: string; label: string }[] = []
-    value.forEach((entry) => {
-      if (!entry || typeof entry !== 'object') return
-      const data = entry as Record<string, unknown>
-      const assocId = typeof data.id === 'string' ? data.id : null
-      if (!assocId || seen.has(assocId)) return
-      const label = typeof data.label === 'string' ? data.label : ''
-      seen.add(assocId)
-      result.push({ id: assocId, label })
-    })
-    return result
-  }
+function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) {
+  if (!isLoading) return null
+  return <LoadingMessage label={label} className="mb-4 mt-4 min-h-[160px]" />
+}
 
-  const expectedCloseAt =
-    typeof item.expected_close_at === 'string' && item.expected_close_at.trim().length
-      ? item.expected_close_at
-      : null
+const CRUD_FOCUSABLE_SELECTOR =
+  '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1")]'
 
-  const valueCurrency =
-    typeof item.value_currency === 'string' && item.value_currency.trim().length
-      ? item.value_currency.trim().toUpperCase()
-      : undefined
-
-  const customEntries: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(item)) {
-    if (key.startsWith('cf_')) {
-      customEntries[key] = value
-    }
-  }
-
-  const personIds =
-    toIdList(
-      Array.isArray((item as any).personIds)
-        ? (item as any).personIds
-        : (item as any).person_ids,
-    )
-  const companyIds =
-    toIdList(
-      Array.isArray((item as any).companyIds)
-        ? (item as any).companyIds
-        : (item as any).company_ids,
-    )
-
-  return {
-    id,
-    title: typeof item.title === 'string' ? item.title : '',
-    status: typeof item.status === 'string' ? item.status : '',
-    pipelineStage: typeof item.pipeline_stage === 'string' ? item.pipeline_stage : '',
-    valueAmount: parseNumber(item.value_amount),
-    valueCurrency,
-    probability: parseNumber(item.probability),
-    expectedCloseAt,
-    description: typeof item.description === 'string' ? item.description : '',
-    personIds,
-    companyIds,
-    people: parseAssociations((item as any).people),
-    companies: parseAssociations((item as any).companies),
-    ...customEntries,
+function formatCurrency(amount: string | null, currency: string | null): string | null {
+  if (!amount) return null
+  const value = Number(amount)
+  if (!Number.isFinite(value)) return currency ? `${amount} ${currency}` : amount
+  if (!currency) return value.toLocaleString()
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value)
+  } catch {
+    return `${value.toLocaleString()} ${currency}`
   }
 }
 
-export default function EditDealPage({ params }: { params?: { id?: string } }) {
+function formatDate(value: string | null, fallback: string): string {
+  if (!value) return fallback
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return fallback
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function resolveDictionaryLabel(
+  value: string | null | undefined,
+  map: CustomerDictionaryMap | null | undefined,
+): string | null {
+  if (!value) return null
+  const entry = map?.[value]
+  if (entry && entry.label && entry.label.length) return entry.label
+  return value
+}
+
+export default function DealDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
-  const id = params?.id
-  const [initialValues, setInitialValues] = React.useState<DealInitialValues | null>(null)
+  const id = params?.id ?? ''
+  const scopeVersion = useOrganizationScopeVersion()
+  const statusDictionaryQuery = useCustomerDictionary('deal-statuses', scopeVersion)
+  const pipelineDictionaryQuery = useCustomerDictionary('pipeline-stages', scopeVersion)
+  const statusDictionaryMap = statusDictionaryQuery.data?.map ?? null
+  const pipelineDictionaryMap = pipelineDictionaryQuery.data?.map ?? null
+  const [data, setData] = React.useState<DealDetailPayload | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
-  const [loadError, setLoadError] = React.useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [isSaving, setIsSaving] = React.useState(false)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
-  useCurrencyDictionary()
+  const [activeTab, setActiveTab] = React.useState<'notes' | 'activities'>('notes')
+  const [sectionPending, setSectionPending] = React.useState<{ notes: boolean; activities: boolean }>({
+    notes: false,
+    activities: false,
+  })
+  const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+  const handleNotesLoadingChange = React.useCallback((loading: boolean) => {
+    setSectionPending((prev) => ({ ...prev, notes: loading }))
+  }, [])
+  const handleActivitiesLoadingChange = React.useCallback((loading: boolean) => {
+    setSectionPending((prev) => ({ ...prev, activities: loading }))
+  }, [])
+  const focusDealField = React.useCallback(
+    (fieldId: 'title' | 'personIds' | 'companyIds') => {
+      if (typeof window === 'undefined' || typeof document === 'undefined') return
+      const focusOnce = () => {
+        const container = document.querySelector<HTMLElement>(`[data-crud-field-id="${fieldId}"]`)
+        if (!container) return false
+        const target =
+          container.querySelector<HTMLElement>(CRUD_FOCUSABLE_SELECTOR) ?? container
+        if (!target || typeof target.focus !== 'function') return false
+        if (typeof container.scrollIntoView === 'function') {
+          container.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+        target.focus()
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+          try {
+            target.select()
+          } catch {}
+        }
+        return true
+      }
+
+      const schedule = () => {
+        const focused = focusOnce()
+        if (focused) return
+        window.setTimeout(() => {
+          focusOnce()
+        }, 60)
+      }
+
+      if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(schedule)
+      } else {
+        schedule()
+      }
+    },
+    [],
+  )
+  const dealSettingsRef = React.useRef<HTMLDivElement | null>(null)
+  const scrollToDealSettings = React.useCallback(() => {
+    if (typeof window === 'undefined') return
+    if (dealSettingsRef.current && typeof dealSettingsRef.current.scrollIntoView === 'function') {
+      dealSettingsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    window.setTimeout(() => {
+      focusDealField('title')
+    }, 160)
+  }, [focusDealField])
 
   React.useEffect(() => {
     if (!id) {
-      setLoadError(t('customers.deals.edit.missingId', 'Deal id is required.'))
+      setError(t('customers.deals.detail.missingId', 'Deal id is required.'))
       setIsLoading(false)
       return
     }
     let cancelled = false
-    setIsLoading(true)
-    setLoadError(null)
-    ;(async () => {
+    async function loadDeal() {
+      setIsLoading(true)
+      setError(null)
       try {
-        const search = new URLSearchParams()
-        search.set('id', id)
-        search.set('page', '1')
-        search.set('pageSize', '1')
-        const res = await apiFetch(`/api/customers/deals?${search.toString()}`)
+        const res = await apiFetch(`/api/customers/deals/${encodeURIComponent(id)}`)
         const payload = await res.json().catch(() => ({}))
         if (!res.ok) {
           const message =
             typeof payload?.error === 'string'
               ? payload.error
-              : t('customers.deals.edit.errorLoad', 'Failed to load deal.')
+              : t('customers.deals.detail.loadError', 'Failed to load deal.')
           throw new Error(message)
         }
-        const items = Array.isArray(payload?.items) ? payload.items : []
-        const mapped = items.length ? mapDealForForm(items[0] as Record<string, unknown>) : null
         if (cancelled) return
-        if (!mapped) {
-          setInitialValues(null)
-          setLoadError(t('customers.deals.edit.notFound', 'Deal not found.'))
-          return
-        }
-        setInitialValues(mapped)
+        setData(payload as DealDetailPayload)
       } catch (err) {
         if (cancelled) return
         const message =
           err instanceof Error && err.message
             ? err.message
-            : t('customers.deals.edit.errorLoad', 'Failed to load deal.')
-        setLoadError(message)
-        flash(message, 'error')
+            : t('customers.deals.detail.loadError', 'Failed to load deal.')
+        setError(message)
+        setData(null)
       } finally {
         if (!cancelled) setIsLoading(false)
       }
-    })().catch(() => {})
+    }
+    loadDeal().catch(() => {})
     return () => {
       cancelled = true
     }
   }, [id, reloadToken, t])
 
-  const handleCancel = React.useCallback(() => {
-    router.push('/backend/customers/deals')
-  }, [router])
-
-  const handleSubmit = React.useCallback(
+  const handleFormSubmit = React.useCallback(
     async ({ base, custom }: DealFormSubmitPayload) => {
-      if (!id || isSubmitting) return
-      setIsSubmitting(true)
+      if (!data || isSaving) return
+      setIsSaving(true)
       try {
         const payload: Record<string, unknown> = {
-          id,
+          id: data.deal.id,
           title: base.title,
           status: base.status ?? undefined,
           pipelineStage: base.pipelineStage ?? undefined,
-          valueAmount:
-            typeof base.valueAmount === 'number' ? base.valueAmount : undefined,
+          valueAmount: typeof base.valueAmount === 'number' ? base.valueAmount : undefined,
           valueCurrency: base.valueCurrency ?? undefined,
-          probability:
-            typeof base.probability === 'number' ? base.probability : undefined,
+          probability: typeof base.probability === 'number' ? base.probability : undefined,
           expectedCloseAt: base.expectedCloseAt ?? undefined,
           description: base.description ?? undefined,
           personIds: base.personIds && base.personIds.length ? base.personIds : undefined,
@@ -196,38 +233,38 @@ export default function EditDealPage({ params }: { params?: { id?: string } }) {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
         })
-        const responseBody = await res.json().catch(() => ({}))
+        const body = await res.json().catch(() => ({}))
         if (!res.ok) {
           const message =
-            typeof responseBody?.error === 'string'
-              ? responseBody.error
-              : t('customers.deals.edit.errorUpdate', 'Failed to save deal.')
+            typeof body?.error === 'string'
+              ? body.error
+              : t('customers.deals.detail.saveError', 'Failed to update deal.')
           throw new Error(message)
         }
-        flash(t('customers.people.detail.deals.updateSuccess', 'Deal updated.'), 'success')
+        flash(t('customers.deals.detail.saveSuccess', 'Deal updated.'), 'success')
         setReloadToken((token) => token + 1)
       } catch (err) {
         const message =
           err instanceof Error && err.message
             ? err.message
-            : t('customers.deals.edit.errorUpdate', 'Failed to save deal.')
+            : t('customers.deals.detail.saveError', 'Failed to update deal.')
         flash(message, 'error')
         throw err instanceof Error ? err : new Error(message)
       } finally {
-        setIsSubmitting(false)
+        setIsSaving(false)
       }
     },
-    [id, isSubmitting, t],
+    [data, isSaving, t],
   )
 
   const handleDelete = React.useCallback(async () => {
-    if (!id || isDeleting) return
+    if (!data || isDeleting) return
     const confirmed =
       typeof window === 'undefined'
         ? true
         : window.confirm(
             t(
-              'customers.people.detail.deals.deleteConfirm',
+              'customers.deals.detail.deleteConfirm',
               'Delete this deal? This action cannot be undone.',
             ),
           )
@@ -238,54 +275,388 @@ export default function EditDealPage({ params }: { params?: { id?: string } }) {
       const res = await apiFetch('/api/customers/deals', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id: data.deal.id }),
       })
-      const responseBody = await res.json().catch(() => ({}))
+      const body = await res.json().catch(() => ({}))
       if (!res.ok) {
         const message =
-          typeof responseBody?.error === 'string'
-            ? responseBody.error
-            : t('customers.people.detail.deals.deleteError', 'Failed to delete deal.')
+          typeof body?.error === 'string'
+            ? body.error
+            : t('customers.deals.detail.deleteError', 'Failed to delete deal.')
         throw new Error(message)
       }
-      flash(t('customers.people.detail.deals.deleteSuccess', 'Deal deleted.'), 'success')
+      flash(t('customers.deals.detail.deleteSuccess', 'Deal deleted.'), 'success')
       router.push('/backend/customers/deals')
     } catch (err) {
       const message =
         err instanceof Error && err.message
           ? err.message
-          : t('customers.people.detail.deals.deleteError', 'Failed to delete deal.')
+          : t('customers.deals.detail.deleteError', 'Failed to delete deal.')
       flash(message, 'error')
     } finally {
       setIsDeleting(false)
     }
-  }, [id, isDeleting, router, t])
+  }, [data, isDeleting, router, t])
 
-  const showForm = !isLoading && !loadError && initialValues
+  React.useEffect(() => {
+    setSectionAction(null)
+  }, [activeTab])
+
+  const handleSectionAction = React.useCallback(() => {
+    if (!sectionAction || sectionAction.disabled) return
+    sectionAction.onClick()
+  }, [sectionAction])
+
+  const dealOptions = React.useMemo(
+    () =>
+      data
+        ? [
+            {
+              id: data.deal.id,
+              label:
+                data.deal.title && data.deal.title.length
+                  ? data.deal.title
+                  : t('customers.deals.detail.untitled', 'Untitled deal'),
+            },
+          ]
+        : [],
+    [data, t],
+  )
+
+  const entityOptions = React.useMemo(() => {
+    if (!data) return []
+    const entries: { id: string; label: string }[] = []
+    data.people.forEach((person) => {
+      if (!person.id) return
+      const suffix = person.subtitle ? ` · ${person.subtitle}` : ''
+      entries.push({ id: person.id, label: `${person.label}${suffix}` })
+    })
+    data.companies.forEach((company) => {
+      if (!company.id) return
+      const suffix = company.subtitle ? ` · ${company.subtitle}` : ''
+      entries.push({ id: company.id, label: `${company.label}${suffix}` })
+    })
+    return entries
+  }, [data])
+
+  const defaultEntityId = React.useMemo(() => {
+    if (entityOptions.length) return entityOptions[0].id
+    return null
+  }, [entityOptions])
+
+  const tabs = React.useMemo(
+    () => [
+      { id: 'notes' as const, label: t('customers.deals.detail.tabs.notes', 'Notes') },
+      { id: 'activities' as const, label: t('customers.deals.detail.tabs.activities', 'Activities') },
+    ],
+    [t],
+  )
+
+  const sectionLoaderLabel = activeTab === 'activities'
+    ? t('customers.deals.detail.activitiesLoading', 'Loading activities…')
+    : t('customers.deals.detail.notesLoading', 'Loading notes…')
+
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <Spinner className="h-6 w-6" />
+            <span>{t('customers.deals.detail.loading', 'Loading deal…')}</span>
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error || !data) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="flex h-[50vh] flex-col items-center justify-center gap-3 text-muted-foreground">
+            <p>{error || t('customers.deals.detail.notFound', 'Deal not found.')}</p>
+            <Button variant="outline" asChild>
+              <Link href="/backend/customers/deals">
+                {t('customers.deals.detail.backToList', 'Back to deals')}
+              </Link>
+            </Button>
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  const probabilityLabel = data.deal.probability !== null && data.deal.probability !== undefined
+    ? `${data.deal.probability}%`
+    : t('customers.deals.detail.noValue', 'Not provided')
+  const valueLabel =
+    formatCurrency(data.deal.valueAmount, data.deal.valueCurrency) ??
+    t('customers.deals.detail.noValue', 'Not provided')
+  const expectedCloseLabel = formatDate(data.deal.expectedCloseAt, t('customers.deals.detail.noValue', 'Not provided'))
+  const statusLabel =
+    resolveDictionaryLabel(data.deal.status, statusDictionaryMap) ??
+    t('customers.deals.detail.noStatus', 'No status')
+  const pipelineLabel = resolveDictionaryLabel(data.deal.pipelineStage, pipelineDictionaryMap)
+
+  const peopleSummaryLabel =
+    data.people.length === 1
+      ? t('customers.deals.detail.peopleSummaryOne', '1 person linked')
+      : t('customers.deals.detail.peopleSummaryMany', '{{count}} people linked', { count: data.people.length })
+  const companiesSummaryLabel =
+    data.companies.length === 1
+      ? t('customers.deals.detail.companiesSummaryOne', '1 company linked')
+      : t('customers.deals.detail.companiesSummaryMany', '{{count}} companies linked', {
+          count: data.companies.length,
+        })
+
+  const viewer = data.viewer ?? null
 
   return (
     <Page>
       <PageBody>
-        <div className="max-w-3xl">
-          {isLoading ? (
-            <div className="flex min-h-[240px] items-center justify-center">
-              <Spinner size="lg" />
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold text-foreground">
+                  {data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
+                </h1>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1 text-muted-foreground hover:text-foreground"
+                  onClick={scrollToDealSettings}
+                >
+                  <Pencil className="h-4 w-4" aria-hidden />
+                  <MousePointerClick className="h-4 w-4" aria-hidden />
+                  <span>{t('customers.deals.detail.goToSettings', 'Edit deal details')}</span>
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {t('customers.deals.detail.summary', {
+                  status: statusLabel,
+                  pipeline: pipelineLabel ?? t('customers.deals.detail.noPipeline', 'No pipeline'),
+                })}
+              </p>
             </div>
-          ) : loadError ? (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {loadError}
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setReloadToken((token) => token + 1)}>
+                {t('ui.actions.refresh', 'Refresh')}
+              </Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
+                {isDeleting ? t('ui.actions.deleting', 'Deleting…') : t('ui.actions.delete', 'Delete')}
+              </Button>
             </div>
-          ) : null}
-          {showForm ? (
-            <DealForm
-              mode="edit"
-              initialValues={initialValues ?? undefined}
-              onSubmit={handleSubmit}
-              onCancel={handleCancel}
-              onDelete={handleDelete}
-              isSubmitting={isSubmitting || isDeleting}
-            />
-          ) : null}
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1.1fr)]">
+            <div className="space-y-6">
+              <div className="rounded-lg border bg-card p-4">
+                <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
+                  {t('customers.deals.detail.highlights', 'Highlights')}
+                </h2>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">
+                      {t('customers.deals.detail.fields.value', 'Deal value')}
+                    </p>
+                    <p className="text-base font-semibold text-foreground">{valueLabel}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">
+                      {t('customers.deals.detail.fields.probability', 'Probability')}
+                    </p>
+                    <p className="text-base font-semibold text-foreground">{probabilityLabel}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">
+                      {t('customers.deals.detail.fields.pipeline', 'Pipeline stage')}
+                    </p>
+                    <p className="text-base text-foreground">
+                      {pipelineLabel ?? t('customers.deals.detail.noValue', 'Not provided')}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">
+                      {t('customers.deals.detail.fields.expectedClose', 'Expected close')}
+                    </p>
+                    <p className="text-base text-foreground">{expectedCloseLabel}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border bg-card p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex gap-2">
+                    {tabs.map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors ${
+                          activeTab === tab.id
+                            ? 'border-primary text-foreground'
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                  {sectionAction ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={sectionAction.disabled}
+                      onClick={handleSectionAction}
+                    >
+                      {sectionAction.label}
+                    </Button>
+                  ) : null}
+                </div>
+                <SectionLoader
+                  isLoading={sectionPending[activeTab]}
+                  label={sectionLoaderLabel}
+                />
+                {activeTab === 'notes' ? (
+                  <NotesSection
+                    entityId={null}
+                    dealId={data.deal.id}
+                    dealOptions={dealOptions}
+                    entityOptions={entityOptions}
+                    emptyLabel={t('customers.deals.detail.notesEmpty', 'No notes yet.')}
+                    viewerUserId={viewer?.userId ?? null}
+                    viewerName={viewer?.name ?? null}
+                    viewerEmail={viewer?.email ?? null}
+                    addActionLabel={t('customers.deals.detail.notesAdd', 'Add note')}
+                    emptyState={{
+                      title: t('customers.deals.detail.notesEmptyTitle', 'Keep everyone in the loop'),
+                      actionLabel: t('customers.deals.detail.notesEmptyAction', 'Add a note'),
+                    }}
+                    onActionChange={setSectionAction}
+                    translator={t}
+                    onLoadingChange={handleNotesLoadingChange}
+                  />
+                ) : null}
+                {activeTab === 'activities' ? (
+                  <ActivitiesSection
+                    entityId={null}
+                    dealId={data.deal.id}
+                    dealOptions={dealOptions}
+                    entityOptions={entityOptions}
+                    defaultEntityId={defaultEntityId ?? undefined}
+                    addActionLabel={t('customers.deals.detail.activitiesAdd', 'Log activity')}
+                    emptyState={{
+                      title: t('customers.deals.detail.activitiesEmptyTitle', 'No activities yet'),
+                      actionLabel: t('customers.deals.detail.activitiesEmptyAction', 'Add an activity'),
+                    }}
+                    onActionChange={setSectionAction}
+                    onLoadingChange={handleActivitiesLoadingChange}
+                  />
+                ) : null}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="mb-3 space-y-1">
+                    <h3 className="text-sm font-semibold text-foreground">
+                      {t('customers.deals.detail.peopleSection', 'People')}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {peopleSummaryLabel}
+                    </p>
+                  </div>
+                  {data.people.length ? (
+                    <ul className="space-y-2 text-sm">
+                      {data.people.map((person) => (
+                        <li key={person.id} className="flex flex-col gap-1">
+                          <Link href={`/backend/customers/people/${encodeURIComponent(person.id)}`} className="font-medium text-foreground hover:underline">
+                            {person.label}
+                          </Link>
+                          <span className="text-xs text-muted-foreground">
+                            {person.subtitle ?? t('customers.deals.detail.peopleNoDetails', 'No additional details')}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {t('customers.deals.detail.noPeople', 'No people linked to this deal yet.')}
+                    </p>
+                  )}
+                </div>
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="mb-3 space-y-1">
+                    <h3 className="text-sm font-semibold text-foreground">
+                      {t('customers.deals.detail.companiesSection', 'Companies')}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {companiesSummaryLabel}
+                    </p>
+                  </div>
+                  {data.companies.length ? (
+                    <ul className="space-y-2 text-sm">
+                      {data.companies.map((company) => (
+                        <li key={company.id} className="flex flex-col gap-1">
+                          <Link href={`/backend/customers/companies/${encodeURIComponent(company.id)}`} className="font-medium text-foreground hover:underline">
+                            {company.label}
+                          </Link>
+                          <span className="text-xs text-muted-foreground">
+                            {company.subtitle ?? t('customers.deals.detail.companiesNoDetails', 'No additional details')}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {t('customers.deals.detail.noCompanies', 'No companies linked to this deal yet.')}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div
+                ref={dealSettingsRef}
+                id="deal-settings"
+                className="rounded-lg border bg-card p-4"
+              >
+                <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
+                  {t('customers.deals.detail.formTitle', 'Deal settings')}
+                </h2>
+                <DealForm
+                  key={data.deal.updatedAt}
+                  mode="edit"
+                  initialValues={{
+                    id: data.deal.id,
+                    title: data.deal.title ?? '',
+                    status: data.deal.status ?? '',
+                    pipelineStage: data.deal.pipelineStage ?? '',
+                    valueAmount: data.deal.valueAmount ? Number(data.deal.valueAmount) : null,
+                    valueCurrency: data.deal.valueCurrency ?? undefined,
+                    probability: data.deal.probability ?? null,
+                    expectedCloseAt: data.deal.expectedCloseAt ?? null,
+                    description: data.deal.description ?? '',
+                    personIds: data.people.map((person) => person.id),
+                    companyIds: data.companies.map((company) => company.id),
+                    people: data.people.map((person) => ({ id: person.id, label: person.label })),
+                    companies: data.companies.map((company) => ({ id: company.id, label: company.label })),
+                    ...Object.fromEntries(
+                      Object.entries(data.customFields)
+                        .filter(([key]) => key.startsWith('cf_'))
+                        .map(([key, value]) => [key, value]),
+                    ),
+                  }}
+                  onSubmit={handleFormSubmit}
+                  onCancel={() => setReloadToken((token) => token + 1)}
+                  onDelete={handleDelete}
+                  isSubmitting={isSaving || isDeleting}
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </PageBody>
     </Page>

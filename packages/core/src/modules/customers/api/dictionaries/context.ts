@@ -17,6 +17,7 @@ export const dictionaryKindSchema = z.enum([
   'deal-statuses',
   'pipeline-stages',
   'job-titles',
+  'industries',
 ])
 
 export type DictionaryRouteParam = z.infer<typeof dictionaryKindSchema>
@@ -29,6 +30,7 @@ export type DictionaryEntityKind =
   | 'deal_status'
   | 'pipeline_stage'
   | 'job_title'
+  | 'industry'
 
 const KIND_MAP: Record<DictionaryRouteParam, DictionaryEntityKind> = {
   statuses: 'status',
@@ -39,6 +41,7 @@ const KIND_MAP: Record<DictionaryRouteParam, DictionaryEntityKind> = {
   'deal-statuses': 'deal_status',
   'pipeline-stages': 'pipeline_stage',
   'job-titles': 'job_title',
+  industries: 'industry',
 }
 
 export const paramsSchema = z.object({

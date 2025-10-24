@@ -1,57 +1,14 @@
 ---
-title: Manage customers
-description: Explore the CRM workspaces for companies and people, keep dictionaries and currencies in sync, and understand what operators can see on each screen.
+title: Customers overview
+description: Explore the CRM module at a high level, understand which workspaces are available, and learn where to configure dictionaries, currencies, and access control.
+sidebar_label: Overview
 ---
 
-The **Customers** module bundles company and people management, timeline tracking, and reusable lookup dictionaries. Pages auto-discover from the module metadata, so once features are assigned (`customers.*`), the navigation renders under the _Customers_ section of the admin sidebar.
+The **Customers** module bundles company, people, and deal management into a single CRM workspace. Pages auto-discover from module metadata, so once features are assigned (`customers.*`) the navigation renders automatically under the _Customers_ section of the admin sidebar.
 
-![Companies list](/screenshots/open-mercato-people-companies.png)
-
-## Companies workspace
-
-- **Navigate** to **Customers → Companies** to review every organization-scoped account. Columns surface email, lifecycle stage, status, and next interaction hints. Use filters or the search box to narrow the grid without leaving the view.
-- **Create or edit** companies with the action buttons in the top-right corner. Forms honour custom fields, dictionaries, and undo metadata just like people records.
-- **Export** the visible slice via the kebab menu, or trigger the command bus for automations—companies share the same CRUD APIs available at `/api/customers/companies`.
-
-## People workspace
-
-![Create person form](/screenshots/open-mercato-people-add-new.png)
-
-- **List view** lives under **Customers → People** and mirrors the company tooling: scoped filters, instant search, and feature-gated actions (`customers.people.view` and `customers.people.manage`).
-- **Quick create** opens a full-screen form with name, contact, company assignment, status, lifecycle stage, and dictionary-backed fields. Currency, job title, and lifecycle options are all dictionary driven.
-- **Bulk context** — the header shows organization scope, undo toast, and links back to the dashboard so operators always know where they are acting.
-
-## Person record details
-
-![Person detail overview](/screenshots/open-mercato-people-notes.png)
-
-Person pages keep relationship data in tabs so operators can stay in context while updating contact records.
-
-- **Summary panel** exposes the primary company link, contact channels, status, and next interaction block. Use the inline editor to set `nextInteractionAt`, surface a label + color, or clear the reminder.
-- **Notes tab** supports quick shout-outs or call summaries. `Cmd/Ctrl + Enter` saves the message, and undo hooks roll back mistakes instantly.
-- **Activities tab** tracks logged calls, emails, or meetings. Every activity entry shows subject, timestamp, icon, highlight colour, and author.
-- **Deals tab** lists opportunities linked to the person. Pair it with the companies view to understand account coverage.
-- **Addresses tab** keeps multiple labeled addresses. Mark primaries, edit inline, or add another location.
-- **Tasks tab** displays todos linked via the task widget so customer-related follow-ups are one click away.
-
-### Manage the interaction timeline
-
-![Editing next interaction](/screenshots/open-mercato-people-next-interaction.png)
-
-- **Next interaction** widgets let operators set scheduled follow-ups with labels, optional icon, and highlight colour. The block surfaces on the list view to help prioritise outreach.
-- **Log activities** with the dialog below.
-
-![Add activity dialog](/screenshots/open-mercato-people-add-activity.png)
-
-- **Timeline view** renders the structured activities back inline so the team can read the call log without switching tabs.
-
-![Activities list](/screenshots/open-mercato-people-activities.png)
-
-### Maintain addresses
-
-![Addresses tab](/screenshots/open-mercato-people-addresses.png)
-
-- The address tab honours the address format preference you configure under **Customers → Configuration**. Operators can tag entries as primary, assign dictionary-backed types, and keep shipping/billing data split.
+- **Companies workspace** — review account records, manage tabs for activities, deals, addresses, and keep linked contacts up to date. See [Companies](./customers/companies) for the complete walkthrough.
+- **People workspace** — manage contact lists, interaction timelines, and linked deals or tasks without leaving the page. Dive into [People](./customers/people) for detailed UI guidance.
+- **Deals workspace** — track pipeline health through lists and kanban boards, edit opportunity details, and collaborate with notes and activities. See [Deals](./customers/deals) for full coverage of the pipeline tooling.
 
 ## Customer dictionaries and currencies
 
@@ -64,7 +21,7 @@ Person pages keep relationship data in tabs so operators can stay in context whi
 
 ## Features and access control
 
-- **View** rights: `customers.people.view` and `customers.companies.view` gate their respective lists.
-- **Manage** rights: `customers.people.manage`, `customers.companies.manage`, and `customers.activities.manage` allow create/update operations and activity logging.
+- **View** rights: `customers.people.view`, `customers.companies.view`, and `customers.deals.view` gate the main workspaces.
+- **Manage** rights: `customers.people.manage`, `customers.companies.manage`, `customers.deals.manage`, and `customers.activities.manage` allow create/update operations and activity logging.
 - **Configuration**: only operators with `customers.settings.manage` can change dictionaries or address format preferences.
 - Remember to pair feature grants with organization scope so multi-tenant deployments stay isolated.

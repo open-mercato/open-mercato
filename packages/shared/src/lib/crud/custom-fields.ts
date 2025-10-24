@@ -57,6 +57,7 @@ export function extractAllCustomFieldEntries(item: Record<string, unknown>): Rec
   if (!item || typeof item !== 'object') return out
   for (const [rawKey, rawValue] of Object.entries(item)) {
     if (rawKey.startsWith('cf_')) {
+      if (rawKey.endsWith('__is_multi')) continue
       out[rawKey] = normalizeCustomFieldValue(rawValue)
     } else if (rawKey.startsWith('cf:')) {
       out[`cf_${rawKey.slice(3)}`] = normalizeCustomFieldValue(rawValue)

@@ -1,6 +1,10 @@
 "use client"
 
-export type Translator = (key: string, fallback?: string) => string
+export type Translator = (
+  key: string,
+  fallback?: string,
+  params?: Record<string, string | number>,
+) => string
 
 export type TagSummary = { id: string; label: string; color?: string | null }
 
@@ -27,6 +31,7 @@ export type CommentSummary = {
   authorName?: string | null
   authorEmail?: string | null
   dealId?: string | null
+  dealTitle?: string | null
   appearanceIcon?: string | null
   appearanceColor?: string | null
 }
@@ -48,10 +53,22 @@ export type ActivitySummary = {
   createdAt: string
   appearanceIcon?: string | null
   appearanceColor?: string | null
+  entityId?: string | null
   authorUserId?: string | null
   authorName?: string | null
   authorEmail?: string | null
+  dealId?: string | null
+  dealTitle?: string | null
+  customValues?: Record<string, unknown> | null
   customFields?: ActivityCustomFieldEntry[]
+}
+
+export type DealCustomFieldEntry = {
+  key: string
+  label?: string | null
+  value: unknown
+  kind?: string | null
+  multi?: boolean
 }
 
 export type DealSummary = {
@@ -69,6 +86,7 @@ export type DealSummary = {
   createdAt?: string | null
   updatedAt?: string | null
   customValues?: Record<string, unknown> | null
+  customFields?: DealCustomFieldEntry[]
   personIds?: string[]
   companyIds?: string[]
   people?: { id: string; label: string }[]

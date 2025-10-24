@@ -2,14 +2,15 @@
 
 import * as React from 'react'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
+import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { formatDateTime } from './utils'
+import { formatDateTime, formatTemplate } from './utils'
 import type { CommentSummary, Translator, SectionAction, TabEmptyState } from './types'
 import { ICON_SUGGESTIONS } from '../../lib/dictionaries'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
@@ -48,6 +49,7 @@ type AppearanceDialogState =
 
 export type NotesSectionProps = {
   entityId: string | null
+  dealId?: string | null
   emptyLabel: string
   viewerUserId: string | null
   viewerName?: string | null
@@ -57,6 +59,8 @@ export type NotesSectionProps = {
   onActionChange?: (action: SectionAction | null) => void
   translator?: Translator
   onLoadingChange?: (isLoading: boolean) => void
+  dealOptions?: Array<{ id: string; label: string }>
+  entityOptions?: Array<{ id: string; label: string }>
 }
 
 function sanitizeHexColor(value: string | null): string | null {
@@ -99,6 +103,12 @@ function mapComment(input: unknown): CommentSummary {
       : typeof data.deal_id === 'string'
         ? data.deal_id
         : null
+  const dealTitle =
+    typeof data.dealTitle === 'string'
+      ? data.dealTitle
+      : typeof data.deal_title === 'string'
+        ? data.deal_title
+        : null
   const appearanceIcon =
     typeof data.appearanceIcon === 'string'
       ? data.appearanceIcon
@@ -119,6 +129,7 @@ function mapComment(input: unknown): CommentSummary {
     authorName,
     authorEmail,
     dealId,
+    dealTitle,
     appearanceIcon,
     appearanceColor,
   }
@@ -126,6 +137,7 @@ function mapComment(input: unknown): CommentSummary {
 
 export function NotesSection({
   entityId,
+  dealId,
   emptyLabel,
   viewerUserId,
   viewerName,
@@ -135,16 +147,104 @@ export function NotesSection({
   onActionChange,
   translator,
   onLoadingChange,
+  dealOptions,
+  entityOptions,
 }: NotesSectionProps) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(
-    () => (key, fallback) => {
-      const value = tHook(key)
-      return value === key && fallback ? fallback : value
+    () => (key, fallback, params) => {
+      const value = tHook(key, params)
+      if (value !== key) return value
+      if (!fallback) return key
+      return formatTemplate(fallback, params)
     },
-    [tHook]
+    [tHook],
   )
   const t = translator ?? fallbackTranslator
+
+  const normalizedDealOptions = React.useMemo(() => {
+    if (!Array.isArray(dealOptions)) return []
+    const seen = new Set<string>()
+    return dealOptions
+      .map((option) => {
+        if (!option || typeof option !== 'object') return null
+        const id = typeof option.id === 'string' ? option.id.trim() : ''
+        if (!id || seen.has(id)) return null
+        const label =
+          typeof option.label === 'string' && option.label.trim().length
+            ? option.label.trim()
+            : id
+        seen.add(id)
+        return { id, label }
+      })
+      .filter((option): option is { id: string; label: string } => !!option)
+  }, [dealOptions])
+
+  const dealLabelMap = React.useMemo(() => {
+    const map = new Map<string, string>()
+    normalizedDealOptions.forEach((option) => {
+      map.set(option.id, option.label)
+    })
+    return map
+  }, [normalizedDealOptions])
+
+  const normalizedEntityOptions = React.useMemo(() => {
+    if (!Array.isArray(entityOptions)) return []
+    const seen = new Set<string>()
+    return entityOptions
+      .map((option) => {
+        if (!option || typeof option !== 'object') return null
+        const id = typeof option.id === 'string' ? option.id.trim() : ''
+        if (!id || seen.has(id)) return null
+        const label =
+          typeof option.label === 'string' && option.label.trim().length
+            ? option.label.trim()
+            : id
+        seen.add(id)
+        return { id, label }
+      })
+      .filter((option): option is { id: string; label: string } => !!option)
+  }, [entityOptions])
+
+  const [selectedDealId, setSelectedDealId] = React.useState<string>(() => {
+    const initial = typeof dealId === 'string' ? dealId.trim() : ''
+    return initial
+  })
+  React.useEffect(() => {
+    const initial = typeof dealId === 'string' ? dealId.trim() : ''
+    if (initial !== selectedDealId) {
+      setSelectedDealId(initial)
+    }
+  }, [dealId, selectedDealId])
+
+  const [selectedEntityId, setSelectedEntityId] = React.useState<string>(() => {
+    if (normalizedEntityOptions.length) return normalizedEntityOptions[0].id
+    return typeof entityId === 'string' ? entityId : ''
+  })
+  React.useEffect(() => {
+    if (normalizedEntityOptions.length) {
+      if (!normalizedEntityOptions.some((option) => option.id === selectedEntityId)) {
+        setSelectedEntityId(normalizedEntityOptions[0].id)
+      }
+    } else {
+      const initial = typeof entityId === 'string' ? entityId : ''
+      if (initial !== selectedEntityId) {
+        setSelectedEntityId(initial)
+      }
+    }
+  }, [entityId, normalizedEntityOptions, selectedEntityId])
+
+  const resolvedEntityId = React.useMemo(() => {
+    if (normalizedEntityOptions.length) return selectedEntityId
+    return typeof entityId === 'string' ? entityId : ''
+  }, [entityId, normalizedEntityOptions, selectedEntityId])
+
+  const resolvedDealId = React.useMemo(() => {
+    const trimmed = typeof selectedDealId === 'string' ? selectedDealId.trim() : ''
+    return trimmed
+  }, [selectedDealId])
+
+  const hasEntity = resolvedEntityId.length > 0
 
   const [notes, setNotes] = React.useState<CommentSummary[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
@@ -165,8 +265,6 @@ export function NotesSection({
       onLoadingChange?.(false)
     }
   }, [onLoadingChange])
-
-  const hasEntity = typeof entityId === 'string' && entityId.length > 0
 
   const [composerOpen, setComposerOpen] = React.useState(false)
   const [draftBody, setDraftBody] = React.useState('')
@@ -204,7 +302,9 @@ export function NotesSection({
   const [deletingNoteId, setDeletingNoteId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    if (!hasEntity) {
+    const queryEntityId = typeof entityId === 'string' ? entityId : ''
+    const queryDealId = typeof dealId === 'string' ? dealId : ''
+    if (!queryEntityId && !queryDealId) {
       setNotes([])
       setLoadError(null)
       setIsLoading(false)
@@ -216,7 +316,10 @@ export function NotesSection({
     pushLoading()
     async function loadNotes() {
       try {
-        const res = await apiFetch(`/api/customers/comments?entityId=${encodeURIComponent(entityId!)}`)
+        const params = new URLSearchParams()
+        if (queryEntityId) params.set('entityId', queryEntityId)
+        if (queryDealId) params.set('dealId', queryDealId)
+        const res = await apiFetch(`/api/customers/comments?${params.toString()}`)
         if (!res.ok) {
           const payload = await res.json().catch(() => ({}))
           const message =
@@ -246,7 +349,7 @@ export function NotesSection({
     return () => {
       cancelled = true
     }
-  }, [entityId, hasEntity, popLoading, pushLoading, t])
+  }, [dealId, entityId, popLoading, pushLoading, t])
 
   const viewerLabel = React.useMemo(() => viewerName ?? viewerEmail ?? null, [viewerEmail, viewerName])
 
@@ -312,7 +415,7 @@ export function NotesSection({
 
   const handleCreateNote = React.useCallback(
     async (input: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => {
-      if (!hasEntity || !entityId) {
+      if (!hasEntity || !resolvedEntityId) {
         flash(t('customers.people.detail.notes.entityMissing', 'Unable to determine current person.'), 'error')
         return false
       }
@@ -323,6 +426,8 @@ export function NotesSection({
       }
       const icon = input.appearanceIcon && input.appearanceIcon.trim().length ? input.appearanceIcon.trim() : null
       const color = sanitizeHexColor(input.appearanceColor)
+      const targetDealId = resolvedDealId.length ? resolvedDealId : null
+      const dealLabel = targetDealId ? dealLabelMap.get(targetDealId) ?? null : null
       setIsSubmitting(true)
       pushLoading()
       try {
@@ -330,10 +435,11 @@ export function NotesSection({
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            entityId,
+            entityId: resolvedEntityId,
             body,
             appearanceIcon: icon ?? undefined,
             appearanceColor: color ?? undefined,
+            dealId: targetDealId ?? undefined,
           }),
         })
         if (!res.ok) {
@@ -368,7 +474,8 @@ export function NotesSection({
             authorUserId: resolvedAuthorId,
             authorName: resolvedAuthorName,
             authorEmail: resolvedAuthorEmail,
-            dealId: null,
+            dealId: targetDealId,
+            dealTitle: dealLabel,
             appearanceIcon: icon,
             appearanceColor: color,
           }
@@ -385,7 +492,7 @@ export function NotesSection({
         popLoading()
       }
     },
-    [entityId, hasEntity, popLoading, pushLoading, viewerEmail, viewerName, viewerUserId, t, focusComposer],
+    [dealLabelMap, focusComposer, hasEntity, popLoading, pushLoading, resolvedDealId, resolvedEntityId, t, viewerEmail, viewerName, viewerUserId],
   )
 
   const handleUpdateNote = React.useCallback(
@@ -698,6 +805,59 @@ export function NotesSection({
                 </Button>
               </div>
             </div>
+            {(normalizedEntityOptions.length || normalizedDealOptions.length) ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {normalizedEntityOptions.length ? (
+                  <div className="flex flex-col gap-1">
+                    <label
+                      htmlFor="note-entity-select"
+                      className="text-xs font-medium text-muted-foreground"
+                    >
+                      {t('customers.people.detail.notes.fields.entity', 'Assign to customer')}
+                    </label>
+                    <select
+                      id="note-entity-select"
+                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      value={selectedEntityId}
+                      onChange={(event) => setSelectedEntityId(event.target.value)}
+                      disabled={isSubmitting || isLoading || !normalizedEntityOptions.length}
+                    >
+                      {normalizedEntityOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+                {normalizedDealOptions.length ? (
+                  <div className="flex flex-col gap-1">
+                    <label
+                      htmlFor="note-deal-select"
+                      className="text-xs font-medium text-muted-foreground"
+                    >
+                      {t('customers.people.detail.notes.fields.deal', 'Link to deal (optional)')}
+                    </label>
+                    <select
+                      id="note-deal-select"
+                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      value={selectedDealId}
+                      onChange={(event) => setSelectedDealId(event.target.value)}
+                      disabled={isSubmitting || isLoading}
+                    >
+                      <option value="">
+                        {t('customers.people.detail.notes.fields.dealPlaceholder', 'No linked deal')}
+                      </option>
+                      {normalizedDealOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {isMarkdownEnabled ? (
               <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
                 <div data-color-mode="light" className="w-full">
@@ -783,13 +943,28 @@ export function NotesSection({
             return (
               <div key={note.id} className="group space-y-2 rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <TimelineItemHeader
-                    title={author}
-                    timestamp={timestampValue}
-                    fallbackTimestampLabel={fallbackTimestampLabel}
-                    icon={displayIcon}
-                    color={displayColor}
-                  />
+                  <div className="space-y-1">
+                    <TimelineItemHeader
+                      title={author}
+                      timestamp={timestampValue}
+                      fallbackTimestampLabel={fallbackTimestampLabel}
+                      icon={displayIcon}
+                      color={displayColor}
+                    />
+                    {note.dealId ? (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <ArrowUpRightSquare className="h-3.5 w-3.5" />
+                        <Link
+                          href={`/backend/customers/deals/${encodeURIComponent(note.dealId)}`}
+                          className="font-medium text-foreground hover:underline"
+                        >
+                          {note.dealTitle && note.dealTitle.length
+                            ? note.dealTitle
+                            : t('customers.people.detail.notes.linkedDeal', 'Linked deal')}
+                        </Link>
+                      </div>
+                    ) : null}
+                  </div>
                   <div
                     className={`flex items-center gap-2 transition-opacity ${
                       isEditingContent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'

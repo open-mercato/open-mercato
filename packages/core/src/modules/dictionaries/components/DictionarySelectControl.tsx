@@ -147,6 +147,7 @@ export function DictionarySelectControl({
       emptyError: t('dictionaries.config.entries.error.required', 'Value is required.'),
       cancelLabel: t('dictionaries.config.entries.dialog.cancel', 'Cancel'),
       saveLabel: t('dictionaries.config.entries.dialog.save', 'Save'),
+      saveShortcutHint: t('dictionaries.config.entries.dialog.saveShortcut', '⌘/Ctrl + Enter'),
       successCreateLabel: t('dictionaries.config.entries.success.create', 'Dictionary entry created.'),
       errorLoad: t('dictionaries.config.entries.error.load', 'Failed to load dictionary entries.'),
       errorSave: t('dictionaries.config.entries.error.save', 'Failed to save dictionary entry.'),

@@ -2,14 +2,14 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerActivity, CustomerDictionaryEntry } from '../../data/entities'
+import { CustomerActivity, CustomerDictionaryEntry, CustomerDeal } from '../../data/entities'
 import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { withScopedPayload } from '../utils'
+import { parseScopedCommandInput } from '../utils'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
-import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
+import { extractAllCustomFieldEntries, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -62,8 +62,6 @@ const crud = makeCrudRoute({
       'created_at',
       'appearance_icon',
       'appearance_color',
-      'cf:meta',
-      'cf:dictcase',
     ],
     sortFieldMap: {
       occurredAt: 'occurred_at',
@@ -140,9 +138,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { parsed, custom } = parseWithCustomFields(activityCreateSchema, scoped)
-        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
+        return parseScopedCommandInput(activityCreateSchema, raw ?? {}, ctx, translate)
       },
       response: ({ result }) => ({ id: result?.activityId ?? result?.id ?? null }),
       status: 201,
@@ -152,9 +148,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { parsed, custom } = parseWithCustomFields(activityUpdateSchema, scoped)
-        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
+        return parseScopedCommandInput(activityUpdateSchema, raw ?? {}, ctx, translate)
       },
       response: () => ({ ok: true }),
     },
@@ -193,6 +187,8 @@ const crud = makeCrudRoute({
         authorUserId?: string | null
         authorName?: string | null
         authorEmail?: string | null
+        dealId?: string | null
+        dealTitle?: string | null
         customFields?: Array<{
           key: string
           label: string
@@ -207,12 +203,15 @@ const crud = makeCrudRoute({
       const tenantId = ctx.auth?.tenantId ?? null
       const normalizedValues = new Set<string>()
       const organizationIds = new Set<string>()
+      const dealIds = new Set<string>()
       typedItems.forEach((item) => {
         const rawType = typeof item.activityType === 'string' ? item.activityType : ''
         const normalized = rawType.trim().toLowerCase()
         if (normalized) normalizedValues.add(normalized)
         const orgId = typeof item.organizationId === 'string' ? item.organizationId : null
         if (orgId) organizationIds.add(orgId)
+        const dealId = typeof item.dealId === 'string' ? item.dealId.trim() : ''
+        if (dealId.length) dealIds.add(dealId)
       })
       if (normalizedValues.size) {
         try {
@@ -285,6 +284,26 @@ const crud = makeCrudRoute({
         }
       }
 
+      if (dealIds.size) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const deals = await em.find(CustomerDeal, { id: { $in: Array.from(dealIds) as any } })
+          const map = new Map<string, string>()
+          deals.forEach((deal) => {
+            if (deal && typeof deal.id === 'string') {
+              map.set(deal.id, typeof deal.title === 'string' ? deal.title : '')
+            }
+          })
+          typedItems.forEach((item) => {
+            const dealId = typeof item.dealId === 'string' ? item.dealId.trim() : ''
+            if (!dealId.length) return
+            item.dealTitle = map.get(dealId) ?? null
+          })
+        } catch (err) {
+          console.warn('[customers.activities] Failed to resolve deal titles', err)
+        }
+      }
+
       // Resolve author metadata
       const authorIds = Array.from(
         new Set(
@@ -316,20 +335,78 @@ const crud = makeCrudRoute({
       }
 
       // Map custom field entries using query engine output (cf_* keys)
+      const tenantIdByRecord: Record<string, string | null | undefined> = {}
+      const orgByRecord: Record<string, string | null | undefined> = {}
+      const missingCustomValues: string[] = []
       typedItems.forEach((item) => {
         const raw = extractAllCustomFieldEntries(item as any)
-        const entries = Object.entries(raw).map(([prefixedKey, value]) => {
-          const key = prefixedKey.replace(/^cf_/, '')
-          return {
-            key,
-            label: key,
-            value,
-            kind: null,
-            multi: Array.isArray(value),
-          }
-        })
+        const values = Object.fromEntries(
+          Object.entries(raw).map(([prefixedKey, value]) => [prefixedKey.replace(/^cf_/, ''), value]),
+        )
+        const entries = Object.entries(values).map(([key, value]) => ({
+          key,
+          label: key,
+          value,
+          kind: null,
+          multi: Array.isArray(value),
+        }))
+        const id = item.id
+        const tenantId =
+          typeof item.tenantId === 'string'
+            ? item.tenantId
+            : typeof (item as any).tenant_id === 'string'
+              ? (item as any).tenant_id
+              : null
+        const organizationId =
+          typeof item.organizationId === 'string'
+            ? item.organizationId
+            : typeof (item as any).organization_id === 'string'
+              ? (item as any).organization_id
+              : null
+        tenantIdByRecord[id] = tenantId
+        orgByRecord[id] = organizationId
+        if (!entries.length) missingCustomValues.push(id)
         item.customFields = entries
+        ;(item as any).customValues = values
       })
+
+      if (missingCustomValues.length) {
+        try {
+          const em = ctx.container.resolve<EntityManager>('em')
+          const loaded = await loadCustomFieldValues({
+            em,
+            entityId: E.customers.customer_activity,
+            recordIds: Array.from(new Set(missingCustomValues)),
+            tenantIdByRecord,
+            organizationIdByRecord: orgByRecord,
+            tenantFallbacks: [ctx.auth?.tenantId ?? null],
+          })
+          if (loaded && Object.keys(loaded).length) {
+            typedItems.forEach((item) => {
+              if (item.customFields && item.customFields.length) return
+              const values = loaded[item.id]
+              if (!values) return
+              const normalized = Object.fromEntries(
+                Object.entries(values).map(([prefixedKey, value]) => [
+                  prefixedKey.replace(/^cf_/, ''),
+                  value,
+                ]),
+              )
+              const entries = Object.entries(normalized).map(([key, value]) => ({
+                key,
+                label: key,
+                value,
+                kind: null,
+                multi: Array.isArray(value),
+              }))
+              item.customFields = entries
+              ;(item as any).customValues = normalized
+            })
+          }
+        } catch (err) {
+          console.warn('[customers.activities] failed to backfill custom fields', err)
+        }
+      }
     },
   },
 })

@@ -12,22 +12,29 @@ export ORG_ID="<organization uuid in scope>"
 export TENANT_ID="<tenant uuid in scope>"
 ```
 
-Every create, update, or delete call below automatically enqueues a reindex with the **Query Index** module, so list and search views stay in sync after mutations.
+## Shared conventions
+
+- Pass `X-Api-Key: $API_KEY` on every request. JSON responses are returned unless stated otherwise.
+- Mutation payloads must include `organizationId` and `tenantId`. With an API key, you must supply both values explicitly.
+- Features map to RBAC feature flags declared in `packages/core/src/modules/customers/acl.ts`. Calls fail with `403` when the caller lacks the feature.
+- Custom fields can be written by adding either `cf_<slug>` top-level keys or a `customFields` object (e.g. `{ "customFields": { "language": "en" } }`). Both map to the same runtime handler.
+- Every mutation automatically schedules a reindex with the Query Index module so search surfaces stay consistent.
 
 ## People
 
-### List People — `GET /customers/people`
+### List people — `GET /customers/people`
 
 **Feature:** `customers.people.view`  
 **Query parameters (selected):**
 
-- `page` / `pageSize` — pagination (defaults `1` / `50`, max `100`).
+- `page`, `pageSize` — pagination (`pageSize` max `100`).
 - `search` — case-insensitive match on `display_name`.
 - `email`, `emailStartsWith`, `emailContains` — mutually exclusive email filters.
 - `status`, `lifecycleStage`, `source` — dictionary-backed filters.
-- `hasEmail`, `hasPhone`, `hasNextInteraction` — `true`/`false` toggles.
-- `createdFrom` / `createdTo` — ISO date range.
-- Custom fields — prefix query keys with `cf_` to filter via entity field definitions.
+- `hasEmail`, `hasPhone`, `hasNextInteraction` — `true`/`false`.
+- `createdFrom`, `createdTo` — ISO timestamps (filters `created_at`).
+- `tagIds` — comma separated UUIDs to require assigned tags. `tagIdsEmpty=true` matches people without tags.
+- Custom fields — prefix with `cf_` to filter against custom field values.
 
 ```bash
 curl -X GET "$BASE_URL/customers/people?page=1&pageSize=20&search=Acme" \
@@ -37,135 +44,286 @@ curl -X GET "$BASE_URL/customers/people?page=1&pageSize=20&search=Acme" \
 
 Response includes the matching records plus pagination metadata.
 
-### Retrieve Person — `GET /customers/people/{id}`
+### Retrieve person — `GET /customers/people/{id}`
 
 **Feature:** `customers.people.view`  
-By default, the detail payload contains the core person entity, profile, addresses, tags, custom fields, and viewer metadata. Pass the repeatable `include` query parameter to hydrate heavier related collections on demand:
+By default the payload contains the core record, person profile, addresses, tags, custom field values, organization scope, and viewer metadata. Add `include` parameters to hydrate related collections on demand:
 
-- `include=comments` (or `include=notes`) — latest comments attached to the person.
-- `include=activities` — recent timeline activities.
-- `include=deals` — attached deals (mirrors `/customers/deals` response shape).
-- `include=todos` (or `include=tasks`) — linked tasks with resolved metadata.
+- `include=comments` or `include=notes`
+- `include=activities`
+- `include=deals`
+- `include=todos` or `include=tasks`
+- `include=addresses`
 
 ```bash
-curl -X GET "$BASE_URL/customers/people/$PERSON_ID?include=todos&include=comments" \
+curl -X GET "$BASE_URL/customers/people/$PERSON_ID?include=deals&include=activities" \
   -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
-### Create Person — `POST /customers/people`
+### Check phone duplicates — `GET /customers/people/check-phone?digits=<4+ digits>`
+
+**Feature:** `customers.people.view`  
+Normalises a primary phone to digits and returns `{ match: { id, displayName } | null }`. Use it before creation to prevent duplicates.
+
+### Create person — `POST /customers/people`
 
 **Feature:** `customers.people.manage`  
-**Body:** JSON payload that matches the `personCreateSchema`. Required fields: `organizationId`, `tenantId`, `firstName`, `lastName`. Optional helpers include `displayName`, dictionary values (`status`, `source`, `lifecycleStage`), contact data, and custom fields (prefix keys with `cf_`).
+Body must satisfy `personCreateSchema`:
 
-```bash
-curl -X POST "$BASE_URL/customers/people" \
-  -H "X-Api-Key: $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"organizationId\": \"$ORG_ID\",
-    \"tenantId\": \"$TENANT_ID\",
-    \"firstName\": \"Ada\",
-    \"lastName\": \"Lovelace\",
-    \"primaryEmail\": \"ada@example.com\",
-    \"status\": \"active\",
-    \"tags\": [],
-    \"cf_language\": \"en\"
-  }"
-```
+- Required: `organizationId`, `tenantId`, `firstName`, `lastName`.  
+- Optional entity fields: `displayName`, `description`, `ownerUserId`, `primaryEmail`, `primaryPhone`, `status`, `lifecycleStage`, `source`, `nextInteraction`.  
+- Optional profile fields: `preferredName`, `jobTitle`, `department`, `seniority`, `timezone`, `linkedInUrl`, `twitterUrl`, `companyEntityId`.  
+- Optional `tags` (array of tag UUIDs) and custom field values.
 
-Response: `{ "entityId": "<uuid>", "personId": "<uuid>" }`
+Response: `{ "entityId": "<uuid>", "personId": "<uuid>" }`.
 
-### Update Person — `PUT /customers/people`
+### Update person — `PUT /customers/people`
 
 **Feature:** `customers.people.manage`  
-**Body:** JSON with `id`, `organizationId`, `tenantId`, plus any mutable fields from `personUpdateSchema`. Only provided fields change.
+Send `id`, `organizationId`, `tenantId`, and any mutable fields from the create schema. Only supplied keys are updated.
 
-### Delete Person — `DELETE /customers/people?id=<uuid>`
+### Delete person — `DELETE /customers/people?id=<uuid>`
 
 **Feature:** `customers.people.manage`  
-Pass the record id via query string or JSON body (`{ "id": "<uuid>" }`).
+Provide the `id` in the query string or body. Soft deletes the entity and reindexes downstream search views.
+
+## Companies
+
+### List companies — `GET /customers/companies`
+
+**Feature:** `customers.companies.view`  
+Supports the same pagination, search, tag, status, lifecycle stage, source, email, and custom field filters as `/customers/people`.
+
+### Retrieve company — `GET /customers/companies/{id}`
+
+**Feature:** `customers.companies.view`  
+Detail payload includes core company data, profile, tags, custom fields, and viewer info. Optional `include` values hydrate:
+
+- `include=addresses`
+- `include=comments` / `include=notes`
+- `include=activities`
+- `include=deals`
+- `include=todos` / `include=tasks`
+- `include=people` (company members)
+
+### Create company — `POST /customers/companies`
+
+**Feature:** `customers.companies.manage`  
+Body follows `companyCreateSchema`:
+
+- Required: `organizationId`, `tenantId`, `displayName`.
+- Optional entity fields: `description`, `ownerUserId`, `primaryEmail`, `primaryPhone`, `status`, `lifecycleStage`, `source`, `nextInteraction`, `tags`.
+- Optional profile fields: `legalName`, `brandName`, `domain`, `websiteUrl`, `industry`, `sizeBucket`, `annualRevenue`.
+- Custom fields allowed via `cf_` keys or `customFields` object.
+
+Response: `{ "entityId": "<uuid>", "companyId": "<uuid>" }`.
+
+### Update company — `PUT /customers/companies`
+
+**Feature:** `customers.companies.manage`  
+Provide `id`, `organizationId`, `tenantId`, and the fields you need to modify.
+
+### Delete company — `DELETE /customers/companies?id=<uuid>`
+
+**Feature:** `customers.companies.manage`  
+Accepts id in the query string or JSON body. Performs a soft delete.
 
 ## Deals
 
-### List Deals — `GET /customers/deals`
+### List deals — `GET /customers/deals`
 
 **Feature:** `customers.deals.view`  
-**Query parameters:** `page`, `pageSize`, `search` (`title` substring), `status`, `pipelineStage`, `sortField`, `sortDir`, `personEntityId`, `companyEntityId`.
+**Query parameters:** `page`, `pageSize`, `search` (title substring), `status`, `pipelineStage`, `sortField` (`createdAt`, `updatedAt`, `title`, `value`), `sortDir`, `personEntityId`, `companyEntityId`, and legacy aliases `personId`, `companyId`.
 
-### Create Deal — `POST /customers/deals`
+### Retrieve deal — `GET /customers/deals/{id}`
+
+**Feature:** `customers.deals.view`  
+Returns core deal data plus:
+
+- Associated people and companies with labels/subtitles.
+- Custom field values.
+- Viewer metadata (`viewerName`, `viewerEmail`).
+
+The route enforces tenant and organization scoping just like the list endpoint.
+
+### Create deal — `POST /customers/deals`
 
 **Feature:** `customers.deals.manage`  
-Body fields mirror `dealCreateSchema`: `organizationId`, `tenantId`, `title` required; optional pricing (`valueAmount`, `valueCurrency`), probability, owner, source, `companyIds`, and `personIds`.
+Required body fields: `organizationId`, `tenantId`, `title`. Optional: `description`, `status`, `pipelineStage`, `valueAmount`, `valueCurrency`, `probability`, `expectedCloseAt`, `ownerUserId`, `source`, `companyIds`, `personIds`, custom fields.
 
-### Update Deal — `PUT /customers/deals`
+### Update deal — `PUT /customers/deals`
 
 **Feature:** `customers.deals.manage`  
-Include `id`, `organizationId`, `tenantId`, plus any mutable fields.
+Send `id`, `organizationId`, `tenantId`, and the fields to change.
 
-### Delete Deal — `DELETE /customers/deals?id=<uuid>`
+### Delete deal — `DELETE /customers/deals?id=<uuid>`
 
-**Feature:** `customers.deals.manage`
+**Feature:** `customers.deals.manage`  
+Accepts the id via query string or JSON body.
 
 ## Activities
 
-### List Activities — `GET /customers/activities`
+### List activities — `GET /customers/activities`
 
 **Feature:** `customers.activities.view`  
-**Query parameters:** `page`, `pageSize`, `entityId`, `dealId`, `activityType`, `sortField`, `sortDir`.
+**Query parameters:** `page`, `pageSize`, `entityId`, `dealId`, `activityType`, `sortField` (`occurredAt`, `createdAt`), `sortDir`.
 
-### Create Activity — `POST /customers/activities`
+The response normalises timestamps to ISO strings, carries author information (including enriched name/email when present), and includes any custom field values.
 
-**Feature:** `customers.activities.manage`  
-Body follows `activityCreateSchema`: `organizationId`, `tenantId`, `entityId`, and `activityType` required. Optional content includes `subject`, `body`, `occurredAt`, `dealId`, and appearance overrides.
-
-### Update Activity — `PUT /customers/activities`
+### Create activity — `POST /customers/activities`
 
 **Feature:** `customers.activities.manage`  
-Provide `id`, `organizationId`, `tenantId`, and the fields to change.
+Body (plus scope identifiers): `entityId`, `activityType`, optional `subject`, `body`, `occurredAt`, `dealId`, `authorUserId`, `appearanceIcon`, `appearanceColor`, custom fields.
 
-### Delete Activity — `DELETE /customers/activities?id=<uuid>`
+### Update activity — `PUT /customers/activities`
 
-**Feature:** `customers.activities.manage`
+**Feature:** `customers.activities.manage`  
+Send `id` plus any fields from the create schema to mutate.
 
-## Notes & Comments
+### Delete activity — `DELETE /customers/activities?id=<uuid>`
 
-### List Notes — `GET /customers/comments`
+**Feature:** `customers.activities.manage`  
+Removes the record via soft delete and reindexes.
 
-**Feature:** `customers.activities.view` (shares the same feature gate as activities)  
+## Notes & comments
+
+### List comments — `GET /customers/comments`
+
+**Feature:** `customers.activities.view`  
 **Query parameters:** `page`, `pageSize`, `entityId`, `dealId`, `sortField`, `sortDir`.
 
-### Create Note — `POST /customers/comments`
+Every comment in the response is enriched with `dealTitle` when linked to a deal.
+
+### Create comment — `POST /customers/comments`
 
 **Feature:** `customers.activities.manage`  
-Body: `organizationId`, `tenantId`, `entityId`, plus `body`. Optional `dealId`, `authorUserId`, and appearance overrides.
+Body: `organizationId`, `tenantId`, `entityId`, `body`, optional `dealId`, `authorUserId`, `appearanceIcon`, `appearanceColor`.
 
-### Update Note — `PUT /customers/comments`
+Response: `{ "id": "<uuid>", "authorUserId": "<uuid|null>" }`.
+
+### Update comment — `PUT /customers/comments`
 
 **Feature:** `customers.activities.manage`  
-Requires `id`, `organizationId`, `tenantId`, and any fields to update.
+Provide `id` alongside scoped fields to update body/appearance attributes.
 
-### Delete Note — `DELETE /customers/comments?id=<uuid>`
+### Delete comment — `DELETE /customers/comments?id=<uuid>`
 
-**Feature:** `customers.activities.manage`
+**Feature:** `customers.activities.manage`  
+id may be supplied via query string or JSON payload.
 
 ## Addresses
 
-### List Addresses — `GET /customers/addresses`
+### List addresses — `GET /customers/addresses`
 
 **Feature:** `customers.activities.view`  
 **Query parameters:** `page`, `pageSize`, `entityId`, `sortField`, `sortDir`.
 
-### Create Address — `POST /customers/addresses`
+### Create address — `POST /customers/addresses`
 
 **Feature:** `customers.activities.manage`  
-Body requires `organizationId`, `tenantId`, `entityId`, and `addressLine1`. Optional extras: labels, `isPrimary`, and coordinates.
+Body: `organizationId`, `tenantId`, `entityId`, `addressLine1`, optional `name`, `purpose`, `addressLine2`, `buildingNumber`, `flatNumber`, `city`, `region`, `postalCode`, `country`, `latitude`, `longitude`, `isPrimary`.
 
-### Update Address — `PUT /customers/addresses`
+### Update address — `PUT /customers/addresses`
 
 **Feature:** `customers.activities.manage`  
-Include `id`, `organizationId`, `tenantId`, and changed fields.
+Include `id`, scope identifiers, and the fields to change.
 
-### Delete Address — `DELETE /customers/addresses?id=<uuid>`
+### Delete address — `DELETE /customers/addresses?id=<uuid>`
 
 **Feature:** `customers.activities.manage`
+
+## Tags
+
+### List tags — `GET /customers/tags`
+
+**Feature:** `customers.activities.view`  
+Optional query parameters: `page`, `pageSize`, `search`, `sortField`, `sortDir`.
+
+### Create tag — `POST /customers/tags`
+
+**Feature:** `customers.activities.manage`  
+Body: `organizationId`, `tenantId`, `slug`, `label`, optional `color`, `description`. Returns `{ id: "<uuid>" }`.
+
+### Update tag — `PUT /customers/tags`
+
+**Feature:** `customers.activities.manage`  
+Send `id`, scope fields, and any updatable attributes from the create schema.
+
+### Delete tag — `DELETE /customers/tags?id=<uuid>`
+
+**Feature:** `customers.activities.manage`  
+Soft deletes the tag. id can be in the query string or payload.
+
+### Assign tag — `POST /customers/tags/assign`
+
+**Feature:** `customers.activities.manage`  
+Body: `organizationId`, `tenantId`, `entityId`, `tagId`. Creates a tag assignment and returns `{ id: "<uuid>" }`. The response includes an `x-om-operation` header for undo metadata.
+
+### Unassign tag — `POST /customers/tags/unassign`
+
+**Feature:** `customers.activities.manage`  
+Accepts the same body as assign. Removes the tag link and emits undo metadata via `x-om-operation`.
+
+## Todos
+
+Tasks are linked to customers via `CustomerTodoLink` records. The module can both create a todo (via a registered provider) and attach an existing item.
+
+### List todo links — `GET /customers/todos`
+
+**Feature:** `customers.activities.view`  
+**Query parameters:** `page`, `pageSize`, `search`, `isDone` (`true`/`false`), `organizationId`, `entityId`.
+
+The response includes todo metadata resolved from the remote source (`todoSource`) and the linked customer summary.
+
+### Create and link a todo — `POST /customers/todos`
+
+**Feature:** `customers.activities.manage`  
+Body:
+
+- `organizationId`, `tenantId`, `entityId`, `title` (required).
+- Optional: `isDone`/`is_done`, `todoSource` (defaults to `example:todo`), `createdByUserId`.
+- `todoCustom` and `custom` objects are forwarded to the provider to seed fields.
+
+Response: `{ "todoId": "<uuid|null>", "linkId": "<uuid>" }` plus the `x-om-operation` header.
+
+### Link an existing todo — `PUT /customers/todos`
+
+**Feature:** `customers.activities.manage`  
+Body: `organizationId`, `tenantId`, `entityId`, `todoId`, optional `todoSource`, `createdByUserId`. Response mirrors the create endpoint.
+
+### Unlink a todo — `DELETE /customers/todos?id=<uuid>`
+
+**Feature:** `customers.activities.manage`  
+Provide the todo link id in the query string or body to remove the association.
+
+## Dictionaries
+
+### List dictionary values — `GET /customers/dictionaries/{kind}`
+
+**Feature:** `customers.people.view`  
+`{kind}` accepts: `statuses`, `sources`, `lifecycle-stages`, `address-types`, `activity-types`, `deal-statuses`, `pipeline-stages`, `job-titles`, `industries`.
+
+The response merges organisation-level entries with inherited ancestors and marks inherited values with `isInherited: true`.
+
+### Upsert dictionary entry — `POST /customers/dictionaries/{kind}`
+
+**Feature:** `customers.settings.manage`  
+Body: `value` (required), optional `label`, `color` (hex), `icon`. Values are normalised per organization; sending the same value updates the label.
+
+### Load currency dictionary — `GET /customers/dictionaries/currency`
+
+**Feature:** `customers.people.view`  
+Returns the first active `currency`/`currencies` dictionary visible to the caller, or `404` when none exist.
+
+## Settings
+
+### Address format — `GET /customers/settings/address-format`
+
+**Feature:** `customers.settings.manage`  
+Returns `{ "addressFormat": "line_first" | "street_first" }` scoped to the selected organization.
+
+### Update address format — `PUT /customers/settings/address-format`
+
+**Feature:** `customers.settings.manage`  
+Body: `organizationId`, `tenantId`, `addressFormat` (`line_first` or `street_first`). Response echoes the persisted value.

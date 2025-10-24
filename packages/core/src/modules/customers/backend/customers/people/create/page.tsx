@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -20,11 +20,25 @@ import {
 export default function CreatePersonPage() {
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
 
   const formSchema = React.useMemo(() => createPersonFormSchema(), [])
   const fields = React.useMemo(() => createPersonFormFields(t), [t])
   const groups = React.useMemo(() => createPersonFormGroups(t), [t])
+  const companyParam = searchParams.get('companyId')
+  const companyEntityId = React.useMemo(() => {
+    if (!companyParam) return undefined
+    const trimmed = companyParam.trim()
+    return trimmed.length ? trimmed : undefined
+  }, [companyParam])
+  const initialValues = React.useMemo<Partial<PersonFormValues>>(
+    () => ({
+      addresses: [] as PersonFormValues['addresses'],
+      ...(companyEntityId ? { companyEntityId } : {}),
+    }),
+    [companyEntityId],
+  )
 
   return (
     <Page>
@@ -34,7 +48,7 @@ export default function CreatePersonPage() {
           backHref="/backend/customers/people"
           fields={fields}
           groups={groups}
-          initialValues={{ addresses: [] as PersonFormValues['addresses'] }}
+          initialValues={initialValues}
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           submitLabel={t('customers.people.form.submit')}
           cancelHref="/backend/customers/people"

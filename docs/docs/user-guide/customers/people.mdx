@@ -1,0 +1,55 @@
+---
+title: People workspace
+description: Discover how operators list, create, and update people records, keep interaction timelines current, and link contacts to open deals without leaving the page.
+sidebar_label: People
+---
+
+People tooling focuses on fast lookups, frictionless editing, and keeping activity history close to the contact profile. Access requires `customers.people.view` for the list plus `customers.people.manage` to create or edit entries.
+
+![People list view](/screenshots/open-mercato-people-companies.png)
+
+## Browse and filter people
+
+- **Navigate** to **Customers → People** to scan every contact scoped to the active organization. Filters, saved searches, and instant typeahead mirror the company grid to keep navigation consistent.
+- **Bulk awareness** — the header shows the current organization, undo toast, and quick links back to dashboards so operators never lose context.
+- **Export** results or trigger automation via the kebab menu; the same CRUD APIs live under `/api/customers/people`.
+
+![Create person form](/screenshots/open-mercato-people-add-new.png)
+
+- **Quick create** opens a full-screen form that honours dictionaries for job titles, lifecycle, currency, and other custom fields. Required fields highlight inline with standard validation copy. `Cmd/Ctrl + Enter` saves without reaching for the mouse.
+- **Company assignment** lets you connect people during creation or link them later from either the person or company view. Inline search shows company status and lifecycle badges so you can confirm the right account.
+
+## Person record workspace
+
+![Person detail overview](/screenshots/open-mercato-people-notes.png)
+
+- **Summary panel** surfaces the primary company, key contact channels, lifecycle status, and the next interaction block. Use the inline editor to set a follow-up, label, and highlight colour that also appears in the list view.
+- **Notes** and **Activities** share one timeline. Notes capture unstructured updates, while activities log calls, emails, or meetings with icons, timestamps, and authors. `Cmd/Ctrl + Enter` submits both dialogs; `Escape` closes them.
+- **Deals tab** lists every opportunity linked to the contact so sellers can jump into pipeline updates without switching screens.
+- **Tasks tab** syncs with the customer todos widget. Assignments display status and due dates, keeping follow-ups one click away.
+
+### Manage interaction timelines
+
+![Editing next interaction](/screenshots/open-mercato-people-next-interaction.png)
+
+- **Next interaction** widgets help teams schedule outreach with labels, icons, and highlight colours. They surface on the list view to broadcast priorities.
+- **Log activities** directly below the timeline.
+
+![Add activity dialog](/screenshots/open-mercato-people-add-activity.png)
+
+- **Timeline view** renders activity entries back inline, including author, dictionary-driven activity type, and any structured fields captured during logging.
+
+![Activities list](/screenshots/open-mercato-people-activities.png)
+
+### Maintain addresses
+
+![Addresses tab](/screenshots/open-mercato-people-addresses.png)
+
+- **Address tab** respects the format configured under module settings. Operators can tag entries as primary, assign dictionary-backed types, and keep shipping/billing details separated.
+
+## Link contacts from company pages
+
+![People tab on company detail](/screenshots/open-mercato-people-assigned-to-company.png)
+
+- **Company detail → People tab** shows every linked contact with job title, lifecycle badge, and quick actions. Operators can open the person record in a new tab or unlink without leaving the company view.
+- **Permissions** flow from the same feature flags: `customers.companies.view` is required to see the company record, while manage rights control link/unlink actions.

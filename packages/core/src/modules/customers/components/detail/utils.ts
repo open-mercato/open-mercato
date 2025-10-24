@@ -17,6 +17,17 @@ export function formatDate(value?: string | null): string | null {
   return date.toLocaleDateString()
 }
 
+export function formatTemplate(template: string, params?: Record<string, string | number>): string {
+  if (!template) return template
+  if (!params) return template
+  return template.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (match, doubleKey, singleKey) => {
+    const key = doubleKey ?? singleKey
+    if (!key) return match
+    const value = params[key]
+    return value === undefined ? match : String(value)
+  })
+}
+
 export function formatRelativeTime(value?: string | null): string | null {
   if (!value) return null
   const date = new Date(value)
@@ -81,6 +92,7 @@ export function createDictionarySelectLabels(
     emptyError: translate('customers.people.form.dictionary.errorRequired', 'Please enter a name'),
     cancelLabel: translate('customers.people.form.dictionary.cancel', 'Cancel'),
     saveLabel: translate('customers.people.form.dictionary.save', 'Save'),
+    saveShortcutHint: translate('customers.people.form.dictionary.saveShortcut', '⌘/Ctrl + Enter'),
     errorLoad: translate('customers.people.form.dictionary.errorLoad', 'Failed to load options'),
     errorSave: translate('customers.people.form.dictionary.error', 'Failed to save option'),
     loadingLabel: translate('customers.people.form.dictionary.loading', 'Loading…'),

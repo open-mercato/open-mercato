@@ -66,6 +66,12 @@ describe('auth CLI setup seeds ACLs', () => {
       'directory.organizations.manage',
       'directory.organizations.view',
       'customers.*',
+      'customers.people.view',
+      'customers.people.manage',
+      'customers.companies.view',
+      'customers.companies.manage',
+      'customers.deals.view',
+      'customers.deals.manage',
       'example.*',
     ]))
     expect(adminAcl?.featuresJson).not.toContain('directory.organizations.*')
@@ -74,7 +80,12 @@ describe('auth CLI setup seeds ACLs', () => {
     expect(employeeAcl).toBeDefined()
     expect(employeeAcl?.featuresJson).toEqual(expect.arrayContaining([
       'customers.*',
+      'customers.people.view',
       'customers.people.manage',
+      'customers.companies.view',
+      'customers.companies.manage',
+      'customers.deals.view',
+      'customers.deals.manage',
       'example.*',
       'example.widgets.*',
       'dashboards.view',

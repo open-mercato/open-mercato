@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Plus, Settings } from 'lucide-react'
+import { Plus, Settings, Save } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -51,6 +51,7 @@ export type DictionarySelectLabels = {
   emptyError: string
   cancelLabel: string
   saveLabel: string
+  saveShortcutHint?: string
   successCreateLabel?: string
   errorLoad: string
   errorSave: string
@@ -206,9 +207,10 @@ export function DictionaryEntrySelect({
   )
 
   const shortcutHint = React.useMemo(() => {
-    if (typeof navigator === 'undefined') return 'Cmd/Ctrl+Enter'
-    return /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? 'Cmd+Enter' : 'Ctrl+Enter'
-  }, [])
+    const provided = typeof labels.saveShortcutHint === 'string' ? labels.saveShortcutHint.trim() : ''
+    if (provided.length) return provided
+    return '⌘/Ctrl + Enter'
+  }, [labels.saveShortcutHint])
 
   const disabled = disabledProp || loading || saving
   const manageLink = manageHref ?? '/backend/config/dictionaries'
@@ -299,11 +301,13 @@ export function DictionaryEntrySelect({
                     {labels.cancelLabel}
                   </Button>
                   <Button type="button" onClick={handleCreate} disabled={saving || !newValue.trim()}>
-                    {saving ? <Spinner className="mr-2 h-4 w-4" /> : null}
-                    <span>{labels.saveLabel}</span>
-                    {!saving ? (
-                      <span className="ml-2 text-xs text-muted-foreground">{`(${shortcutHint})`}</span>
-                    ) : null}
+                    {saving ? <Spinner className="mr-2 h-4 w-4" /> : <Save className="mr-2 h-4 w-4" />}
+                    <span className="flex items-center gap-2">
+                      <span>{labels.saveLabel}</span>
+                      {!saving ? (
+                        <span className="text-xs text-muted-foreground">{`(${shortcutHint})`}</span>
+                      ) : null}
+                    </span>
                   </Button>
                 </DialogFooter>
               </DialogContent>

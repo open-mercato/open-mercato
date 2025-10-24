@@ -69,6 +69,7 @@
   "dictionaries.config.entries.dialog.previewEmpty": "No appearance selected",
   "dictionaries.config.entries.dialog.cancel": "Cancel",
   "dictionaries.config.entries.dialog.save": "Save",
+  "dictionaries.config.entries.dialog.saveShortcut": "⌘/Ctrl + Enter",
   "dictionaries.customFields.dictionaryLabel": "Dictionary source",
   "dictionaries.customFields.dictionaryPlaceholder": "Select a dictionary",
   "dictionaries.customFields.inactive": "inactive",

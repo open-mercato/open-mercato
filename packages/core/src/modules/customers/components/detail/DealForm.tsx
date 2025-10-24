@@ -11,6 +11,7 @@ import { createDictionarySelectLabels } from './utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
 
 export type DealFormBaseValues = {
   title: string
@@ -139,7 +140,7 @@ const schema = z.object({
   description: z.string().max(4000, 'customers.people.detail.deals.descriptionTooLong').optional(),
   personIds: z.array(z.string().trim().min(1)).optional(),
   companyIds: z.array(z.string().trim().min(1)).optional(),
-})
+}).passthrough()
 
 function toDateInputValue(value: string | null | undefined): string {
   if (!value) return ''
@@ -798,7 +799,7 @@ export function DealForm({
         const customEntries: Record<string, unknown> = {}
         Object.entries(values).forEach(([key, value]) => {
           if (key.startsWith('cf_')) {
-            customEntries[key.slice(3)] = value
+            customEntries[key.slice(3)] = normalizeCustomFieldSubmitValue(value)
           }
         })
         await onSubmit({ base, custom: customEntries })

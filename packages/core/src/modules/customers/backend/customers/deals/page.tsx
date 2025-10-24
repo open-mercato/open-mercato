@@ -936,6 +936,7 @@ export default function CustomersDealsPage() {
           }}
           exporter={exportConfig}
           entityId={E.customers.customer_deal}
+          perspective={{ tableId: 'customers.deals.list' }}
         />
       </PageBody>
     </Page>

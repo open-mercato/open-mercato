@@ -26,7 +26,16 @@ const sidebars: SidebarsConfig = {
         "user-guide/user-entities",
         "user-guide/perspectives-and-sidebar",
         "user-guide/organizations",
-        "user-guide/customers",
+        {
+          type: "category",
+          label: "Customers",
+          items: [
+            "user-guide/customers",
+            "user-guide/customers/people",
+            "user-guide/customers/companies",
+            "user-guide/customers/deals",
+          ],
+        },
         "user-guide/audit-logs",
       ],
     },

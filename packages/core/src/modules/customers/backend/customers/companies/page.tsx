@@ -15,6 +15,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import {
   DictionaryValue,
   renderDictionaryColor,
@@ -118,6 +119,7 @@ export default function CustomersCompaniesPage() {
     'address-types': {},
     'job-titles': {},
   })
+  const [tagIdToLabel, setTagIdToLabel] = React.useState<Record<string, string>>({})
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
   const t = useT()
@@ -138,6 +140,66 @@ export default function CustomersCompaniesPage() {
     const entries = await fetchDictionaryEntries(kind)
     return entries.map((entry) => ({ value: entry.value, label: entry.label }))
   }, [fetchDictionaryEntries])
+
+  const loadTagOptions = React.useCallback(async (query?: string): Promise<FilterOption[]> => {
+    try {
+      const params = new URLSearchParams({ pageSize: '100' })
+      const trimmedQuery = typeof query === 'string' ? query.trim() : ''
+      if (trimmedQuery) params.set('search', trimmedQuery)
+      const res = await apiFetch(`/api/customers/tags?${params.toString()}`)
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const message = typeof payload?.error === 'string'
+          ? payload.error
+          : t('customers.companies.list.tags.loadError', 'Failed to load tags.')
+        throw new Error(message)
+      }
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      const options: FilterOption[] = []
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue
+        const raw = item as { id?: unknown; tagId?: unknown; label?: unknown; slug?: unknown }
+        const rawId = typeof raw.id === 'string'
+          ? raw.id
+          : typeof raw.tagId === 'string'
+            ? raw.tagId
+            : null
+        if (!rawId) continue
+        const label = typeof raw.label === 'string' && raw.label.trim().length
+          ? raw.label.trim()
+          : typeof raw.slug === 'string' && raw.slug.trim().length
+            ? raw.slug.trim()
+            : rawId
+        options.push({ value: rawId, label })
+      }
+      if (options.length) {
+        setTagIdToLabel((prev) => {
+          let changed = false
+          const next = { ...prev }
+          for (const option of options) {
+            if (next[option.value] !== option.label) {
+              next[option.value] = option.label
+              changed = true
+            }
+          }
+          return changed ? next : prev
+        })
+      }
+      return options
+    } catch (err) {
+      console.error('customers.companies.list.loadTagOptions', err)
+      return []
+    }
+  }, [setTagIdToLabel, t])
+
+  const tagLabelToId = React.useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const [id, label] of Object.entries(tagIdToLabel)) {
+      if (!label) continue
+      map[label] = id
+    }
+    return map
+  }, [tagIdToLabel])
 
   React.useEffect(() => {
     let cancelled = false
@@ -181,6 +243,12 @@ export default function CustomersCompaniesPage() {
       loadOptions: () => loadDictionaryOptions('lifecycle-stages'),
     },
     {
+      id: 'tagIds',
+      label: t('customers.companies.list.filters.tags'),
+      type: 'tags',
+      loadOptions: loadTagOptions,
+    },
+    {
       id: 'createdAt',
       label: t('customers.companies.list.filters.createdAt'),
       type: 'dateRange',
@@ -206,7 +274,7 @@ export default function CustomersCompaniesPage() {
       label: t('customers.companies.list.filters.hasNextInteraction'),
       type: 'checkbox',
     },
-  ], [loadDictionaryOptions, t])
+  ], [loadDictionaryOptions, loadTagOptions, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -227,6 +295,21 @@ export default function CustomersCompaniesPage() {
     const emailContains = filterValues.emailContains
     if (typeof emailContains === 'string' && emailContains.trim()) {
       params.set('emailContains', emailContains.trim())
+    }
+    const tagLabels = Array.isArray(filterValues.tagIds)
+      ? filterValues.tagIds
+          .map((value) => (typeof value === 'string' ? value.trim() : String(value || '').trim()))
+          .filter((value) => value.length > 0)
+      : []
+    if (tagLabels.length > 0) {
+      const normalizedTagIds = tagLabels
+        .map((label) => tagLabelToId[label])
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      if (normalizedTagIds.length === tagLabels.length && normalizedTagIds.length > 0) {
+        params.set('tagIds', normalizedTagIds.join(','))
+      } else {
+        params.set('tagIdsEmpty', 'true')
+      }
     }
     const booleanFilters: Array<['hasEmail' | 'hasPhone' | 'hasNextInteraction', string]> = [
       ['hasEmail', 'hasEmail'],
@@ -257,7 +340,7 @@ export default function CustomersCompaniesPage() {
       }
     })
     return params.toString()
-  }, [filterValues, page, pageSize, search])
+  }, [filterValues, page, pageSize, search, tagLabelToId])
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
   const exportConfig = React.useMemo(() => ({
@@ -330,6 +413,26 @@ export default function CustomersCompaniesPage() {
       flash(message, 'error')
     }
   }, [handleRefresh, t])
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    const next: FilterValues = {}
+    Object.entries(values).forEach(([key, value]) => {
+      if (value !== undefined) next[key] = value
+    })
+    const rawTags = Array.isArray(values.tagIds) ? (values.tagIds as string[]) : []
+    const sanitizedTags = rawTags
+      .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+      .filter((tag) => tag.length > 0)
+    if (sanitizedTags.length) next.tagIds = sanitizedTags
+    else delete next.tagIds
+    setFilterValues(next)
+    setPage(1)
+  }, [setFilterValues, setPage])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
+    setPage(1)
+  }, [setFilterValues, setPage])
 
   const columns = React.useMemo<ColumnDef<CompanyRow>[]>(() => {
     const noValue = <span className="text-muted-foreground text-sm">{t('customers.companies.list.noValue')}</span>
@@ -465,8 +568,8 @@ export default function CustomersCompaniesPage() {
           searchPlaceholder={t('customers.companies.list.searchPlaceholder')}
           filters={filters}
           filterValues={filterValues}
-          onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
-          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           onRowClick={(row) => router.push(`/backend/customers/companies/${row.id}`)}
           perspective={{ tableId: 'customers.companies.list' }}

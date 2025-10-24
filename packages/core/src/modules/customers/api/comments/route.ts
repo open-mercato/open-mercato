@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerComment } from '../../data/entities'
+import { CustomerComment, CustomerDeal } from '../../data/entities'
 import { commentCreateSchema, commentUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -106,6 +107,56 @@ const crud = makeCrudRoute({
         return { id }
       },
       response: () => ({ ok: true }),
+    },
+  },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      const items = Array.isArray(payload.items) ? payload.items : []
+      if (!items.length) return
+      const dealIds = Array.from(
+        new Set(
+          items
+            .map((item) => {
+              if (!item || typeof item !== 'object') return null
+              const record = item as Record<string, unknown>
+              const raw =
+                typeof record.deal_id === 'string'
+                  ? record.deal_id
+                  : typeof record.dealId === 'string'
+                    ? record.dealId
+                    : null
+              return raw && raw.trim().length ? raw : null
+            })
+            .filter((value): value is string => !!value),
+        ),
+      )
+      if (!dealIds.length) return
+      try {
+        const em = ctx.container.resolve<EntityManager>('em')
+        const deals = await em.find(CustomerDeal, { id: { $in: dealIds } })
+        const map = new Map<string, string>()
+        deals.forEach((deal) => {
+          if (deal.id) map.set(deal.id, deal.title ?? '')
+        })
+        items.forEach((item) => {
+          if (!item || typeof item !== 'object') return
+          const record = item as Record<string, unknown>
+          const raw =
+            typeof record.deal_id === 'string'
+              ? record.deal_id
+              : typeof record.dealId === 'string'
+                ? record.dealId
+                : null
+          if (!raw) return
+          const title = map.get(raw) ?? null
+          ;(record as Record<string, unknown>).dealTitle = title
+          if (!('deal_title' in record)) {
+            ;(record as Record<string, unknown>).deal_title = title
+          }
+        })
+      } catch (err) {
+        console.warn('[customers.comments] failed to enrich deal titles', err)
+      }
     },
   },
 })

@@ -194,6 +194,24 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     () => (personId ? ({ kind: 'person', entityId: personId } as const) : null),
     [personId],
   )
+  const dealSelectOptions = React.useMemo(
+    () =>
+      Array.isArray(data?.deals)
+        ? data.deals
+            .map((deal) => {
+              if (!deal || typeof deal !== 'object') return null
+              const id = typeof (deal as Record<string, unknown>).id === 'string' ? (deal as Record<string, unknown>).id : ''
+              if (!id) return null
+              const title =
+                typeof (deal as Record<string, unknown>).title === 'string' && (deal as Record<string, unknown>).title.trim().length
+                  ? ((deal as Record<string, unknown>).title as string).trim()
+                  : id
+              return { id, label: title }
+            })
+            .filter((option): option is { id: string; label: string } => !!option)
+        : [],
+    [data?.deals],
+  )
   const handleNotesLoadingChange = React.useCallback((loading: boolean) => {
     setSectionPending((prev) => ({ ...prev, notes: loading }))
   }, [])
@@ -704,6 +722,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               {activeTab === 'notes' && (
                 <NotesSection
                   entityId={personId}
+                  dealOptions={dealSelectOptions}
                   emptyLabel={t('customers.people.detail.empty.comments')}
                   viewerUserId={data.viewer?.userId ?? null}
                   viewerName={data.viewer?.name ?? null}
@@ -721,6 +740,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               {activeTab === 'activities' && (
                 <ActivitiesSection
                   entityId={personId}
+                  dealOptions={dealSelectOptions}
+                  defaultEntityId={personId ?? undefined}
                   addActionLabel={t('customers.people.detail.activities.add')}
                   emptyState={{
                     title: t('customers.people.detail.emptyState.activities.title'),
