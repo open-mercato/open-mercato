@@ -319,6 +319,13 @@ function scan() {
       if (fs.existsSync(apiPkg)) walk(apiPkg)
       if (fs.existsSync(apiApp)) walk(apiApp)
       const routeList = Array.from(new Set(routeFiles))
+      const isDynamicRoute = (p: string) => p.split('/').some((seg) => /\[|\[\[\.\.\./.test(seg))
+      routeList.sort((a, b) => {
+        const ad = isDynamicRoute(a) ? 1 : 0
+        const bd = isDynamicRoute(b) ? 1 : 0
+        if (ad !== bd) return ad - bd
+        return a.localeCompare(b)
+      })
       for (const rel of routeList) {
         const segs = rel.split('/')
         segs.pop()

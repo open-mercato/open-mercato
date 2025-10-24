@@ -368,10 +368,12 @@ export function TasksSection({
                 {t('customers.people.detail.tasks.loadingMore', 'Loading…')}
               </div>
             ) : null}
-            <div className="flex justify-center text-xs">
-              <Link href="/backend/customers/work-plan/todos" className="text-primary hover:underline">
-                {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
-              </Link>
+            <div className="flex justify-center">
+              <Button asChild variant="outline" size="sm">
+                <Link href="/backend/customer-tasks" target="_blank" rel="noreferrer">
+                  {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
+                </Link>
+              </Button>
             </div>
           </div>
         ) : null}

@@ -1,7 +1,4 @@
-"use server"
-
 import { NextResponse } from 'next/server'
-import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -11,6 +8,7 @@ export const metadata = {
 
 export async function GET(req: Request) {
   try {
+    const { resolveDictionariesRouteContext } = await import('@open-mercato/core/modules/dictionaries/api/context')
     const context = await resolveDictionariesRouteContext(req)
     const { em, tenantId, organizationId, readableOrganizationIds, translate } = context
 

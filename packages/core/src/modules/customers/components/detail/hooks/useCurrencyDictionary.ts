@@ -17,7 +17,7 @@ export type CurrencyDictionaryPayload = {
 const QUERY_KEY = ['customers', 'dictionaries', 'currency'] as const
 const STALE_TIME = 5 * 60 * 1000
 
-const currencyDictionaryQueryOptions = () => ({
+const currencyDictionaryQueryOptions = (options?: { enabled?: boolean }) => ({
   queryKey: QUERY_KEY,
   staleTime: STALE_TIME,
   gcTime: STALE_TIME,
@@ -50,10 +50,11 @@ const currencyDictionaryQueryOptions = () => ({
       .filter((entry): entry is CurrencyDictionaryEntry => !!entry)
     return { id, entries }
   },
+  enabled: options?.enabled !== false,
 })
 
-export function useCurrencyDictionary() {
-  return useQuery(currencyDictionaryQueryOptions())
+export function useCurrencyDictionary(options?: { enabled?: boolean }) {
+  return useQuery(currencyDictionaryQueryOptions(options))
 }
 
 export async function ensureCurrencyDictionary(queryClient: QueryClient) {
