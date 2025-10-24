@@ -12,9 +12,10 @@ const createIcon = React.createElement(
     strokeLinecap: 'round',
     strokeLinejoin: 'round',
   },
-  React.createElement('path', { d: 'M12 5v14' }),
-  React.createElement('path', { d: 'M5 12h14' }),
-  React.createElement('path', { d: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z' }),
+  React.createElement('path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }),
+  React.createElement('path', { d: 'M14 2v6h6' }),
+  React.createElement('path', { d: 'M12 13v6' }),
+  React.createElement('path', { d: 'M9 16h6' }),
 )
 
 export const metadata = {

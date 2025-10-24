@@ -23,6 +23,11 @@ type CustomerTodoItem = {
   todoSource: string
   todoTitle: string | null
   todoIsDone: boolean | null
+  todoPriority?: number | null
+  todoSeverity?: string | null
+  todoDescription?: string | null
+  todoDueAt?: string | null
+  todoCustomValues?: Record<string, unknown> | null
   todoOrganizationId: string | null
   organizationId: string
   tenantId: string

@@ -33,8 +33,7 @@ import {
 } from '../../../../components/detail/InlineEditors'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
-import { resolveTodoApiPath } from '../../../../components/detail/utils'
-import { generateTempId, slugifyTagLabel, isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { slugifyTagLabel, isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import type {
   ActivitySummary,
   CommentSummary,
@@ -145,7 +144,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   React.useEffect(() => {
     setSectionAction(null)
   }, [activeTab])
-  const [pendingTaskId, setPendingTaskId] = React.useState<string | null>(null)
   const validators = React.useMemo(() => ({
     email: (value: string) => {
       if (!value) return null
@@ -211,6 +209,10 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
 
   const handleAddressesLoadingChange = React.useCallback((loading: boolean) => {
     setSectionPending((prev) => ({ ...prev, addresses: loading }))
+  }, [])
+
+  const handleTasksLoadingChange = React.useCallback((loading: boolean) => {
+    setSectionPending((prev) => ({ ...prev, tasks: loading }))
   }, [])
 
   React.useEffect(() => {
@@ -449,90 +451,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
   }, [])
-  
-    const handleCreateTask = React.useCallback(
-      async (payload: { title: string; isDone: boolean }) => {
-        if (!personId) return
-        setSectionPending((prev) => ({ ...prev, tasks: true }))
-        try {
-          const res = await apiFetch('/api/customers/todos', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ entityId: personId, ...payload }),
-          })
-          if (!res.ok) {
-            let message = t('customers.people.detail.tasks.error')
-            try {
-              const details = await res.clone().json()
-              if (details && typeof details.error === 'string') message = details.error
-            } catch {}
-            throw new Error(message)
-          }
-          const body = await res.json().catch(() => ({}))
-          const newTask: TodoLinkSummary = {
-            id: typeof body?.linkId === 'string' ? body.linkId : generateTempId(),
-            todoId: typeof body?.todoId === 'string' ? body.todoId : generateTempId(),
-            todoSource: 'example:todo',
-            createdAt: new Date().toISOString(),
-            createdByUserId: null,
-            title: payload.title,
-            isDone: payload.isDone,
-            priority: null,
-            dueAt: null,
-          }
-          setData((prev) => (prev ? { ...prev, todos: [newTask, ...prev.todos] } : prev))
-          flash(t('customers.people.detail.tasks.success'), 'success')
-        } finally {
-          setSectionPending((prev) => ({ ...prev, tasks: false }))
-        }
-      },
-      [personId, t]
-    )
-  
-    const handleToggleTask = React.useCallback(
-      async (task: TodoLinkSummary, nextIsDone: boolean) => {
-        if (!task.todoId) {
-          flash(t('customers.people.detail.tasks.toggleError'), 'error')
-          return
-        }
-        const apiPath = resolveTodoApiPath(task.todoSource)
-        if (!apiPath) {
-          flash(t('customers.people.detail.tasks.toggleError'), 'error')
-          return
-        }
-        setPendingTaskId(task.todoId)
-        try {
-          const res = await apiFetch(apiPath, {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id: task.todoId, is_done: nextIsDone }),
-          })
-          if (!res.ok) {
-            let message = t('customers.people.detail.tasks.toggleError')
-            try {
-              const details = await res.clone().json()
-              if (details && typeof details.error === 'string') message = details.error
-            } catch {}
-            throw new Error(message)
-          }
-          setData((prev) => {
-            if (!prev) return prev
-            return {
-              ...prev,
-              todos: prev.todos.map((item) =>
-                item.todoId === task.todoId ? { ...item, isDone: nextIsDone } : item
-              ),
-            }
-          })
-        } catch (err) {
-          const message = err instanceof Error ? err.message : t('customers.people.detail.tasks.toggleError')
-          flash(message, 'error')
-        } finally {
-          setPendingTaskId(null)
-        }
-      },
-      [setData, t]
-    )
   
     const handleCustomFieldsSubmit = React.useCallback(
       async (values: Record<string, unknown>) => {
@@ -952,9 +870,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               )}
               {activeTab === 'tasks' && (
                 <TasksSection
-                  tasks={data.todos}
-                  onCreate={handleCreateTask}
-                  isSubmitting={sectionPending.tasks}
+                  entityId={personId}
+                  initialTasks={data.todos}
                   emptyLabel={t('customers.people.detail.empty.todos')}
                   addActionLabel={t('customers.people.detail.tasks.add')}
                   emptyState={{
@@ -962,8 +879,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                     actionLabel: t('customers.people.detail.emptyState.tasks.action'),
                   }}
                   onActionChange={handleSectionActionChange}
-                  onToggle={handleToggleTask}
-                  pendingTaskId={pendingTaskId}
+                  onLoadingChange={handleTasksLoadingChange}
                   translator={t}
                 />
               )}

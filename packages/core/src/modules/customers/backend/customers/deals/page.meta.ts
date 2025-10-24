@@ -12,12 +12,10 @@ const dealsIcon = React.createElement(
     strokeLinecap: 'round',
     strokeLinejoin: 'round',
   },
-  React.createElement('path', { d: 'M12 5v14' }),
-  React.createElement('path', { d: 'M18 7h-3a3 3 0 0 0-3-3' }),
-  React.createElement('path', { d: 'M6 17h3a3 3 0 0 0 3 3' }),
-  React.createElement('path', { d: 'M2 9h20' }),
-  React.createElement('path', { d: 'm2 14 2 2 4-4' }),
-  React.createElement('path', { d: 'm20 10-2-2-4 4' })
+  React.createElement('path', { d: 'M3 7h18' }),
+  React.createElement('path', { d: 'M3 7a2 2 0 0 0-2 2v7a4 4 0 0 0 4 4h14a4 4 0 0 0 4-4V9a2 2 0 0 0-2-2' }),
+  React.createElement('path', { d: 'M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2' }),
+  React.createElement('path', { d: 'M8 14h8' })
 )
 
 export const metadata = {
