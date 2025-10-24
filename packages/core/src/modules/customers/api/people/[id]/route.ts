@@ -21,6 +21,7 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { mergePersonCustomFieldValues, resolvePersonCustomFieldRouting } from '../../../lib/customFieldRouting'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { EntityId } from '@/modules/entities'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -151,7 +152,7 @@ async function resolveTodoDetails(
     const ids = Array.from(idSet)
     if (!ids.length) continue
     try {
-      const result = await queryEngine.query<Record<string, unknown>>(source as any, {
+      const result = await queryEngine.query<Record<string, unknown>>(source as EntityId, {
         tenantId,
         organizationIds: scopedOrgIds.length > 0 ? scopedOrgIds : undefined,
         filters: { id: { $in: ids } },
@@ -230,6 +231,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
   const includeTokens = parseIncludeParams(_req)
   const includeActivities = includeTokens.has('activities')
+  const includeAddresses = includeTokens.has('addresses')
   const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
   const includeDeals = includeTokens.has('deals')
   const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
@@ -261,7 +263,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   }
 
   const profile = await em.findOne(CustomerPersonProfile, { entity: person })
-  const addresses = await em.find(CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } })
+  const addresses = includeAddresses
+    ? await em.find(CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } })
+    : []
   const tagAssignments = await em.find(CustomerTagAssignment, { entity: person.id }, { populate: ['tag'] })
 
   const comments = includeComments
@@ -397,23 +401,25 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       : null,
     customFields,
     tags: serializeTags(tagAssignments),
-    addresses: addresses.map((address) => ({
-      id: address.id,
-      name: address.name,
-      purpose: address.purpose,
-      addressLine1: address.addressLine1,
-      addressLine2: address.addressLine2,
-      buildingNumber: address.buildingNumber,
-      flatNumber: address.flatNumber,
-      city: address.city,
-      region: address.region,
-      postalCode: address.postalCode,
-      country: address.country,
-      latitude: address.latitude,
-      longitude: address.longitude,
-      isPrimary: address.isPrimary,
-      createdAt: address.createdAt.toISOString(),
-    })),
+    addresses: includeAddresses
+      ? addresses.map((address) => ({
+          id: address.id,
+          name: address.name,
+          purpose: address.purpose,
+          addressLine1: address.addressLine1,
+          addressLine2: address.addressLine2,
+          buildingNumber: address.buildingNumber,
+          flatNumber: address.flatNumber,
+          city: address.city,
+          region: address.region,
+          postalCode: address.postalCode,
+          country: address.country,
+          latitude: address.latitude,
+          longitude: address.longitude,
+          isPrimary: address.isPrimary,
+          createdAt: address.createdAt.toISOString(),
+        }))
+      : [],
     comments: includeComments
       ? comments.map((comment) => {
           const authorInfo = comment.authorUserId ? userMap.get(comment.authorUserId) : null

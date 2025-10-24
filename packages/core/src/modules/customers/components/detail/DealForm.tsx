@@ -694,7 +694,7 @@ export function DealForm({
     {
       id: 'associations',
       title: t('customers.people.detail.deals.form.associations', 'Associations'),
-      column: 2,
+      column: 1,
       fields: ['personIds', 'companyIds'],
     },
     {
