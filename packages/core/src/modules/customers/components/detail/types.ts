@@ -69,6 +69,10 @@ export type DealSummary = {
   createdAt?: string | null
   updatedAt?: string | null
   customValues?: Record<string, unknown> | null
+  personIds?: string[]
+  companyIds?: string[]
+  people?: { id: string; label: string }[]
+  companies?: { id: string; label: string }[]
 }
 
 export type TodoLinkSummary = {

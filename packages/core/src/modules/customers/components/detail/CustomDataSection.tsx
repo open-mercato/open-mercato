@@ -6,7 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { fetchCustomFieldFormFieldsWithDefinitions } from '@open-mercato/ui/backend/utils/customFieldForms'
@@ -151,9 +151,7 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
   const emptyLabel = t('customers.people.detail.noValue')
-  const [fields, setFields] = React.useState<CrudField[]>([])
   const [dictionaryMapsByField, setDictionaryMapsByField] = React.useState<Record<string, DictionaryMap>>({})
-  const [loading, setLoading] = React.useState(true)
   const [editing, setEditing] = React.useState(false)
   const sectionRef = React.useRef<HTMLDivElement | null>(null)
   const resolvedEntityIds = React.useMemo(() => {
@@ -174,6 +172,17 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
     return []
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : undefined
+  const customFieldFormsQuery = useQuery({
+    queryKey: ['customFieldForms', scopeVersion, ...resolvedEntityIds],
+    enabled: resolvedEntityIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    queryFn: async () => fetchCustomFieldFormFieldsWithDefinitions(resolvedEntityIds),
+  })
+  const fields = customFieldFormsQuery.data?.fields ?? []
+  const definitions = customFieldFormsQuery.data?.definitions ?? []
+  const [dictionaryLoading, setDictionaryLoading] = React.useState(false)
+  const loading = customFieldFormsQuery.isLoading || dictionaryLoading
 
   const submitActiveForm = React.useCallback(() => {
     const node = sectionRef.current?.querySelector('form')
@@ -219,23 +228,21 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
   )
 
   React.useEffect(() => {
+    if (!resolvedEntityIds.length) {
+      setDictionaryLoading(false)
+      setDictionaryMapsByField({})
+      return
+    }
+    if (!definitions.length) {
+      setDictionaryLoading(false)
+      setDictionaryMapsByField({})
+      return
+    }
+
     let cancelled = false
-
-    async function load() {
-      setLoading(true)
-
-      if (!resolvedEntityIds.length) {
-        if (!cancelled) {
-          setFields([])
-          setDictionaryMapsByField({})
-          setLoading(false)
-        }
-        return
-      }
-
+    const load = async () => {
+      setDictionaryLoading(true)
       try {
-        const { fields: fetchedFields, definitions } = await fetchCustomFieldFormFieldsWithDefinitions(resolvedEntityIds)
-
         const dictionaryDefs = definitions
           .map((def) => {
             const rawId = typeof def.dictionaryId === 'string' ? def.dictionaryId.trim() : ''
@@ -244,62 +251,61 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
           })
           .filter((entry): entry is { keyLower: string; dictionaryId: string } => !!entry)
 
-        let fieldDictionaryMaps: Record<string, DictionaryMap> = {}
-
-        if (dictionaryDefs.length) {
-          const uniqueDictionaryIds = Array.from(new Set(dictionaryDefs.map((entry) => entry.dictionaryId)))
-          const mapsByDictionaryId: Record<string, DictionaryMap> = {}
-
-          await Promise.all(
-            uniqueDictionaryIds.map(async (dictionaryId) => {
-              try {
-                const data = await ensureDictionaryEntries(queryClient, dictionaryId, scopeVersion)
-                mapsByDictionaryId[dictionaryId] = data.map
-              } catch {
-                mapsByDictionaryId[dictionaryId] = {}
-              }
-            }),
-          )
-
-          const dictionaryByKey = dictionaryDefs.reduce<Map<string, string>>((acc, entry) => {
-            acc.set(entry.keyLower, entry.dictionaryId)
-            return acc
-          }, new Map())
-
-          const nextMaps: Record<string, DictionaryMap> = {}
-          fetchedFields.forEach((field) => {
-            const id = typeof field.id === 'string' ? field.id : ''
-            if (!id) return
-            const normalizedKey = id.startsWith('cf_') ? id.slice(3) : id
-            const keyLower = normalizedKey.toLowerCase()
-            if (!keyLower) return
-            const dictionaryId = dictionaryByKey.get(keyLower)
-            if (!dictionaryId) return
-            nextMaps[id] = mapsByDictionaryId[dictionaryId] ?? {}
-          })
-
-          fieldDictionaryMaps = nextMaps
+        if (!dictionaryDefs.length) {
+          if (!cancelled) setDictionaryMapsByField({})
+          return
         }
 
+        const uniqueDictionaryIds = Array.from(new Set(dictionaryDefs.map((entry) => entry.dictionaryId)))
+        const mapsByDictionaryId: Record<string, DictionaryMap> = {}
+
+        await Promise.all(
+          uniqueDictionaryIds.map(async (dictionaryId) => {
+            try {
+              const data = await ensureDictionaryEntries(queryClient, dictionaryId, scopeVersion)
+              mapsByDictionaryId[dictionaryId] = data.map
+            } catch {
+              mapsByDictionaryId[dictionaryId] = {}
+            }
+          }),
+        )
+
+        const dictionaryByKey = dictionaryDefs.reduce<Map<string, string>>((acc, entry) => {
+          acc.set(entry.keyLower, entry.dictionaryId)
+          return acc
+        }, new Map())
+
+        const nextMaps: Record<string, DictionaryMap> = {}
+        fields.forEach((field) => {
+          const id = typeof field.id === 'string' ? field.id : ''
+          if (!id) return
+          const normalizedKey = id.startsWith('cf_') ? id.slice(3) : id
+          const keyLower = normalizedKey.toLowerCase()
+          if (!keyLower) return
+          const dictionaryId = dictionaryByKey.get(keyLower)
+          if (!dictionaryId) return
+          nextMaps[id] = mapsByDictionaryId[dictionaryId] ?? {}
+        })
+
         if (!cancelled) {
-          setFields(fetchedFields)
-          setDictionaryMapsByField(fieldDictionaryMaps)
+          setDictionaryMapsByField(nextMaps)
         }
       } catch {
         if (!cancelled) {
-          setFields([])
           setDictionaryMapsByField({})
         }
       } finally {
         if (!cancelled) {
-          setLoading(false)
+          setDictionaryLoading(false)
         }
       }
     }
 
     load().catch(() => {})
-    return () => { cancelled = true }
-  }, [queryClient, resolvedEntityIds, scopeVersion])
+    return () => {
+      cancelled = true
+    }
+  }, [definitions, fields, queryClient, resolvedEntityIds, scopeVersion])
 
   const handleSubmit = React.useCallback(async (input: Record<string, unknown>) => {
     await onSubmit(input)

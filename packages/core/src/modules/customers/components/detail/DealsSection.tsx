@@ -53,8 +53,63 @@ function toIso(value: unknown): string | null {
   return null
 }
 
+function mergeIds(...sources: Array<unknown>): string[] {
+  const set = new Set<string>()
+  sources.forEach((source) => {
+    if (Array.isArray(source)) {
+      source.forEach((value) => {
+        if (typeof value !== 'string') return
+        const trimmed = value.trim()
+        if (!trimmed.length) return
+        set.add(trimmed)
+      })
+    }
+  })
+  return Array.from(set)
+}
+
 function normalizeDeal(deal: Partial<DealSummary> & { id: string; title?: string }): NormalizedDeal {
   const title = typeof deal.title === 'string' && deal.title.trim().length ? deal.title.trim() : ''
+  const normalizeIdList = (list: unknown): string[] => {
+    if (!Array.isArray(list)) return []
+    const seen = new Set<string>()
+    const result: string[] = []
+    list.forEach((candidate) => {
+      if (typeof candidate !== 'string') return
+      const trimmed = candidate.trim()
+      if (!trimmed.length || seen.has(trimmed)) return
+      seen.add(trimmed)
+      result.push(trimmed)
+    })
+    return result
+  }
+
+  const normalizeAssignees = (entries: unknown, fallbackIds: string[]): { id: string; label: string }[] => {
+    if (!Array.isArray(entries)) {
+      return fallbackIds.map((id) => ({ id, label: '' }))
+    }
+    const seen = new Set<string>()
+    const resolved: { id: string; label: string }[] = []
+    entries.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') return
+      const data = entry as Record<string, unknown>
+      const id = typeof data.id === 'string' ? data.id.trim() : ''
+      if (!id || seen.has(id)) return
+      const label = typeof data.label === 'string' ? data.label : ''
+      seen.add(id)
+      resolved.push({ id, label })
+    })
+    if (!resolved.length && fallbackIds.length) {
+      return fallbackIds.map((id) => ({ id, label: '' }))
+    }
+    return resolved
+  }
+
+  const personIds = normalizeIdList(deal.personIds ?? null)
+  const companyIds = normalizeIdList(deal.companyIds ?? null)
+  const people = normalizeAssignees(deal.people ?? null, personIds)
+  const companies = normalizeAssignees(deal.companies ?? null, companyIds)
+
   return {
     id: deal.id,
     title,
@@ -80,6 +135,10 @@ function normalizeDeal(deal: Partial<DealSummary> & { id: string; title?: string
       typeof deal.source === 'string' && deal.source.trim().length ? deal.source : deal.source ?? null,
     createdAt: toIso(deal.createdAt ?? null),
     updatedAt: toIso(deal.updatedAt ?? null),
+    personIds,
+    companyIds,
+    people,
+    companies,
     customValues: (deal.customValues as Record<string, unknown> | null | undefined) ?? null,
   }
 }
@@ -94,6 +153,8 @@ function buildInitialValues(deal: NormalizedDeal): Partial<DealFormBaseValues & 
     probability: deal.probability ?? null,
     expectedCloseAt: deal.expectedCloseAt ?? null,
     description: deal.description ?? '',
+    personIds: Array.isArray(deal.personIds) ? deal.personIds : [],
+    companyIds: Array.isArray(deal.companyIds) ? deal.companyIds : [],
   }
   if (deal.customValues) {
     for (const [key, value] of Object.entries(deal.customValues)) {
@@ -275,6 +336,18 @@ export function DealsSection({
             : typeof record.updated_at === 'string' && record.updated_at.trim().length
               ? record.updated_at
               : null
+        const personIds = Array.isArray(record.personIds)
+          ? record.personIds
+          : Array.isArray(record.person_ids)
+            ? record.person_ids
+            : []
+        const people = Array.isArray(record.people) ? record.people : []
+        const companyIds = Array.isArray(record.companyIds)
+          ? record.companyIds
+          : Array.isArray(record.company_ids)
+            ? record.company_ids
+            : []
+        const companies = Array.isArray(record.companies) ? record.companies : []
         return normalizeDeal({
           id,
           title,
@@ -289,6 +362,10 @@ export function DealsSection({
           source,
           createdAt,
           updatedAt,
+          personIds: personIds as string[] | undefined,
+          people: people as { id: string; label: string }[] | undefined,
+          companyIds: companyIds as string[] | undefined,
+          companies: companies as { id: string; label: string }[] | undefined,
         })
       })
       setDeals((prev) => {
@@ -375,6 +452,9 @@ export function DealsSection({
       setPendingAction({ kind: 'create' })
       pushLoading()
       try {
+        const personIds = mergeIds(base.personIds, scope.kind === 'person' ? [scope.entityId] : [])
+        const companyIds = mergeIds(base.companyIds, scope.kind === 'company' ? [scope.entityId] : [])
+
         const payload: Record<string, unknown> = {
           title: base.title,
           status: base.status ?? undefined,
@@ -384,9 +464,9 @@ export function DealsSection({
           probability: typeof base.probability === 'number' ? base.probability : undefined,
           expectedCloseAt: base.expectedCloseAt ?? undefined,
           description: base.description ?? undefined,
+          personIds,
+          companyIds,
         }
-        if (scope.kind === 'person') payload.personIds = [scope.entityId]
-        if (scope.kind === 'company') payload.companyIds = [scope.entityId]
         if (Object.keys(custom).length) payload.customFields = custom
         const res = await apiFetch('/api/customers/deals', {
           method: 'POST',
@@ -415,6 +495,8 @@ export function DealsSection({
           probability: base.probability ?? null,
           expectedCloseAt: base.expectedCloseAt ?? null,
           description: base.description ?? null,
+          personIds,
+          companyIds,
           customValues: Object.keys(custom).length ? custom : null,
         })
         setDeals((prev) => [normalized, ...prev])
@@ -435,6 +517,9 @@ export function DealsSection({
       setPendingAction({ kind: 'update', id: dealId })
       pushLoading()
       try {
+        const personIds = mergeIds(base.personIds, scope.kind === 'person' ? [scope.entityId] : [])
+        const companyIds = mergeIds(base.companyIds, scope.kind === 'company' ? [scope.entityId] : [])
+
         const payload: Record<string, unknown> = {
           id: dealId,
           title: base.title,
@@ -445,9 +530,9 @@ export function DealsSection({
           probability: typeof base.probability === 'number' ? base.probability : undefined,
           expectedCloseAt: base.expectedCloseAt ?? undefined,
           description: base.description ?? undefined,
+          personIds,
+          companyIds,
         }
-        if (scope.kind === 'person') payload.personIds = [scope.entityId]
-        if (scope.kind === 'company') payload.companyIds = [scope.entityId]
         if (Object.keys(custom).length) payload.customFields = custom
         const res = await apiFetch('/api/customers/deals', {
           method: 'PUT',
@@ -475,6 +560,10 @@ export function DealsSection({
                   probability: base.probability ?? null,
                   expectedCloseAt: base.expectedCloseAt ?? null,
                   description: base.description ?? null,
+                  personIds,
+                  people: personIds.map((id) => deal.people?.find((entry) => entry.id === id) ?? { id, label: '' }),
+                  companyIds,
+                  companies: companyIds.map((id) => deal.companies?.find((entry) => entry.id === id) ?? { id, label: '' }),
                   customValues: Object.keys(custom).length ? custom : null,
                   updatedAt: new Date().toISOString(),
                 })

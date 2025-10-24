@@ -191,14 +191,91 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
             }
           })
         }
-        const filtered = items.filter((item) => {
-          if (!item || typeof item !== 'object') return false
-          const candidate = (item as Record<string, unknown>).id
-          if (typeof candidate !== 'string' || !candidate.trim().length) return false
-          const matchesPerson = personEntityId ? personMatches.has(candidate) : true
-          const matchesCompany = companyEntityId ? companyMatches.has(candidate) : true
-          return matchesPerson && matchesCompany
+
+        const [allPersonLinks, allCompanyLinks] = await Promise.all([
+          em.find(CustomerDealPersonLink, { deal: { $in: ids } }, { populate: ['person'] }),
+          em.find(CustomerDealCompanyLink, { deal: { $in: ids } }, { populate: ['company'] }),
+        ])
+
+        const personAssignments = new Map<string, { id: string; label: string }[]>()
+        allPersonLinks.forEach((link) => {
+          const deal = link.deal
+          const dealId =
+            typeof deal === 'string'
+              ? deal
+              : deal && typeof deal === 'object' && 'id' in deal && typeof (deal as any).id === 'string'
+                ? (deal as any).id
+                : null
+          if (!dealId) return
+          const personRef = link.person
+          const personId =
+            typeof personRef === 'string'
+              ? personRef
+              : personRef && typeof personRef === 'object' && 'id' in personRef && typeof (personRef as any).id === 'string'
+                ? (personRef as any).id
+                : null
+          if (!personId) return
+          const label =
+            personRef && typeof personRef === 'object' && 'displayName' in personRef && typeof (personRef as any).displayName === 'string'
+              ? (personRef as any).displayName
+              : ''
+          const bucket = personAssignments.get(dealId) ?? []
+          if (!bucket.some((entry) => entry.id === personId)) {
+            bucket.push({ id: personId, label })
+            personAssignments.set(dealId, bucket)
+          }
         })
+
+        const companyAssignments = new Map<string, { id: string; label: string }[]>()
+        allCompanyLinks.forEach((link) => {
+          const deal = link.deal
+          const dealId =
+            typeof deal === 'string'
+              ? deal
+              : deal && typeof deal === 'object' && 'id' in deal && typeof (deal as any).id === 'string'
+                ? (deal as any).id
+                : null
+          if (!dealId) return
+          const companyRef = link.company
+          const companyId =
+            typeof companyRef === 'string'
+              ? companyRef
+              : companyRef && typeof companyRef === 'object' && 'id' in companyRef && typeof (companyRef as any).id === 'string'
+                ? (companyRef as any).id
+                : null
+          if (!companyId) return
+          const label =
+            companyRef && typeof companyRef === 'object' && 'displayName' in companyRef && typeof (companyRef as any).displayName === 'string'
+              ? (companyRef as any).displayName
+              : ''
+          const bucket = companyAssignments.get(dealId) ?? []
+          if (!bucket.some((entry) => entry.id === companyId)) {
+            bucket.push({ id: companyId, label })
+            companyAssignments.set(dealId, bucket)
+          }
+        })
+
+        const filtered = items
+          .map((item) => {
+            if (!item || typeof item !== 'object') return null
+            const data = item as Record<string, unknown>
+            const candidate = typeof data.id === 'string' ? data.id : null
+            if (!candidate || !candidate.trim().length) return null
+            const matchesPerson = personEntityId ? personMatches.has(candidate) : true
+            const matchesCompany = companyEntityId ? companyMatches.has(candidate) : true
+            if (!matchesPerson || !matchesCompany) return null
+            const people = personAssignments.get(candidate) ?? []
+            const companies = companyAssignments.get(candidate) ?? []
+            return {
+              ...data,
+              personIds: people.map((entry) => entry.id),
+              people,
+              companyIds: companies.map((entry) => entry.id),
+              companies,
+            }
+          })
+          .filter((item): item is Record<string, unknown> => !!item)
+
         payload.items = filtered
         payload.total = filtered.length
       } catch (err) {

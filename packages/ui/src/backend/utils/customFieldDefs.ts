@@ -130,16 +130,18 @@ export async function invalidateCustomFieldDefs(
   entityIds?: string | string[] | null,
 ): Promise<void> {
   const normalizedIds = normalizeEntityIds(entityIds)
+  const targetPrefixes = new Set(['customFieldDefs', 'customFieldForms', 'dealFormFields'])
   if (!normalizedIds.length) {
     await queryClient.invalidateQueries({
-      predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'customFieldDefs',
+      predicate: (query) => Array.isArray(query.queryKey) && typeof query.queryKey[0] === 'string' && targetPrefixes.has(query.queryKey[0] as string),
     })
     return
   }
   await queryClient.invalidateQueries({
     predicate: (query) => {
       if (!Array.isArray(query.queryKey)) return false
-      if (query.queryKey[0] !== 'customFieldDefs') return false
+      const [prefix] = query.queryKey
+      if (typeof prefix !== 'string' || !targetPrefixes.has(prefix)) return false
       return normalizedIds.every((id) => query.queryKey.includes(id))
     },
   })

@@ -112,6 +112,10 @@ export async function run(argv = process.argv) {
       const tenantId = tenantIdMatch ? tenantIdMatch[1] : null
       
       if (orgId && tenantId) {
+        console.log('📚 Seeding customer dictionaries...')
+        execSync(`yarn mercato customers seed-dictionaries --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
+        console.log('✅ Customer dictionaries seeded\n')
+
         console.log('📝 Seeding example todos...')
         execSync(`yarn mercato example seed-todos --org ${orgId} --tenant ${tenantId}`, { stdio: 'inherit' })
         console.log('✅ Example todos seeded\n')
