@@ -50,6 +50,7 @@ const listQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   isDone: z.enum(['true', 'false']).optional(),
   organizationId: z.string().uuid().optional(),
+  entityId: z.string().uuid().optional(),
 })
 
 function normalizeString(value: string | null | undefined): string {
@@ -62,6 +63,11 @@ type CustomerTodoLinkRow = {
   todoSource: string
   todoTitle: string | null
   todoIsDone: boolean | null
+  todoPriority: number | null
+  todoSeverity: string | null
+  todoDescription: string | null
+  todoDueAt: string | null
+  todoCustomValues: Record<string, unknown> | null
   todoOrganizationId: string | null
   organizationId: string
   tenantId: string
@@ -84,7 +90,7 @@ export async function GET(req: Request) {
       throw new CrudHttpError(400, { error: translate('customers.errors.invalid_query', 'Invalid query parameters') })
     }
 
-    const { page, pageSize, search, isDone, organizationId } = parsed.data
+    const { page, pageSize, search, isDone, organizationId, entityId } = parsed.data
     const tenantId = auth?.tenantId ?? null
     if (!tenantId) {
       throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
@@ -115,6 +121,23 @@ export async function GET(req: Request) {
       organizationId: scopedOrgIds.length === 1 ? scopedOrgIds[0] : { $in: scopedOrgIds },
     } as Record<string, unknown>
 
+    if (entityId) {
+      const entity = await em.findOne(CustomerEntity, { id: entityId, deletedAt: null })
+      if (!entity) {
+        throw new CrudHttpError(404, { error: translate('customers.errors.todo_list_failed', 'Failed to load customer tasks') })
+      }
+      if (entity.tenantId && entity.tenantId !== tenantId) {
+        throw new CrudHttpError(404, { error: translate('customers.errors.todo_list_failed', 'Failed to load customer tasks') })
+      }
+      const entityOrgId = typeof entity.organizationId === 'string' && entity.organizationId.trim().length > 0 ? entity.organizationId : null
+      if (entityOrgId) {
+        if (!scopedOrgIds.includes(entityOrgId)) {
+          throw new CrudHttpError(403, { error: translate('customers.errors.organization_forbidden', 'Organization not accessible') })
+        }
+      }
+      where.entity = entityId
+    }
+
     const linkEntities = await em.find(CustomerTodoLink, where, {
       populate: ['entity'],
       orderBy: { createdAt: 'desc' },
@@ -129,7 +152,17 @@ export async function GET(req: Request) {
       idsBySource.get(source)!.add(id)
     }
 
-    type TodoRecord = { id: string; title: string | null; is_done: boolean | null; organization_id: string | null }
+    type TodoRecord = {
+      id: string
+      title: string | null
+      is_done: boolean | null
+      organization_id: string | null
+      priority: number | null
+      severity: string | null
+      description: string | null
+      due_at: string | null
+      custom_values: Record<string, unknown> | null
+    }
     const todoMap = new Map<string, TodoRecord>()
     for (const [source, idSet] of idsBySource.entries()) {
       const ids = Array.from(idSet)
@@ -148,11 +181,120 @@ export async function GET(req: Request) {
           const record = item as Record<string, unknown>
           const todoId = typeof record.id === 'string' && record.id.length ? record.id : String(record.id ?? '')
           if (!todoId) continue
+          const readNestedCustom = (key: string): unknown => {
+            const bucket = record.custom ?? record.customFields ?? record.cf
+            if (!bucket || typeof bucket !== 'object') return undefined
+            const value = (bucket as Record<string, unknown>)[key]
+            return value
+          }
+          const coerceNumber = (value: unknown): number | null => {
+            if (typeof value === 'number' && Number.isFinite(value)) return value
+            if (typeof value === 'string') {
+              const trimmed = value.trim()
+              if (!trimmed.length) return null
+              const parsed = Number(trimmed)
+              if (!Number.isNaN(parsed)) return parsed
+            }
+            return null
+          }
+          const coerceString = (value: unknown): string | null => {
+            if (typeof value === 'string') {
+              const trimmed = value.trim()
+              return trimmed.length ? trimmed : null
+            }
+            return null
+          }
+          const priorityValue = (() => {
+            const candidates = [
+              record['cf:priority'],
+              record['cf_priority'],
+              record.priority,
+              readNestedCustom('priority'),
+            ]
+            for (const candidate of candidates) {
+              const parsed = coerceNumber(candidate)
+              if (parsed !== null) return parsed
+            }
+            return null
+          })()
+          const severityValue = (() => {
+            const candidates = [
+              record['cf:severity'],
+              record['cf_severity'],
+              readNestedCustom('severity'),
+            ]
+            for (const candidate of candidates) {
+              const parsed = coerceString(candidate)
+              if (parsed) return parsed
+            }
+            return null
+          })()
+          const descriptionValue = (() => {
+            const candidates = [
+              record.description,
+              record['cf:description'],
+              record['cf_description'],
+              readNestedCustom('description'),
+            ]
+            for (const candidate of candidates) {
+              const parsed = coerceString(candidate)
+              if (parsed) return parsed
+            }
+            return null
+          })()
+          const dueAtValue = (() => {
+            const candidates = [
+              record.due_at,
+              record['cf:due_at'],
+              record['cf_due_at'],
+              readNestedCustom('due_at'),
+              readNestedCustom('dueAt'),
+            ]
+            for (const candidate of candidates) {
+              if (candidate instanceof Date) {
+                const iso = candidate.toISOString()
+                return Number.isNaN(new Date(iso).getTime()) ? null : iso
+              }
+              if (typeof candidate === 'string') {
+                const trimmed = candidate.trim()
+                if (!trimmed.length) continue
+                const parsed = new Date(trimmed)
+                if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
+              }
+            }
+            return null
+          })()
+          const customValues: Record<string, unknown> = {}
+          const assignCustomValue = (key: unknown, value: unknown) => {
+            if (typeof key !== 'string') return
+            const trimmedKey = key.trim()
+            if (!trimmedKey.length) return
+            customValues[trimmedKey] = value === undefined ? null : value
+          }
+          for (const [rawKey, rawValue] of Object.entries(record)) {
+            if (rawKey.startsWith('cf:')) {
+              assignCustomValue(rawKey.slice(3), rawValue)
+            } else if (rawKey.startsWith('cf_')) {
+              assignCustomValue(rawKey.slice(3), rawValue)
+            }
+          }
+          const nestedCustom = record.custom ?? record.customFields ?? record.cf
+          if (nestedCustom && typeof nestedCustom === 'object') {
+            for (const [nestedKey, nestedValue] of Object.entries(nestedCustom as Record<string, unknown>)) {
+              assignCustomValue(nestedKey, nestedValue)
+            }
+          }
+
           todoMap.set(`${source}:${todoId}`, {
             id: todoId,
             title: typeof record.title === 'string' ? record.title : null,
             is_done: typeof record.is_done === 'boolean' ? record.is_done : null,
             organization_id: typeof record.organization_id === 'string' ? record.organization_id : null,
+            priority: priorityValue,
+            severity: severityValue,
+            description: descriptionValue,
+            due_at: dueAtValue,
+            custom_values: Object.keys(customValues).length ? customValues : null,
           })
         }
       } catch (err) {
@@ -178,6 +320,8 @@ export async function GET(req: Request) {
       if (normalizedSearch) {
         const haystacks: string[] = []
         if (todo?.title) haystacks.push(todo.title)
+        if (todo?.description) haystacks.push(todo.description)
+        if (todo?.severity) haystacks.push(todo.severity)
         const entity = link.entity
         if (entity && typeof entity !== 'string') {
           const e = entity as CustomerEntity
@@ -201,6 +345,11 @@ export async function GET(req: Request) {
         todoSource: source,
         todoTitle: todo?.title ?? null,
         todoIsDone: todo?.is_done ?? null,
+        todoPriority: todo?.priority ?? null,
+        todoSeverity: todo?.severity ?? null,
+        todoDescription: todo?.description ?? null,
+        todoDueAt: todo?.due_at ?? null,
+        todoCustomValues: todo?.custom_values ?? null,
         todoOrganizationId: todo?.organization_id ?? null,
         organizationId: link.organizationId,
         tenantId: link.tenantId,

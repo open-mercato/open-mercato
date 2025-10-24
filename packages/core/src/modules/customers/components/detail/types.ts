@@ -84,8 +84,11 @@ export type TodoLinkSummary = {
   title?: string | null
   isDone?: boolean | null
   priority?: number | null
+  severity?: string | null
+  description?: string | null
   dueAt?: string | null
   todoOrganizationId?: string | null
+  customValues?: Record<string, unknown> | null
 }
 
 export type SectionAction = {

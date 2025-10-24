@@ -68,8 +68,11 @@ type TodoDetail = {
   title: string | null
   isDone: boolean | null
   priority: number | null
+  severity: string | null
+  description: string | null
   dueAt: string | null
   organizationId: string | null
+  customValues: Record<string, unknown> | null
 }
 
 function extractTodoTitle(record: Record<string, unknown>): string | null {
@@ -156,8 +159,23 @@ async function resolveTodoDetails(
         tenantId,
         organizationIds: scopedOrgIds.length > 0 ? scopedOrgIds : undefined,
         filters: { id: { $in: ids } },
-        fields: ['id', 'title', 'subject', 'name', 'summary', 'text', 'description', 'is_done', 'organization_id', 'due_at', 'cf:priority', 'cf:due_at'],
-        includeCustomFields: ['priority', 'due_at'],
+        fields: [
+          'id',
+          'title',
+          'subject',
+          'name',
+          'summary',
+          'text',
+          'description',
+          'is_done',
+          'organization_id',
+          'due_at',
+          'cf:priority',
+          'cf:due_at',
+          'cf:severity',
+          'cf:description',
+        ],
+        includeCustomFields: ['priority', 'due_at', 'severity', 'description'],
         page: { page: 1, pageSize: Math.max(ids.length, 1) },
       })
       for (const item of result.items ?? []) {
@@ -188,6 +206,35 @@ async function resolveTodoDetails(
           }
           return null
         })()
+        const severity = (() => {
+          const candidates = [
+            record['cf:severity'],
+            record['cf_severity'],
+            readCustomField(record, 'severity'),
+          ]
+          for (const candidate of candidates) {
+            if (typeof candidate === 'string') {
+              const trimmed = candidate.trim()
+              if (trimmed.length) return trimmed
+            }
+          }
+          return null
+        })()
+        const descriptionValue = (() => {
+          const candidates = [
+            record.description,
+            record['cf:description'],
+            record['cf_description'],
+            readCustomField(record, 'description'),
+          ]
+          for (const candidate of candidates) {
+            if (typeof candidate === 'string') {
+              const trimmed = candidate.trim()
+              if (trimmed.length) return trimmed
+            }
+          }
+          return null
+        })()
         const dueAt = (() => {
           const candidates = [
             record.due_at,
@@ -206,13 +253,36 @@ async function resolveTodoDetails(
         const organizationId = typeof record.organization_id === 'string' && record.organization_id.trim().length > 0
           ? record.organization_id
           : (typeof record.organizationId === 'string' && record.organizationId.trim().length > 0 ? record.organizationId : null)
+        const customValues: Record<string, unknown> = {}
+        const assignCustomValue = (key: unknown, value: unknown) => {
+          if (typeof key !== 'string') return
+          const trimmedKey = key.trim()
+          if (!trimmedKey.length) return
+          customValues[trimmedKey] = value === undefined ? null : value
+        }
+        for (const [rawKey, rawValue] of Object.entries(record)) {
+          if (rawKey.startsWith('cf:')) {
+            assignCustomValue(rawKey.slice(3), rawValue)
+          } else if (rawKey.startsWith('cf_')) {
+            assignCustomValue(rawKey.slice(3), rawValue)
+          }
+        }
+        const nestedCustom = record.custom ?? record.customFields ?? record.cf
+        if (nestedCustom && typeof nestedCustom === 'object') {
+          for (const [nestedKey, nestedValue] of Object.entries(nestedCustom as Record<string, unknown>)) {
+            assignCustomValue(nestedKey, nestedValue)
+          }
+        }
 
         details.set(`${source}:${rawId}`, {
           title,
           isDone,
           priority,
+          severity,
+          description: descriptionValue,
           dueAt,
           organizationId,
+          customValues: Object.keys(customValues).length ? customValues : null,
         })
       }
     } catch (err) {
@@ -482,8 +552,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             title: detail?.title ?? null,
             isDone: detail?.isDone ?? null,
             priority: detail?.priority ?? null,
+            severity: detail?.severity ?? null,
+            description: detail?.description ?? null,
             dueAt: detail?.dueAt ?? null,
             todoOrganizationId: detail?.organizationId ?? null,
+            customValues: detail?.customValues ?? null,
           }
         })
       : [],

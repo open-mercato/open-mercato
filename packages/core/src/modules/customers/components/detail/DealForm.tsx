@@ -412,9 +412,13 @@ export function DealForm({
   const [currencyDictionaryId, setCurrencyDictionaryId] = React.useState<string | null>(null)
   const [currencyDictionaryLoading, setCurrencyDictionaryLoading] = React.useState(true)
   const [currencyDictionaryError, setCurrencyDictionaryError] = React.useState<string | null>(null)
+  const hasRequestedCurrencyDictionaryRef = React.useRef(false)
 
   React.useEffect(() => {
+    if (hasRequestedCurrencyDictionaryRef.current) return
+    hasRequestedCurrencyDictionaryRef.current = true
     let cancelled = false
+    let resolved = false
     async function loadCurrencyDictionary() {
       setCurrencyDictionaryLoading(true)
       setCurrencyDictionaryError(null)
@@ -439,6 +443,7 @@ export function DealForm({
           setCurrencyDictionaryId(null)
           setCurrencyDictionaryError(t('customers.deals.form.currency.missing', 'Currency dictionary is not configured yet.'))
         }
+        resolved = true
       } catch (err) {
         if (!cancelled) {
           console.error('dealForm.currencyDictionary.load failed', err)
@@ -446,11 +451,19 @@ export function DealForm({
           setCurrencyDictionaryError(t('customers.deals.form.currency.error', 'Failed to load currency dictionary.'))
         }
       } finally {
-        if (!cancelled) setCurrencyDictionaryLoading(false)
+        if (!cancelled) {
+          setCurrencyDictionaryLoading(false)
+          resolved = true
+        }
       }
     }
     loadCurrencyDictionary().catch(() => {})
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      if (!resolved) {
+        hasRequestedCurrencyDictionaryRef.current = false
+      }
+    }
   }, [t])
 
   const translate = React.useCallback(
