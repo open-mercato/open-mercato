@@ -122,7 +122,7 @@ export function AddressesSection({
     }
     pushLoading()
     try {
-      const params = new URLSearchParams({ entityId: normalizedEntityId, pageSize: '200' })
+      const params = new URLSearchParams({ entityId: normalizedEntityId, pageSize: '100' })
       const res = await apiFetch(`/api/customers/addresses?${params.toString()}`)
       const payload = (await res.json().catch(() => ({}))) as ApiAddressPayload
       if (!res.ok) {

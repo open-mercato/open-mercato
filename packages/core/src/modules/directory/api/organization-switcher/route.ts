@@ -4,7 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { computeHierarchyForOrganizations, type ComputedHierarchy } from '@open-mercato/core/modules/directory/lib/hierarchy'
-import { getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { getSelectedOrganizationFromRequest, isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 type OrganizationMenuNode = {
   id: string
@@ -108,11 +108,17 @@ export async function GET(req: NextRequest) {
     const accessible = Array.isArray(acl.organizations) ? acl.organizations : null
     const menuData = buildOrganizationMenu(hierarchy, accessible)
 
-    let selectedId = getSelectedOrganizationFromRequest(req) ?? null
-    if (selectedId && !menuData.selectableIds.has(selectedId) && accessible !== null) {
+    const rawSelected = getSelectedOrganizationFromRequest(req)
+    let hasSelectionCookie = rawSelected !== null
+    const requestedAll = isAllOrganizationsSelection(rawSelected)
+    let selectedId = requestedAll ? null : (rawSelected ?? null)
+    if (selectedId && !menuData.selectableIds.has(selectedId)) {
       selectedId = null
+      if (!requestedAll) {
+        hasSelectionCookie = false
+      }
     }
-    if (!selectedId && auth.orgId) {
+    if (!selectedId && !hasSelectionCookie && auth.orgId) {
       if (accessible === null || menuData.selectableIds.has(auth.orgId)) {
         selectedId = auth.orgId
       }

@@ -7,12 +7,14 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import type { DealSummary, SectionAction, TabEmptyState, Translator } from './types'
 import { formatDate } from './utils'
 import { DealDialog } from './DealDialog'
 import type { DealFormBaseValues, DealFormSubmitPayload } from './DealForm'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 
 const DEALS_PAGE_SIZE = 10
 
@@ -209,6 +211,9 @@ export function DealsSection({
       }),
     [translator, tHook],
   )
+  const scopeVersion = useOrganizationScopeVersion()
+  const statusDictionaryQuery = useCustomerDictionary('deal-statuses', scopeVersion)
+  const statusDictionaryMap = statusDictionaryQuery.data?.map ?? null
 
   const [deals, setDeals] = React.useState<NormalizedDeal[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
@@ -686,6 +691,10 @@ export function DealsSection({
             typeof deal.probability === 'number' ? `${deal.probability}%` : emptyLabel
           const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === deal.id
           const isDeletePending = pendingAction?.kind === 'delete' && pendingAction.id === deal.id
+          const statusLabel =
+            deal.status && statusDictionaryMap
+              ? statusDictionaryMap[deal.status]?.label ?? deal.status
+              : deal.status ?? emptyLabel
           return (
             <article key={deal.id} className="group rounded-lg border bg-card p-4 shadow-xs transition hover:border-border/80">
               <header className="flex flex-wrap items-center justify-between gap-2">
@@ -697,7 +706,7 @@ export function DealsSection({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium uppercase text-muted-foreground">
-                    {deal.status ?? emptyLabel}
+                    {statusLabel}
                   </span>
                   <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <Button

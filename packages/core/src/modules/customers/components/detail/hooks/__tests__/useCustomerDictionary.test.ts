@@ -1,4 +1,4 @@
-import { QueryClient, setLogger } from '@tanstack/query-core'
+import { QueryClient } from '@tanstack/query-core'
 import {
   ensureCustomerDictionary,
   invalidateCustomerDictionary,
@@ -18,14 +18,6 @@ const createApiResponse = (items: unknown[]) => ({
 })
 
 describe('ensureCustomerDictionary', () => {
-  beforeAll(() => {
-    setLogger({
-      log: () => {},
-      warn: () => {},
-      error: () => {},
-    })
-  })
-
   let queryClient: QueryClient
 
   beforeEach(() => {
@@ -34,7 +26,7 @@ describe('ensureCustomerDictionary', () => {
   })
 
   afterEach(() => {
-    queryClient.clear()
+    queryClient?.clear?.()
   })
 
   it('normalizes API payload into dictionary data', async () => {

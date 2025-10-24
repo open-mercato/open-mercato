@@ -4,6 +4,12 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 
+export const ALL_ORGANIZATIONS_COOKIE_VALUE = '__all__'
+
+export function isAllOrganizationsSelection(value: string | null | undefined): boolean {
+  return value === ALL_ORGANIZATIONS_COOKIE_VALUE
+}
+
 export type OrganizationScope = {
   selectedId: string | null
   filterIds: string[] | null
