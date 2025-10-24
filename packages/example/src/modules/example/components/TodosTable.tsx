@@ -278,6 +278,7 @@ export default function TodosTable() {
       sortable
       sorting={sorting}
       onSortingChange={handleSortingChange}
+      perspective={{ tableId: 'example.todos.list' }}
       rowActions={(row) => (
         <RowActions
           items={[

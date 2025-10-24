@@ -1,8 +1,9 @@
 "use client"
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn } from '@tanstack/react-table'
-import { RefreshCw, Loader2 } from 'lucide-react'
+import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState } from '@tanstack/react-table'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
@@ -11,6 +12,15 @@ import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
+import { apiFetch } from './utils/api'
+import { PerspectiveSidebar } from './PerspectiveSidebar'
+import type {
+  PerspectiveDto,
+  RolePerspectiveDto,
+  PerspectivesIndexResponse,
+  PerspectiveSettings,
+  PerspectiveSaveResponse,
+} from '@open-mercato/shared/modules/perspectives/types'
 
 let refreshScheduled = false
 function scheduleRouterRefresh(router: ReturnType<typeof useRouter>) {
@@ -72,6 +82,15 @@ export type DataTableExportConfig = {
   filename?: (format: DataTableExportFormat) => string
 }
 
+export type DataTablePerspectiveConfig = {
+  tableId: string
+  initialState?: {
+    response?: PerspectivesIndexResponse
+    activePerspectiveId?: string | null
+    initialSettings?: PerspectiveSettings | null
+  }
+}
+
 export type DataTableProps<T> = {
   columns: ColumnDef<T, any>[]
   data: T[]
@@ -103,6 +122,7 @@ export type DataTableProps<T> = {
   entityId?: string
   entityIds?: string[]
   exporter?: DataTableExportConfig | false
+  perspective?: DataTablePerspectiveConfig
 }
 
 const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
@@ -176,6 +196,132 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
 
   addSection('full', config.full, 'Full data export')
   return sections
+}
+
+const PERSPECTIVE_COOKIE_PREFIX = 'om_table_perspective'
+const PERSPECTIVE_STORAGE_PREFIX = 'om_table_perspective_snapshot'
+
+type PerspectiveSnapshot = {
+  perspectiveId: string | null
+  settings: PerspectiveSettings
+  updatedAt: number
+}
+
+function readPerspectiveCookie(tableId: string): string | null {
+  if (typeof document === 'undefined') return null
+  const key = `${PERSPECTIVE_COOKIE_PREFIX}:${tableId}`
+  const pattern = new RegExp(`(?:^|;\\s*)${key}=([^;]+)`)
+  const match = document.cookie.match(pattern)
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+function writePerspectiveCookie(tableId: string, perspectiveId: string | null): void {
+  if (typeof document === 'undefined') return
+  const key = `${PERSPECTIVE_COOKIE_PREFIX}:${tableId}`
+  const expires = perspectiveId ? 'Max-Age=31536000' : 'Max-Age=0'
+  const value = perspectiveId ? encodeURIComponent(perspectiveId) : ''
+  document.cookie = `${key}=${value}; Path=/; ${expires}; SameSite=Lax`
+}
+
+function readPerspectiveSnapshot(tableId: string): PerspectiveSnapshot | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(`${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    const perspectiveId =
+      typeof parsed.perspectiveId === 'string' && parsed.perspectiveId.trim().length > 0
+        ? parsed.perspectiveId
+        : null
+    const settings = typeof parsed.settings === 'object' && parsed.settings !== null
+      ? parsed.settings as PerspectiveSettings
+      : null
+    const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now()
+    if (!settings) return null
+    return { perspectiveId, settings, updatedAt }
+  } catch {
+    return null
+  }
+}
+
+function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveSnapshot | null) {
+  if (typeof window === 'undefined') return
+  const key = `${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`
+  try {
+    if (!snapshot) {
+      window.localStorage.removeItem(key)
+      return
+    }
+    window.localStorage.setItem(key, JSON.stringify(snapshot))
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): PerspectiveSettings | null {
+  if (!source || typeof source !== 'object') return null
+  const forbidden = new Set(['__proto__', 'prototype', 'constructor'])
+  const result: PerspectiveSettings = {}
+
+  if (Array.isArray(source.columnOrder)) {
+    const seen = new Set<string>()
+    const order = source.columnOrder
+      .map((id) => (typeof id === 'string' ? id.trim() : ''))
+      .filter((id) => id.length > 0 && !seen.has(id) && (seen.add(id), true))
+    if (order.length) result.columnOrder = order
+  }
+
+  if (source.columnVisibility && typeof source.columnVisibility === 'object') {
+    const entries = Object.entries(source.columnVisibility)
+      .filter(([key, value]) => typeof key === 'string' && key.trim().length > 0 && !forbidden.has(key) && typeof value === 'boolean')
+    if (entries.length) {
+      const visibility: Record<string, boolean> = {}
+      entries.forEach(([key, value]) => { visibility[key] = value })
+      result.columnVisibility = visibility
+    }
+  }
+
+  if (Array.isArray(source.sorting)) {
+    const sorting = source.sorting
+      .map((item) => {
+        const id = typeof item?.id === 'string' ? item.id.trim() : ''
+        if (!id || forbidden.has(id)) return null
+        return { id, desc: Boolean(item?.desc) }
+      })
+      .filter((item): item is { id: string; desc?: boolean } => item !== null)
+    if (sorting.length) result.sorting = sorting
+  }
+
+  if (typeof source.pageSize === 'number' && Number.isFinite(source.pageSize)) {
+    const pageSize = Math.max(1, Math.min(500, Math.floor(source.pageSize)))
+    result.pageSize = pageSize
+  }
+
+  if (typeof source.searchValue === 'string' && source.searchValue.trim().length > 0) {
+    result.searchValue = source.searchValue.trim().slice(0, 200)
+  }
+
+  if (source.filters && typeof source.filters === 'object') {
+    const filters: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(source.filters)) {
+      if (typeof key === 'string') {
+        const trimmed = key.trim()
+        if (trimmed.length > 0 && !forbidden.has(trimmed)) filters[trimmed] = value
+      }
+    }
+    if (Object.keys(filters).length) result.filters = filters
+  }
+
+  return Object.keys(result).length ? result : null
+}
+
+function normalizeLabel(input: string): string {
+  if (!input) return ''
+  return input
+    .replace(/^cf[_:]/, '')
+    .replace(/[_:\-]+/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
 
 function ExportMenu({ config, sections }: { config: DataTableExportConfig; sections: ResolvedExportSection[] }) {
@@ -321,11 +467,129 @@ export function DataTable<T>({
   entityId,
   entityIds,
   exporter,
+  perspective,
 }: DataTableProps<T>) {
   const router = useRouter()
   React.useEffect(() => {
     return subscribeOrganizationScopeChanged(() => scheduleRouterRefresh(router))
   }, [router])
+  const queryClient = useQueryClient()
+  const perspectiveConfig = perspective ?? null
+  const perspectiveTableId = perspectiveConfig?.tableId ?? null
+  const perspectiveEnabled = Boolean(perspectiveTableId)
+  const initialSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
+  const snapshotTableIdRef = React.useRef<string | null>(null)
+  if (typeof window !== 'undefined') {
+    if (perspectiveTableId !== snapshotTableIdRef.current) {
+      initialSnapshotRef.current = perspectiveTableId ? readPerspectiveSnapshot(perspectiveTableId) : null
+      snapshotTableIdRef.current = perspectiveTableId ?? null
+    }
+  } else if (snapshotTableIdRef.current !== perspectiveTableId) {
+    snapshotTableIdRef.current = perspectiveTableId ?? null
+    initialSnapshotRef.current = null
+  }
+  const initialSnapshot = initialSnapshotRef.current
+  const initialSettingsFromConfig = sanitizePerspectiveSettings(perspectiveConfig?.initialState?.initialSettings ?? null)
+  const initialSettingsFromSnapshot = sanitizePerspectiveSettings(initialSnapshot?.settings ?? null)
+  const mergedInitialSettings = initialSettingsFromConfig ?? initialSettingsFromSnapshot ?? null
+  const initialActiveId = perspectiveConfig?.initialState?.activePerspectiveId ?? initialSnapshot?.perspectiveId ?? null
+  const [isPerspectiveOpen, setPerspectiveOpen] = React.useState(false)
+  const [activePerspectiveId, setActivePerspectiveId] = React.useState<string | null>(initialActiveId)
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(() => mergedInitialSettings?.columnVisibility ?? {})
+  const [columnOrder, setColumnOrder] = React.useState<string[]>(() => mergedInitialSettings?.columnOrder ?? [])
+  const [deletingIds, setDeletingIds] = React.useState<string[]>([])
+  const [roleClearingIds, setRoleClearingIds] = React.useState<string[]>([])
+  const [perspectiveApiMissing, setPerspectiveApiMissing] = React.useState(false)
+
+  const perspectiveFeatureQuery = useQuery<{ use: boolean; roleDefaults: boolean }>({
+    queryKey: ['feature-check', 'perspectives'],
+    enabled: perspectiveEnabled,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      try {
+        const res = await apiFetch('/api/auth/feature-check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ features: ['perspectives.use', 'perspectives.role_defaults'] }),
+        })
+        if (!res.ok) throw new Error(`feature-check failed (${res.status})`)
+        const data = await res.json().catch(() => ({}))
+        const granted = Array.isArray(data?.granted) ? data.granted.map((f: any) => String(f)) : []
+        const has = (feature: string) => granted.some((grantedFeature) => {
+          if (grantedFeature === '*') return true
+          if (grantedFeature === feature) return true
+          if (grantedFeature.endsWith('.*')) {
+            const prefix = grantedFeature.slice(0, -2)
+            return feature === prefix || feature.startsWith(`${prefix}.`)
+          }
+          return false
+        })
+        return {
+          use: has('perspectives.use'),
+          roleDefaults: has('perspectives.role_defaults'),
+        }
+      } catch {
+        return {
+          use: true,
+          roleDefaults: true,
+        }
+      }
+    },
+  })
+  const perspectivePermissions = perspectiveFeatureQuery.data
+  const canUsePerspectives = perspectiveEnabled && Boolean(perspectivePermissions?.use)
+  const canUseRoleDefaultsFeature = Boolean(perspectivePermissions?.roleDefaults)
+
+  React.useEffect(() => {
+    if (!canUsePerspectives && isPerspectiveOpen) {
+      setPerspectiveOpen(false)
+    }
+  }, [canUsePerspectives, isPerspectiveOpen])
+
+  React.useEffect(() => {
+    if (!perspectiveTableId) return
+    if (!mergedInitialSettings) return
+    const snapshot: PerspectiveSnapshot = {
+      perspectiveId: initialActiveId,
+      settings: mergedInitialSettings,
+      updatedAt: Date.now(),
+    }
+    writePerspectiveSnapshot(perspectiveTableId, snapshot)
+    initialSnapshotRef.current = snapshot
+  }, [perspectiveTableId, mergedInitialSettings, initialActiveId])
+
+  const perspectiveQuery = useQuery<PerspectivesIndexResponse>({
+    queryKey: ['table-perspectives', perspectiveTableId],
+    queryFn: async () => {
+      if (!perspectiveTableId) throw new Error('Missing table id')
+      const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}`)
+      if (res.status === 404) {
+        setPerspectiveApiMissing(true)
+        return {
+          tableId: perspectiveTableId,
+          perspectives: [],
+          defaultPerspectiveId: null,
+          rolePerspectives: [],
+          roles: [],
+          canApplyToRoles: false,
+        }
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        const error = body?.error ?? 'Failed to load perspectives'
+        throw new Error(error)
+      }
+      setPerspectiveApiMissing(false)
+      return await res.json() as PerspectivesIndexResponse
+    },
+    enabled: canUsePerspectives,
+    initialData: perspectiveConfig?.initialState?.response,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+  const perspectiveData = perspectiveQuery.data
+  const initialPerspectiveAppliedRef = React.useRef(Boolean(mergedInitialSettings))
+
   // Date formatting setup
   const DATE_FORMAT = (process.env.NEXT_PUBLIC_DATE_FORMAT || 'YYYY-MM-DD HH:mm') as string
 
@@ -414,20 +678,386 @@ export function DataTable<T>({
     return index <= 1 ? 1 : 2
   }, [])
 
-  const [sorting, setSorting] = React.useState<SortingState>(sortingProp ?? [])
+  const initialSorting = React.useMemo<SortingState>(() => {
+    if (mergedInitialSettings?.sorting) {
+      return mergedInitialSettings.sorting.map((item) => ({ id: item.id, desc: Boolean(item.desc) }))
+    }
+    return []
+  }, [mergedInitialSettings])
+  const [sorting, setSorting] = React.useState<SortingState>(() => {
+    if (sortingProp && sortingProp.length) return sortingProp
+    if (initialSorting.length) return initialSorting
+    return []
+  })
   const table = useReactTable<T>({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
     ...(sortable ? { getSortedRowModel: getSortedRowModel() } : {}),
-    state: { sorting },
+    state: { sorting, columnVisibility, columnOrder },
     onSortingChange: (updater) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater
       setSorting(next)
       onSortingChange?.(next)
     },
+    onColumnVisibilityChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnVisibility) : updater
+      setColumnVisibility(next)
+    },
+    onColumnOrderChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnOrder) : updater
+      setColumnOrder(next)
+    },
   })
   React.useEffect(() => { if (sortingProp) setSorting(sortingProp) }, [sortingProp])
+  React.useEffect(() => {
+    const ids = table.getAllLeafColumns().map((column) => column.id)
+    if (!ids.length) return
+    setColumnOrder((prev) => {
+      if (!prev.length) return ids
+      const allowed = ids
+      const filtered = prev.filter((id) => allowed.includes(id))
+      const seen = new Set(filtered)
+      for (const id of allowed) {
+        if (!seen.has(id)) {
+          filtered.push(id)
+          seen.add(id)
+        }
+      }
+      const changed = filtered.length !== prev.length || filtered.some((id, index) => id !== prev[index])
+      return changed ? filtered : prev
+    })
+  }, [table, columns])
+
+  const initialVisibilityApplied = React.useRef(Boolean(mergedInitialSettings?.columnVisibility))
+  React.useEffect(() => {
+    if (initialVisibilityApplied.current) return
+    const hidden: VisibilityState = {}
+    table.getAllLeafColumns().forEach((column) => {
+      const hiddenMeta = (column.columnDef as any)?.meta?.hidden
+      if (hiddenMeta) hidden[column.id] = false
+    })
+    if (Object.keys(hidden).length) {
+      setColumnVisibility((prev) => ({ ...hidden, ...prev }))
+    }
+    initialVisibilityApplied.current = true
+  }, [table, columns])
+
+  const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
+    const visibility: Record<string, boolean> = {}
+    for (const [key, value] of Object.entries(columnVisibility)) {
+      if (typeof key === 'string' && typeof value === 'boolean') {
+        visibility[key] = value
+      }
+    }
+    const filtersRecord: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(filterValues ?? {})) {
+      if (typeof key === 'string') filtersRecord[key] = value
+    }
+    const candidate: PerspectiveSettings = {
+      columnOrder,
+      columnVisibility: visibility,
+      sorting,
+      filters: filtersRecord,
+      searchValue,
+    }
+    return sanitizePerspectiveSettings(candidate) ?? {}
+  }, [columnOrder, columnVisibility, sorting, filterValues, searchValue])
+
+  const applyPerspectiveSettings = React.useCallback((settings: PerspectiveSettings, nextId: string | null) => {
+    const normalized = sanitizePerspectiveSettings(settings) ?? {}
+    if (normalized.columnOrder && normalized.columnOrder.length) {
+      setColumnOrder(normalized.columnOrder)
+    } else {
+      const ids = table.getAllLeafColumns().map((column) => column.id)
+      if (ids.length) setColumnOrder(ids)
+    }
+    if (normalized.columnVisibility) setColumnVisibility(normalized.columnVisibility)
+    else setColumnVisibility({})
+    if (normalized.sorting) {
+      setSorting(normalized.sorting)
+      onSortingChange?.(normalized.sorting)
+    } else {
+      setSorting([])
+      onSortingChange?.([])
+    }
+    if (onFiltersApply) {
+      onFiltersApply((normalized.filters ?? {}) as FilterValues)
+    }
+    if (onSearchChange) {
+      onSearchChange(normalized.searchValue ?? '')
+    }
+    setActivePerspectiveId(nextId)
+    if (perspectiveTableId) {
+      writePerspectiveCookie(perspectiveTableId, nextId)
+      if (nextId) {
+        const snapshot: PerspectiveSnapshot = { perspectiveId: nextId, settings: normalized, updatedAt: Date.now() }
+        writePerspectiveSnapshot(perspectiveTableId, snapshot)
+        initialSnapshotRef.current = snapshot
+      } else {
+        writePerspectiveSnapshot(perspectiveTableId, null)
+        initialSnapshotRef.current = null
+      }
+    }
+  }, [onFiltersApply, onSearchChange, onSortingChange, perspectiveTableId, table])
+
+  type SavePerspectivePayload = {
+    name: string
+    isDefault: boolean
+    applyToRoles: string[]
+    setRoleDefault: boolean
+    perspectiveId?: string | null
+  }
+
+  const perspectiveQueryKey: [string, string | null] = ['table-perspectives', perspectiveTableId]
+  const savePerspectiveMutation = useMutation<PerspectiveSaveResponse, Error, SavePerspectivePayload>({
+    mutationFn: async (input) => {
+      if (!perspectiveTableId) throw new Error('Missing table id')
+      const payload = {
+        perspectiveId: input.perspectiveId ?? undefined,
+        name: input.name,
+        settings: getCurrentSettings(),
+        isDefault: input.isDefault,
+        applyToRoles: input.applyToRoles,
+        setRoleDefault: input.setRoleDefault,
+      }
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.debug('[DataTable] perspective payload', payload)
+      }
+      const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (res.status === 404) {
+        throw new Error('Perspectives API is not available. Run `npm run modules:prepare` to regenerate module routes and restart the dev server.')
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        const error = body?.error ?? 'Failed to save perspective'
+        throw new Error(error)
+      }
+      return await res.json() as PerspectiveSaveResponse
+    },
+    onSuccess: (data) => {
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+      if (data.perspective) {
+        applyPerspectiveSettings(data.perspective.settings, data.perspective.id)
+      }
+    },
+  })
+
+  const resolveColumnLabel = React.useCallback((column: TableColumn<T, unknown>): string => {
+    const meta = (column.columnDef as any)?.meta
+    if (typeof meta?.label === 'string' && meta.label.trim().length > 0) return meta.label.trim()
+    if (typeof meta?.title === 'string' && meta.title.trim().length > 0) return meta.title.trim()
+    const header = column.columnDef.header
+    if (typeof header === 'string') return header
+    if (typeof header === 'function') {
+      try {
+        const result = header(column.getContext())
+        if (typeof result === 'string') return result
+      } catch {
+        // ignore header rendering errors
+      }
+    }
+    return normalizeLabel(column.id)
+  }, [])
+
+  const columnOptions = React.useMemo(() => {
+    const leaves = table.getAllLeafColumns()
+    const baseOrder = columnOrder.length ? columnOrder : leaves.map((column) => column.id)
+    const seen = new Set<string>()
+    const ordered = baseOrder
+      .map((id) => {
+        const col = leaves.find((column) => column.id === id)
+        if (!col) return null
+        seen.add(id)
+        return col
+      })
+      .filter(Boolean) as Array<TableColumn<T, unknown>>
+    leaves.forEach((column) => { if (!seen.has(column.id)) ordered.push(column) })
+    return ordered.map((column) => ({
+      id: column.id,
+      label: resolveColumnLabel(column),
+      visible: columnVisibility[column.id] ?? column.getIsVisible(),
+      canHide: column.getCanHide(),
+    }))
+  }, [table, columnOrder, resolveColumnLabel, columnVisibility, columns])
+
+  const activePersonalPerspectiveId = React.useMemo(() => {
+    if (!perspectiveData || !activePerspectiveId) return null
+    const found = perspectiveData.perspectives.find((p) => p.id === activePerspectiveId)
+    return found ? found.id : null
+  }, [perspectiveData, activePerspectiveId])
+
+
+  const deletePerspectiveMutation = useMutation<void, Error, { perspectiveId: string }>({
+    mutationFn: async ({ perspectiveId }) => {
+      if (!perspectiveTableId) throw new Error('Missing table id')
+      const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`, {
+        method: 'DELETE',
+      })
+      if (res.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        const error = body?.error ?? 'Failed to delete perspective'
+        throw new Error(error)
+      }
+    },
+    onMutate: ({ perspectiveId }) => {
+      setDeletingIds((prev) => prev.includes(perspectiveId) ? prev : [...prev, perspectiveId])
+    },
+    onSettled: (_data, _error, variables) => {
+      setDeletingIds((prev) => prev.filter((id) => id !== variables.perspectiveId))
+    },
+    onSuccess: (_data, variables) => {
+      const removedActive = activePerspectiveId === variables.perspectiveId
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+        if (removedActive) {
+          setActivePerspectiveId(null)
+          writePerspectiveCookie(perspectiveTableId, null)
+          writePerspectiveSnapshot(perspectiveTableId, null)
+          initialSnapshotRef.current = null
+          initialPerspectiveAppliedRef.current = false
+        }
+      } else if (removedActive) {
+        setActivePerspectiveId(null)
+        initialPerspectiveAppliedRef.current = false
+      }
+    },
+  })
+
+  const clearRoleMutation = useMutation<void, Error, { roleId: string }>({
+    mutationFn: async ({ roleId }) => {
+      if (!perspectiveTableId) throw new Error('Missing table id')
+      const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`, {
+        method: 'DELETE',
+      })
+      if (res.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        const error = body?.error ?? 'Failed to clear role perspectives'
+        throw new Error(error)
+      }
+    },
+    onMutate: ({ roleId }) => {
+      setRoleClearingIds((prev) => prev.includes(roleId) ? prev : [...prev, roleId])
+    },
+    onSettled: (_data, _error, variables) => {
+      setRoleClearingIds((prev) => prev.filter((id) => id !== variables.roleId))
+    },
+    onSuccess: (_data, variables) => {
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+      if (activePerspectiveId) {
+        const current = queryClient.getQueryData<PerspectivesIndexResponse>(perspectiveQueryKey)
+        const match = current?.rolePerspectives.find((rp) => rp.id === activePerspectiveId)
+        if (match && match.roleId === variables.roleId) {
+          setActivePerspectiveId(null)
+          if (perspectiveTableId) writePerspectiveCookie(perspectiveTableId, null)
+          if (perspectiveTableId) writePerspectiveSnapshot(perspectiveTableId, null)
+          initialSnapshotRef.current = null
+          initialPerspectiveAppliedRef.current = false
+        }
+      }
+    },
+  })
+
+  const handlePerspectiveActivate = React.useCallback((item: PerspectiveDto | RolePerspectiveDto, _source?: 'personal' | 'role') => {
+    applyPerspectiveSettings(item.settings, item.id)
+    setPerspectiveOpen(false)
+  }, [applyPerspectiveSettings])
+
+  const handlePerspectiveSave = React.useCallback(async (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean }) => {
+    const normalizedRoles = Array.from(new Set(input.applyToRoles))
+    await savePerspectiveMutation.mutateAsync({
+      name: input.name.trim(),
+      isDefault: input.isDefault,
+      applyToRoles: normalizedRoles,
+      setRoleDefault: normalizedRoles.length > 0 ? input.setRoleDefault : false,
+      perspectiveId: activePersonalPerspectiveId,
+    })
+  }, [savePerspectiveMutation, activePersonalPerspectiveId])
+
+  const handlePerspectiveDelete = React.useCallback(async (perspectiveId: string) => {
+    await deletePerspectiveMutation.mutateAsync({ perspectiveId })
+  }, [deletePerspectiveMutation])
+
+  const handleClearRole = React.useCallback(async (roleId: string) => {
+    await clearRoleMutation.mutateAsync({ roleId })
+  }, [clearRoleMutation])
+
+  const handleToggleColumn = React.useCallback((columnId: string, visible: boolean) => {
+    const column = table.getColumn(columnId)
+    if (!column) return
+    setColumnVisibility((prev) => {
+      const next = { ...prev }
+      if (visible) delete next[columnId]
+      else next[columnId] = false
+      return next
+    })
+    column.toggleVisibility(visible)
+  }, [table])
+
+  const handleMoveColumn = React.useCallback((columnId: string, direction: 'up' | 'down') => {
+    setColumnOrder((prev) => {
+      const idx = prev.indexOf(columnId)
+      if (idx === -1) return prev
+      const swap = direction === 'up' ? idx - 1 : idx + 1
+      if (swap < 0 || swap >= prev.length) return prev
+      const next = [...prev]
+      const tmp = next[swap]
+      next[swap] = next[idx]
+      next[idx] = tmp
+      table.setColumnOrder(next)
+      return next
+    })
+  }, [table])
+
+  const perspectiveApiWarning = perspectiveApiMissing && canUsePerspectives
+    ? 'Perspectives API is not available yet. Run `npm run modules:prepare` to regenerate module routes, then restart the server.'
+    : null
+
+  React.useLayoutEffect(() => {
+    if (!canUsePerspectives) return
+    if (!perspectiveTableId) return
+    if (initialPerspectiveAppliedRef.current && activePerspectiveId != null) return
+
+    const source = perspectiveData ?? perspectiveConfig?.initialState?.response
+    if (!source) return
+
+    const tryResolve = (id: string | null | undefined): PerspectiveDto | RolePerspectiveDto | undefined => {
+      if (!id) return undefined
+      return source.perspectives.find((p) => p.id === id)
+        ?? source.rolePerspectives.find((p) => p.id === id)
+    }
+
+    let target: PerspectiveDto | RolePerspectiveDto | undefined
+    if (activePerspectiveId) {
+      target = tryResolve(activePerspectiveId)
+    }
+    const cookieId = readPerspectiveCookie(perspectiveTableId)
+    if (!target && cookieId) target = tryResolve(cookieId)
+    if (!target && source.defaultPerspectiveId) {
+      target = tryResolve(source.defaultPerspectiveId)
+    }
+    if (!target) {
+      target = source.rolePerspectives.find((p) => p.isDefault)
+    }
+    if (!target) {
+      target = source.perspectives[0]
+    }
+    if (target) {
+      applyPerspectiveSettings(target.settings, target.id)
+    }
+    initialPerspectiveAppliedRef.current = true
+  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId])
 
   const renderPagination = () => {
     if (!pagination) return null
@@ -498,6 +1128,12 @@ export function DataTable<T>({
     const existing = new Set(baseList.map((f) => f.id))
     const cfOnly = (cfFilters || []).filter((f) => !existing.has(f.id))
     const combined: FilterDef[] = [...baseList, ...cfOnly]
+    const perspectiveButton = canUsePerspectives ? (
+      <Button variant="outline" className="h-9" onClick={() => setPerspectiveOpen(true)}>
+        <SlidersHorizontal className="mr-2 h-4 w-4" />
+        Perspectives
+      </Button>
+    ) : null
     return (
       <FilterBar
         searchValue={searchValue}
@@ -508,9 +1144,10 @@ export function DataTable<T>({
         values={filterValues}
         onApply={onFiltersApply}
         onClear={onFiltersClear}
+        leadingItems={perspectiveButton}
       />
     )
-  }, [toolbar, searchValue, onSearchChange, searchPlaceholder, searchAlign, baseFilters, cfFilters, filterValues, onFiltersApply, onFiltersClear])
+  }, [toolbar, searchValue, onSearchChange, searchPlaceholder, searchAlign, baseFilters, cfFilters, filterValues, onFiltersApply, onFiltersClear, canUsePerspectives])
 
   const hasTitle = title != null
   const hasActions = actions !== undefined && actions !== null && actions !== false
@@ -551,6 +1188,19 @@ export function DataTable<T>({
                         <RefreshCw className="h-4 w-4" />
                       )}
                       <span className="sr-only">{refreshButtonConfig.label}</span>
+                    </Button>
+                  ) : null}
+                  {canUsePerspectives ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setPerspectiveOpen(true)}
+                      aria-label="Customize columns"
+                      title="Customize columns"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                      <span className="sr-only">Customize columns</span>
                     </Button>
                   ) : null}
                   {exportConfig && hasExport ? <ExportMenu config={exportConfig} sections={resolvedExportSections} /> : null}
@@ -681,6 +1331,29 @@ export function DataTable<T>({
         </Table>
       </div>
       {renderPagination()}
+      {canUsePerspectives ? (
+        <PerspectiveSidebar
+          open={isPerspectiveOpen}
+          onOpenChange={setPerspectiveOpen}
+          loading={perspectiveQuery.isFetching && !perspectiveQuery.data}
+          perspectives={perspectiveData?.perspectives ?? []}
+          rolePerspectives={perspectiveData?.rolePerspectives ?? []}
+          roles={perspectiveData?.roles ?? []}
+          activePerspectiveId={activePerspectiveId}
+          onActivatePerspective={handlePerspectiveActivate}
+          onDeletePerspective={handlePerspectiveDelete}
+          onClearRole={handleClearRole}
+          onSave={handlePerspectiveSave}
+          canApplyToRoles={Boolean(perspectiveData?.canApplyToRoles && canUseRoleDefaultsFeature)}
+          columnOptions={columnOptions}
+          onToggleColumn={handleToggleColumn}
+          onMoveColumn={handleMoveColumn}
+          saving={savePerspectiveMutation.isLoading}
+          deletingIds={deletingIds}
+          roleClearingIds={roleClearingIds}
+          apiWarning={perspectiveApiWarning}
+        />
+      ) : null}
     </div>
   )
 }

@@ -74,6 +74,7 @@ export function AccessLogsTable({ items, isLoading, actions, pagination }: { ite
       title={t('audit_logs.access.title')}
       data={accessItems}
       columns={columns}
+      perspective={{ tableId: 'audit_logs.access.list' }}
       isLoading={Boolean(isLoading)}
       actions={actions}
       pagination={pagination}

@@ -370,6 +370,7 @@ export default function UsersListPage() {
           sortable
           sorting={sorting}
           onSortingChange={setSorting}
+          perspective={{ tableId: 'auth.users.list' }}
           rowActions={(row) => (
             <RowActions items={[
               { label: 'Edit', href: `/backend/users/${row.id}/edit` },
