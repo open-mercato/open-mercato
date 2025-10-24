@@ -186,8 +186,8 @@ export default function EditDealPage({ params }: { params?: { id?: string } }) {
             typeof base.probability === 'number' ? base.probability : undefined,
           expectedCloseAt: base.expectedCloseAt ?? undefined,
           description: base.description ?? undefined,
-          personIds: base.personIds && base.personIds.length ? base.personIds : undefined,
-          companyIds: base.companyIds && base.companyIds.length ? base.companyIds : undefined,
+          personIds: Array.isArray(base.personIds) ? base.personIds : [],
+          companyIds: Array.isArray(base.companyIds) ? base.companyIds : [],
         }
         if (Object.keys(custom).length) payload.customFields = custom
 

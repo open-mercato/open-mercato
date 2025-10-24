@@ -426,7 +426,10 @@ export function DealsSection({
     if (!scope) return
     setDialogMode('create')
     setEditingDealId(null)
-    setInitialValues(undefined)
+    setInitialValues({
+      personIds: scope.kind === 'person' ? [scope.entityId] : [],
+      companyIds: scope.kind === 'company' ? [scope.entityId] : [],
+    })
     setDialogOpen(true)
   }, [scope])
 
@@ -463,8 +466,8 @@ export function DealsSection({
       setPendingAction({ kind: 'create' })
       pushLoading()
       try {
-        const personIds = mergeIds(base.personIds, scope.kind === 'person' ? [scope.entityId] : [])
-        const companyIds = mergeIds(base.companyIds, scope.kind === 'company' ? [scope.entityId] : [])
+        const personIds = mergeIds(base.personIds)
+        const companyIds = mergeIds(base.companyIds)
 
         const payload: Record<string, unknown> = {
           title: base.title,
@@ -496,21 +499,26 @@ export function DealsSection({
           typeof responseBody?.id === 'string' && responseBody.id.trim().length
             ? responseBody.id
             : generateTempId()
-        const normalized = normalizeDeal({
-          id: dealId,
-          title: base.title,
-          status: base.status ?? null,
-          pipelineStage: base.pipelineStage ?? null,
-          valueAmount: base.valueAmount ?? null,
-          valueCurrency: base.valueCurrency ?? null,
-          probability: base.probability ?? null,
-          expectedCloseAt: base.expectedCloseAt ?? null,
-          description: base.description ?? null,
-          personIds,
-          companyIds,
-          customValues: Object.keys(custom).length ? custom : null,
-        })
-        setDeals((prev) => [normalized, ...prev])
+        const belongsToScope =
+          (scope.kind !== 'person' || personIds.includes(scope.entityId)) &&
+          (scope.kind !== 'company' || companyIds.includes(scope.entityId))
+        if (belongsToScope) {
+          const normalized = normalizeDeal({
+            id: dealId,
+            title: base.title,
+            status: base.status ?? null,
+            pipelineStage: base.pipelineStage ?? null,
+            valueAmount: base.valueAmount ?? null,
+            valueCurrency: base.valueCurrency ?? null,
+            probability: base.probability ?? null,
+            expectedCloseAt: base.expectedCloseAt ?? null,
+            description: base.description ?? null,
+            personIds,
+            companyIds,
+            customValues: Object.keys(custom).length ? custom : null,
+          })
+          setDeals((prev) => [normalized, ...prev])
+        }
         flash(translate('customers.people.detail.deals.success', 'Deal created.'), 'success')
       } finally {
         setPendingAction(null)
@@ -528,8 +536,8 @@ export function DealsSection({
       setPendingAction({ kind: 'update', id: dealId })
       pushLoading()
       try {
-        const personIds = mergeIds(base.personIds, scope.kind === 'person' ? [scope.entityId] : [])
-        const companyIds = mergeIds(base.companyIds, scope.kind === 'company' ? [scope.entityId] : [])
+        const personIds = mergeIds(base.personIds)
+        const companyIds = mergeIds(base.companyIds)
 
         const payload: Record<string, unknown> = {
           id: dealId,
@@ -558,29 +566,36 @@ export function DealsSection({
               : translate('customers.people.detail.deals.error', 'Failed to save deal.')
           throw new Error(message)
         }
-        setDeals((prev) =>
-          prev.map((deal) =>
-            deal.id === dealId
-              ? normalizeDeal({
-                  ...deal,
-                  title: base.title,
-                  status: base.status ?? null,
-                  pipelineStage: base.pipelineStage ?? null,
-                  valueAmount: base.valueAmount ?? null,
-                  valueCurrency: base.valueCurrency ?? null,
-                  probability: base.probability ?? null,
-                  expectedCloseAt: base.expectedCloseAt ?? null,
-                  description: base.description ?? null,
-                  personIds,
-                  people: personIds.map((id) => deal.people?.find((entry) => entry.id === id) ?? { id, label: '' }),
-                  companyIds,
-                  companies: companyIds.map((id) => deal.companies?.find((entry) => entry.id === id) ?? { id, label: '' }),
-                  customValues: Object.keys(custom).length ? custom : null,
-                  updatedAt: new Date().toISOString(),
-                })
-              : deal,
-          ),
-        )
+        const remainsInScope =
+          (scope.kind !== 'person' || personIds.includes(scope.entityId)) &&
+          (scope.kind !== 'company' || companyIds.includes(scope.entityId))
+        if (!remainsInScope) {
+          setDeals((prev) => prev.filter((deal) => deal.id !== dealId))
+        } else {
+          setDeals((prev) =>
+            prev.map((deal) =>
+              deal.id === dealId
+                ? normalizeDeal({
+                    ...deal,
+                    title: base.title,
+                    status: base.status ?? null,
+                    pipelineStage: base.pipelineStage ?? null,
+                    valueAmount: base.valueAmount ?? null,
+                    valueCurrency: base.valueCurrency ?? null,
+                    probability: base.probability ?? null,
+                    expectedCloseAt: base.expectedCloseAt ?? null,
+                    description: base.description ?? null,
+                    personIds,
+                    people: personIds.map((id) => deal.people?.find((entry) => entry.id === id) ?? { id, label: '' }),
+                    companyIds,
+                    companies: companyIds.map((id) => deal.companies?.find((entry) => entry.id === id) ?? { id, label: '' }),
+                    customValues: Object.keys(custom).length ? custom : null,
+                    updatedAt: new Date().toISOString(),
+                  })
+                : deal,
+            ),
+          )
+        }
         flash(translate('customers.people.detail.deals.updateSuccess', 'Deal updated.'), 'success')
       } finally {
         setPendingAction(null)

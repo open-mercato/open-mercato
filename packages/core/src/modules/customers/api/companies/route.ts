@@ -34,6 +34,8 @@ const listSchema = z
     createdFrom: z.string().optional(),
     createdTo: z.string().optional(),
     id: z.string().uuid().optional(),
+    tagIds: z.string().optional(),
+    tagIdsEmpty: z.string().optional(),
   })
   .passthrough()
 
@@ -98,6 +100,17 @@ const crud = makeCrudRoute({
       if (query.source) {
         filters.source = { $eq: query.source }
       }
+      const tagIdsRaw = typeof query.tagIds === 'string' ? query.tagIds : ''
+      const tagIds = tagIdsRaw
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+      const tagIdsEmpty = query.tagIdsEmpty === 'true'
+      if (tagIdsEmpty) {
+        filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
+      } else if (tagIds.length > 0) {
+        filters['tag_assignments.tag_id'] = { $in: tagIds }
+      }
       const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : ''
       const emailStartsWith = typeof query.emailStartsWith === 'string' ? query.emailStartsWith.trim().toLowerCase() : ''
       const emailContains = typeof query.emailContains === 'string' ? query.emailContains.trim().toLowerCase() : ''
@@ -155,6 +168,15 @@ const crud = makeCrudRoute({
         alias: 'company_profile',
         recordIdColumn: 'id',
         join: { fromField: 'id', toField: 'entity_id' },
+      },
+    ],
+    joins: [
+      {
+        alias: 'tag_assignments',
+        table: 'customer_tag_assignments',
+        from: { field: 'id' },
+        to: { field: 'entity_id' },
+        type: 'left',
       },
     ],
     transformItem: (item: any) => {

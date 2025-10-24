@@ -2,7 +2,7 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerActivity, CustomerDictionaryEntry } from '../../data/entities'
+import { CustomerActivity, CustomerDictionaryEntry, CustomerDeal } from '../../data/entities'
 import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -193,6 +193,8 @@ const crud = makeCrudRoute({
         authorUserId?: string | null
         authorName?: string | null
         authorEmail?: string | null
+        dealId?: string | null
+        dealTitle?: string | null
         customFields?: Array<{
           key: string
           label: string
@@ -207,12 +209,15 @@ const crud = makeCrudRoute({
       const tenantId = ctx.auth?.tenantId ?? null
       const normalizedValues = new Set<string>()
       const organizationIds = new Set<string>()
+      const dealIds = new Set<string>()
       typedItems.forEach((item) => {
         const rawType = typeof item.activityType === 'string' ? item.activityType : ''
         const normalized = rawType.trim().toLowerCase()
         if (normalized) normalizedValues.add(normalized)
         const orgId = typeof item.organizationId === 'string' ? item.organizationId : null
         if (orgId) organizationIds.add(orgId)
+        const dealId = typeof item.dealId === 'string' ? item.dealId.trim() : ''
+        if (dealId.length) dealIds.add(dealId)
       })
       if (normalizedValues.size) {
         try {
@@ -282,6 +287,26 @@ const crud = makeCrudRoute({
           })
         } catch (err) {
           console.warn('[customers.activities] Failed to resolve dictionary appearance', err)
+        }
+      }
+
+      if (dealIds.size) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const deals = await em.find(CustomerDeal, { id: { $in: Array.from(dealIds) as any } })
+          const map = new Map<string, string>()
+          deals.forEach((deal) => {
+            if (deal && typeof deal.id === 'string') {
+              map.set(deal.id, typeof deal.title === 'string' ? deal.title : '')
+            }
+          })
+          typedItems.forEach((item) => {
+            const dealId = typeof item.dealId === 'string' ? item.dealId.trim() : ''
+            if (!dealId.length) return
+            item.dealTitle = map.get(dealId) ?? null
+          })
+        } catch (err) {
+          console.warn('[customers.activities] Failed to resolve deal titles', err)
         }
       }
 

@@ -97,7 +97,7 @@ function renderDictionaryValues(
   )
 }
 
-function renderPrimitiveValues(value: unknown, emptyLabel: string): React.ReactNode {
+function renderPrimitiveValues(value: unknown): React.ReactNode {
   if (Array.isArray(value)) {
     const parts = value
       .map((entry) => stringifyCustomValue(entry))
@@ -241,8 +241,8 @@ export function CustomFieldValuesList({
   return (
     <div className={cn('grid gap-3 sm:grid-cols-2', className)}>
       {displayEntries.map((entry, index) => {
-        const dictionaryContent = renderDictionaryValues(entry.value, entry.dictionaryMap, resolvedEmptyLabel, entry.multi)
-        const primitiveContent = dictionaryContent ?? renderPrimitiveValues(entry.value, resolvedEmptyLabel)
+        const dictionaryContent = renderDictionaryValues(entry.value, entry.dictionaryMap, entry.multi)
+        const primitiveContent = dictionaryContent ?? renderPrimitiveValues(entry.value)
         const content =
           dictionaryContent ??
           primitiveContent ??

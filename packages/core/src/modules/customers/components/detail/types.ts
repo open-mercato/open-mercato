@@ -27,6 +27,7 @@ export type CommentSummary = {
   authorName?: string | null
   authorEmail?: string | null
   dealId?: string | null
+  dealTitle?: string | null
   appearanceIcon?: string | null
   appearanceColor?: string | null
 }
@@ -51,6 +52,8 @@ export type ActivitySummary = {
   authorUserId?: string | null
   authorName?: string | null
   authorEmail?: string | null
+  dealId?: string | null
+  dealTitle?: string | null
   customFields?: ActivityCustomFieldEntry[]
 }
 

@@ -166,8 +166,14 @@ export function CustomDataSection({ entityId, entityIds, values, onSubmit, title
     gcTime: 30 * 60 * 1000,
     queryFn: async () => fetchCustomFieldFormFieldsWithDefinitions(resolvedEntityIds),
   })
-  const fields = customFieldFormsQuery.data?.fields ?? []
-  const definitions = customFieldFormsQuery.data?.definitions ?? []
+  const fields = React.useMemo(
+    () => customFieldFormsQuery.data?.fields ?? [],
+    [customFieldFormsQuery.data],
+  )
+  const definitions = React.useMemo(
+    () => customFieldFormsQuery.data?.definitions ?? [],
+    [customFieldFormsQuery.data],
+  )
   const [dictionaryLoading, setDictionaryLoading] = React.useState(false)
   const loading = customFieldFormsQuery.isLoading || dictionaryLoading
   const hasFields = fields.length > 0

@@ -2,9 +2,10 @@
 
 import * as React from 'react'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
+import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -48,6 +49,7 @@ type AppearanceDialogState =
 
 export type NotesSectionProps = {
   entityId: string | null
+  dealId?: string | null
   emptyLabel: string
   viewerUserId: string | null
   viewerName?: string | null
@@ -57,6 +59,8 @@ export type NotesSectionProps = {
   onActionChange?: (action: SectionAction | null) => void
   translator?: Translator
   onLoadingChange?: (isLoading: boolean) => void
+  dealOptions?: Array<{ id: string; label: string }>
+  entityOptions?: Array<{ id: string; label: string }>
 }
 
 function sanitizeHexColor(value: string | null): string | null {
@@ -99,6 +103,12 @@ function mapComment(input: unknown): CommentSummary {
       : typeof data.deal_id === 'string'
         ? data.deal_id
         : null
+  const dealTitle =
+    typeof data.dealTitle === 'string'
+      ? data.dealTitle
+      : typeof data.deal_title === 'string'
+        ? data.deal_title
+        : null
   const appearanceIcon =
     typeof data.appearanceIcon === 'string'
       ? data.appearanceIcon
@@ -119,6 +129,7 @@ function mapComment(input: unknown): CommentSummary {
     authorName,
     authorEmail,
     dealId,
+    dealTitle,
     appearanceIcon,
     appearanceColor,
   }
@@ -146,6 +157,90 @@ export function NotesSection({
   )
   const t = translator ?? fallbackTranslator
 
+  const normalizedDealOptions = React.useMemo(() => {
+    if (!Array.isArray(dealOptions)) return []
+    const seen = new Set<string>()
+    return dealOptions
+      .map((option) => {
+        if (!option || typeof option !== 'object') return null
+        const id = typeof option.id === 'string' ? option.id.trim() : ''
+        if (!id || seen.has(id)) return null
+        const label =
+          typeof option.label === 'string' && option.label.trim().length
+            ? option.label.trim()
+            : id
+        seen.add(id)
+        return { id, label }
+      })
+      .filter((option): option is { id: string; label: string } => !!option)
+  }, [dealOptions])
+
+  const dealLabelMap = React.useMemo(() => {
+    const map = new Map<string, string>()
+    normalizedDealOptions.forEach((option) => {
+      map.set(option.id, option.label)
+    })
+    return map
+  }, [normalizedDealOptions])
+
+  const normalizedEntityOptions = React.useMemo(() => {
+    if (!Array.isArray(entityOptions)) return []
+    const seen = new Set<string>()
+    return entityOptions
+      .map((option) => {
+        if (!option || typeof option !== 'object') return null
+        const id = typeof option.id === 'string' ? option.id.trim() : ''
+        if (!id || seen.has(id)) return null
+        const label =
+          typeof option.label === 'string' && option.label.trim().length
+            ? option.label.trim()
+            : id
+        seen.add(id)
+        return { id, label }
+      })
+      .filter((option): option is { id: string; label: string } => !!option)
+  }, [entityOptions])
+
+  const [selectedDealId, setSelectedDealId] = React.useState<string>(() => {
+    const initial = typeof dealId === 'string' ? dealId.trim() : ''
+    return initial
+  })
+  React.useEffect(() => {
+    const initial = typeof dealId === 'string' ? dealId.trim() : ''
+    if (initial !== selectedDealId) {
+      setSelectedDealId(initial)
+    }
+  }, [dealId, selectedDealId])
+
+  const [selectedEntityId, setSelectedEntityId] = React.useState<string>(() => {
+    if (normalizedEntityOptions.length) return normalizedEntityOptions[0].id
+    return typeof entityId === 'string' ? entityId : ''
+  })
+  React.useEffect(() => {
+    if (normalizedEntityOptions.length) {
+      if (!normalizedEntityOptions.some((option) => option.id === selectedEntityId)) {
+        setSelectedEntityId(normalizedEntityOptions[0].id)
+      }
+    } else {
+      const initial = typeof entityId === 'string' ? entityId : ''
+      if (initial !== selectedEntityId) {
+        setSelectedEntityId(initial)
+      }
+    }
+  }, [entityId, normalizedEntityOptions, selectedEntityId])
+
+  const resolvedEntityId = React.useMemo(() => {
+    if (normalizedEntityOptions.length) return selectedEntityId
+    return typeof entityId === 'string' ? entityId : ''
+  }, [entityId, normalizedEntityOptions, selectedEntityId])
+
+  const resolvedDealId = React.useMemo(() => {
+    const trimmed = typeof selectedDealId === 'string' ? selectedDealId.trim() : ''
+    return trimmed
+  }, [selectedDealId])
+
+  const hasEntity = resolvedEntityId.length > 0
+
   const [notes, setNotes] = React.useState<CommentSummary[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
@@ -165,8 +260,6 @@ export function NotesSection({
       onLoadingChange?.(false)
     }
   }, [onLoadingChange])
-
-  const hasEntity = typeof entityId === 'string' && entityId.length > 0
 
   const [composerOpen, setComposerOpen] = React.useState(false)
   const [draftBody, setDraftBody] = React.useState('')
