@@ -494,14 +494,14 @@ export default function SalesPipelinePage(): React.ReactElement {
                 </div>
               ) : null}
 
-              <div className="flex gap-4 overflow-x-auto pb-6">
+              <div className="flex flex-col gap-4 pb-6 md:flex-row md:overflow-x-auto">
                 {stages.length === 0 ? (
                   <div className="flex h-[50vh] w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/20">
                     <span className="text-sm text-muted-foreground">
                       {t('customers.deals.pipeline.noStages', 'Define pipeline stages to start tracking deals.')}
                     </span>
                   </div>
-                          ) : (
+                ) : (
                   stages.map((stage) => {
                     const stageKey = stage.value ?? null
                     const laneDeals = groupedDeals.get(stageKey) ?? []
@@ -510,7 +510,7 @@ export default function SalesPipelinePage(): React.ReactElement {
                     return (
                       <div
                         key={stage.id}
-                        className={`flex min-h-[60vh] w-72 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-all ${
+                        className={`flex min-h-[60vh] w-full flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-all md:w-72 md:flex-none ${
                           isActive ? 'ring-2 ring-ring/40' : ''
                         }`}
                         onDragOver={handleDragOver(stage.id)}

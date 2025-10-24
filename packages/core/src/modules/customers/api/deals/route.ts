@@ -291,7 +291,6 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
 
         const tenantByRecord: Record<string, string | null | undefined> = {}
         const orgByRecord: Record<string, string | null | undefined> = {}
-        const missingCustomValues: string[] = []
         const enhancedItems = items
           .map((item) => {
             if (!item || typeof item !== 'object') return null
@@ -332,7 +331,6 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
               kind: null,
               multi: Array.isArray(value),
             }))
-            if (!customEntries.length) missingCustomValues.push(candidate)
             const customValues = Object.keys(normalizedValues).length ? normalizedValues : null
             return {
               ...data,
@@ -346,41 +344,56 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
           })
           .filter((item): item is Record<string, unknown> => !!item)
 
-        if (missingCustomValues.length) {
+        if (enhancedItems.length) {
           try {
             const em = ctx.container.resolve<EntityManager>('em')
-            const loaded = await loadCustomFieldValues({
-              em,
-              entityId: E.customers.customer_deal,
-              recordIds: Array.from(new Set(missingCustomValues)),
-              tenantIdByRecord: tenantByRecord,
-              organizationIdByRecord: orgByRecord,
-              tenantFallbacks: [ctx.auth?.tenantId ?? null],
-            })
-            if (loaded && Object.keys(loaded).length) {
-              enhancedItems.forEach((item) => {
-                const values = loaded[item.id as string]
-                if (!values || (item.customValues && Object.keys(item.customValues as Record<string, unknown>).length)) {
-                  return
-                }
-                const normalized = Object.fromEntries(
-                  Object.entries(values).map(([prefixedKey, value]) => [
-                    prefixedKey.replace(/^cf_/, ''),
-                    value,
-                  ]),
-                )
-                const entries = Object.entries(normalized).map(([key, value]) => ({
-                  key,
-                  label: key,
-                  value,
-                  kind: null,
-                  multi: Array.isArray(value),
-                }))
-                if (entries.length) {
-                  ;(item as any).customValues = normalized
-                  ;(item as any).customFields = entries
-                }
+            const allIds = enhancedItems
+              .map((item) => {
+                const rawId = (item as Record<string, unknown>).id
+                return typeof rawId === 'string' && rawId.trim().length ? rawId : null
               })
+              .filter((value): value is string => !!value)
+            if (allIds.length) {
+              const loaded = await loadCustomFieldValues({
+                em,
+                entityId: E.customers.customer_deal,
+                recordIds: Array.from(new Set(allIds)),
+                tenantIdByRecord: tenantByRecord,
+                organizationIdByRecord: orgByRecord,
+                tenantFallbacks: [ctx.auth?.tenantId ?? null],
+              })
+              if (loaded && Object.keys(loaded).length) {
+                enhancedItems.forEach((item) => {
+                  const itemId =
+                    typeof (item as Record<string, unknown>).id === 'string'
+                      ? ((item as Record<string, unknown>).id as string)
+                      : null
+                  if (!itemId) return
+                  const values = loaded[itemId]
+                  if (!values) return
+                  const normalized = Object.fromEntries(
+                    Object.entries(values).map(([prefixedKey, value]) => [
+                      prefixedKey.replace(/^cf_/, ''),
+                      value,
+                    ]),
+                  )
+                  const baseExisting = (item as { customValues?: Record<string, unknown> | null }).customValues
+                  const existing =
+                    baseExisting && typeof baseExisting === 'object' && baseExisting !== null
+                      ? baseExisting
+                      : {}
+                  const merged = { ...existing, ...normalized }
+                  const entries = Object.entries(merged).map(([key, value]) => ({
+                    key,
+                    label: key,
+                    value,
+                    kind: null,
+                    multi: Array.isArray(value),
+                  }))
+                  ;(item as any).customValues = merged
+                  ;(item as any).customFields = entries
+                })
+              }
             }
           } catch (err) {
             console.warn('[customers.deals] failed to backfill custom fields', err)
