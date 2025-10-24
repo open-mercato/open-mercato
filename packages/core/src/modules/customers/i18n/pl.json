@@ -499,6 +499,8 @@
   "customers.people.detail.tags.unassignError": "Nie udało się usunąć etykiety.",
   "customers.people.detail.tags.success": "Etykiety zaktualizowane.",
   "customers.people.detail.tags.error": "Nie udało się zaktualizować etykiet.",
+  "customers.people.detail.tags.saveShortcut": "Zapisz (⌘/Ctrl + Enter)",
+  "customers.people.detail.tags.cancelShortcut": "Anuluj (Esc)",
   "customers.people.detail.actions.manageTags": "Zarządzaj tagami",
   "customers.people.detail.empty.tags": "Brak tagów",
   "customers.people.detail.sections.addresses": "Adresy",

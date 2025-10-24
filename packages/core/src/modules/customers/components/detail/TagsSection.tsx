@@ -235,6 +235,23 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
     ? draft
     : tags.map((tag) => tag.label)
 
+  const handleEditingKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!editing) return
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        cancelEditing()
+        return
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault()
+        if (saving || isSubmitting) return
+        void handleSave()
+      }
+    },
+    [cancelEditing, editing, handleSave, isSubmitting, saving],
+  )
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between group">
@@ -267,22 +284,24 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
             loadingMessage={t('customers.people.detail.tags.loading', 'Loading tags…')}
             spinnerSize="sm"
           >
-            <TagsInput
-              value={activeTags}
-              onChange={(values) => setDraft(values)}
-              placeholder={t('customers.people.detail.tags.placeholder', 'Type to add tags')}
-              loadSuggestions={loadSuggestions}
-              autoFocus
-            />
-            {error ? <p className="text-xs text-red-600">{error}</p> : null}
-            <div className="flex items-center gap-2">
-              <Button type="button" size="sm" onClick={handleSave} disabled={saving || isSubmitting}>
-                {saving ? <span className="mr-2 h-4 w-4 animate-spin rounded-full border border-background border-t-primary" /> : null}
-                {t('ui.forms.actions.save')}
-              </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={cancelEditing} disabled={saving || isSubmitting}>
-                {t('ui.forms.actions.cancel')}
-              </Button>
+            <div className="space-y-3" onKeyDown={handleEditingKeyDown}>
+              <TagsInput
+                value={activeTags}
+                onChange={(values) => setDraft(values)}
+                placeholder={t('customers.people.detail.tags.placeholder', 'Type to add tags')}
+                loadSuggestions={loadSuggestions}
+                autoFocus
+              />
+              {error ? <p className="text-xs text-red-600">{error}</p> : null}
+              <div className="flex items-center gap-2 mt-3 mb-2">
+                <Button type="button" size="sm" onClick={handleSave} disabled={saving || isSubmitting}>
+                  {saving ? <span className="mr-2 h-4 w-4 animate-spin rounded-full border border-background border-t-primary" /> : null}
+                  {t('customers.people.detail.tags.saveShortcut', 'Save (⌘/Ctrl + Enter)')}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={cancelEditing} disabled={saving || isSubmitting}>
+                  {t('customers.people.detail.tags.cancelShortcut', 'Cancel (Esc)')}
+                </Button>
+              </div>
             </div>
           </DataLoader>
         </div>

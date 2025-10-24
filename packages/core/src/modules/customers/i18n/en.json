@@ -501,6 +501,8 @@
   "customers.people.detail.tags.unassignError": "Failed to remove tag.",
   "customers.people.detail.tags.success": "Tags updated.",
   "customers.people.detail.tags.error": "Failed to update tags.",
+  "customers.people.detail.tags.saveShortcut": "Save (⌘/Ctrl + Enter)",
+  "customers.people.detail.tags.cancelShortcut": "Cancel (Esc)",
   "customers.people.detail.actions.manageTags": "Manage tags",
   "customers.people.detail.empty.tags": "No tags yet",
   "customers.people.detail.sections.addresses": "Addresses",
