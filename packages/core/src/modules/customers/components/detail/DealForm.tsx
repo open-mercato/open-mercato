@@ -11,6 +11,7 @@ import { createDictionarySelectLabels } from './utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Loader2 } from 'lucide-react'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
+import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries/components/DictionarySelectControl'
 
 export type DealFormBaseValues = {
   title: string
@@ -408,33 +409,16 @@ export function DealForm({
   const currencyDictionaryQuery = useCurrencyDictionary()
   const currencyDictionaryLoading = currencyDictionaryQuery.isLoading
   const currencyDictionaryData = currencyDictionaryQuery.data ?? null
+  const currencyDictionaryId = currencyDictionaryData?.id ?? null
   const currencyDictionaryError =
     currencyDictionaryQuery.isError && currencyDictionaryQuery.error
       ? currencyDictionaryQuery.error instanceof Error
         ? currencyDictionaryQuery.error.message
         : String(currencyDictionaryQuery.error)
       : null
-  const currencyOptions = React.useMemo(() => {
-    const entries = currencyDictionaryData?.entries ?? []
-    if (!entries.length) return []
-    const priorityOrder = new Map<string, number>()
-    CURRENCY_PRIORITY.forEach((code, index) => priorityOrder.set(code, index))
-    const prioritized: { value: string; label: string }[] = []
-    const remainder: { value: string; label: string }[] = []
-    entries.forEach((entry) => {
-      const value = entry.value.toUpperCase()
-      const label = entry.label.length ? entry.label : value
-      const option = { value, label }
-      if (priorityOrder.has(value)) prioritized.push(option)
-      else remainder.push(option)
-    })
-    prioritized.sort((a, b) => (priorityOrder.get(a.value)! - priorityOrder.get(b.value)!))
-    remainder.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-    return [...prioritized, ...remainder]
-  }, [currencyDictionaryData])
   const resolvedCurrencyError =
     currencyDictionaryError ??
-    (!currencyDictionaryLoading && !currencyOptions.length
+    (!currencyDictionaryLoading && !currencyDictionaryId
       ? t('customers.deals.form.currency.missing', 'Currency dictionary is not configured yet.')
       : null)
 
@@ -586,21 +570,15 @@ export function DealForm({
                 {t('customers.deals.form.currency.loading', 'Loading currencies…')}
               </span>
             </div>
-          ) : currencyOptions.length ? (
-            <select
-              className="h-9 w-full rounded border px-2 text-sm"
-              value={typeof value === 'string' ? value : ''}
-              onChange={(event) => setValue(event.target.value || '')}
+          ) : currencyDictionaryId ? (
+            <DictionarySelectControl
+              dictionaryId={currencyDictionaryId}
+              value={typeof value === 'string' ? value : undefined}
+              onChange={(next) => setValue(next ?? '')}
               disabled={disabled}
-              data-crud-focus-target=""
-            >
-              <option value="">{t('customers.deals.form.currency.placeholder', 'Select currency…')}</option>
-              {currencyOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              selectClassName="w-full"
+              priorityValues={Array.from(CURRENCY_PRIORITY)}
+            />
           ) : (
             <input
               type="text"
@@ -680,7 +658,7 @@ export function DealForm({
         />
       ),
     } as CrudField,
-  ], [currencyDictionaryLoading, currencyOptions, resolvedCurrencyError, dictionaryLabels.pipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
+  ], [currencyDictionaryLoading, currencyDictionaryId, resolvedCurrencyError, dictionaryLabels.pipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
