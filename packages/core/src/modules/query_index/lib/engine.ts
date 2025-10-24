@@ -161,7 +161,24 @@ export class HybridQueryEngine implements QueryEngine {
       builder = this.applyColumnFilter(builder, column, filter)
     }
 
-    const selectFields = (opts.fields && opts.fields.length) ? opts.fields : ['id']
+    const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : ['id'])
+    if (opts.includeCustomFields === true) {
+      const entityIds = Array.from(new Set(indexSources.map((src) => String(src.entityId))))
+      try {
+        const resolvedKeys = await this.resolveAvailableCustomFieldKeys(entityIds, opts.tenantId ?? null)
+        resolvedKeys.forEach((key) => selectFieldSet.add(`cf:${key}`))
+        if (this.isDebugVerbosity()) {
+          this.debug('query:cf:resolved-keys', { entity, keys: resolvedKeys })
+        }
+      } catch (err) {
+        console.warn('[HybridQueryEngine] Failed to resolve custom field keys for', entity, err)
+      }
+    } else if (Array.isArray(opts.includeCustomFields)) {
+      opts.includeCustomFields
+        .map((key) => String(key))
+        .forEach((key) => selectFieldSet.add(`cf:${key}`))
+    }
+    const selectFields = Array.from(selectFieldSet)
     for (const field of selectFields) {
       const fieldName = String(field)
       if (fieldName.startsWith('cf:')) {
@@ -518,6 +535,27 @@ export class HybridQueryEngine implements QueryEngine {
     const knex = this.getKnex()
     const exists = await knex('information_schema.tables').where({ table_name: table }).first()
     return !!exists
+  }
+
+  private async resolveAvailableCustomFieldKeys(entityIds: string[], tenantId: string | null): Promise<string[]> {
+    if (!entityIds.length) return []
+    const knex = this.getKnex()
+    const rows = await knex('custom_field_defs')
+      .select('key')
+      .whereIn('entity_id', entityIds)
+      .andWhere('is_active', true)
+      .modify((qb: any) => {
+        qb.andWhere((inner: any) => {
+          inner.where({ tenant_id: tenantId }).orWhereNull('tenant_id')
+        })
+      })
+    const keys = new Set<string>()
+    for (const row of rows || []) {
+      const key = (row as Record<string, unknown>).key
+      if (typeof key === 'string' && key.trim().length) keys.add(key.trim())
+      else if (key != null) keys.add(String(key))
+    }
+    return Array.from(keys)
   }
 
   private async indexAnyRows(entity: string): Promise<boolean> {

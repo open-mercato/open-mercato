@@ -14,10 +14,17 @@ import type {
   CrudIndexerConfig,
   CrudIdentifierResolver,
 } from './types'
-import { extractCustomFieldValuesFromPayload, extractAllCustomFieldEntries } from './custom-fields'
+import {
+  extractCustomFieldValuesFromPayload,
+  extractAllCustomFieldEntries,
+  decorateRecordWithCustomFields,
+  loadCustomFieldDefinitionIndex,
+} from './custom-fields'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
 import { CrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
+import type { EntityId } from '@/modules/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -56,6 +63,11 @@ export type CustomFieldsConfig =
       map?: (data: Record<string, any>) => Record<string, any>
     }
 
+export type CrudListCustomFieldDecorator = {
+  entityIds: EntityId | EntityId[]
+  resolveContext?: (item: any, ctx: CrudCtx) => { organizationId?: string | null; tenantId?: string | null }
+}
+
 export type ListConfig<TList> = {
   schema: z.ZodType<TList>
   // Optional: use the QueryEngine when entityId + fields are provided
@@ -73,6 +85,7 @@ export type ListConfig<TList> = {
   export?: CrudExportOptions
   customFieldSources?: QueryCustomFieldSource[]
   joins?: QueryJoinEdge[]
+  decorateCustomFields?: CrudListCustomFieldDecorator
 }
 
 export type CrudExportColumnConfig = {
@@ -522,6 +535,67 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     ? [opts.events.module, opts.events.entity].filter(Boolean).join('.')
     : (typeof ormCfg.entity?.name === 'string' && ormCfg.entity.name.length > 0 ? ormCfg.entity.name : 'resource')
 
+  const listCustomFieldDecorator = opts.list?.decorateCustomFields
+
+  const inferFieldValue = (item: Record<string, unknown>, keys: string[]): string | null => {
+    for (const key of keys) {
+      const value = item[key]
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (trimmed.length) return trimmed
+      }
+    }
+    return null
+  }
+
+  const decorateItemsWithCustomFields = async (items: any[], ctx: CrudCtx): Promise<any[]> => {
+    if (!listCustomFieldDecorator || !Array.isArray(items) || items.length === 0) return items
+    const entityIds = Array.isArray(listCustomFieldDecorator.entityIds)
+      ? listCustomFieldDecorator.entityIds
+      : [listCustomFieldDecorator.entityIds]
+    if (!entityIds.length) return items
+    try {
+      const em = ctx.container.resolve<EntityManager>('em')
+      const organizationIds =
+        Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
+          ? ctx.organizationIds
+          : [ctx.selectedOrganizationId ?? null]
+      const definitionIndex = await loadCustomFieldDefinitionIndex({
+        em,
+        entityIds,
+        tenantId: ctx.auth?.tenantId ?? null,
+        organizationIds,
+      })
+      return items.map((raw) => {
+        if (!raw || typeof raw !== 'object') return raw
+        const item = raw as Record<string, unknown>
+        const context = listCustomFieldDecorator.resolveContext
+          ? listCustomFieldDecorator.resolveContext(raw, ctx) ?? {}
+          : {}
+        const organizationId =
+          context.organizationId ??
+          inferFieldValue(item, ['organization_id', 'organizationId'])
+        const tenantId =
+          context.tenantId ??
+          inferFieldValue(item, ['tenant_id', 'tenantId']) ??
+          ctx.auth?.tenantId ??
+          null
+        const decorated = decorateRecordWithCustomFields(item, definitionIndex, {
+          organizationId: organizationId ?? null,
+          tenantId: tenantId ?? null,
+        })
+        return {
+          ...item,
+          customValues: decorated.customValues,
+          customFields: decorated.customFields,
+        }
+      })
+    } catch (err) {
+      console.warn('[crud] failed to decorate custom fields', err)
+      return items
+    }
+  }
+
   async function ensureAuth() {
     const auth = await getAuthFromCookies()
     if (!auth) return null
@@ -616,7 +690,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         const res = await qe.query(opts.list.entityId as any, queryOpts)
         const rawItems = res.items || []
-        const transformedItems = rawItems.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+        let transformedItems = rawItems.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+        transformedItems = await decorateItemsWithCustomFields(transformedItems, ctx)
 
         await logCrudAccess({
           container: ctx.container,
@@ -648,7 +723,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               })
               const nextItemsRaw = nextRes.items || []
               if (!nextItemsRaw.length) break
-              const nextTransformed = nextItemsRaw.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+              let nextTransformed = nextItemsRaw.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+              nextTransformed = await decorateItemsWithCustomFields(nextTransformed, ctx)
               const nextExportItems = exportFullRequested
                 ? nextItemsRaw.map(normalizeFullRecordForExport)
                 : nextTransformed
@@ -709,7 +785,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           softDeleteField: ormCfg.softDeleteField,
         }
       )
-      const list = await repo.find(where)
+      let list = await repo.find(where)
+      list = await decorateItemsWithCustomFields(list, ctx)
       await logCrudAccess({
         container: ctx.container,
         auth: ctx.auth,
