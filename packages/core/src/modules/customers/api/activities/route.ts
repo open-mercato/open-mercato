@@ -343,17 +343,18 @@ const crud = makeCrudRoute({
       // Map custom field entries using query engine output (cf_* keys)
       typedItems.forEach((item) => {
         const raw = extractAllCustomFieldEntries(item as any)
-        const entries = Object.entries(raw).map(([prefixedKey, value]) => {
-          const key = prefixedKey.replace(/^cf_/, '')
-          return {
-            key,
-            label: key,
-            value,
-            kind: null,
-            multi: Array.isArray(value),
-          }
-        })
+        const values = Object.fromEntries(
+          Object.entries(raw).map(([prefixedKey, value]) => [prefixedKey.replace(/^cf_/, ''), value]),
+        )
+        const entries = Object.entries(values).map(([key, value]) => ({
+          key,
+          label: key,
+          value,
+          kind: null,
+          multi: Array.isArray(value),
+        }))
         item.customFields = entries
+        ;(item as any).customValues = values
       })
     },
   },

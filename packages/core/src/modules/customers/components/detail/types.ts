@@ -49,11 +49,13 @@ export type ActivitySummary = {
   createdAt: string
   appearanceIcon?: string | null
   appearanceColor?: string | null
+  entityId?: string | null
   authorUserId?: string | null
   authorName?: string | null
   authorEmail?: string | null
   dealId?: string | null
   dealTitle?: string | null
+  customValues?: Record<string, unknown> | null
   customFields?: ActivityCustomFieldEntry[]
 }
 

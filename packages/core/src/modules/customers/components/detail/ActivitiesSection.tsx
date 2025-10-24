@@ -274,6 +274,7 @@ export function ActivitiesSection({
       body: activity.body ?? '',
       occurredAt: activity.occurredAt ?? activity.createdAt ?? null,
       dealId: activity.dealId ?? '',
+      entityId: activity.entityId ?? '',
     }
     const customEntries = Array.isArray(activity.customFields) ? activity.customFields : []
     customEntries.forEach((entry) => {
@@ -502,7 +503,7 @@ export function ActivitiesSection({
             action={{
               label: emptyState.actionLabel,
               onClick: openCreateDialog,
-              disabled: !entityId || pendingAction !== null,
+              disabled: resolveEntityForSubmission(null) === null || pendingAction !== null,
             }}
           />
         ) : null}
@@ -549,13 +550,29 @@ export function ActivitiesSection({
                   }}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <TimelineItemHeader
-                      title={displayLabel}
-                      timestamp={timestampValue}
-                      fallbackTimestampLabel={occurredLabel}
-                      icon={displayIcon}
-                      color={displayColor}
-                    />
+                    <div className="space-y-1">
+                      <TimelineItemHeader
+                        title={displayLabel}
+                        timestamp={timestampValue}
+                        fallbackTimestampLabel={occurredLabel}
+                        icon={displayIcon}
+                        color={displayColor}
+                      />
+                      {activity.dealId ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <ArrowUpRightSquare className="h-3.5 w-3.5" />
+                          <Link
+                            href={`/backend/customers/deals/${encodeURIComponent(activity.dealId)}`}
+                            className="font-medium text-foreground hover:underline"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {activity.dealTitle && activity.dealTitle.length
+                              ? activity.dealTitle
+                              : t('customers.people.detail.activities.linkedDeal', 'Linked deal')}
+                          </Link>
+                        </div>
+                      ) : null}
+                    </div>
                     <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <Button
                         type="button"
@@ -605,6 +622,7 @@ export function ActivitiesSection({
                       value: entry.value,
                       label: entry.label,
                     }))}
+                    values={activity.customValues ?? undefined}
                     resources={customFieldResources}
                     emptyLabel={customFieldEmptyLabel}
                     itemKeyPrefix={`activity-${activity.id}-field`}
