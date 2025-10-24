@@ -23,7 +23,14 @@ import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope
 import { ensureCustomerDictionary, invalidateCustomerDictionary } from './detail/hooks/useCustomerDictionary'
 import { useT } from '@/lib/i18n/context'
 
-type DictionaryKind = 'statuses' | 'sources' | 'lifecycle-stages' | 'address-types' | 'job-titles'
+type DictionaryKind =
+  | 'statuses'
+  | 'deal-statuses'
+  | 'pipeline-stages'
+  | 'sources'
+  | 'lifecycle-stages'
+  | 'address-types'
+  | 'job-titles'
 
 type DictionaryEntry = {
   id: string
@@ -128,6 +135,16 @@ export function DictionarySettings() {
       kind: 'statuses' as const,
       title: t('customers.config.dictionaries.sections.statuses.title', 'Statuses'),
       description: t('customers.config.dictionaries.sections.statuses.description', 'Define the statuses available for customer records.'),
+    },
+    {
+      kind: 'deal-statuses' as const,
+      title: t('customers.config.dictionaries.sections.dealStatuses.title', 'Deal statuses'),
+      description: t('customers.config.dictionaries.sections.dealStatuses.description', 'Manage the statuses available for deals.'),
+    },
+    {
+      kind: 'pipeline-stages' as const,
+      title: t('customers.config.dictionaries.sections.pipelineStages.title', 'Pipeline stages'),
+      description: t('customers.config.dictionaries.sections.pipelineStages.description', 'Define the stages used in your deal pipeline.'),
     },
     {
       kind: 'job-titles' as const,

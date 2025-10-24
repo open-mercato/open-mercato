@@ -319,6 +319,13 @@ function scan() {
       if (fs.existsSync(apiPkg)) walk(apiPkg)
       if (fs.existsSync(apiApp)) walk(apiApp)
       const routeList = Array.from(new Set(routeFiles))
+      const isDynamicRoute = (p: string) => p.split('/').some((seg) => /\[|\[\[\.\.\./.test(seg))
+      routeList.sort((a, b) => {
+        const ad = isDynamicRoute(a) ? 1 : 0
+        const bd = isDynamicRoute(b) ? 1 : 0
+        if (ad !== bd) return ad - bd
+        return a.localeCompare(b)
+      })
       for (const rel of routeList) {
         const segs = rel.split('/')
         segs.pop()
@@ -326,7 +333,8 @@ function scan() {
         const importName = `R${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
         const appFile = path.join(apiApp, ...segs, 'route.ts')
         const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api/${segs.join('/')}/route`
+        const apiSegPath = segs.join('/')
+        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api${apiSegPath ? `/${apiSegPath}` : ''}/route`
         const routePath = '/' + reqSegs.filter(Boolean).join('/')
         imports.push(`import * as ${importName} from '${importPath}'`)
         apis.push(`{ path: '${routePath}', metadata: ${importName}.metadata, handlers: ${importName} }`)
@@ -359,7 +367,8 @@ function scan() {
         const importName = `R${importId++}_${toVar(modId)}_${toVar(fullSegs.join('_')||'index')}`
         const appFile = path.join(apiApp, ...fullSegs) + '.ts'
         const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api/${fullSegs.join('/')}`
+        const plainSegPath = fullSegs.join('/')
+        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api${plainSegPath ? `/${plainSegPath}` : ''}`
         imports.push(`import * as ${importName} from '${importPath}'`)
         apis.push(`{ path: '${routePath}', metadata: ${importName}.metadata, handlers: ${importName} }`)
       }

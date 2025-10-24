@@ -144,6 +144,8 @@ const DICTIONARY_KINDS = new Set([
   'lifecycle_stage',
   'address_type',
   'activity_type',
+  'deal_status',
+  'pipeline_stage',
   'job_title',
 ])
 
@@ -152,7 +154,7 @@ export async function ensureDictionaryEntry(
   params: {
     tenantId: string
     organizationId: string
-    kind: 'status' | 'source' | 'lifecycle_stage' | 'address_type' | 'activity_type' | 'job_title'
+    kind: 'status' | 'source' | 'lifecycle_stage' | 'address_type' | 'activity_type' | 'deal_status' | 'pipeline_stage' | 'job_title'
     value: string
     label?: string | null
     color?: string | null | undefined

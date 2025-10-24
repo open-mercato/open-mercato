@@ -36,6 +36,40 @@ export const metadata = routeMetadata
 
 type DealListQuery = z.infer<typeof listSchema>
 
+function parseUuid(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed.length) return null
+  const result = z.string().uuid().safeParse(trimmed)
+  return result.success ? trimmed : null
+}
+
+function normalizeUuidList(values: Array<unknown>): string[] {
+  const set = new Set<string>()
+  values.forEach((candidate) => {
+    if (Array.isArray(candidate)) {
+      candidate.forEach((entry) => {
+        const parsed = parseUuid(entry)
+        if (parsed) set.add(parsed)
+      })
+      return
+    }
+    if (typeof candidate === 'string' && candidate.includes(',')) {
+      candidate
+        .split(',')
+        .map((entry) => entry.trim())
+        .forEach((entry) => {
+          const parsed = parseUuid(entry)
+          if (parsed) set.add(parsed)
+        })
+      return
+    }
+    const parsed = parseUuid(candidate)
+    if (parsed) set.add(parsed)
+  })
+  return Array.from(set)
+}
+
 const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
   metadata: routeMetadata,
   orm: {
@@ -126,27 +160,38 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
   },
   hooks: {
     beforeList: (query, ctx) => {
-      const personEntityId = query.personEntityId ?? null
-      const companyEntityId = query.companyEntityId ?? null
+      const url = ctx.request ? new URL(ctx.request.url) : null
+      const legacyPersonId = query.personEntityId ?? null
+      const legacyCompanyId = query.companyEntityId ?? null
+      const allPersonCandidates: unknown[] = []
+      const allCompanyCandidates: unknown[] = []
+      if (legacyPersonId) allPersonCandidates.push(legacyPersonId)
+      if (legacyCompanyId) allCompanyCandidates.push(legacyCompanyId)
+      if (url) {
+        const personParams = url.searchParams.getAll('personId')
+        const companyParams = url.searchParams.getAll('companyId')
+        if (personParams.length) allPersonCandidates.push(...personParams)
+        if (companyParams.length) allCompanyCandidates.push(...companyParams)
+        const legacyRepeatPerson = url.searchParams.getAll('personEntityId')
+        const legacyRepeatCompany = url.searchParams.getAll('companyEntityId')
+        if (legacyRepeatPerson.length) allPersonCandidates.push(...legacyRepeatPerson)
+        if (legacyRepeatCompany.length) allCompanyCandidates.push(...legacyRepeatCompany)
+      }
+      const personIds = normalizeUuidList(allPersonCandidates)
+      const companyIds = normalizeUuidList(allCompanyCandidates)
       ;(ctx as any).__dealsFilters = {
-        personEntityId,
-        companyEntityId,
+        personIds,
+        companyIds,
       }
     },
     afterList: async (payload, ctx) => {
       const filters = ((ctx as any).__dealsFilters || {}) as {
-        personEntityId?: string | null
-        companyEntityId?: string | null
+        personIds?: string[]
+        companyIds?: string[]
       }
-      const personEntityId =
-        typeof filters.personEntityId === 'string' && filters.personEntityId.trim().length
-          ? filters.personEntityId
-          : null
-      const companyEntityId =
-        typeof filters.companyEntityId === 'string' && filters.companyEntityId.trim().length
-          ? filters.companyEntityId
-          : null
-      if (!personEntityId && !companyEntityId) return
+      const selectedPersonIds = Array.isArray(filters.personIds) ? filters.personIds : []
+      const selectedCompanyIds = Array.isArray(filters.companyIds) ? filters.companyIds : []
+
       const items = Array.isArray(payload.items) ? payload.items : []
       if (!items.length) return
       const ids = items
@@ -163,44 +208,113 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       }
       try {
         const em = ctx.container.resolve<EntityManager>('em')
-        const personMatches = new Set<string>()
-        const companyMatches = new Set<string>()
-        if (personEntityId) {
-          const personLinks = await em.find(CustomerDealPersonLink, {
-            deal: { $in: ids },
-            person: personEntityId,
-          })
-          personLinks.forEach((link) => {
-            const deal = link.deal
-            if (typeof deal === 'string') personMatches.add(deal)
-            else if (deal && typeof deal === 'object' && 'id' in deal && typeof (deal as any).id === 'string') {
-              personMatches.add((deal as any).id)
-            }
-          })
-        }
-        if (companyEntityId) {
-          const companyLinks = await em.find(CustomerDealCompanyLink, {
-            deal: { $in: ids },
-            company: companyEntityId,
-          })
-          companyLinks.forEach((link) => {
-            const deal = link.deal
-            if (typeof deal === 'string') companyMatches.add(deal)
-            else if (deal && typeof deal === 'object' && 'id' in deal && typeof (deal as any).id === 'string') {
-              companyMatches.add((deal as any).id)
-            }
-          })
-        }
-        const filtered = items.filter((item) => {
-          if (!item || typeof item !== 'object') return false
-          const candidate = (item as Record<string, unknown>).id
-          if (typeof candidate !== 'string' || !candidate.trim().length) return false
-          const matchesPerson = personEntityId ? personMatches.has(candidate) : true
-          const matchesCompany = companyEntityId ? companyMatches.has(candidate) : true
-          return matchesPerson && matchesCompany
+        const [allPersonLinks, allCompanyLinks] = await Promise.all([
+          em.find(CustomerDealPersonLink, { deal: { $in: ids } }, { populate: ['person'] }),
+          em.find(CustomerDealCompanyLink, { deal: { $in: ids } }, { populate: ['company'] }),
+        ])
+
+        const personAssignments = new Map<string, { id: string; label: string }[]>()
+        const personMemberships = new Map<string, Set<string>>()
+        allPersonLinks.forEach((link) => {
+          const deal = link.deal
+          const dealId =
+            typeof deal === 'string'
+              ? deal
+              : deal && typeof deal === 'object' && 'id' in deal && typeof (deal as any).id === 'string'
+                ? (deal as any).id
+                : null
+          if (!dealId) return
+          const personRef = link.person
+          const personId =
+            typeof personRef === 'string'
+              ? personRef
+              : personRef && typeof personRef === 'object' && 'id' in personRef && typeof (personRef as any).id === 'string'
+                ? (personRef as any).id
+                : null
+          if (!personId) return
+          const label =
+            personRef && typeof personRef === 'object' && 'displayName' in personRef && typeof (personRef as any).displayName === 'string'
+              ? (personRef as any).displayName
+              : ''
+          const bucket = personAssignments.get(dealId) ?? []
+          if (!bucket.some((entry) => entry.id === personId)) {
+            bucket.push({ id: personId, label })
+            personAssignments.set(dealId, bucket)
+          }
+          const membership = personMemberships.get(dealId) ?? new Set<string>()
+          membership.add(personId)
+          personMemberships.set(dealId, membership)
         })
-        payload.items = filtered
-        payload.total = filtered.length
+
+        const companyAssignments = new Map<string, { id: string; label: string }[]>()
+        const companyMemberships = new Map<string, Set<string>>()
+        allCompanyLinks.forEach((link) => {
+          const deal = link.deal
+          const dealId =
+            typeof deal === 'string'
+              ? deal
+              : deal && typeof deal === 'object' && 'id' in deal && typeof (deal as any).id === 'string'
+                ? (deal as any).id
+                : null
+          if (!dealId) return
+          const companyRef = link.company
+          const companyId =
+            typeof companyRef === 'string'
+              ? companyRef
+              : companyRef && typeof companyRef === 'object' && 'id' in companyRef && typeof (companyRef as any).id === 'string'
+                ? (companyRef as any).id
+                : null
+          if (!companyId) return
+          const label =
+            companyRef && typeof companyRef === 'object' && 'displayName' in companyRef && typeof (companyRef as any).displayName === 'string'
+              ? (companyRef as any).displayName
+              : ''
+          const bucket = companyAssignments.get(dealId) ?? []
+          if (!bucket.some((entry) => entry.id === companyId)) {
+            bucket.push({ id: companyId, label })
+            companyAssignments.set(dealId, bucket)
+          }
+          const membership = companyMemberships.get(dealId) ?? new Set<string>()
+          membership.add(companyId)
+          companyMemberships.set(dealId, membership)
+        })
+
+        const hasPersonFilter = selectedPersonIds.length > 0
+        const hasCompanyFilter = selectedCompanyIds.length > 0
+        const matchesAll = (selected: string[], memberships: Map<string, Set<string>>, dealId: string) => {
+          if (!selected.length) return true
+          const membership = memberships.get(dealId)
+          if (!membership || membership.size === 0) return false
+          return selected.every((id) => membership.has(id))
+        }
+
+        const enhancedItems = items
+          .map((item) => {
+            if (!item || typeof item !== 'object') return null
+            const data = item as Record<string, unknown>
+            const candidate = typeof data.id === 'string' ? data.id : null
+            if (!candidate || !candidate.trim().length) return null
+            const people = personAssignments.get(candidate) ?? []
+            const companies = companyAssignments.get(candidate) ?? []
+            const matchesPerson = matchesAll(selectedPersonIds, personMemberships, candidate)
+            const matchesCompany = matchesAll(selectedCompanyIds, companyMemberships, candidate)
+            if (!matchesPerson || !matchesCompany) return null
+            return {
+              ...data,
+              personIds: people.map((entry) => entry.id),
+              people,
+              companyIds: companies.map((entry) => entry.id),
+              companies,
+            }
+          })
+          .filter((item): item is Record<string, unknown> => !!item)
+
+        payload.items = enhancedItems
+        if (hasPersonFilter || hasCompanyFilter) {
+          payload.total = enhancedItems.length
+          payload.totalPages = 1
+          payload.page = 1
+        }
       } catch (err) {
         console.warn('[customers.deals] failed to filter by person/company link', err)
         // fall back to unfiltered list to avoid breaking the endpoint

@@ -28,8 +28,21 @@ function createFakeKnex(overrides?: FakeData) {
     Object.entries(sourceData).map(([table, rows]) => [table, cloneRows(rows)])
   )
   function raw(sql: string, params?: any[]) { return { toString: () => sql, sql, params } }
-  function builderFor(table: string) {
-    const ops = { table, wheres: [] as any[], joins: [] as any[], selects: [] as any[], orderBys: [] as any[], groups: [] as any[], limits: 0, offsets: 0, isCountDistinct: false }
+  function builderFor(tableArg: any) {
+    let table = ''
+    let alias: string | null = null
+    if (typeof tableArg === 'string') {
+      table = tableArg
+    } else if (tableArg && typeof tableArg === 'object') {
+      const first = Object.entries(tableArg)[0]
+      if (first) {
+        alias = String(first[0])
+        table = String(first[1])
+      }
+    } else {
+      table = String(tableArg || '')
+    }
+    const ops = { table, alias, wheres: [] as any[], joins: [] as any[], selects: [] as any[], orderBys: [] as any[], groups: [] as any[], limits: 0, offsets: 0, isCountDistinct: false }
     function recordJoin(type: 'left' | 'inner', aliasObj: any, fn: Function, ctxBuilder: () => any) {
       const entry: any = { type, aliasObj, conditions: [] as any[] }
       const ctx = ctxBuilder()
@@ -53,6 +66,10 @@ function createFakeKnex(overrides?: FakeData) {
       whereNotIn: function (...args: any[]) { ops.wheres.push(['notIn', ...args]); return this },
       whereNull: function (col: any) { ops.wheres.push(['isNull', col]); return this },
       whereNotNull: function (col: any) { ops.wheres.push(['notNull', col]); return this },
+      whereExists: function (sub: any) { ops.wheres.push(['exists', sub]); return this },
+      whereNotExists: function (sub: any) { ops.wheres.push(['notExists', sub]); return this },
+      whereRaw: function (...args: any[]) { ops.wheres.push(['raw', ...args]); return this },
+      orWhereNull: function (col: any) { ops.wheres.push(['orWhereNull', col]); return this },
       leftJoin: function (aliasObj: any, fn: Function) {
         recordJoin('left', aliasObj, fn, () => ({}))
         return this
@@ -101,7 +118,7 @@ function createFakeKnex(overrides?: FakeData) {
     calls.push(b)
     return b
   }
-  const fn: any = (table: string) => builderFor(table)
+  const fn: any = (table: any) => builderFor(table)
   fn.raw = raw
   fn._calls = calls
   return fn
@@ -210,5 +227,45 @@ describe('BasicQueryEngine', () => {
       'customers:customer_person_profile',
       'customers:customer_company_profile',
     ]))
+  })
+
+  test('join filters use whereExists with configured alias', async () => {
+    const fakeKnex = createFakeKnex({
+      customer_entities: [],
+      customer_tag_assignments: [],
+      'information_schema.columns': [
+        { table_name: 'customer_tag_assignments', column_name: 'tag_id' },
+        { table_name: 'customer_tag_assignments', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+      ],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeKnex as any)
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      joins: [
+        {
+          alias: 'tag_assignments',
+          table: 'customer_tag_assignments',
+          from: { field: 'id' },
+          to: { field: 'entity_id' },
+          type: 'left',
+        },
+      ],
+      filters: {
+        'tag_assignments.tag_id': { $in: ['tag-1', 'tag-2'] },
+      },
+      page: { page: 1, pageSize: 10 },
+    })
+    const baseCall = fakeKnex._calls.find((b: any) => b._ops.table === 'customer_entities')
+    expect(baseCall).toBeTruthy()
+    const existsFilter = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'exists')
+    expect(existsFilter).toBeTruthy()
+    const subQuery = existsFilter[1]
+    expect(subQuery?._ops?.table).toBe('customer_tag_assignments')
+    const hasInFilter = Array.isArray(subQuery?._ops?.wheres)
+      ? subQuery._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'in' && w[1] === 'tag_assignments.tag_id')
+      : false
+    expect(hasInFilter).toBe(true)
   })
 })

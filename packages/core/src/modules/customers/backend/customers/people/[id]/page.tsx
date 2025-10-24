@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Plus } from 'lucide-react'
@@ -33,18 +32,15 @@ import {
 } from '../../../../components/detail/InlineEditors'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
-import { resolveTodoApiPath } from '../../../../components/detail/utils'
-import { generateTempId, slugifyTagLabel, isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import type {
   ActivitySummary,
-  AddressSummary,
   CommentSummary,
   DealSummary,
   TagSummary,
   TodoLinkSummary,
   SectionAction,
 } from '../../../../components/detail/types'
-import { type CustomerAddressInput } from '../../../../components/AddressTiles'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 
 type PersonOverview = {
@@ -79,7 +75,6 @@ type PersonOverview = {
   } | null
   customFields: Record<string, unknown>
   tags: TagSummary[]
-  addresses: AddressSummary[]
   comments: CommentSummary[]
   activities: ActivitySummary[]
   deals: DealSummary[]
@@ -148,7 +143,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   React.useEffect(() => {
     setSectionAction(null)
   }, [activeTab])
-  const [pendingTaskId, setPendingTaskId] = React.useState<string | null>(null)
   const validators = React.useMemo(() => ({
     email: (value: string) => {
       if (!value) return null
@@ -210,6 +204,14 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
 
   const handleDealsLoadingChange = React.useCallback((loading: boolean) => {
     setSectionPending((prev) => ({ ...prev, deals: loading }))
+  }, [])
+
+  const handleAddressesLoadingChange = React.useCallback((loading: boolean) => {
+    setSectionPending((prev) => ({ ...prev, addresses: loading }))
+  }, [])
+
+  const handleTasksLoadingChange = React.useCallback((loading: boolean) => {
+    setSectionPending((prev) => ({ ...prev, tasks: loading }))
   }, [])
 
   React.useEffect(() => {
@@ -336,392 +338,9 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     }
   }, [personId, personName, router, t])
 
-    const handleLoadTags = React.useCallback(async (query?: string) => {
-      try {
-        const params = new URLSearchParams({ pageSize: '200' })
-        if (query) params.set('search', query)
-        const res = await apiFetch(`/api/customers/tags?${params.toString()}`)
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof payload?.error === 'string'
-              ? payload.error
-              : t('customers.people.detail.tags.loadError', 'Failed to load tags.')
-          throw new Error(message)
-        }
-        const items = Array.isArray(payload?.items) ? payload.items : []
-        return items
-          .map((item) => {
-            if (!item || typeof item !== 'object') return null
-            const raw = item as { id?: unknown; label?: unknown; slug?: unknown; color?: unknown }
-            const rawId = raw.id
-            const id =
-              typeof rawId === 'string'
-                ? rawId
-                : typeof rawId === 'number'
-                  ? String(rawId)
-                  : typeof rawId === 'bigint'
-                    ? rawId.toString()
-                    : ''
-            if (!id) return null
-            const labelRaw =
-              typeof raw.label === 'string' && raw.label.trim().length ? raw.label.trim() : null
-            const label =
-              labelRaw ?? (typeof raw.slug === 'string' && raw.slug.trim().length ? raw.slug : id)
-            const color =
-              typeof raw.color === 'string' && raw.color.trim().length ? raw.color.trim() : null
-            return { id, label, color }
-          })
-          .filter((value): value is TagOption => value !== null)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.people.detail.tags.loadError', 'Failed to load tags.')
-        throw new Error(message)
-      }
-    }, [t])
-  
-    const handleCreateTag = React.useCallback(async ({ label }: { label: string }) => {
-      const trimmed = label.trim()
-      if (!trimmed.length) {
-        throw new Error(t('customers.people.detail.tags.labelRequired', 'Tag name is required.'))
-      }
-      try {
-        const res = await apiFetch('/api/customers/tags', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            label: trimmed,
-            slug: slugifyTagLabel(trimmed),
-          }),
-        })
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof payload?.error === 'string'
-              ? payload.error
-              : t('customers.people.detail.tags.createError', 'Failed to create tag.')
-          throw new Error(message)
-        }
-        const id = typeof payload?.id === 'string' ? payload.id : String(payload?.tagId ?? '')
-        if (!id) throw new Error(t('customers.people.detail.tags.createError', 'Failed to create tag.'))
-        const color = typeof payload?.color === 'string' ? payload.color : null
-        return { id, label: trimmed, color } satisfies TagOption
-      } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.people.detail.tags.createError', 'Failed to create tag.')
-        throw new Error(message)
-      }
-    }, [t])
-  
-    const handleAssignTag = React.useCallback(async (tagId: string) => {
-      if (!personId) throw new Error(t('customers.people.detail.tags.assignError', 'Failed to assign tag.'))
-      const res = await apiFetch('/api/customers/tags/assign', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tagId, entityId: personId }),
-      })
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}))
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('customers.people.detail.tags.assignError', 'Failed to assign tag.')
-        throw new Error(message)
-      }
-    }, [personId, t])
-  
-    const handleUnassignTag = React.useCallback(async (tagId: string) => {
-      if (!personId) throw new Error(t('customers.people.detail.tags.assignError', 'Failed to remove tag.'))
-      const res = await apiFetch('/api/customers/tags/unassign', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tagId, entityId: personId }),
-      })
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}))
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('customers.people.detail.tags.unassignError', 'Failed to remove tag.')
-        throw new Error(message)
-      }
-    }, [personId, t])
-  
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
   }, [])
-  
-    const handleCreateAddress = React.useCallback(
-      async (payload: CustomerAddressInput) => {
-        if (!personId) return
-        setSectionPending((prev) => ({ ...prev, addresses: true }))
-        try {
-          const bodyPayload: Record<string, unknown> = {
-            entityId: personId,
-            addressLine1: payload.addressLine1,
-            isPrimary: payload.isPrimary ?? false,
-          }
-          if (typeof payload.name === 'string') bodyPayload.name = payload.name
-          if (typeof payload.purpose === 'string') bodyPayload.purpose = payload.purpose
-          if (typeof payload.addressLine2 === 'string') bodyPayload.addressLine2 = payload.addressLine2
-          if (typeof payload.buildingNumber === 'string') bodyPayload.buildingNumber = payload.buildingNumber
-          if (typeof payload.flatNumber === 'string') bodyPayload.flatNumber = payload.flatNumber
-          if (typeof payload.city === 'string') bodyPayload.city = payload.city
-          if (typeof payload.region === 'string') bodyPayload.region = payload.region
-          if (typeof payload.postalCode === 'string') bodyPayload.postalCode = payload.postalCode
-          if (typeof payload.country === 'string') bodyPayload.country = payload.country.toUpperCase()
-  
-          const res = await apiFetch('/api/customers/addresses', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(bodyPayload),
-          })
-          if (!res.ok) {
-            let message = t('customers.people.detail.addresses.error')
-            let detailsPayload: unknown = null
-            try {
-              detailsPayload = await res.clone().json()
-              if (
-                detailsPayload &&
-                typeof detailsPayload === 'object' &&
-                typeof (detailsPayload as { error?: unknown }).error === 'string'
-              ) {
-                message = (detailsPayload as { error: string }).error
-              }
-            } catch {}
-            const error = new Error(message)
-            if (
-              detailsPayload &&
-              typeof detailsPayload === 'object' &&
-              Array.isArray((detailsPayload as { details?: unknown }).details)
-            ) {
-              ;(error as Error & { details?: unknown }).details = (detailsPayload as {
-                details: unknown
-              }).details
-            }
-            throw error
-          }
-          const body = await res.json().catch(() => ({}))
-          const newAddress: AddressSummary = {
-            id: typeof body?.id === 'string' ? body.id : generateTempId(),
-            name: payload.name ?? null,
-            purpose: payload.purpose ?? null,
-            addressLine1: payload.addressLine1,
-            addressLine2: payload.addressLine2 ?? null,
-            buildingNumber: payload.buildingNumber ?? null,
-            flatNumber: payload.flatNumber ?? null,
-            city: payload.city ?? null,
-            region: payload.region ?? null,
-            postalCode: payload.postalCode ?? null,
-            country: payload.country ? payload.country.toUpperCase() : null,
-            isPrimary: payload.isPrimary ?? false,
-          }
-          setData((prev) => {
-            if (!prev) return prev
-            const existing = payload.isPrimary
-              ? prev.addresses.map((addr) => ({ ...addr, isPrimary: false }))
-              : prev.addresses
-            return { ...prev, addresses: [newAddress, ...existing] }
-          })
-          flash(t('customers.people.detail.addresses.success'), 'success')
-        } finally {
-          setSectionPending((prev) => ({ ...prev, addresses: false }))
-        }
-      },
-      [personId, t]
-    )
-  
-    const handleUpdateAddress = React.useCallback(
-      async (id: string, payload: CustomerAddressInput) => {
-        if (!personId) return
-        setSectionPending((prev) => ({ ...prev, addresses: true }))
-        try {
-          const bodyPayload: Record<string, unknown> = {
-            id,
-            addressLine1: payload.addressLine1,
-            isPrimary: payload.isPrimary ?? false,
-          }
-          if (typeof payload.name === 'string') bodyPayload.name = payload.name
-          if (typeof payload.purpose === 'string') bodyPayload.purpose = payload.purpose
-          if (typeof payload.addressLine2 === 'string') bodyPayload.addressLine2 = payload.addressLine2
-          if (typeof payload.buildingNumber === 'string') bodyPayload.buildingNumber = payload.buildingNumber
-          if (typeof payload.flatNumber === 'string') bodyPayload.flatNumber = payload.flatNumber
-          if (typeof payload.city === 'string') bodyPayload.city = payload.city
-          if (typeof payload.region === 'string') bodyPayload.region = payload.region
-          if (typeof payload.postalCode === 'string') bodyPayload.postalCode = payload.postalCode
-          if (typeof payload.country === 'string') bodyPayload.country = payload.country.toUpperCase()
-  
-          const res = await apiFetch('/api/customers/addresses', {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(bodyPayload),
-          })
-          if (!res.ok) {
-            let message = t('customers.people.detail.addresses.error')
-            let detailsPayload: unknown = null
-            try {
-              detailsPayload = await res.clone().json()
-              if (
-                detailsPayload &&
-                typeof detailsPayload === 'object' &&
-                typeof (detailsPayload as { error?: unknown }).error === 'string'
-              ) {
-                message = (detailsPayload as { error: string }).error
-              }
-            } catch {}
-            const error = new Error(message) as Error & { details?: unknown }
-            if (
-              detailsPayload &&
-              typeof detailsPayload === 'object' &&
-              Array.isArray((detailsPayload as { details?: unknown }).details)
-            ) {
-              error.details = (detailsPayload as { details: unknown }).details
-            }
-            throw error
-          }
-  
-          setData((prev) => {
-            if (!prev) return prev
-            const updated = prev.addresses.map((address) => {
-              if (address.id !== id) {
-                return payload.isPrimary ? { ...address, isPrimary: false } : address
-              }
-              return {
-                ...address,
-                name: payload.name ?? null,
-                purpose: payload.purpose ?? null,
-                addressLine1: payload.addressLine1,
-                addressLine2: payload.addressLine2 ?? null,
-                buildingNumber: payload.buildingNumber ?? null,
-                flatNumber: payload.flatNumber ?? null,
-                city: payload.city ?? null,
-                region: payload.region ?? null,
-                postalCode: payload.postalCode ?? null,
-                country: payload.country ? payload.country.toUpperCase() : null,
-                isPrimary: payload.isPrimary ?? false,
-              }
-            })
-            return { ...prev, addresses: updated }
-          })
-          flash(t('customers.people.detail.addresses.success'), 'success')
-        } finally {
-          setSectionPending((prev) => ({ ...prev, addresses: false }))
-        }
-      },
-      [personId, t]
-    )
-  
-    const handleDeleteAddress = React.useCallback(
-      async (id: string) => {
-        if (!personId) return
-        setSectionPending((prev) => ({ ...prev, addresses: true }))
-        try {
-          const res = await apiFetch('/api/customers/addresses', {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id }),
-          })
-          if (!res.ok) {
-            let message = t('customers.people.detail.addresses.error')
-            try {
-              const details = await res.clone().json()
-              if (details && typeof details.error === 'string') message = details.error
-            } catch {}
-            throw new Error(message)
-          }
-          setData((prev) => {
-            if (!prev) return prev
-            return { ...prev, addresses: prev.addresses.filter((address) => address.id !== id) }
-          })
-          flash(t('customers.people.detail.addresses.deleted'), 'success')
-        } finally {
-          setSectionPending((prev) => ({ ...prev, addresses: false }))
-        }
-      },
-      [personId, t]
-    )
-  
-    const handleCreateTask = React.useCallback(
-      async (payload: { title: string; isDone: boolean }) => {
-        if (!personId) return
-        setSectionPending((prev) => ({ ...prev, tasks: true }))
-        try {
-          const res = await apiFetch('/api/customers/todos', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ entityId: personId, ...payload }),
-          })
-          if (!res.ok) {
-            let message = t('customers.people.detail.tasks.error')
-            try {
-              const details = await res.clone().json()
-              if (details && typeof details.error === 'string') message = details.error
-            } catch {}
-            throw new Error(message)
-          }
-          const body = await res.json().catch(() => ({}))
-          const newTask: TodoLinkSummary = {
-            id: typeof body?.linkId === 'string' ? body.linkId : generateTempId(),
-            todoId: typeof body?.todoId === 'string' ? body.todoId : generateTempId(),
-            todoSource: 'example:todo',
-            createdAt: new Date().toISOString(),
-            createdByUserId: null,
-            title: payload.title,
-            isDone: payload.isDone,
-            priority: null,
-            dueAt: null,
-          }
-          setData((prev) => (prev ? { ...prev, todos: [newTask, ...prev.todos] } : prev))
-          flash(t('customers.people.detail.tasks.success'), 'success')
-        } finally {
-          setSectionPending((prev) => ({ ...prev, tasks: false }))
-        }
-      },
-      [personId, t]
-    )
-  
-    const handleToggleTask = React.useCallback(
-      async (task: TodoLinkSummary, nextIsDone: boolean) => {
-        if (!task.todoId) {
-          flash(t('customers.people.detail.tasks.toggleError'), 'error')
-          return
-        }
-        const apiPath = resolveTodoApiPath(task.todoSource)
-        if (!apiPath) {
-          flash(t('customers.people.detail.tasks.toggleError'), 'error')
-          return
-        }
-        setPendingTaskId(task.todoId)
-        try {
-          const res = await apiFetch(apiPath, {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id: task.todoId, is_done: nextIsDone }),
-          })
-          if (!res.ok) {
-            let message = t('customers.people.detail.tasks.toggleError')
-            try {
-              const details = await res.clone().json()
-              if (details && typeof details.error === 'string') message = details.error
-            } catch {}
-            throw new Error(message)
-          }
-          setData((prev) => {
-            if (!prev) return prev
-            return {
-              ...prev,
-              todos: prev.todos.map((item) =>
-                item.todoId === task.todoId ? { ...item, isDone: nextIsDone } : item
-              ),
-            }
-          })
-        } catch (err) {
-          const message = err instanceof Error ? err.message : t('customers.people.detail.tasks.toggleError')
-          flash(message, 'error')
-        } finally {
-          setPendingTaskId(null)
-        }
-      },
-      [setData, t]
-    )
   
     const handleCustomFieldsSubmit = React.useCallback(
       async (values: Record<string, unknown>) => {
@@ -1127,11 +746,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               )}
               {activeTab === 'addresses' && (
                 <AddressesSection
-                  addresses={data.addresses}
-                  onCreate={handleCreateAddress}
-                  onUpdate={handleUpdateAddress}
-                  onDelete={handleDeleteAddress}
-                  isSubmitting={sectionPending.addresses}
+                  entityId={personId}
                   emptyLabel={t('customers.people.detail.empty.addresses')}
                   addActionLabel={t('customers.people.detail.addresses.add')}
                   emptyState={{
@@ -1139,14 +754,14 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                     actionLabel: t('customers.people.detail.emptyState.addresses.action'),
                   }}
                   onActionChange={handleSectionActionChange}
+                  onLoadingChange={handleAddressesLoadingChange}
                   translator={t}
                 />
               )}
               {activeTab === 'tasks' && (
                 <TasksSection
-                  tasks={data.todos}
-                  onCreate={handleCreateTask}
-                  isSubmitting={sectionPending.tasks}
+                  entityId={personId}
+                  initialTasks={data.todos}
                   emptyLabel={t('customers.people.detail.empty.todos')}
                   addActionLabel={t('customers.people.detail.tasks.add')}
                   emptyState={{
@@ -1154,8 +769,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                     actionLabel: t('customers.people.detail.emptyState.tasks.action'),
                   }}
                   onActionChange={handleSectionActionChange}
-                  onToggle={handleToggleTask}
-                  pendingTaskId={pendingTaskId}
+                  onLoadingChange={handleTasksLoadingChange}
                   translator={t}
                 />
               )}
@@ -1176,17 +790,13 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             />
   
             <TagsSection
+              entityId={data.person.id}
               tags={data.tags}
-              loadOptions={handleLoadTags}
-              onAssign={handleAssignTag}
-              onUnassign={handleUnassignTag}
-              onCreate={handleCreateTag}
               onChange={handleTagsChange}
               isSubmitting={false}
             />
           </div>
   
-          <Separator className="my-4" />
         </PageBody>
       </Page>
     )

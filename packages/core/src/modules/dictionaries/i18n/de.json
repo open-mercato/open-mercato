@@ -86,5 +86,6 @@
   "dictionaries.errors.duplicate": "Ein Wörterbuch mit diesem Schlüssel existiert bereits",
   "dictionaries.errors.entry_duplicate": "Ein Eintrag mit diesem Wert existiert bereits",
   "dictionaries.errors.entry_not_found": "Wörterbucheintrag nicht gefunden",
-  "dictionaries.errors.entry_required": "Wert ist erforderlich"
+  "dictionaries.errors.entry_required": "Wert ist erforderlich",
+  "dictionaries.errors.currency_protected": "Das Währungswörterbuch ist erforderlich und kann nicht geändert oder gelöscht werden."
 }

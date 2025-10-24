@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { emitOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
 import { OrganizationSelect, type OrganizationTreeNode } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
+import { ALL_ORGANIZATIONS_COOKIE_VALUE } from '@open-mercato/core/modules/directory/constants'
 import { useT } from '@/lib/i18n/context'
 
 type OrganizationMenuNode = {
@@ -21,8 +22,14 @@ type SwitcherState =
   | { status: 'hidden' }
   | { status: 'ready'; nodes: OrganizationMenuNode[]; selectedId: string | null; canManage: boolean }
 
-function readSelectedOrganizationCookie(): string {
-  if (typeof document === 'undefined') return ''
+type SelectedCookieState = {
+  value: string
+  hasCookie: boolean
+  raw: string | null
+}
+
+function readSelectedOrganizationCookie(): SelectedCookieState {
+  if (typeof document === 'undefined') return { value: '', hasCookie: false, raw: null }
   const cookies = document.cookie.split(';')
   for (const entry of cookies) {
     const trimmed = entry.trim()
@@ -30,13 +37,25 @@ function readSelectedOrganizationCookie(): string {
       const raw = trimmed.slice('om_selected_org='.length)
       try {
         const decoded = decodeURIComponent(raw)
-        return decoded || ''
+        if (!decoded) {
+          return { value: '', hasCookie: true, raw: '' }
+        }
+        if (decoded === ALL_ORGANIZATIONS_COOKIE_VALUE) {
+          return { value: '', hasCookie: true, raw: decoded }
+        }
+        return { value: decoded, hasCookie: true, raw: decoded }
       } catch {
-        return raw || ''
+        if (!raw) {
+          return { value: '', hasCookie: true, raw }
+        }
+        if (raw === ALL_ORGANIZATIONS_COOKIE_VALUE) {
+          return { value: '', hasCookie: true, raw }
+        }
+        return { value: raw, hasCookie: true, raw }
       }
     }
   }
-  return ''
+  return { value: '', hasCookie: false, raw: null }
 }
 
 function findFirstSelectable(nodes: OrganizationMenuNode[] | undefined): string | null {
@@ -54,17 +73,17 @@ export default function OrganizationSwitcher() {
   const router = useRouter()
   const t = useT()
   const [state, setState] = React.useState<SwitcherState>({ status: 'loading' })
-  const [value, setValue] = React.useState<string>(() => readSelectedOrganizationCookie())
+  const [cookieState, setCookieState] = React.useState<SelectedCookieState>(() => readSelectedOrganizationCookie())
+  const cookieStateRef = React.useRef(cookieState)
+  cookieStateRef.current = cookieState
+  const value = cookieState.value
 
   const persistSelection = React.useCallback((next: string | null, options?: { refresh?: boolean }) => {
     const resolved = next ?? ''
-    setValue(resolved)
+    const cookieValue = next ?? ALL_ORGANIZATIONS_COOKIE_VALUE
+    setCookieState({ value: resolved, hasCookie: true, raw: cookieValue })
     const maxAge = 60 * 60 * 24 * 30 // 30 days
-    if (!resolved) {
-      document.cookie = 'om_selected_org=; path=/; max-age=0; samesite=lax'
-    } else {
-      document.cookie = `om_selected_org=${encodeURIComponent(resolved)}; path=/; max-age=${maxAge}; samesite=lax`
-    }
+    document.cookie = `om_selected_org=${encodeURIComponent(cookieValue)}; path=/; max-age=${maxAge}; samesite=lax`
     emitOrganizationScopeChanged({ organizationId: resolved || null })
     if (options?.refresh !== false) {
       try { router.refresh() } catch {}
@@ -93,17 +112,37 @@ export default function OrganizationSwitcher() {
         const rawItems = Array.isArray(json.items) ? json.items : []
         const selected = typeof json.selectedId === 'string' ? json.selectedId : null
         const manage = Boolean(json.canManage)
-        const fallbackSelected = selected ?? findFirstSelectable(rawItems)
+        const cookieInfo = cookieStateRef.current
+        const shouldFallbackToFirst =
+          !selected
+          && (
+            !cookieInfo.hasCookie
+            || (cookieInfo.raw !== null && cookieInfo.raw !== ALL_ORGANIZATIONS_COOKIE_VALUE)
+          )
+        const fallbackSelected = selected ?? (shouldFallbackToFirst ? findFirstSelectable(rawItems) : null)
         if (!rawItems.length && !manage) {
           setState({ status: 'hidden' })
-          setValue(fallbackSelected ?? '')
+          if (fallbackSelected) {
+            persistSelection(fallbackSelected, { refresh: false })
+          }
           return
         }
-        setState({ status: 'ready', nodes: rawItems as OrganizationMenuNode[], selectedId: fallbackSelected, canManage: manage })
+        setState({
+          status: 'ready',
+          nodes: rawItems as OrganizationMenuNode[],
+          selectedId: fallbackSelected,
+          canManage: manage,
+        })
         if (fallbackSelected) {
-          persistSelection(fallbackSelected, { refresh: false })
-        } else {
-          setValue('')
+          if (!cookieInfo.hasCookie || cookieInfo.raw !== fallbackSelected) {
+            persistSelection(fallbackSelected, { refresh: false })
+          }
+        } else if (
+          cookieInfo.hasCookie
+          && cookieInfo.raw === ALL_ORGANIZATIONS_COOKIE_VALUE
+          && cookieInfo.value !== ''
+        ) {
+          setCookieState({ value: '', hasCookie: true, raw: ALL_ORGANIZATIONS_COOKIE_VALUE })
         }
       } catch {
         if (!cancelled) setState({ status: 'error' })

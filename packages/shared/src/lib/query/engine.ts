@@ -1,4 +1,4 @@
-import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource } from './types'
+import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource, QueryJoinEdge } from './types'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -9,6 +9,15 @@ type ResolvedCustomFieldSource = {
   alias: string
   table: string
   recordIdExpr: any
+}
+
+type ResolvedJoin = {
+  alias: string
+  table: string
+  fromAlias: string
+  fromField: string
+  toField: string
+  type: 'left' | 'inner'
 }
 
 const pluralizeBaseName = (name: string): string => {
@@ -97,28 +106,129 @@ export class BasicQueryEngine implements QueryEngine {
       q = q.whereNull(qualify('deleted_at'))
     }
 
+    const resolvedJoins = this.resolveJoins(table, opts.joins)
+    const joinMap = new Map<string, ResolvedJoin>()
+    const aliasTables = new Map<string, string>()
+    aliasTables.set(table, table)
+    aliasTables.set('base', table)
+    for (const join of resolvedJoins) {
+      joinMap.set(join.alias, join)
+      aliasTables.set(join.alias, join.table)
+    }
+
     // Normalize filters: accept array or Mongo-style object
     const arrayFilters = this.normalizeFilters(opts.filters)
 
-    // Filters (base fields handled here; cf:* handled later)
+    type BaseFilter = { field: string; op: any; value?: any; qualified?: string }
+    type AliasFilter = { alias: string; column: string; op: any; value?: any }
+    const baseFilters: BaseFilter[] = []
+    const joinFilters = new Map<string, AliasFilter[]>()
+
     for (const f of arrayFilters) {
       if (f.field.startsWith('cf:')) continue
-      const column = await this.resolveBaseColumn(table, f.field)
-      if (!column) continue
-      const qualified = qualify(column)
-      switch (f.op) {
-        case 'eq': q = q.where(qualified, f.value); break
-        case 'ne': q = q.whereNot(qualified, f.value); break
-        case 'gt': q = q.where(qualified, '>', f.value); break
-        case 'gte': q = q.where(qualified, '>=', f.value); break
-        case 'lt': q = q.where(qualified, '<', f.value); break
-        case 'lte': q = q.where(qualified, '<=', f.value); break
-        case 'in': q = q.whereIn(qualified, f.value ?? []); break
-        case 'nin': q = q.whereNotIn(qualified, f.value ?? []); break
-        case 'like': q = q.where(qualified, 'like', f.value); break
-        case 'ilike': q = q.where(qualified, 'ilike', f.value); break
-        case 'exists': f.value ? q = q.whereNotNull(qualified) : q = q.whereNull(qualified); break
+      const parts = f.field.split('.')
+      if (parts.length === 2) {
+        const [aliasNameRaw, column] = parts
+        const aliasName = aliasNameRaw || ''
+        if (joinMap.has(aliasName)) {
+          const list = joinFilters.get(aliasName) ?? []
+          list.push({ alias: aliasName, column, op: f.op, value: f.value })
+          joinFilters.set(aliasName, list)
+          continue
+        }
+        if (aliasName === table || aliasName === 'base') {
+          baseFilters.push({ field: column, op: f.op, value: f.value, qualified: `${table}.${column}` })
+          continue
+        }
       }
+      baseFilters.push({ field: f.field, op: f.op, value: f.value })
+    }
+
+    const applyFilterOp = (builder: any, column: string, op: any, value: any) => {
+      switch (op) {
+        case 'eq': builder.where(column, value); break
+        case 'ne': builder.whereNot(column, value); break
+        case 'gt': builder.where(column, '>', value); break
+        case 'gte': builder.where(column, '>=', value); break
+        case 'lt': builder.where(column, '<', value); break
+        case 'lte': builder.where(column, '<=', value); break
+        case 'in': builder.whereIn(column, Array.isArray(value) ? value : [value]); break
+        case 'nin': builder.whereNotIn(column, Array.isArray(value) ? value : [value]); break
+        case 'like': builder.where(column, 'like', value); break
+        case 'ilike': builder.where(column, 'ilike', value); break
+        case 'exists': value ? builder.whereNotNull(column) : builder.whereNull(column); break
+        default: break
+      }
+      return builder
+    }
+
+    for (const filter of baseFilters) {
+      let qualified = filter.qualified ?? null
+      if (!qualified) {
+        const column = await this.resolveBaseColumn(table, filter.field)
+        if (!column) continue
+        qualified = qualify(column)
+      }
+      applyFilterOp(q, qualified, filter.op, filter.value)
+    }
+
+    const resolveAliasName = (aliasName?: string | null) => {
+      if (!aliasName || aliasName === 'base') return table
+      return aliasName
+    }
+
+    const applyAliasScopes = async (builder: any, aliasName: string) => {
+      const tableName = aliasTables.get(aliasName)
+      if (!tableName) return
+      if (orgScope && await this.columnExists(tableName, 'organization_id')) {
+        this.applyOrganizationScope(builder, `${aliasName}.organization_id`, orgScope)
+      }
+      if (opts.tenantId && await this.columnExists(tableName, 'tenant_id')) {
+        builder.where(`${aliasName}.tenant_id`, opts.tenantId)
+      }
+    }
+
+    for (const [alias, filtersForAlias] of joinFilters.entries()) {
+      const chain = this.buildJoinChain(alias, joinMap, table)
+      if (!chain.length) continue
+      const first = chain[0]
+      const sub = knex({ [first.alias]: first.table }).select(1)
+      await applyAliasScopes(sub, first.alias)
+      const parentAlias = resolveAliasName(first.fromAlias)
+      if (parentAlias === table) {
+        sub.whereRaw('?? = ??', [`${first.alias}.${first.toField}`, qualify(first.fromField)])
+      } else {
+        sub.whereRaw('?? = ??', [`${first.alias}.${first.toField}`, `${parentAlias}.${first.fromField}`])
+      }
+      for (const cfg of chain.slice(1)) {
+        const joinArgs = { [cfg.alias]: cfg.table }
+        const parent = resolveAliasName(cfg.fromAlias)
+        const joinFn = function (this: any) {
+          if (parent === table) {
+            this.on(`${cfg.alias}.${cfg.toField}`, '=', knex.raw('??', [qualify(cfg.fromField)]))
+          } else {
+            this.on(`${cfg.alias}.${cfg.toField}`, '=', knex.raw('??', [`${parent}.${cfg.fromField}`]))
+          }
+        }
+        if (cfg.type === 'inner') sub.join(joinArgs, joinFn)
+        else sub.leftJoin(joinArgs, joinFn)
+        await applyAliasScopes(sub, cfg.alias)
+      }
+      let existsDirective: boolean | null = null
+      for (const filter of filtersForAlias) {
+        if (filter.op === 'exists') {
+          if (filter.value === false) existsDirective = false
+          else if (existsDirective === null) existsDirective = true
+          continue
+        }
+        const targetTable = aliasTables.get(filter.alias)
+        if (!targetTable) continue
+        if (!await this.columnExists(targetTable, filter.column)) continue
+        const qualified = `${filter.alias}.${filter.column}`
+        applyFilterOp(sub, qualified, filter.op, filter.value)
+      }
+      if (existsDirective === false) q = q.whereNotExists(sub)
+      else q = q.whereExists(sub)
     }
     // Selection (base columns only here; cf:* handled later)
     if (opts.fields && opts.fields.length) {
@@ -444,6 +554,44 @@ export class BasicQueryEngine implements QueryEngine {
       })
     })
     return sources
+  }
+
+  private resolveJoins(baseTable: string, joins?: QueryJoinEdge[] | null): ResolvedJoin[] {
+    if (!joins || joins.length === 0) return []
+    const resolved: ResolvedJoin[] = []
+    const seen = new Set<string>()
+    for (const entry of joins) {
+      if (!entry || typeof entry !== 'object') continue
+      const alias = typeof entry.alias === 'string' ? entry.alias.trim() : ''
+      if (!alias) continue
+      if (seen.has(alias)) continue
+      const table = entry.table ?? (entry.entityId ? resolveEntityTableName(this.em, entry.entityId) : null)
+      if (!table) continue
+      const fromField = entry.from?.field?.trim()
+      const toField = entry.to?.field?.trim()
+      if (!fromField || !toField) continue
+      const fromAliasRaw = entry.from?.alias?.trim()
+      const fromAlias = fromAliasRaw && fromAliasRaw.length > 0 ? fromAliasRaw : 'base'
+      const type: 'left' | 'inner' = entry.type === 'left' ? 'left' : 'inner'
+      resolved.push({ alias, table, fromAlias, fromField, toField, type })
+      seen.add(alias)
+    }
+    return resolved
+  }
+
+  private buildJoinChain(alias: string, joinMap: Map<string, ResolvedJoin>, baseTable: string, visited: Set<string> = new Set()): ResolvedJoin[] {
+    if (visited.has(alias)) {
+      throw new Error(`QueryEngine: circular join reference detected for alias ${alias}`)
+    }
+    const cfg = joinMap.get(alias)
+    if (!cfg) return []
+    visited.add(alias)
+    if (!cfg.fromAlias || cfg.fromAlias === 'base' || cfg.fromAlias === baseTable) {
+      return [cfg]
+    }
+    const parentChain = this.buildJoinChain(cfg.fromAlias, joinMap, baseTable, visited)
+    if (parentChain.length === 0) return []
+    return [...parentChain, cfg]
   }
 
   private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {

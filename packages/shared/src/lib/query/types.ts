@@ -61,6 +61,20 @@ export type QueryCustomFieldSource = {
   organizationField?: string
 }
 
+export type QueryJoinEdge = {
+  alias: string
+  table?: string
+  entityId?: EntityId
+  from: {
+    alias?: string
+    field: string
+  }
+  to: {
+    field: string
+  }
+  type?: 'left' | 'inner'
+}
+
 export type QueryOptions = {
   fields?: FieldSelector[] // base fields and/or 'cf:<key>' for custom fields
   includeExtensions?: boolean | string[] // include all registered extensions or only specific ones by entity id
@@ -77,6 +91,7 @@ export type QueryOptions = {
   // are excluded if the base table has that column. Set true to include them.
   withDeleted?: boolean
   customFieldSources?: QueryCustomFieldSource[]
+  joins?: QueryJoinEdge[]
 }
 
 export type QueryResult<T = any> = {

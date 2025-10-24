@@ -124,6 +124,22 @@ export function createDictionarySelectLabels(
         addPrompt: translate('customers.people.form.dictionary.promptActivityType', 'Name the activity type'),
         dialogTitle: translate('customers.people.form.dictionary.dialogTitleActivityType', 'Add activity type'),
       }
+    case 'deal-statuses':
+      return {
+        ...base,
+        placeholder: translate('customers.deals.form.status.placeholder', 'Select a deal status'),
+        addLabel: translate('customers.deals.form.dictionary.addStatus', 'Add deal status'),
+        addPrompt: translate('customers.deals.form.dictionary.promptStatus', 'Name the deal status'),
+        dialogTitle: translate('customers.deals.form.dictionary.dialogTitleStatus', 'Add deal status'),
+      }
+    case 'pipeline-stages':
+      return {
+        ...base,
+        placeholder: translate('customers.deals.form.pipeline.placeholder', 'Select a pipeline stage'),
+        addLabel: translate('customers.deals.form.dictionary.addPipelineStage', 'Add pipeline stage'),
+        addPrompt: translate('customers.deals.form.dictionary.promptPipelineStage', 'Name the pipeline stage'),
+        dialogTitle: translate('customers.deals.form.dictionary.dialogTitlePipelineStage', 'Add pipeline stage'),
+      }
     case 'job-titles':
       return {
         ...base,

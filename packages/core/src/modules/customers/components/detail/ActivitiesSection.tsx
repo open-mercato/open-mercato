@@ -407,7 +407,6 @@ export function ActivitiesSection({
           )
       if (!confirmed) return
       setPendingAction({ kind: 'delete', id: activity.id })
-      pushLoading()
       try {
         const res = await apiFetch('/api/customers/activities', {
           method: 'DELETE',
@@ -422,7 +421,7 @@ export function ActivitiesSection({
               : t('customers.people.detail.activities.deleteError', 'Failed to delete activity.')
           throw new Error(message)
         }
-        await loadActivities()
+        setActivities((prev) => prev.filter((existing) => existing.id !== activity.id))
         flash(t('customers.people.detail.activities.deleteSuccess', 'Activity deleted.'), 'success')
       } catch (err) {
         const message =
@@ -433,10 +432,9 @@ export function ActivitiesSection({
         throw err instanceof Error ? err : new Error(message)
       } finally {
         setPendingAction(null)
-        popLoading()
       }
     },
-    [loadActivities, popLoading, pushLoading, t],
+    [t],
   )
 
   const handleDialogSubmit = React.useCallback(

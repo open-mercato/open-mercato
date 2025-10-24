@@ -10,6 +10,7 @@ import {
   rebuildHierarchyForTenant,
   type ComputedOrganizationNode,
 } from '@open-mercato/core/modules/directory/lib/hierarchy'
+import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import {
   getSelectedOrganizationFromRequest,
   resolveOrganizationScopeForRequest,
@@ -154,7 +155,8 @@ export async function GET(req: Request) {
   if (!tenantId) {
     const candidateOrgIds = new Set<string>()
     const cookieOrgId = getSelectedOrganizationFromRequest(req)
-    if (cookieOrgId) candidateOrgIds.add(cookieOrgId)
+    const effectiveCookieOrgId = cookieOrgId && !isAllOrganizationsSelection(cookieOrgId) ? cookieOrgId : null
+    if (effectiveCookieOrgId) candidateOrgIds.add(effectiveCookieOrgId)
     if (auth.orgId) candidateOrgIds.add(auth.orgId)
 
     try {
@@ -162,7 +164,7 @@ export async function GET(req: Request) {
         container,
         auth,
         request: req,
-        selectedId: cookieOrgId ?? undefined,
+        selectedId: effectiveCookieOrgId ?? undefined,
       })
       if (scope.selectedId) candidateOrgIds.add(scope.selectedId)
       if (Array.isArray(scope.filterIds) && scope.filterIds.length) {

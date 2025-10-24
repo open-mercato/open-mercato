@@ -2,7 +2,7 @@
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
-import { filterCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { filterCustomFieldDefs, useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
@@ -22,8 +22,6 @@ type RecordsResponse = {
   pageSize: number
   totalPages: number
 }
-
-type CfDef = { key: string; label?: string; kind?: string }
 
 function toCsvUrl(base: string, params: URLSearchParams) {
   // Build a relative URL to avoid SSR/CSR origin mismatch hydration issues
@@ -54,23 +52,11 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [loading, setLoading] = React.useState(false)
-  const [cfDefs, setCfDefs] = React.useState<CfDef[]>([])
-  const [showAllColumns, setShowAllColumns] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
-
-  // Load CF definitions for labeling and to respect per-field visibility (listVisible)
-  React.useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      try {
-        const res = await apiFetch(`/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`)
-        const j = await res.json().catch(() => ({ items: [] }))
-        if (!cancelled) setCfDefs((j.items || []).map((d: any) => ({ key: d.key, label: d.label, kind: d.kind, listVisible: (d as any).listVisible !== false })))
-      } catch {}
-    }
-    if (entityId) load()
-    return () => { cancelled = true }
-  }, [entityId])
+  const { data: cfDefs = [] } = useCustomFieldDefs(entityId, {
+    enabled: Boolean(entityId),
+    keyExtras: [scopeVersion],
+  })
 
   // Fetch records whenever paging/sorting/filters change (do NOT refetch on cfDefs/search changes)
   React.useEffect(() => {
@@ -122,7 +108,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
 
   // Build columns from custom field definitions only (no data round-trip)
   React.useEffect(() => {
-    const visibleDefs = filterCustomFieldDefs(cfDefs as any, 'list') as any
+    const visibleDefs = filterCustomFieldDefs(cfDefs, 'list') as any
     const maxVisible = 10
     const cols: ColumnDef<any>[] = visibleDefs.map((d: any, idx: number) => ({
       accessorKey: d.key,
@@ -208,7 +194,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
     }
   }, [buildFullExportUrl, data, entityId, viewExportColumns])
 
-  const hasAnyFormFields = React.useMemo(() => filterCustomFieldDefs(cfDefs as any, 'form').length > 0, [cfDefs])
+  const hasAnyFormFields = React.useMemo(() => filterCustomFieldDefs(cfDefs, 'form').length > 0, [cfDefs])
   const actions = (
     <>
       <Button asChild variant="outline" size="sm">

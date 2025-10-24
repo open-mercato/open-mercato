@@ -17,6 +17,8 @@ export type CustomerDictionaryKind =
   | 'lifecycle-stages'
   | 'address-types'
   | 'activity-types'
+  | 'deal-statuses'
+  | 'pipeline-stages'
   | 'job-titles'
 export type CustomerDictionaryDisplayEntry = DictionaryDisplayEntry
 export type CustomerDictionaryMap = DictionaryMap

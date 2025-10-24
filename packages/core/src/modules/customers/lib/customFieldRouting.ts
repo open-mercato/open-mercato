@@ -3,6 +3,7 @@ import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entitie
 
 export const CUSTOMER_ENTITY_ID = 'customers:customer_entity'
 export const PERSON_ENTITY_ID = 'customers:customer_person_profile'
+export const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
 
 type DefinitionScore = { base: number; penalty: number; entityIndex: number }
 
@@ -52,12 +53,13 @@ function scoreDefinition(kind: string, cfg: Record<string, any>, entityIndex: nu
   return { base, penalty, entityIndex }
 }
 
-export async function resolvePersonCustomFieldRouting(
+async function resolveProfileCustomFieldRouting(
   em: EntityManager,
+  profileEntityId: string,
   tenantId: string | null | undefined,
   organizationId: string | null | undefined
 ): Promise<Map<string, string>> {
-  const entityIds = [CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID]
+  const entityIds = [CUSTOMER_ENTITY_ID, profileEntityId]
   const scopeClauses: any[] = []
   if (tenantId) scopeClauses.push({ $or: [{ tenantId }, { tenantId: null }] })
   else scopeClauses.push({ tenantId: null })
@@ -101,7 +103,7 @@ export async function resolvePersonCustomFieldRouting(
   return routing
 }
 
-export function mergePersonCustomFieldValues(
+function mergeProfileCustomFieldValues(
   routing: Map<string, string>,
   entityValues: Record<string, unknown>,
   profileValues: Record<string, unknown>
@@ -119,4 +121,36 @@ export function mergePersonCustomFieldValues(
     merged[key] = value
   }
   return merged
+}
+
+export function mergePersonCustomFieldValues(
+  routing: Map<string, string>,
+  entityValues: Record<string, unknown>,
+  profileValues: Record<string, unknown>
+): Record<string, unknown> {
+  return mergeProfileCustomFieldValues(routing, entityValues, profileValues)
+}
+
+export function mergeCompanyCustomFieldValues(
+  routing: Map<string, string>,
+  entityValues: Record<string, unknown>,
+  profileValues: Record<string, unknown>
+): Record<string, unknown> {
+  return mergeProfileCustomFieldValues(routing, entityValues, profileValues)
+}
+
+export function resolvePersonCustomFieldRouting(
+  em: EntityManager,
+  tenantId: string | null | undefined,
+  organizationId: string | null | undefined
+): Promise<Map<string, string>> {
+  return resolveProfileCustomFieldRouting(em, PERSON_ENTITY_ID, tenantId, organizationId)
+}
+
+export function resolveCompanyCustomFieldRouting(
+  em: EntityManager,
+  tenantId: string | null | undefined,
+  organizationId: string | null | undefined
+): Promise<Map<string, string>> {
+  return resolveProfileCustomFieldRouting(em, COMPANY_ENTITY_ID, tenantId, organizationId)
 }

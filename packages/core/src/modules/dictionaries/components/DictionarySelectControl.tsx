@@ -18,6 +18,7 @@ type DictionarySelectControlProps = {
   allowInlineCreate?: boolean
   selectClassName?: string
   disabled?: boolean
+  priorityValues?: string[]
 }
 
 export function DictionarySelectControl({
@@ -27,6 +28,7 @@ export function DictionarySelectControl({
   allowInlineCreate = true,
   selectClassName,
   disabled = false,
+  priorityValues,
 }: DictionarySelectControlProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -64,15 +66,46 @@ export function DictionarySelectControl({
 
   const effectiveAllowInlineCreate = allowInlineCreate && inlineCreateEnabled
 
+  const normalizedPriority = React.useMemo(() => {
+    if (!Array.isArray(priorityValues) || !priorityValues.length) return []
+    const seen = new Set<string>()
+    const ordered: string[] = []
+    priorityValues.forEach((code) => {
+      if (typeof code !== 'string') return
+      const normalized = code.trim().toLowerCase()
+      if (!normalized.length || seen.has(normalized)) return
+      seen.add(normalized)
+      ordered.push(normalized)
+    })
+    return ordered
+  }, [priorityValues])
+
   const fetchOptions = React.useCallback(async () => {
     const data = await ensureDictionaryEntries(queryClient, dictionaryId, scopeVersion)
-    return data.entries.map((entry) => ({
+    const options = data.entries.map((entry) => ({
       value: entry.value,
       label: entry.label,
       color: entry.color ?? null,
       icon: entry.icon ?? null,
     }))
-  }, [dictionaryId, queryClient, scopeVersion])
+    if (!normalizedPriority.length) return options
+    const byValue = new Map<string, (typeof options)[number]>()
+    options.forEach((option) => {
+      const key = option.value.trim().toLowerCase()
+      if (!byValue.has(key)) byValue.set(key, option)
+    })
+    const prioritized: typeof options = []
+    normalizedPriority.forEach((key) => {
+      const match = byValue.get(key)
+      if (match) {
+        prioritized.push(match)
+        byValue.delete(key)
+      }
+    })
+    const remaining: typeof options = []
+    byValue.forEach((option) => remaining.push(option))
+    return [...prioritized, ...remaining]
+  }, [dictionaryId, normalizedPriority, queryClient, scopeVersion])
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {

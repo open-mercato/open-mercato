@@ -30,6 +30,8 @@ const listSchema = z
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     id: z.string().uuid().optional(),
+    tagIds: z.string().optional(),
+    tagIdsEmpty: z.string().optional(),
   })
   .passthrough()
 
@@ -104,6 +106,17 @@ const crud = makeCrudRoute({
       if (query.source) {
         filters.source = { $eq: query.source }
       }
+      const tagIdsRaw = typeof query.tagIds === 'string' ? query.tagIds : ''
+      const tagIds = tagIdsRaw
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+      const tagIdsEmpty = query.tagIdsEmpty === 'true'
+      if (tagIdsEmpty) {
+        filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
+      } else if (tagIds.length > 0) {
+        filters['tag_assignments.tag_id'] = { $in: tagIds }
+      }
       const hasEmail = query.hasEmail === 'true' ? true : query.hasEmail === 'false' ? false : undefined
       if (!email && !emailStartsWith && !emailContains && hasEmail !== undefined) {
         filters.primary_email = { $exists: hasEmail }
@@ -151,6 +164,15 @@ const crud = makeCrudRoute({
         alias: 'person_profile',
         recordIdColumn: 'id',
         join: { fromField: 'id', toField: 'entity_id' },
+      },
+    ],
+    joins: [
+      {
+        alias: 'tag_assignments',
+        table: 'customer_tag_assignments',
+        from: { field: 'id' },
+        to: { field: 'entity_id' },
+        type: 'left',
       },
     ],
     transformItem: (item: any) => {
