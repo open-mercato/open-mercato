@@ -31,6 +31,7 @@ const listSchema = z
     sortDir: z.enum(['asc', 'desc']).optional(),
     id: z.string().uuid().optional(),
     tagIds: z.string().optional(),
+    tagIdsEmpty: z.string().optional(),
   })
   .passthrough()
 
@@ -110,7 +111,10 @@ const crud = makeCrudRoute({
         .split(',')
         .map((value) => value.trim())
         .filter((value) => value.length > 0)
-      if (tagIds.length > 0) {
+      const tagIdsEmpty = query.tagIdsEmpty === 'true'
+      if (tagIdsEmpty) {
+        filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
+      } else if (tagIds.length > 0) {
         filters['tag_assignments.tag_id'] = { $in: tagIds }
       }
       const hasEmail = query.hasEmail === 'true' ? true : query.hasEmail === 'false' ? false : undefined

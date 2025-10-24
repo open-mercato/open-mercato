@@ -56,6 +56,8 @@ type PeopleResponse = {
 type DictionaryKindKey = CustomerDictionaryKind
 type DictionaryMap = CustomerDictionaryMap
 
+const NO_MATCH_TAG_SENTINEL = '__no_match__'
+
 function formatDate(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback
   const date = new Date(value)
@@ -315,8 +317,10 @@ export default function CustomersPeoplePage() {
       const normalizedTagIds = tagLabels
         .map((label) => tagLabelToId[label])
         .filter((id): id is string => typeof id === 'string' && id.length > 0)
-      if (normalizedTagIds.length > 0) {
+      if (normalizedTagIds.length === tagLabels.length && normalizedTagIds.length > 0) {
         params.set('tagIds', normalizedTagIds.join(','))
+      } else {
+        params.set('tagIdsEmpty', 'true')
       }
     }
     Object.entries(filterValues).forEach(([key, value]) => {

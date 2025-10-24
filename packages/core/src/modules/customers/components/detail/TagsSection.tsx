@@ -307,7 +307,7 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
         </div>
       ) : (
         <div
-          className="rounded-lg border bg-muted/20 p-4 min-h-[64px] cursor-pointer"
+          className="group/tags relative rounded-lg border bg-muted/20 p-4 cursor-pointer transition-colors hover:border-primary/40 focus-visible:border-primary focus-visible:outline-none"
           role="button"
           tabIndex={isSubmitting ? -1 : 0}
           onClick={startEditing}
@@ -319,6 +319,12 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
             }
           }}
         >
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/tags:opacity-100 group-focus-within/tags:opacity-100"
+          >
+            <Pencil className="h-4 w-4" />
+          </span>
           {tags.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {t('customers.people.detail.empty.tags')}

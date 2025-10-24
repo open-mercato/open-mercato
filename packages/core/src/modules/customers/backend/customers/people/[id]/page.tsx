@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Plus } from 'lucide-react'
@@ -798,7 +797,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             />
           </div>
   
-          <Separator className="my-4" />
         </PageBody>
       </Page>
     )
