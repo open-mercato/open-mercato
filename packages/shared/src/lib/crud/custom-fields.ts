@@ -14,6 +14,39 @@ export type SplitCustomFieldPayload = {
   custom: Record<string, unknown>
 }
 
+export type CustomFieldDefinitionSummary = {
+  key: string
+  label: string | null
+  kind: string | null
+  multi: boolean
+  dictionaryId?: string | null
+  organizationId?: string | null
+  tenantId?: string | null
+  priority: number
+  updatedAt: number
+}
+
+export type CustomFieldDefinitionIndex = Map<string, CustomFieldDefinitionSummary[]>
+
+export type CustomFieldDisplayEntry = {
+  key: string
+  label: string | null
+  value: unknown
+  kind: string | null
+  multi: boolean
+}
+
+export type CustomFieldDisplayPayload = {
+  customValues: Record<string, unknown> | null
+  customFields: CustomFieldDisplayEntry[]
+}
+
+export type CustomFieldSnapshot = {
+  entries: Record<string, unknown>
+  customValues: Record<string, unknown> | null
+  customFields: CustomFieldDisplayEntry[]
+}
+
 export function buildCustomFieldSelectorsForEntity(entityId: EntityId, sets: CustomFieldSet[]): CustomFieldSelectors {
   const keys = Array.from(new Set(
     (sets || [])
@@ -170,6 +203,198 @@ export function extractCustomFieldValuesFromPayload(raw: Record<string, unknown>
   return splitCustomFieldPayload(raw).custom
 }
 
+function normalizeDefinitionKey(key: unknown): string {
+  if (typeof key !== 'string') return ''
+  const trimmed = key.trim()
+  return trimmed.length ? trimmed.toLowerCase() : ''
+}
+
+function normalizeDefinitionConfig(raw: unknown): Record<string, any> {
+  if (!raw) return {}
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return { ...(parsed as Record<string, any>) }
+      }
+      return {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return { ...(raw as Record<string, any>) }
+  }
+  return {}
+}
+
+function summarizeDefinition(def: CustomFieldDef): CustomFieldDefinitionSummary | null {
+  const normalizedKey = normalizeDefinitionKey(def.key)
+  if (!normalizedKey) return null
+  const cfg = normalizeDefinitionConfig((def as any).configJson)
+  const label =
+    typeof cfg.label === 'string' && cfg.label.trim().length
+      ? cfg.label.trim()
+      : def.key
+  const dictionaryId =
+    typeof cfg.dictionaryId === 'string' && cfg.dictionaryId.trim().length
+      ? cfg.dictionaryId.trim()
+      : null
+  const multi =
+    cfg.multi !== undefined ? Boolean(cfg.multi) : false
+  const priority =
+    typeof cfg.priority === 'number' ? cfg.priority : 0
+  const updatedAt =
+    def.updatedAt instanceof Date
+      ? def.updatedAt.getTime()
+      : new Date(def.updatedAt as any).getTime()
+  return {
+    key: def.key,
+    label,
+    kind: typeof def.kind === 'string' ? def.kind : null,
+    multi,
+    dictionaryId,
+    organizationId: def.organizationId ?? null,
+    tenantId: def.tenantId ?? null,
+    priority,
+    updatedAt: Number.isNaN(updatedAt) ? 0 : updatedAt,
+  }
+}
+
+function sortDefinitionSummaries(defs: CustomFieldDefinitionSummary[]): CustomFieldDefinitionSummary[] {
+  return [...defs].sort((a, b) => {
+    const priorityDiff = (a.priority ?? 0) - (b.priority ?? 0)
+    if (priorityDiff !== 0) return priorityDiff
+    const updatedDiff = (b.updatedAt ?? 0) - (a.updatedAt ?? 0)
+    if (updatedDiff !== 0) return updatedDiff
+    return a.key.localeCompare(b.key)
+  })
+}
+
+function selectDefinitionForRecord(
+  defs: CustomFieldDefinitionSummary[],
+  organizationId: string | null,
+  tenantId: string | null,
+): CustomFieldDefinitionSummary | null {
+  if (!defs.length) return null
+  const prioritizedForOrg = defs.filter(
+    (def) => def.organizationId && organizationId && def.organizationId === organizationId,
+  )
+  if (prioritizedForOrg.length) return sortDefinitionSummaries(prioritizedForOrg)[0]
+  const prioritizedForTenant = defs.filter(
+    (def) => def.tenantId && tenantId && def.tenantId === tenantId && !def.organizationId,
+  )
+  if (prioritizedForTenant.length) return sortDefinitionSummaries(prioritizedForTenant)[0]
+  const global = defs.filter((def) => !def.organizationId)
+  if (global.length) return sortDefinitionSummaries(global)[0]
+  return sortDefinitionSummaries(defs)[0] ?? null
+}
+
+export async function loadCustomFieldDefinitionIndex(opts: {
+  em: EntityManager
+  entityIds: string | string[]
+  tenantId?: string | null | undefined
+  organizationIds?: Array<string | null | undefined> | null
+}): Promise<CustomFieldDefinitionIndex> {
+  const list = Array.isArray(opts.entityIds) ? opts.entityIds : [opts.entityIds]
+  const entityIds = list
+    .map((id) => (typeof id === 'string' ? id.trim() : String(id ?? '')))
+    .filter((id) => id.length > 0)
+  if (!entityIds.length) return new Map()
+  const tenantId = opts.tenantId ?? null
+  const orgCandidates = Array.isArray(opts.organizationIds)
+    ? opts.organizationIds
+        .map((id) => (typeof id === 'string' ? id.trim() : id))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : []
+  const scopeClauses: Record<string, unknown>[] = [
+    tenantId
+      ? { $or: [{ tenantId: tenantId as any }, { tenantId: null }] }
+      : { tenantId: null },
+  ]
+  if (orgCandidates.length) {
+    scopeClauses.push({
+      $or: [{ organizationId: { $in: orgCandidates as any } }, { organizationId: null }],
+    })
+  } else {
+    scopeClauses.push({ organizationId: null })
+  }
+  const where: Record<string, unknown> = {
+    entityId: { $in: entityIds as any },
+    deletedAt: null,
+    isActive: true,
+    $and: scopeClauses,
+  }
+  const defs = await opts.em.find(CustomFieldDef, where as any)
+  const index: CustomFieldDefinitionIndex = new Map()
+  defs.forEach((def) => {
+    const summary = summarizeDefinition(def)
+    if (!summary) return
+    const normalizedKey = normalizeDefinitionKey(summary.key)
+    if (!normalizedKey) return
+    if (!index.has(normalizedKey)) index.set(normalizedKey, [])
+    index.get(normalizedKey)!.push(summary)
+  })
+  index.forEach((entries, key) => {
+    index.set(key, sortDefinitionSummaries(entries))
+  })
+  return index
+}
+
+export function decorateRecordWithCustomFields(
+  record: Record<string, unknown>,
+  definitions: CustomFieldDefinitionIndex,
+  context: {
+    organizationId?: string | null
+    tenantId?: string | null
+  } = {},
+): CustomFieldDisplayPayload {
+  const rawEntries = extractAllCustomFieldEntries(record)
+  if (!Object.keys(rawEntries).length) {
+    return { customValues: null, customFields: [] }
+  }
+  const values: Record<string, unknown> = {}
+  const entries: Array<{ entry: CustomFieldDisplayEntry; priority: number; updatedAt: number }> = []
+  const organizationId = context.organizationId ?? null
+  const tenantId = context.tenantId ?? null
+
+  Object.entries(rawEntries).forEach(([prefixedKey, value]) => {
+    const bareKey = prefixedKey.replace(/^cf_/, '')
+    const normalizedKey = normalizeDefinitionKey(bareKey)
+    if (!normalizedKey) return
+    values[bareKey] = value
+    const defsForKey = definitions.get(normalizedKey) ?? []
+    const resolvedDef = selectDefinitionForRecord(defsForKey, organizationId, tenantId)
+    const entry: CustomFieldDisplayEntry = {
+      key: bareKey,
+      label: resolvedDef?.label ?? bareKey,
+      value,
+      kind: resolvedDef?.kind ?? null,
+      multi: resolvedDef?.multi ?? Array.isArray(value),
+    }
+    entries.push({
+      entry,
+      priority: resolvedDef?.priority ?? Number.MAX_SAFE_INTEGER,
+      updatedAt: resolvedDef?.updatedAt ?? 0,
+    })
+  })
+
+  const ordered = entries
+    .sort((a, b) => {
+      const priorityDiff = a.priority - b.priority
+      if (priorityDiff !== 0) return priorityDiff
+      const updatedDiff = b.updatedAt - a.updatedAt
+      if (updatedDiff !== 0) return updatedDiff
+      return a.entry.key.localeCompare(b.entry.key)
+    })
+    .map((item) => item.entry)
+
+  return {
+    customValues: Object.keys(values).length ? values : null,
+    customFields: ordered,
+  }
+}
+
 export async function loadCustomFieldValues(opts: {
   em: EntityManager
   entityId: EntityId
@@ -306,4 +531,23 @@ export async function loadCustomFieldValues(opts: {
   }
 
   return result
+}
+
+export function summarizeCustomFields(record: Record<string, unknown>): CustomFieldSnapshot {
+  const entries = extractAllCustomFieldEntries(record)
+  const values = Object.fromEntries(
+    Object.entries(entries).map(([prefixedKey, value]) => [
+      prefixedKey.replace(/^cf_/, ''),
+      value,
+    ]),
+  )
+  const customValues = Object.keys(values).length ? values : null
+  const customFields = Object.entries(values).map(([key, value]) => ({
+    key,
+    label: key,
+    value,
+    kind: null,
+    multi: Array.isArray(value),
+  }))
+  return { entries, customValues, customFields }
 }

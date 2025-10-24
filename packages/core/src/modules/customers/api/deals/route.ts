@@ -8,7 +8,6 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '../utils'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { extractAllCustomFieldEntries, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -103,6 +102,9 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       'created_at',
       'updated_at',
     ],
+    decorateCustomFields: {
+      entityIds: E.customers.customer_deal,
+    },
     sortFieldMap: {
       createdAt: 'created_at',
       updatedAt: 'updated_at',
@@ -289,8 +291,6 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
           return selected.every((id) => membership.has(id))
         }
 
-        const tenantByRecord: Record<string, string | null | undefined> = {}
-        const orgByRecord: Record<string, string | null | undefined> = {}
         const enhancedItems = items
           .map((item) => {
             if (!item || typeof item !== 'object') return null
@@ -302,103 +302,31 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
             const matchesPerson = matchesAll(selectedPersonIds, personMemberships, candidate)
             const matchesCompany = matchesAll(selectedCompanyIds, companyMemberships, candidate)
             if (!matchesPerson || !matchesCompany) return null
-            const tenantId =
+            const tenantIdRaw =
               typeof data.tenantId === 'string'
                 ? data.tenantId
                 : typeof data.tenant_id === 'string'
                   ? data.tenant_id
                   : null
-            const organizationId =
+            const organizationIdRaw =
               typeof data.organizationId === 'string'
                 ? data.organizationId
                 : typeof data.organization_id === 'string'
                   ? data.organization_id
                   : null
-            tenantByRecord[candidate] = tenantId
-            orgByRecord[candidate] = organizationId
-
-            const rawCustom = extractAllCustomFieldEntries(data as any)
-            const normalizedValues = Object.fromEntries(
-              Object.entries(rawCustom).map(([prefixedKey, value]) => [
-                prefixedKey.replace(/^cf_/, ''),
-                value,
-              ]),
-            )
-            const customEntries = Object.entries(normalizedValues).map(([key, value]) => ({
-              key,
-              label: key,
-              value,
-              kind: null,
-              multi: Array.isArray(value),
-            }))
-            const customValues = Object.keys(normalizedValues).length ? normalizedValues : null
+            const tenantId = tenantIdRaw && tenantIdRaw.trim().length ? tenantIdRaw.trim() : null
+            const organizationId = organizationIdRaw && organizationIdRaw.trim().length ? organizationIdRaw.trim() : null
             return {
               ...data,
               personIds: people.map((entry) => entry.id),
               people,
               companyIds: companies.map((entry) => entry.id),
               companies,
-              customValues,
-              customFields: customValues ? customEntries : [],
+              tenantId,
+              organizationId,
             }
           })
           .filter((item): item is Record<string, unknown> => !!item)
-
-        if (enhancedItems.length) {
-          try {
-            const em = ctx.container.resolve<EntityManager>('em')
-            const allIds = enhancedItems
-              .map((item) => {
-                const rawId = (item as Record<string, unknown>).id
-                return typeof rawId === 'string' && rawId.trim().length ? rawId : null
-              })
-              .filter((value): value is string => !!value)
-            if (allIds.length) {
-              const loaded = await loadCustomFieldValues({
-                em,
-                entityId: E.customers.customer_deal,
-                recordIds: Array.from(new Set(allIds)),
-                tenantIdByRecord: tenantByRecord,
-                organizationIdByRecord: orgByRecord,
-                tenantFallbacks: [ctx.auth?.tenantId ?? null],
-              })
-              if (loaded && Object.keys(loaded).length) {
-                enhancedItems.forEach((item) => {
-                  const itemId =
-                    typeof (item as Record<string, unknown>).id === 'string'
-                      ? ((item as Record<string, unknown>).id as string)
-                      : null
-                  if (!itemId) return
-                  const values = loaded[itemId]
-                  if (!values) return
-                  const normalized = Object.fromEntries(
-                    Object.entries(values).map(([prefixedKey, value]) => [
-                      prefixedKey.replace(/^cf_/, ''),
-                      value,
-                    ]),
-                  )
-                  const baseExisting = (item as { customValues?: Record<string, unknown> | null }).customValues
-                  const existing =
-                    baseExisting && typeof baseExisting === 'object' && baseExisting !== null
-                      ? baseExisting
-                      : {}
-                  const merged = { ...existing, ...normalized }
-                  const entries = Object.entries(merged).map(([key, value]) => ({
-                    key,
-                    label: key,
-                    value,
-                    kind: null,
-                    multi: Array.isArray(value),
-                  }))
-                  ;(item as any).customValues = merged
-                  ;(item as any).customFields = entries
-                })
-              }
-            }
-          } catch (err) {
-            console.warn('[customers.deals] failed to backfill custom fields', err)
-          }
-        }
 
         payload.items = enhancedItems
         if (hasPersonFilter || hasCompanyFilter) {
