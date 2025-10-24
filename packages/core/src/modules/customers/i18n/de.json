@@ -376,6 +376,7 @@
   "customers.people.form.dictionary.errorRequired": "Bitte einen Namen eingeben",
   "customers.people.form.dictionary.cancel": "Abbrechen",
   "customers.people.form.dictionary.save": "Speichern",
+  "customers.people.form.dictionary.saveShortcut": "⌘/Ctrl + Enter",
   "customers.people.form.dictionary.errorLoad": "Optionen konnten nicht geladen werden",
   "customers.people.form.dictionary.error": "Option konnte nicht gespeichert werden",
   "customers.people.form.dictionary.loading": "Optionen werden geladen…",

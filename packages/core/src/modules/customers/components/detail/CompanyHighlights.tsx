@@ -426,7 +426,7 @@ export function CompanyHighlights({
           label={t('customers.companies.detail.highlights.industry', 'Industry')}
           value={profile?.industry ?? null}
           emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
-          dictionaryKind="industries"
+          kind="industries"
           onSave={onIndustrySave}
           activateOnClick
         />

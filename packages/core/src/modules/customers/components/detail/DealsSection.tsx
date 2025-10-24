@@ -9,6 +9,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { DealSummary, SectionAction, TabEmptyState, Translator } from './types'
 import { formatDate } from './utils'
 import { DealDialog } from './DealDialog'
@@ -16,6 +17,8 @@ import type { DealFormBaseValues, DealFormSubmitPayload } from './DealForm'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
+import { CustomFieldValuesList } from './CustomFieldValuesList'
+import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
 
 const DEALS_PAGE_SIZE = 10
 
@@ -216,6 +219,7 @@ export function DealsSection({
   const scopeVersion = useOrganizationScopeVersion()
   const statusDictionaryQuery = useCustomerDictionary('deal-statuses', scopeVersion)
   const statusDictionaryMap = statusDictionaryQuery.data?.map ?? null
+  const customFieldResources = useCustomFieldDisplay(E.customers.customer_deal)
 
   const [deals, setDeals] = React.useState<NormalizedDeal[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
@@ -774,6 +778,13 @@ export function DealsSection({
                   <dd>{expectedLabel}</dd>
                 </div>
               </dl>
+              <CustomFieldValuesList
+                values={deal.customValues ?? undefined}
+                resources={customFieldResources}
+                emptyLabel={emptyLabel}
+                itemKeyPrefix={`deal-${deal.id}-field`}
+                className="mt-3"
+              />
               <div className="mt-3 text-xs">
                 <Link
                   href={`/backend/customers/deals/${encodeURIComponent(deal.id)}`}

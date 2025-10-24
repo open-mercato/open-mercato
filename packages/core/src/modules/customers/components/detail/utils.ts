@@ -81,6 +81,7 @@ export function createDictionarySelectLabels(
     emptyError: translate('customers.people.form.dictionary.errorRequired', 'Please enter a name'),
     cancelLabel: translate('customers.people.form.dictionary.cancel', 'Cancel'),
     saveLabel: translate('customers.people.form.dictionary.save', 'Save'),
+    saveShortcutHint: translate('customers.people.form.dictionary.saveShortcut', '⌘/Ctrl + Enter'),
     errorLoad: translate('customers.people.form.dictionary.errorLoad', 'Failed to load options'),
     errorSave: translate('customers.people.form.dictionary.error', 'Failed to save option'),
     loadingLabel: translate('customers.people.form.dictionary.loading', 'Loading…'),

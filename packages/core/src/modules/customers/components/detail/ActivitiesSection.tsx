@@ -9,6 +9,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { formatDateTime, createDictionarySelectLabels } from './utils'
 import type { ActivitySummary, SectionAction, TabEmptyState } from './types'
 import type { ActivityFormBaseValues, ActivityFormSubmitPayload } from './ActivityForm'
@@ -19,6 +20,8 @@ import {
 } from './hooks/useCustomerDictionary'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { ActivityDialog } from './ActivityDialog'
+import { CustomFieldValuesList } from './CustomFieldValuesList'
+import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
 
 type DictionaryOption = {
   value: string
@@ -40,50 +43,6 @@ export type ActivitiesSectionProps = {
   onLoadingChange?: (isLoading: boolean) => void
 }
 
-function isEmptyCustomValue(value: unknown): boolean {
-  if (value === null || value === undefined) return true
-  if (typeof value === 'string') return value.trim().length === 0
-  if (Array.isArray(value)) return value.length === 0 || value.every((entry) => isEmptyCustomValue(entry))
-  return false
-}
-
-function stringifyCustomValue(value: unknown): string {
-  if (value === null || value === undefined) return ''
-  if (Array.isArray(value)) {
-    const parts = value
-      .map((entry) => stringifyCustomValue(entry))
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0)
-    return parts.join(', ')
-  }
-  if (value instanceof Date) {
-    const iso = value.toISOString()
-    return formatDateTime(iso) ?? iso
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed.length) return ''
-    return formatDateTime(trimmed) ?? trimmed
-  }
-  if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
-    return String(value)
-  }
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    const candidate =
-      record.label ?? record.name ?? record.title ?? record.value ?? record.id ?? record.key ?? null
-    if (typeof candidate === 'string' && candidate.trim().length) {
-      return candidate.trim()
-    }
-    try {
-      return JSON.stringify(value)
-    } catch {
-      return ''
-    }
-  }
-  return ''
-}
-
 export function ActivitiesSection({
   entityId,
   addActionLabel,
@@ -96,6 +55,8 @@ export function ActivitiesSection({
   const scopeVersion = useOrganizationScopeVersion()
   const dictionaryQuery = useCustomerDictionary('activity-types', scopeVersion)
   const dictionaryMap = dictionaryQuery.data?.map ?? {}
+  const customFieldResources = useCustomFieldDisplay(E.customers.customer_activity)
+  const customFieldEmptyLabel = t('customers.people.detail.noValue', 'Not provided')
   const [activities, setActivities] = React.useState<ActivitySummary[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -526,9 +487,7 @@ export function ActivitiesSection({
                 : null
               const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === activity.id
               const isDeletePending = pendingAction?.kind === 'delete' && pendingAction.id === activity.id
-              const customEntries = Array.isArray(activity.customFields)
-                ? activity.customFields.filter((entry) => !isEmptyCustomValue(entry.value))
-                : []
+              const customEntries = Array.isArray(activity.customFields) ? activity.customFields : []
 
               return (
                 <div
@@ -595,19 +554,16 @@ export function ActivitiesSection({
                   {activity.body ? (
                     <p className="text-sm whitespace-pre-wrap text-muted-foreground">{activity.body}</p>
                   ) : null}
-                  {customEntries.length ? (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {customEntries.map((entry) => {
-                        const valueLabel = stringifyCustomValue(entry.value)
-                        return (
-                          <div key={`${activity.id}-${entry.key}`} className="rounded-md border border-border/60 bg-muted/10 px-3 py-2">
-                            <div className="text-xs font-medium text-muted-foreground">{entry.label}</div>
-                            <div className="text-sm text-foreground">{valueLabel.trim().length ? valueLabel : '—'}</div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : null}
+                  <CustomFieldValuesList
+                    entries={customEntries.map((entry) => ({
+                      key: entry.key,
+                      value: entry.value,
+                      label: entry.label,
+                    }))}
+                    resources={customFieldResources}
+                    emptyLabel={customFieldEmptyLabel}
+                    itemKeyPrefix={`activity-${activity.id}-field`}
+                  />
                   {loggedByText ? (
                     <p className="text-xs text-muted-foreground">{loggedByText}</p>
                   ) : null}

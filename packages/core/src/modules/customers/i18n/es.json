@@ -386,6 +386,7 @@
   "customers.people.form.dictionary.errorRequired": "Ingresa un nombre",
   "customers.people.form.dictionary.cancel": "Cancelar",
   "customers.people.form.dictionary.save": "Guardar",
+  "customers.people.form.dictionary.saveShortcut": "⌘/Ctrl + Enter",
   "customers.people.form.dictionary.errorLoad": "No se pudieron cargar las opciones",
   "customers.people.form.dictionary.error": "No se pudo guardar la opción",
   "customers.people.form.dictionary.loading": "Cargando opciones…",

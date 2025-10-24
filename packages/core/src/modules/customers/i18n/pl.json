@@ -386,6 +386,7 @@
   "customers.people.form.dictionary.errorRequired": "Podaj nazwę",
   "customers.people.form.dictionary.cancel": "Anuluj",
   "customers.people.form.dictionary.save": "Zapisz",
+  "customers.people.form.dictionary.saveShortcut": "⌘/Ctrl + Enter",
   "customers.people.form.dictionary.errorLoad": "Nie udało się załadować opcji",
   "customers.people.form.dictionary.error": "Nie udało się zapisać opcji",
   "customers.people.form.dictionary.loading": "Ładowanie opcji…",

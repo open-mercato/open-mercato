@@ -388,6 +388,7 @@
   "customers.people.form.dictionary.errorRequired": "Please enter a name",
   "customers.people.form.dictionary.cancel": "Cancel",
   "customers.people.form.dictionary.save": "Save",
+  "customers.people.form.dictionary.saveShortcut": "⌘/Ctrl + Enter",
   "customers.people.form.dictionary.errorLoad": "Failed to load options",
   "customers.people.form.dictionary.error": "Failed to save option",
   "customers.people.form.dictionary.loading": "Loading options…",
