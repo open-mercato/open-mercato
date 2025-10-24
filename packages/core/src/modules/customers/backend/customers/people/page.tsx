@@ -143,7 +143,7 @@ export default function CustomersPeoplePage() {
 
   const loadTagOptions = React.useCallback(async (query?: string): Promise<FilterOption[]> => {
     try {
-      const params = new URLSearchParams({ pageSize: '200' })
+      const params = new URLSearchParams({ pageSize: '100' })
       const trimmedQuery = typeof query === 'string' ? query.trim() : ''
       if (trimmedQuery) params.set('search', trimmedQuery)
       const res = await apiFetch(`/api/customers/tags?${params.toString()}`)
