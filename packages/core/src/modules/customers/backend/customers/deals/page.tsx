@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -10,6 +11,7 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -826,6 +828,13 @@ export default function CustomersDealsPage() {
       <PageBody>
         <DataTable<DealRow>
           title={t('customers.deals.list.title')}
+          actions={(
+            <Button asChild>
+              <Link href="/backend/customers/deals/create">
+                {t('customers.deals.list.actions.new', 'New deal')}
+              </Link>
+            </Button>
+          )}
           columns={columns}
           data={rows}
           searchValue={search}

@@ -432,7 +432,6 @@ export function DealForm({
           return key === 'currency' || key === 'currencies'
         })
         if (cancelled) return
-        if (cancelled) return
         if (match && typeof (match as Record<string, unknown>).id === 'string') {
           setCurrencyDictionaryId((match as Record<string, string>).id)
           setCurrencyDictionaryError(null)
