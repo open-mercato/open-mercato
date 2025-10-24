@@ -409,7 +409,7 @@ export function DealForm({
   const t = useT()
   const [pending, setPending] = React.useState(false)
   const [currencyDictionaryId, setCurrencyDictionaryId] = React.useState<string | null>(null)
-  const [currencyDictionaryLoading, setCurrencyDictionaryLoading] = React.useState(false)
+  const [currencyDictionaryLoading, setCurrencyDictionaryLoading] = React.useState(true)
   const [currencyDictionaryError, setCurrencyDictionaryError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -602,6 +602,8 @@ export function DealForm({
               selectClassName="w-full"
               priorityValues={Array.from(CURRENCY_PRIORITY)}
             />
+          ) : currencyDictionaryLoading ? (
+            <div className="h-9 w-full animate-pulse rounded border bg-muted" aria-hidden />
           ) : (
             <input
               type="text"

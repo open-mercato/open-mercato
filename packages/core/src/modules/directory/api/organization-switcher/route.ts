@@ -4,7 +4,8 @@ import { createRequestContainer } from '@/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { computeHierarchyForOrganizations, type ComputedHierarchy } from '@open-mercato/core/modules/directory/lib/hierarchy'
-import { getSelectedOrganizationFromRequest, isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
+import { getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 type OrganizationMenuNode = {
   id: string
