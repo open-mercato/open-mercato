@@ -201,9 +201,14 @@ export default function SalesPipelinePage(): React.ReactElement {
     (key: string, fallback: string, params?: Record<string, string | number>) => {
       const value = translateWithFallback(t, key, fallback, params)
       if (value === fallback && params) {
-        return fallback.replace(/\{(\w+)\}/g, (_, token) => {
+        return fallback.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (match, doubleToken, singleToken) => {
+          const token = (doubleToken ?? singleToken) as string | undefined
+          if (!token) return match
           const replacement = params[token]
-          return replacement !== undefined ? String(replacement) : `{${token}}`
+          if (replacement === undefined) {
+            return doubleToken ? `{{${token}}}` : `{${token}}`
+          }
+          return String(replacement)
         })
       }
       return value
@@ -459,7 +464,7 @@ export default function SalesPipelinePage(): React.ReactElement {
                 {translate('customers.deals.pipeline.title', 'Sales Pipeline')}
               </h1>
               <p className="text-sm text-muted-foreground">
-                {t(
+                {translate(
                   'customers.deals.pipeline.subtitle',
                   'Track deals by pipeline stage and drag them between lanes to update progress.',
                 )}
@@ -499,7 +504,7 @@ export default function SalesPipelinePage(): React.ReactElement {
             <div className="flex flex-col gap-3">
               {total > deals.length ? (
                 <div className="rounded-md border border-border bg-muted/30 px-4 py-2 text-sm text-muted-foreground">
-                  {t(
+                  {translate(
                     'customers.deals.pipeline.limitNotice',
                     'Showing the first {count} deals. Refine your filters to see more.',
                     { count: deals.length },
