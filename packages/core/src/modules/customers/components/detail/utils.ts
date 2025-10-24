@@ -17,6 +17,17 @@ export function formatDate(value?: string | null): string | null {
   return date.toLocaleDateString()
 }
 
+export function formatTemplate(template: string, params?: Record<string, string | number>): string {
+  if (!template) return template
+  if (!params) return template
+  return template.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (match, doubleKey, singleKey) => {
+    const key = doubleKey ?? singleKey
+    if (!key) return match
+    const value = params[key]
+    return value === undefined ? match : String(value)
+  })
+}
+
 export function formatRelativeTime(value?: string | null): string | null {
   if (!value) return null
   const date = new Date(value)

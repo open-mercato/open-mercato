@@ -10,7 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { formatDateTime } from './utils'
+import { formatDateTime, formatTemplate } from './utils'
 import type { CommentSummary, Translator, SectionAction, TabEmptyState } from './types'
 import { ICON_SUGGESTIONS } from '../../lib/dictionaries'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
@@ -152,11 +152,13 @@ export function NotesSection({
 }: NotesSectionProps) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(
-    () => (key, fallback) => {
-      const value = tHook(key)
-      return value === key && fallback ? fallback : value
+    () => (key, fallback, params) => {
+      const value = tHook(key, params)
+      if (value !== key) return value
+      if (!fallback) return key
+      return formatTemplate(fallback, params)
     },
-    [tHook]
+    [tHook],
   )
   const t = translator ?? fallbackTranslator
 

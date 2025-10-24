@@ -3,19 +3,21 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { Pencil, MousePointerClick } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { NotesSection } from '../../../../components/detail/NotesSection'
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
-import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
 import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import type { SectionAction } from '../../../../components/detail/types'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { useCustomerDictionary } from '../../../../components/detail/hooks/useCustomerDictionary'
+import type { CustomerDictionaryMap } from '../../../../lib/dictionaries'
 
 type DealAssociation = {
   id: string
@@ -81,10 +83,25 @@ function formatDate(value: string | null, fallback: string): string {
   return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
+function resolveDictionaryLabel(
+  value: string | null | undefined,
+  map: CustomerDictionaryMap | null | undefined,
+): string | null {
+  if (!value) return null
+  const entry = map?.[value]
+  if (entry && entry.label && entry.label.length) return entry.label
+  return value
+}
+
 export default function DealDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
   const id = params?.id ?? ''
+  const scopeVersion = useOrganizationScopeVersion()
+  const statusDictionaryQuery = useCustomerDictionary('deal-statuses', scopeVersion)
+  const pipelineDictionaryQuery = useCustomerDictionary('pipeline-stages', scopeVersion)
+  const statusDictionaryMap = statusDictionaryQuery.data?.map ?? null
+  const pipelineDictionaryMap = pipelineDictionaryQuery.data?.map ?? null
   const [data, setData] = React.useState<DealDetailPayload | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -104,7 +121,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setSectionPending((prev) => ({ ...prev, activities: loading }))
   }, [])
   const focusDealField = React.useCallback(
-    (fieldId: 'personIds' | 'companyIds') => {
+    (fieldId: 'title' | 'personIds' | 'companyIds') => {
       if (typeof window === 'undefined' || typeof document === 'undefined') return
       const focusOnce = () => {
         const container = document.querySelector<HTMLElement>(`[data-crud-field-id="${fieldId}"]`)
@@ -140,13 +157,15 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     },
     [],
   )
-  const handleEditPeopleAssignments = React.useCallback(() => {
-    setActiveTab('notes')
-    focusDealField('personIds')
-  }, [focusDealField])
-  const handleEditCompanyAssignments = React.useCallback(() => {
-    setActiveTab('notes')
-    focusDealField('companyIds')
+  const dealSettingsRef = React.useRef<HTMLDivElement | null>(null)
+  const scrollToDealSettings = React.useCallback(() => {
+    if (typeof window === 'undefined') return
+    if (dealSettingsRef.current && typeof dealSettingsRef.current.scrollIntoView === 'function') {
+      dealSettingsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    window.setTimeout(() => {
+      focusDealField('title')
+    }, 160)
   }, [focusDealField])
 
   React.useEffect(() => {
@@ -279,52 +298,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     }
   }, [data, isDeleting, router, t])
 
-  const handleCustomFieldsSubmit = React.useCallback(
-    async (values: Record<string, unknown>) => {
-      if (!data) {
-        throw new Error(t('customers.deals.detail.saveError', 'Failed to update deal.'))
-      }
-      const customPayload: Record<string, unknown> = {}
-      const prefixed: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(values)) {
-        if (!key.startsWith('cf_')) continue
-        const normalized = value === undefined ? null : value
-        customPayload[key.slice(3)] = normalized
-        prefixed[key] = normalized
-      }
-      if (!Object.keys(customPayload).length) {
-        flash(t('ui.forms.flash.saveSuccess'), 'success')
-        return
-      }
-      const res = await apiFetch('/api/customers/deals', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: data.deal.id, customFields: customPayload }),
-      })
-      if (!res.ok) {
-        let message = t('customers.deals.detail.saveError', 'Failed to update deal.')
-        let fieldErrors: Record<string, string> | null = null
-        try {
-          const body = await res.clone().json()
-          if (body && typeof body.error === 'string') message = body.error
-          if (body && typeof body.fields === 'object' && body.fields !== null) {
-            fieldErrors = {}
-            for (const [rawKey, rawMessage] of Object.entries(body.fields as Record<string, unknown>)) {
-              const formKey = rawKey.startsWith('cf_') ? rawKey : `cf_${rawKey}`
-              fieldErrors[formKey] = typeof rawMessage === 'string' ? rawMessage : message
-            }
-          }
-        } catch {}
-        const err = new Error(message) as Error & { fieldErrors?: Record<string, string> }
-        if (fieldErrors) err.fieldErrors = fieldErrors
-        throw err
-      }
-      setData((prev) => (prev ? { ...prev, customFields: { ...prev.customFields, ...prefixed } } : prev))
-      flash(t('ui.forms.flash.saveSuccess'), 'success')
-    },
-    [data, t],
-  )
-
   React.useEffect(() => {
     setSectionAction(null)
   }, [activeTab])
@@ -420,6 +393,21 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     formatCurrency(data.deal.valueAmount, data.deal.valueCurrency) ??
     t('customers.deals.detail.noValue', 'Not provided')
   const expectedCloseLabel = formatDate(data.deal.expectedCloseAt, t('customers.deals.detail.noValue', 'Not provided'))
+  const statusLabel =
+    resolveDictionaryLabel(data.deal.status, statusDictionaryMap) ??
+    t('customers.deals.detail.noStatus', 'No status')
+  const pipelineLabel = resolveDictionaryLabel(data.deal.pipelineStage, pipelineDictionaryMap)
+
+  const peopleSummaryLabel =
+    data.people.length === 1
+      ? t('customers.deals.detail.peopleSummaryOne', '1 person linked')
+      : t('customers.deals.detail.peopleSummaryMany', '{{count}} people linked', { count: data.people.length })
+  const companiesSummaryLabel =
+    data.companies.length === 1
+      ? t('customers.deals.detail.companiesSummaryOne', '1 company linked')
+      : t('customers.deals.detail.companiesSummaryMany', '{{count}} companies linked', {
+          count: data.companies.length,
+        })
 
   const viewer = data.viewer ?? null
 
@@ -428,12 +416,27 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
       <PageBody>
         <div className="flex flex-col gap-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="space-y-1">
-              <h1 className="text-2xl font-semibold text-foreground">{data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}</h1>
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold text-foreground">
+                  {data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
+                </h1>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1 text-muted-foreground hover:text-foreground"
+                  onClick={scrollToDealSettings}
+                >
+                  <Pencil className="h-4 w-4" aria-hidden />
+                  <MousePointerClick className="h-4 w-4" aria-hidden />
+                  <span>{t('customers.deals.detail.goToSettings', 'Edit deal details')}</span>
+                </Button>
+              </div>
               <p className="text-sm text-muted-foreground">
                 {t('customers.deals.detail.summary', {
-                  status: data.deal.status ?? t('customers.deals.detail.noStatus', 'No status'),
-                  pipeline: data.deal.pipelineStage ?? t('customers.deals.detail.noPipeline', 'No pipeline'),
+                  status: statusLabel,
+                  pipeline: pipelineLabel ?? t('customers.deals.detail.noPipeline', 'No pipeline'),
                 })}
               </p>
             </div>
@@ -471,7 +474,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                       {t('customers.deals.detail.fields.pipeline', 'Pipeline stage')}
                     </p>
                     <p className="text-base text-foreground">
-                      {data.deal.pipelineStage ?? t('customers.deals.detail.noValue', 'Not provided')}
+                      {pipelineLabel ?? t('customers.deals.detail.noValue', 'Not provided')}
                     </p>
                   </div>
                   <div>
@@ -556,24 +559,24 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-lg border bg-card p-4">
-                  <div className="mb-3 flex items-center justify-between">
+                  <div className="mb-3 space-y-1">
                     <h3 className="text-sm font-semibold text-foreground">
                       {t('customers.deals.detail.peopleSection', 'People')}
                     </h3>
-                    <Button variant="ghost" size="xs" onClick={handleEditPeopleAssignments}>
-                      {t('customers.deals.detail.editAssignments', 'Edit assignments')}
-                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      {peopleSummaryLabel}
+                    </p>
                   </div>
                   {data.people.length ? (
                     <ul className="space-y-2 text-sm">
                       {data.people.map((person) => (
-                        <li key={person.id} className="flex flex-col">
+                        <li key={person.id} className="flex flex-col gap-1">
                           <Link href={`/backend/customers/people/${encodeURIComponent(person.id)}`} className="font-medium text-foreground hover:underline">
                             {person.label}
                           </Link>
-                          {person.subtitle ? (
-                            <span className="text-xs text-muted-foreground">{person.subtitle}</span>
-                          ) : null}
+                          <span className="text-xs text-muted-foreground">
+                            {person.subtitle ?? t('customers.deals.detail.peopleNoDetails', 'No additional details')}
+                          </span>
                         </li>
                       ))}
                     </ul>
@@ -584,24 +587,24 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                   )}
                 </div>
                 <div className="rounded-lg border bg-card p-4">
-                  <div className="mb-3 flex items-center justify-between">
+                  <div className="mb-3 space-y-1">
                     <h3 className="text-sm font-semibold text-foreground">
                       {t('customers.deals.detail.companiesSection', 'Companies')}
                     </h3>
-                    <Button variant="ghost" size="xs" onClick={handleEditCompanyAssignments}>
-                      {t('customers.deals.detail.editAssignments', 'Edit assignments')}
-                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      {companiesSummaryLabel}
+                    </p>
                   </div>
                   {data.companies.length ? (
                     <ul className="space-y-2 text-sm">
                       {data.companies.map((company) => (
-                        <li key={company.id} className="flex flex-col">
+                        <li key={company.id} className="flex flex-col gap-1">
                           <Link href={`/backend/customers/companies/${encodeURIComponent(company.id)}`} className="font-medium text-foreground hover:underline">
                             {company.label}
                           </Link>
-                          {company.subtitle ? (
-                            <span className="text-xs text-muted-foreground">{company.subtitle}</span>
-                          ) : null}
+                          <span className="text-xs text-muted-foreground">
+                            {company.subtitle ?? t('customers.deals.detail.companiesNoDetails', 'No additional details')}
+                          </span>
                         </li>
                       ))}
                     </ul>
@@ -615,7 +618,11 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             </div>
 
             <div className="space-y-6">
-              <div className="rounded-lg border bg-card p-4">
+              <div
+                ref={dealSettingsRef}
+                id="deal-settings"
+                className="rounded-lg border bg-card p-4"
+              >
                 <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
                   {t('customers.deals.detail.formTitle', 'Deal settings')}
                 </h2>
@@ -648,13 +655,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                   isSubmitting={isSaving || isDeleting}
                 />
               </div>
-
-              <CustomDataSection
-                entityIds={[E.customers.customer_deal]}
-                values={data.customFields}
-                onSubmit={handleCustomFieldsSubmit}
-                title={t('customers.deals.detail.customFields', 'Custom data')}
-              />
             </div>
           </div>
         </div>

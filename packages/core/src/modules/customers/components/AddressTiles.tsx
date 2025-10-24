@@ -23,7 +23,11 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { ensureCustomerDictionary, invalidateCustomerDictionary } from './detail/hooks/useCustomerDictionary'
 
-export type Translator = (key: string, fallback?: string) => string
+export type Translator = (
+  key: string,
+  fallback?: string,
+  params?: Record<string, string | number>,
+) => string
 
 export type CustomerAddressInput = {
   name?: string

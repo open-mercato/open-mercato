@@ -9,7 +9,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { cn } from '@/lib/utils'
 import { useT } from '@/lib/i18n/context'
 import type { SectionAction, TabEmptyState, TodoLinkSummary, Translator } from './types'
-import { formatDate, formatDateTime, resolveTodoHref } from './utils'
+import { formatDate, formatDateTime, formatTemplate, resolveTodoHref } from './utils'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { TaskDialog } from './TaskDialog'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
@@ -60,7 +60,9 @@ export function TasksSection({
       translator ??
       ((key, fallback, params) => {
         const value = tHook(key, params)
-        return value === key && fallback ? fallback : value
+        if (value !== key) return value
+        if (!fallback) return key
+        return formatTemplate(fallback, params)
       }),
     [translator, tHook],
   )

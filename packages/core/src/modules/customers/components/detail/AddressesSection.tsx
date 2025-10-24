@@ -6,6 +6,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../AddressTiles'
 import type { AddressSummary, SectionAction, TabEmptyState, Translator } from './types'
+import { formatTemplate } from './utils'
 import { useT } from '@/lib/i18n/context'
 
 export type AddressesSectionProps = {
@@ -85,11 +86,13 @@ export function AddressesSection({
 }: AddressesSectionProps) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(
-    () => (key, fallback) => {
-      const value = tHook(key)
-      return value === key && fallback ? fallback : value
+    () => (key, fallback, params) => {
+      const value = tHook(key, params)
+      if (value !== key) return value
+      if (!fallback) return key
+      return formatTemplate(fallback, params)
     },
-    [tHook]
+    [tHook],
   )
   const t = translator ?? fallbackTranslator
 

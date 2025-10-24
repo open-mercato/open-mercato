@@ -9,6 +9,7 @@ import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
+import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import {
   customerDictionaryQueryOptions,
@@ -126,7 +127,7 @@ function buildStageDefinitions(
     result.push({
       id: 'stage:__unassigned',
       value: null,
-      label: t('customers.deals.pipeline.unassigned', 'No stage'),
+      label: translateWithFallback(t, 'customers.deals.pipeline.unassigned', 'No stage'),
       color: null,
       icon: null,
     })
@@ -196,6 +197,19 @@ function formatProbability(probability: number | null, fallback: string): string
 
 export default function SalesPipelinePage(): React.ReactElement {
   const t = useT()
+  const translate = React.useCallback(
+    (key: string, fallback: string, params?: Record<string, string | number>) => {
+      const value = translateWithFallback(t, key, fallback, params)
+      if (value === fallback && params) {
+        return fallback.replace(/\{(\w+)\}/g, (_, token) => {
+          const replacement = params[token]
+          return replacement !== undefined ? String(replacement) : `{${token}}`
+        })
+      }
+      return value
+    },
+    [t],
+  )
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
   const [sortBy, setSortBy] = React.useState<SortOption>('probability')
@@ -211,7 +225,6 @@ export default function SalesPipelinePage(): React.ReactElement {
       const search = new URLSearchParams()
       search.set('page', '1')
       search.set('pageSize', String(DEALS_QUERY_LIMIT))
-      search.set('status', 'open')
       search.set('sortField', 'createdAt')
       search.set('sortDir', 'desc')
       const res = await apiFetch(`/api/customers/deals?${search.toString()}`)
@@ -220,7 +233,7 @@ export default function SalesPipelinePage(): React.ReactElement {
         const message =
           typeof payload?.error === 'string'
             ? payload.error
-            : t('customers.deals.pipeline.loadError', 'Failed to load deals.')
+            : translate('customers.deals.pipeline.loadError', 'Failed to load deals.')
         throw new Error(message)
       }
       const items = Array.isArray(payload?.items) ? payload.items : []
@@ -233,7 +246,7 @@ export default function SalesPipelinePage(): React.ReactElement {
         const title =
           typeof data.title === 'string' && data.title.trim().length
             ? data.title.trim()
-            : t('customers.deals.pipeline.untitled', 'Untitled deal')
+            : translate('customers.deals.pipeline.untitled', 'Untitled deal')
         const status =
           typeof data.status === 'string' && data.status.trim().length ? data.status.trim() : null
         const stage =
@@ -329,7 +342,7 @@ export default function SalesPipelinePage(): React.ReactElement {
         const message =
           typeof payload?.error === 'string'
             ? payload.error
-            : t('customers.deals.pipeline.moveError', 'Failed to update deal stage.')
+            : translate('customers.deals.pipeline.moveError', 'Failed to update deal stage.')
         throw new Error(message)
       }
       return { id, pipelineStage }
@@ -353,11 +366,11 @@ export default function SalesPipelinePage(): React.ReactElement {
       const message =
         error instanceof Error && error.message
           ? error.message
-          : t('customers.deals.pipeline.moveError', 'Failed to update deal stage.')
+          : translate('customers.deals.pipeline.moveError', 'Failed to update deal stage.')
       flash(message, 'error')
     },
     onSuccess: () => {
-      flash(t('customers.deals.pipeline.moveSuccess', 'Deal updated.'), 'success')
+      flash(translate('customers.deals.pipeline.moveSuccess', 'Deal updated.'), 'success')
     },
     onSettled: () => {
       setPendingDealId(null)
@@ -395,7 +408,7 @@ export default function SalesPipelinePage(): React.ReactElement {
       if (!deal) return
       if (stage.value === null) {
         flash(
-          t('customers.deals.pipeline.unassignedDisabled', 'Moving to "No stage" is not supported.'),
+          translate('customers.deals.pipeline.unassignedDisabled', 'Moving to "No stage" is not supported.'),
           'info',
         )
         return
@@ -427,7 +440,7 @@ export default function SalesPipelinePage(): React.ReactElement {
           <div className="flex flex-col">
             <span className="text-sm font-medium">{stage.label}</span>
             <span className="text-xs text-muted-foreground">
-              {t('customers.deals.pipeline.countLabel', 'Deals: {count}', { count })}
+              {translate('customers.deals.pipeline.countLabel', 'Deals: {count}', { count })}
             </span>
           </div>
         </div>
@@ -443,7 +456,7 @@ export default function SalesPipelinePage(): React.ReactElement {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col">
               <h1 className="text-xl font-semibold text-foreground">
-                {t('customers.deals.pipeline.title', 'Sales Pipeline')}
+                {translate('customers.deals.pipeline.title', 'Sales Pipeline')}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {t(
@@ -453,20 +466,20 @@ export default function SalesPipelinePage(): React.ReactElement {
               </p>
             </div>
             <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <span>{t('customers.deals.pipeline.sort.label', 'Sort by')}</span>
+              <span>{translate('customers.deals.pipeline.sort.label', 'Sort by')}</span>
               <select
                 className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                 value={sortBy}
                 onChange={handleSortChange}
               >
                 <option value="probability">
-                  {t('customers.deals.pipeline.sort.probability', 'Probability (high to low)')}
+                  {translate('customers.deals.pipeline.sort.probability', 'Probability (high to low)')}
                 </option>
                 <option value="createdAt">
-                  {t('customers.deals.pipeline.sort.createdAt', 'Created (newest first)')}
+                  {translate('customers.deals.pipeline.sort.createdAt', 'Created (newest first)')}
                 </option>
                 <option value="expectedCloseAt">
-                  {t('customers.deals.pipeline.sort.expectedCloseAt', 'Expected close (soonest first)')}
+                  {translate('customers.deals.pipeline.sort.expectedCloseAt', 'Expected close (soonest first)')}
                 </option>
               </select>
             </label>
@@ -480,7 +493,7 @@ export default function SalesPipelinePage(): React.ReactElement {
             <ErrorNotice className="max-w-xl">
               {dealsQuery.error instanceof Error
                 ? dealsQuery.error.message
-                : t('customers.deals.pipeline.loadError', 'Failed to load deals.')}
+                : translate('customers.deals.pipeline.loadError', 'Failed to load deals.')}
             </ErrorNotice>
           ) : (
             <div className="flex flex-col gap-3">
@@ -498,7 +511,7 @@ export default function SalesPipelinePage(): React.ReactElement {
                 {stages.length === 0 ? (
                   <div className="flex h-[50vh] w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/20">
                     <span className="text-sm text-muted-foreground">
-                      {t('customers.deals.pipeline.noStages', 'Define pipeline stages to start tracking deals.')}
+                      {translate('customers.deals.pipeline.noStages', 'Define pipeline stages to start tracking deals.')}
                     </span>
                   </div>
                 ) : (
@@ -520,7 +533,7 @@ export default function SalesPipelinePage(): React.ReactElement {
                         <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
                           {sortedLaneDeals.length === 0 ? (
                             <div className="rounded-md border border-dashed border-border bg-muted/10 p-4 text-center text-xs text-muted-foreground">
-                              {t('customers.deals.pipeline.emptyLane', 'No deals in this stage yet.')}
+                              {translate('customers.deals.pipeline.emptyLane', 'No deals in this stage yet.')}
                             </div>
                           ) : (
                             sortedLaneDeals.map((deal) => {
@@ -529,15 +542,15 @@ export default function SalesPipelinePage(): React.ReactElement {
                               const valueLabel = formatCurrency(
                                 deal.valueAmount,
                                 deal.valueCurrency,
-                                t('customers.deals.list.noValue', 'No value assigned'),
+                                translate('customers.deals.list.noValue', 'No value assigned'),
                               )
                               const probabilityLabel = formatProbability(
                                 deal.probability,
-                                t('customers.deals.pipeline.noProbability', 'N/A'),
+                                translate('customers.deals.pipeline.noProbability', 'N/A'),
                               )
                               const expectedLabel = deal.expectedCloseAt
                                 ? dateFormatter.format(new Date(deal.expectedCloseAt))
-                                : t('customers.deals.pipeline.noExpectedClose', 'No date')
+                                : translate('customers.deals.pipeline.noExpectedClose', 'No date')
                               return (
                                 <div
                                   key={deal.id}
@@ -569,15 +582,15 @@ export default function SalesPipelinePage(): React.ReactElement {
                                   </div>
                                   <div className="flex flex-col gap-1 text-xs text-muted-foreground">
                                     <div className="flex items-center justify-between gap-2">
-                                      <span>{t('customers.deals.pipeline.card.value', 'Value')}</span>
+                                      <span>{translate('customers.deals.pipeline.card.value', 'Value')}</span>
                                       <span className="font-medium text-foreground">{valueLabel}</span>
                                     </div>
                                     <div className="flex items-center justify-between gap-2">
-                                      <span>{t('customers.deals.pipeline.card.probability', 'Probability')}</span>
+                                      <span>{translate('customers.deals.pipeline.card.probability', 'Probability')}</span>
                                       <span className="font-medium text-foreground">{probabilityLabel}</span>
                                     </div>
                                     <div className="flex items-center justify-between gap-2">
-                                      <span>{t('customers.deals.pipeline.card.expectedClose', 'Expected close')}</span>
+                                      <span>{translate('customers.deals.pipeline.card.expectedClose', 'Expected close')}</span>
                                       <span className="font-medium text-foreground">{expectedLabel}</span>
                                     </div>
                                   </div>
@@ -588,7 +601,7 @@ export default function SalesPipelinePage(): React.ReactElement {
                                       draggable={false}
                                       onClick={handleActionClick}
                                     >
-                                      {t('customers.deals.pipeline.actions.openDeal', 'Open deal')}
+                                      {translate('customers.deals.pipeline.actions.openDeal', 'Open deal')}
                                     </Link>
                                   </div>
                                   {deal.people.length ? (

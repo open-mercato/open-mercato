@@ -46,7 +46,11 @@ function cn(...values: Array<string | null | undefined | false>) {
   return values.filter(Boolean).join(' ')
 }
 
-export type Translator = (key: string, fallback?: string) => string
+export type Translator = (
+  key: string,
+  fallback?: string,
+  params?: Record<string, string | number>,
+) => string
 
 export type PersonFormValues = {
   displayName: string

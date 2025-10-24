@@ -10,8 +10,8 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import type { DealSummary, SectionAction, TabEmptyState, Translator } from './types'
-import { formatDate } from './utils'
+import type { DealCustomFieldEntry, DealSummary, SectionAction, TabEmptyState, Translator } from './types'
+import { formatDate, formatTemplate } from './utils'
 import { DealDialog } from './DealDialog'
 import type { DealFormBaseValues, DealFormSubmitPayload } from './DealForm'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
@@ -19,6 +19,7 @@ import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { CustomFieldValuesList } from './CustomFieldValuesList'
 import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
+import { normalizeCustomFieldKey } from './customFieldUtils'
 
 const DEALS_PAGE_SIZE = 10
 
@@ -31,8 +32,89 @@ type PendingAction =
   | { kind: 'update'; id: string }
   | { kind: 'delete'; id: string }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function sanitizeCustomValues(input: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(input)) return null
+  const result: Record<string, unknown> = {}
+  Object.entries(input).forEach(([key, value]) => {
+    const trimmedKey = key.trim()
+    if (!trimmedKey.length) return
+    result[trimmedKey] = value
+  })
+  return Object.keys(result).length ? result : null
+}
+
+function sanitizeCustomFieldEntries(
+  entries: unknown,
+  values: Record<string, unknown> | null,
+): DealCustomFieldEntry[] {
+  const map = new Map<string, DealCustomFieldEntry>()
+  if (Array.isArray(entries)) {
+    entries.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') return
+      const record = entry as Record<string, unknown>
+      const keyRaw =
+        typeof record.key === 'string'
+          ? record.key
+          : typeof record.id === 'string'
+            ? record.id
+            : null
+      if (!keyRaw) return
+      const key = keyRaw.trim()
+      if (!key.length) return
+      const normalizedKey = normalizeCustomFieldKey(key)
+      if (!normalizedKey) return
+      const label =
+        typeof record.label === 'string' && record.label.trim().length
+          ? record.label.trim()
+          : null
+      const kind =
+        typeof record.kind === 'string' && record.kind.trim().length
+          ? record.kind.trim()
+          : null
+      const multi =
+        typeof record.multi === 'boolean' ? record.multi : Array.isArray(record.value) ? true : undefined
+      map.set(normalizedKey, {
+        key,
+        label,
+        value: record.value,
+        kind,
+        multi,
+      })
+    })
+  }
+
+  if (values) {
+    Object.entries(values).forEach(([rawKey, value]) => {
+      const key = rawKey.trim()
+      if (!key.length) return
+      const normalizedKey = normalizeCustomFieldKey(key)
+      if (!normalizedKey) return
+      const existing = map.get(normalizedKey)
+      if (existing) {
+        existing.value = value
+        if (existing.multi === undefined) existing.multi = Array.isArray(value)
+      } else {
+        map.set(normalizedKey, {
+          key,
+          label: null,
+          value,
+          kind: null,
+          multi: Array.isArray(value) ? true : undefined,
+        })
+      }
+    })
+  }
+
+  return Array.from(map.values())
+}
+
 type NormalizedDeal = DealSummary & {
   customValues: Record<string, unknown> | null
+  customFields: DealCustomFieldEntry[]
 }
 
 function toNumber(value: unknown): number | null {
@@ -116,6 +198,9 @@ function normalizeDeal(deal: Partial<DealSummary> & { id: string; title?: string
   const people = normalizeAssignees(deal.people ?? null, personIds)
   const companies = normalizeAssignees(deal.companies ?? null, companyIds)
 
+  const customValues = sanitizeCustomValues(deal.customValues ?? null)
+  const customFields = sanitizeCustomFieldEntries(deal.customFields ?? null, customValues)
+
   return {
     id: deal.id,
     title,
@@ -145,7 +230,8 @@ function normalizeDeal(deal: Partial<DealSummary> & { id: string; title?: string
     companyIds,
     people,
     companies,
-    customValues: (deal.customValues as Record<string, unknown> | null | undefined) ?? null,
+    customValues,
+    customFields,
   }
 }
 
@@ -166,6 +252,15 @@ function buildInitialValues(deal: NormalizedDeal): Partial<DealFormBaseValues & 
     for (const [key, value] of Object.entries(deal.customValues)) {
       base[`cf_${key}`] = value
     }
+  }
+  if (Array.isArray(deal.customFields)) {
+    deal.customFields.forEach((entry) => {
+      if (!entry || typeof entry.key !== 'string') return
+      const fieldKey = `cf_${entry.key}`
+      if (base[fieldKey] === undefined) {
+        base[fieldKey] = entry.value ?? null
+      }
+    })
   }
   return base
 }
@@ -209,9 +304,11 @@ export function DealsSection({
   const t: Translator = React.useMemo(
     () =>
       translator ??
-      ((key, fallback) => {
-        const value = tHook(key)
-        return value === key && fallback ? fallback : value
+      ((key, fallback, params) => {
+        const value = tHook(key, params)
+        if (value !== key) return value
+        if (!fallback) return key
+        return formatTemplate(fallback, params)
       }),
     [translator, tHook],
   )
@@ -247,9 +344,9 @@ export function DealsSection({
   }, [onLoadingChange])
 
   const translate = React.useCallback(
-    (key: string, fallback: string) => {
-      const value = t(key)
-      return value === key ? fallback : value
+    (key: string, fallback: string, params?: Record<string, string | number>) => {
+      const value = t(key, fallback, params)
+      return value === key && fallback ? fallback : value
     },
     [t],
   )
@@ -359,6 +456,13 @@ export function DealsSection({
             ? record.company_ids
             : []
         const companies = Array.isArray(record.companies) ? record.companies : []
+        const customValues = sanitizeCustomValues(
+          record.customValues ?? record.custom_values ?? null,
+        )
+        const customFieldEntries = sanitizeCustomFieldEntries(
+          record.customFields ?? record.custom_fields ?? null,
+          customValues,
+        )
         return normalizeDeal({
           id,
           title,
@@ -377,6 +481,8 @@ export function DealsSection({
           people: people as { id: string; label: string }[] | undefined,
           companyIds: companyIds as string[] | undefined,
           companies: companies as { id: string; label: string }[] | undefined,
+          customValues,
+          customFields: customFieldEntries,
         })
       })
       setDeals((prev) => {
@@ -503,6 +609,9 @@ export function DealsSection({
           (scope.kind !== 'person' || personIds.includes(scope.entityId)) &&
           (scope.kind !== 'company' || companyIds.includes(scope.entityId))
         if (belongsToScope) {
+          const customValuesForState = sanitizeCustomValues(
+            Object.keys(custom).length ? custom : null,
+          )
           const normalized = normalizeDeal({
             id: dealId,
             title: base.title,
@@ -515,7 +624,7 @@ export function DealsSection({
             description: base.description ?? null,
             personIds,
             companyIds,
-            customValues: Object.keys(custom).length ? custom : null,
+            customValues: customValuesForState,
           })
           setDeals((prev) => [normalized, ...prev])
         }
@@ -566,6 +675,8 @@ export function DealsSection({
               : translate('customers.people.detail.deals.error', 'Failed to save deal.')
           throw new Error(message)
         }
+        const hasCustomChanges = Object.keys(custom).length > 0
+        const customValuesForState = hasCustomChanges ? sanitizeCustomValues(custom) : null
         const remainsInScope =
           (scope.kind !== 'person' || personIds.includes(scope.entityId)) &&
           (scope.kind !== 'company' || companyIds.includes(scope.entityId))
@@ -589,7 +700,12 @@ export function DealsSection({
                     people: personIds.map((id) => deal.people?.find((entry) => entry.id === id) ?? { id, label: '' }),
                     companyIds,
                     companies: companyIds.map((id) => deal.companies?.find((entry) => entry.id === id) ?? { id, label: '' }),
-                    customValues: Object.keys(custom).length ? custom : null,
+                    customValues: hasCustomChanges ? customValuesForState : deal.customValues,
+                    customFields: hasCustomChanges
+                      ? customValuesForState
+                        ? deal.customFields
+                        : []
+                      : deal.customFields,
                     updatedAt: new Date().toISOString(),
                   })
                 : deal,
@@ -794,6 +910,11 @@ export function DealsSection({
                 </div>
               </dl>
               <CustomFieldValuesList
+                entries={deal.customFields?.map((entry) => ({
+                  key: entry.key,
+                  value: entry.value,
+                  label: entry.label ?? undefined,
+                }))}
                 values={deal.customValues ?? undefined}
                 resources={customFieldResources}
                 emptyLabel={emptyLabel}
