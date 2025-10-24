@@ -1,7 +1,7 @@
 "use client"
 
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { useQuery, type QueryClient } from '@tanstack/react-query'
+import { useQuery, type QueryClient, type UseQueryOptions } from '@tanstack/react-query'
 
 export type CurrencyDictionaryEntry = {
   id: string
@@ -17,10 +17,18 @@ export type CurrencyDictionaryPayload = {
 const QUERY_KEY = ['customers', 'dictionaries', 'currency'] as const
 const STALE_TIME = 5 * 60 * 1000
 
-const currencyDictionaryQueryOptions = (options?: { enabled?: boolean }) => ({
+const currencyDictionaryQueryOptions = (
+  options?: { enabled?: boolean },
+): UseQueryOptions<
+  CurrencyDictionaryPayload,
+  Error,
+  CurrencyDictionaryPayload,
+  typeof QUERY_KEY
+> => ({
   queryKey: QUERY_KEY,
   staleTime: STALE_TIME,
   gcTime: STALE_TIME,
+  enabled: options?.enabled !== false,
   queryFn: async (): Promise<CurrencyDictionaryPayload> => {
     const res = await apiFetch('/api/customers/dictionaries/currency')
     const payload = await res.json().catch(() => ({}))
@@ -50,7 +58,6 @@ const currencyDictionaryQueryOptions = (options?: { enabled?: boolean }) => ({
       .filter((entry): entry is CurrencyDictionaryEntry => !!entry)
     return { id, entries }
   },
-  enabled: options?.enabled !== false,
 })
 
 export function useCurrencyDictionary(options?: { enabled?: boolean }) {

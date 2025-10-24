@@ -11,6 +11,7 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -276,6 +277,7 @@ export default function CustomersDealsPage() {
   const [search, setSearch] = React.useState(() => searchParams?.get('search')?.trim() ?? '')
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
   const initialPersonIds = React.useMemo(
@@ -667,6 +669,51 @@ export default function CustomersDealsPage() {
     ])
     setReloadToken((token) => token + 1)
   }, [queryClient])
+
+  const handleDeleteDeal = React.useCallback(
+    async (dealId: string) => {
+      if (pendingDeleteId) return
+      const confirmed =
+        typeof window === 'undefined'
+          ? true
+          : window.confirm(
+              t(
+                'customers.deals.list.deleteConfirm',
+                'Delete this deal? This action cannot be undone.',
+              ),
+            )
+      if (!confirmed) return
+      setPendingDeleteId(dealId)
+      try {
+        const res = await apiFetch('/api/customers/deals', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: dealId }),
+        })
+        const responseBody = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          const message =
+            typeof responseBody?.error === 'string'
+              ? responseBody.error
+              : t('customers.deals.list.deleteError', 'Failed to delete deal.')
+          throw new Error(message)
+        }
+        flash(t('customers.deals.list.deleteSuccess', 'Deal deleted.'), 'success')
+        setRows((prev) => prev.filter((row) => row.id !== dealId))
+        setTotal((prev) => Math.max(0, prev - 1))
+        handleRefresh()
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('customers.deals.list.deleteError', 'Failed to delete deal.')
+        flash(message, 'error')
+      } finally {
+        setPendingDeleteId(null)
+      }
+    },
+    [handleRefresh, pendingDeleteId, t],
+  )
 
   const personOptions = peopleState.options
   const companyOptions = companiesState.options

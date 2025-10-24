@@ -36,6 +36,7 @@ export type DealFormProps = {
   initialValues?: Partial<DealFormBaseValues & Record<string, unknown>>
   onSubmit: (payload: DealFormSubmitPayload) => Promise<void>
   onCancel: () => void
+  onDelete?: () => Promise<void> | void
   submitLabel?: string
   cancelLabel?: string
   isSubmitting?: boolean
@@ -400,6 +401,7 @@ export function DealForm({
   initialValues,
   onSubmit,
   onCancel,
+  onDelete,
   submitLabel,
   cancelLabel,
   isSubmitting = false,
@@ -512,6 +514,7 @@ export function DealForm({
   }, [])
 
   const disabled = pending || isSubmitting
+  const canDelete = mode === 'edit' && typeof onDelete === 'function'
 
   const baseFields = React.useMemo<CrudField[]>(() => [
     {
@@ -707,6 +710,7 @@ export function DealForm({
     }
 
     return {
+      id: typeof initialValues?.id === 'string' ? initialValues.id : undefined,
       title: initialValues?.title ?? '',
       status: initialValues?.status ?? '',
       pipelineStage: initialValues?.pipelineStage ?? '',
@@ -784,6 +788,8 @@ export function DealForm({
       entityIds={DEAL_ENTITY_IDS}
       initialValues={embeddedInitialValues}
       onSubmit={handleSubmit}
+      onDelete={canDelete ? onDelete : undefined}
+      deleteVisible={canDelete}
       submitLabel={
         submitLabel ??
         (mode === 'edit'
