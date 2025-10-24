@@ -15,6 +15,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import {
   DictionaryValue,
   renderDictionaryColor,
@@ -139,6 +140,42 @@ export default function CustomersPeoplePage() {
     return entries.map((entry) => ({ value: entry.value, label: entry.label }))
   }, [fetchDictionaryEntries])
 
+  const loadTagOptions = React.useCallback(async (): Promise<FilterOption[]> => {
+    try {
+      const params = new URLSearchParams({ pageSize: '200' })
+      const res = await apiFetch(`/api/customers/tags?${params.toString()}`)
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const message = typeof payload?.error === 'string'
+          ? payload.error
+          : t('customers.people.detail.tags.loadError', 'Failed to load tags.')
+        throw new Error(message)
+      }
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      const options: FilterOption[] = []
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue
+        const raw = item as { id?: unknown; tagId?: unknown; label?: unknown; slug?: unknown }
+        const rawId = typeof raw.id === 'string'
+          ? raw.id
+          : typeof raw.tagId === 'string'
+            ? raw.tagId
+            : null
+        if (!rawId) continue
+        const label = typeof raw.label === 'string' && raw.label.trim().length
+          ? raw.label.trim()
+          : typeof raw.slug === 'string' && raw.slug.trim().length
+            ? raw.slug.trim()
+            : rawId
+        options.push({ value: rawId, label })
+      }
+      return options
+    } catch (err) {
+      console.error('customers.people.list.loadTagOptions', err)
+      return []
+    }
+  }, [t])
+
   React.useEffect(() => {
     let cancelled = false
     async function loadAll() {
@@ -181,6 +218,13 @@ export default function CustomersPeoplePage() {
       loadOptions: () => loadDictionaryOptions('lifecycle-stages'),
     },
     {
+      id: 'tagIds',
+      label: t('customers.people.list.filters.tags'),
+      type: 'select',
+      multiple: true,
+      loadOptions: loadTagOptions,
+    },
+    {
       id: 'createdAt',
       label: t('customers.people.list.filters.createdAt'),
       type: 'dateRange',
@@ -206,7 +250,7 @@ export default function CustomersPeoplePage() {
       label: t('customers.people.list.filters.hasNextInteraction'),
       type: 'checkbox',
     },
-  ], [loadDictionaryOptions, t])
+  ], [loadDictionaryOptions, loadTagOptions, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -237,6 +281,14 @@ export default function CustomersPeoplePage() {
       const value = filterValues[key]
       if (value === true) params.set(queryKey, 'true')
       if (value === false) params.set(queryKey, 'false')
+    }
+    const tagIds = Array.isArray(filterValues.tagIds)
+      ? filterValues.tagIds
+          .map((value) => (typeof value === 'string' ? value.trim() : String(value || '').trim()))
+          .filter((value) => value.length > 0)
+      : []
+    if (tagIds.length > 0) {
+      params.set('tagIds', tagIds.join(','))
     }
     Object.entries(filterValues).forEach(([key, value]) => {
       if (!key.startsWith('cf_') || value == null) return

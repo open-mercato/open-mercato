@@ -33,7 +33,7 @@ import {
 } from '../../../../components/detail/InlineEditors'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
-import { slugifyTagLabel, isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import type {
   ActivitySummary,
   CommentSummary,
@@ -339,115 +339,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     }
   }, [personId, personName, router, t])
 
-    const handleLoadTags = React.useCallback(async (query?: string) => {
-      try {
-        const params = new URLSearchParams({ pageSize: '200' })
-        if (query) params.set('search', query)
-        const res = await apiFetch(`/api/customers/tags?${params.toString()}`)
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof payload?.error === 'string'
-              ? payload.error
-              : t('customers.people.detail.tags.loadError', 'Failed to load tags.')
-          throw new Error(message)
-        }
-        const items = Array.isArray(payload?.items) ? payload.items : []
-        return items
-          .map((item) => {
-            if (!item || typeof item !== 'object') return null
-            const raw = item as { id?: unknown; label?: unknown; slug?: unknown; color?: unknown }
-            const rawId = raw.id
-            const id =
-              typeof rawId === 'string'
-                ? rawId
-                : typeof rawId === 'number'
-                  ? String(rawId)
-                  : typeof rawId === 'bigint'
-                    ? rawId.toString()
-                    : ''
-            if (!id) return null
-            const labelRaw =
-              typeof raw.label === 'string' && raw.label.trim().length ? raw.label.trim() : null
-            const label =
-              labelRaw ?? (typeof raw.slug === 'string' && raw.slug.trim().length ? raw.slug : id)
-            const color =
-              typeof raw.color === 'string' && raw.color.trim().length ? raw.color.trim() : null
-            return { id, label, color }
-          })
-          .filter((value): value is TagOption => value !== null)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.people.detail.tags.loadError', 'Failed to load tags.')
-        throw new Error(message)
-      }
-    }, [t])
-  
-    const handleCreateTag = React.useCallback(async ({ label }: { label: string }) => {
-      const trimmed = label.trim()
-      if (!trimmed.length) {
-        throw new Error(t('customers.people.detail.tags.labelRequired', 'Tag name is required.'))
-      }
-      try {
-        const res = await apiFetch('/api/customers/tags', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            label: trimmed,
-            slug: slugifyTagLabel(trimmed),
-          }),
-        })
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof payload?.error === 'string'
-              ? payload.error
-              : t('customers.people.detail.tags.createError', 'Failed to create tag.')
-          throw new Error(message)
-        }
-        const id = typeof payload?.id === 'string' ? payload.id : String(payload?.tagId ?? '')
-        if (!id) throw new Error(t('customers.people.detail.tags.createError', 'Failed to create tag.'))
-        const color = typeof payload?.color === 'string' ? payload.color : null
-        return { id, label: trimmed, color } satisfies TagOption
-      } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.people.detail.tags.createError', 'Failed to create tag.')
-        throw new Error(message)
-      }
-    }, [t])
-  
-    const handleAssignTag = React.useCallback(async (tagId: string) => {
-      if (!personId) throw new Error(t('customers.people.detail.tags.assignError', 'Failed to assign tag.'))
-      const res = await apiFetch('/api/customers/tags/assign', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tagId, entityId: personId }),
-      })
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}))
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('customers.people.detail.tags.assignError', 'Failed to assign tag.')
-        throw new Error(message)
-      }
-    }, [personId, t])
-  
-    const handleUnassignTag = React.useCallback(async (tagId: string) => {
-      if (!personId) throw new Error(t('customers.people.detail.tags.assignError', 'Failed to remove tag.'))
-      const res = await apiFetch('/api/customers/tags/unassign', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tagId, entityId: personId }),
-      })
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}))
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('customers.people.detail.tags.unassignError', 'Failed to remove tag.')
-        throw new Error(message)
-      }
-    }, [personId, t])
-  
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
   }, [])
@@ -900,11 +791,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             />
   
             <TagsSection
+              entityId={data.person.id}
               tags={data.tags}
-              loadOptions={handleLoadTags}
-              onAssign={handleAssignTag}
-              onUnassign={handleUnassignTag}
-              onCreate={handleCreateTag}
               onChange={handleTagsChange}
               isSubmitting={false}
             />

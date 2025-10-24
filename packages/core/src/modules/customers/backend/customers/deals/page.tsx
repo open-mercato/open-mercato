@@ -884,6 +884,37 @@ export default function CustomersDealsPage() {
           )}
           columns={columns}
           data={rows}
+          onRowClick={(row) => {
+            router.push(`/backend/customers/deals/${row.id}`)
+          }}
+          rowActions={(row) => {
+            const isDeleting = pendingDeleteId === row.id
+            return (
+              <RowActions
+                items={[
+                  {
+                    label: t('customers.deals.list.actions.edit', 'Edit'),
+                    onSelect: () => { router.push(`/backend/customers/deals/${row.id}`) },
+                  },
+                  {
+                    label: t('customers.deals.list.actions.openInNewTab', 'Open in new tab'),
+                    onSelect: () => {
+                      if (typeof window !== 'undefined') {
+                        window.open(`/backend/customers/deals/${row.id}`, '_blank', 'noopener')
+                      }
+                    },
+                  },
+                  {
+                    label: isDeleting
+                      ? t('customers.deals.list.actions.deleting', 'Deleting…')
+                      : t('customers.deals.list.actions.delete', 'Delete'),
+                    destructive: true,
+                    onSelect: () => handleDeleteDeal(row.id),
+                  },
+                ]}
+              />
+            )
+          }}
           searchValue={search}
           onSearchChange={handleSearchChange}
           searchPlaceholder={t('customers.deals.list.searchPlaceholder')}
