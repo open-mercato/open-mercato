@@ -5,6 +5,7 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@/lib/i18n/context'
 import type { TaskFormPayload } from './hooks/usePersonTasks'
+import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
 
 export type TaskFormProps = {
   mode: 'create' | 'edit'
@@ -113,7 +114,7 @@ export function TaskForm({
       const custom: Record<string, unknown> = {}
       for (const [key, value] of Object.entries(values)) {
         if (key.startsWith('cf_')) {
-          custom[key.slice(3)] = value
+          custom[key.slice(3)] = normalizeCustomFieldSubmitValue(value)
         }
       }
       await onSubmit({ base, custom })

@@ -8,6 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { toLocalDateTimeInput } from './utils'
+import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
 
 type DictionaryOption = {
   value: string
@@ -21,11 +22,13 @@ export type ActivityFormBaseValues = {
   subject?: string | null
   body?: string | null
   occurredAt?: string | null
+  dealId?: string | null
 }
 
 export type ActivityFormSubmitPayload = {
   base: ActivityFormBaseValues
   custom: Record<string, unknown>
+  entityId?: string | null
 }
 
 export type ActivityFormProps = {
@@ -39,6 +42,9 @@ export type ActivityFormProps = {
   activityTypeLabels: DictionarySelectLabels
   loadActivityOptions: () => Promise<DictionaryOption[]>
   createActivityOption?: (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => Promise<DictionaryOption>
+  dealOptions?: Array<{ id: string; label: string }>
+  entityOptions?: Array<{ id: string; label: string }>
+  defaultEntityId?: string | null
 }
 
 const schema = z.object({
@@ -69,6 +75,9 @@ export function ActivityForm({
   activityTypeLabels,
   loadActivityOptions,
   createActivityOption,
+  dealOptions,
+  entityOptions,
+  defaultEntityId,
 }: ActivityFormProps) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
@@ -90,87 +99,196 @@ export function ActivityForm({
     [t],
   )
 
+  const normalizedDealOptions = React.useMemo(() => {
+    if (!Array.isArray(dealOptions)) return []
+    const seen = new Set<string>()
+    return dealOptions
+      .map((option) => {
+        if (!option || typeof option !== 'object') return null
+        const id = typeof option.id === 'string' ? option.id.trim() : ''
+        if (!id || seen.has(id)) return null
+        const label =
+          typeof option.label === 'string' && option.label.trim().length
+            ? option.label.trim()
+            : id
+        seen.add(id)
+        return { id, label }
+      })
+      .filter((option): option is { id: string; label: string } => !!option)
+  }, [dealOptions])
+
+  const normalizedEntityOptions = React.useMemo(() => {
+    if (!Array.isArray(entityOptions)) return []
+    const seen = new Set<string>()
+    return entityOptions
+      .map((option) => {
+        if (!option || typeof option !== 'object') return null
+        const id = typeof option.id === 'string' ? option.id.trim() : ''
+        if (!id || seen.has(id)) return null
+        const label =
+          typeof option.label === 'string' && option.label.trim().length
+            ? option.label.trim()
+            : id
+        seen.add(id)
+        return { id, label }
+      })
+      .filter((option): option is { id: string; label: string } => !!option)
+  }, [entityOptions])
+
   const baseFields = React.useMemo<CrudField[]>(() => {
-    return [
-      {
-        id: 'activityType',
-        label: t('customers.people.detail.activities.fields.type'),
+    const fields: CrudField[] = []
+
+    if (normalizedEntityOptions.length) {
+      fields.push({
+        id: 'entityId',
+        label: t('customers.people.detail.activities.fields.entity', 'Assign to customer'),
         type: 'custom',
-        required: true,
         layout: 'half',
-        component: ({ value, setValue }) => (
-          <DictionaryEntrySelect
-            value={typeof value === 'string' ? value : undefined}
-            onChange={(next) => setValue(next ?? '')}
-            fetchOptions={loadActivityOptions}
-            createOption={createActivityOption}
-            labels={activityTypeLabels}
-            allowAppearance
-            allowInlineCreate
-            appearanceLabels={dictionaryAppearanceLabels}
-            selectClassName="w-full"
-            manageHref="/backend/config/customers"
-          />
-        ),
-      } as CrudField,
-      {
-        id: 'subject',
-        label: t('customers.people.detail.activities.fields.subject'),
-        type: 'text',
-        layout: 'half',
-        placeholder: t('customers.people.detail.activities.subjectPlaceholder', 'Add a subject (optional)'),
-      } as CrudField,
-      {
-        id: 'body',
-        label: t('customers.people.detail.activities.fields.body'),
-        type: 'textarea',
-        placeholder: t('customers.people.detail.activities.bodyPlaceholder', 'Describe the interaction'),
-      } as CrudField,
-      {
-        id: 'occurredAt',
-        label: t('customers.people.detail.activities.fields.occurredAt'),
+        component: ({ value, setValue }) => {
+          const currentValue =
+            typeof value === 'string' && value.length ? value : normalizedEntityOptions[0]?.id ?? ''
+          return (
+            <select
+              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              value={currentValue}
+              onChange={(event) => setValue(event.target.value)}
+            >
+              {normalizedEntityOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )
+        },
+      } as CrudField)
+    }
+
+    if (normalizedDealOptions.length) {
+      fields.push({
+        id: 'dealId',
+        label: t('customers.people.detail.activities.fields.deal', 'Link to deal (optional)'),
         type: 'custom',
-        component: ({ value, setValue }) => (
-          <input
-            type="datetime-local"
-            className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            value={typeof value === 'string' ? value : ''}
-            onChange={(event) => setValue(event.target.value || '')}
-            onFocus={(event) => {
-              const target = event.currentTarget as HTMLInputElement & { showPicker?: () => void }
-              if (typeof target.showPicker === 'function') {
-                try { target.showPicker() } catch { /* ignore unsupported */ }
-              }
-            }}
-            onClick={(event) => {
-              const target = event.currentTarget as HTMLInputElement & { showPicker?: () => void }
-              if (typeof target.showPicker === 'function') {
-                try { target.showPicker() } catch { /* ignore unsupported */ }
-              }
-            }}
-          />
-        ),
         layout: 'half',
-      } as CrudField,
-    ]
-  }, [activityTypeLabels, createActivityOption, dictionaryAppearanceLabels, loadActivityOptions, t])
+        component: ({ value, setValue }) => {
+          const currentValue = typeof value === 'string' ? value : ''
+          return (
+            <select
+              className="h-9 w-full rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              value={currentValue}
+              onChange={(event) => setValue(event.target.value)}
+            >
+              <option value="">
+                {t('customers.people.detail.activities.fields.dealPlaceholder', 'No linked deal')}
+              </option>
+              {normalizedDealOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )
+        },
+      } as CrudField)
+    }
+
+    fields.push({
+      id: 'activityType',
+      label: t('customers.people.detail.activities.fields.type'),
+      type: 'custom',
+      required: true,
+      layout: 'half',
+      component: ({ value, setValue }) => (
+        <DictionaryEntrySelect
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(next) => setValue(next ?? '')}
+          fetchOptions={loadActivityOptions}
+          createOption={createActivityOption}
+          labels={activityTypeLabels}
+          allowAppearance
+          allowInlineCreate
+          appearanceLabels={dictionaryAppearanceLabels}
+          selectClassName="w-full"
+          manageHref="/backend/config/customers"
+        />
+      ),
+    } as CrudField)
+
+    fields.push({
+      id: 'subject',
+      label: t('customers.people.detail.activities.fields.subject'),
+      type: 'text',
+      layout: 'half',
+      placeholder: t('customers.people.detail.activities.subjectPlaceholder', 'Add a subject (optional)'),
+    } as CrudField)
+
+    fields.push({
+      id: 'body',
+      label: t('customers.people.detail.activities.fields.body'),
+      type: 'textarea',
+      placeholder: t('customers.people.detail.activities.bodyPlaceholder', 'Describe the interaction'),
+    } as CrudField)
+
+    fields.push({
+      id: 'occurredAt',
+      label: t('customers.people.detail.activities.fields.occurredAt'),
+      type: 'custom',
+      component: ({ value, setValue }) => (
+        <input
+          type="datetime-local"
+          className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          value={typeof value === 'string' ? value : ''}
+          onChange={(event) => setValue(event.target.value || '')}
+          onFocus={(event) => {
+            const target = event.currentTarget as HTMLInputElement & { showPicker?: () => void }
+            if (typeof target.showPicker === 'function') {
+              try { target.showPicker() } catch { /* ignore unsupported */ }
+            }
+          }}
+          onClick={(event) => {
+            const target = event.currentTarget as HTMLInputElement & { showPicker?: () => void }
+            if (typeof target.showPicker === 'function') {
+              try { target.showPicker() } catch { /* ignore unsupported */ }
+            }
+          }}
+        />
+      ),
+      layout: 'half',
+    } as CrudField)
+
+    return fields
+  }, [
+    activityTypeLabels,
+    createActivityOption,
+    dictionaryAppearanceLabels,
+    loadActivityOptions,
+    normalizedDealOptions,
+    normalizedEntityOptions,
+    t,
+  ])
 
   const baseFieldIds = React.useMemo(() => new Set(baseFields.map((field) => field.id)), [baseFields])
 
-  const groups = React.useMemo<CrudFormGroup[]>(() => [
-    {
-      id: 'details',
-      title: t('customers.people.detail.activities.form.details', 'Activity details'),
-      column: 1,
-      fields: ['activityType', 'subject', 'occurredAt', 'body'],
-    },
-    {
-      id: 'custom',
-      title: t('customers.people.detail.activities.form.customFields', 'Custom fields'),
-      column: 2,
-      kind: 'customFields',
-    },
-  ], [t])
+  const groups = React.useMemo<CrudFormGroup[]>(() => {
+    const detailFields: string[] = []
+    if (normalizedEntityOptions.length) detailFields.push('entityId')
+    if (normalizedDealOptions.length) detailFields.push('dealId')
+    detailFields.push('activityType', 'subject', 'occurredAt', 'body')
+    return [
+      {
+        id: 'details',
+        title: t('customers.people.detail.activities.form.details', 'Activity details'),
+        column: 1,
+        fields: detailFields,
+      },
+      {
+        id: 'custom',
+        title: t('customers.people.detail.activities.form.customFields', 'Custom fields'),
+        column: 2,
+        kind: 'customFields',
+      },
+    ]
+  }, [normalizedDealOptions.length, normalizedEntityOptions.length, t])
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
@@ -182,6 +300,9 @@ export function ActivityForm({
           const message = parsed.error.issues[0]?.message ?? t('customers.people.detail.activities.error')
           throw new Error(message)
         }
+        const rawEntityId = typeof values.entityId === 'string' ? values.entityId.trim() : ''
+        const resolvedEntityId = rawEntityId || (typeof defaultEntityId === 'string' ? defaultEntityId : '')
+        const rawDealId = typeof values.dealId === 'string' ? values.dealId.trim() : ''
         const base: ActivityFormBaseValues = {
           activityType: parsed.data.activityType,
           subject: parsed.data.subject || undefined,
@@ -189,29 +310,44 @@ export function ActivityForm({
           occurredAt: parsed.data.occurredAt && parsed.data.occurredAt.length
             ? new Date(parsed.data.occurredAt).toISOString()
             : undefined,
+          dealId: rawDealId.length ? rawDealId : undefined,
         }
         const customEntries: Record<string, unknown> = {}
         Object.entries(values).forEach(([key, value]) => {
+          const normalizedValue = normalizeCustomFieldSubmitValue(value)
           if (key.startsWith('cf_')) {
-            customEntries[key.slice(3)] = value
+            customEntries[key.slice(3)] = normalizedValue
             return
           }
           if (!baseFieldIds.has(key) && key !== 'id') {
-            customEntries[key] = value
+            customEntries[key] = normalizedValue
           }
         })
-        await onSubmit({ base, custom: customEntries })
+        await onSubmit({ base, custom: customEntries, entityId: resolvedEntityId.length ? resolvedEntityId : undefined })
       } finally {
         setPending(false)
       }
     },
-    [baseFieldIds, isSubmitting, onSubmit, pending, t],
+    [baseFieldIds, defaultEntityId, isSubmitting, onSubmit, pending, t],
   )
 
   const embeddedInitialValues = React.useMemo(() => {
     const occurredAt = toLocalDateTimeInput(initialValues?.occurredAt ?? null)
+    const resolvedEntity = (() => {
+      const raw = typeof (initialValues as Record<string, unknown> | undefined)?.entityId === 'string'
+        ? (initialValues as Record<string, unknown>).entityId as string
+        : typeof defaultEntityId === 'string'
+          ? defaultEntityId
+          : normalizedEntityOptions[0]?.id ?? ''
+      return raw ?? ''
+    })()
+    const resolvedDeal = typeof (initialValues as Record<string, unknown> | undefined)?.dealId === 'string'
+      ? (initialValues as Record<string, unknown>).dealId as string
+      : ''
 
     return {
+      entityId: resolvedEntity,
+      dealId: resolvedDeal,
       activityType: initialValues?.activityType ?? '',
       subject: initialValues?.subject ?? '',
       body: initialValues?.body ?? '',
@@ -222,7 +358,7 @@ export function ActivityForm({
           .map(([key, value]) => [key, value]),
       ),
     }
-  }, [initialValues])
+  }, [defaultEntityId, initialValues, normalizedEntityOptions])
 
   return (
     <CrudForm<Record<string, unknown>>

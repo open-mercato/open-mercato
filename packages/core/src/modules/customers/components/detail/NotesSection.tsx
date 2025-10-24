@@ -137,6 +137,7 @@ function mapComment(input: unknown): CommentSummary {
 
 export function NotesSection({
   entityId,
+  dealId,
   emptyLabel,
   viewerUserId,
   viewerName,
@@ -146,6 +147,8 @@ export function NotesSection({
   onActionChange,
   translator,
   onLoadingChange,
+  dealOptions,
+  entityOptions,
 }: NotesSectionProps) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(
@@ -297,7 +300,9 @@ export function NotesSection({
   const [deletingNoteId, setDeletingNoteId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    if (!hasEntity) {
+    const queryEntityId = typeof entityId === 'string' ? entityId : ''
+    const queryDealId = typeof dealId === 'string' ? dealId : ''
+    if (!queryEntityId && !queryDealId) {
       setNotes([])
       setLoadError(null)
       setIsLoading(false)
@@ -309,7 +314,10 @@ export function NotesSection({
     pushLoading()
     async function loadNotes() {
       try {
-        const res = await apiFetch(`/api/customers/comments?entityId=${encodeURIComponent(entityId!)}`)
+        const params = new URLSearchParams()
+        if (queryEntityId) params.set('entityId', queryEntityId)
+        if (queryDealId) params.set('dealId', queryDealId)
+        const res = await apiFetch(`/api/customers/comments?${params.toString()}`)
         if (!res.ok) {
           const payload = await res.json().catch(() => ({}))
           const message =
@@ -339,7 +347,7 @@ export function NotesSection({
     return () => {
       cancelled = true
     }
-  }, [entityId, hasEntity, popLoading, pushLoading, t])
+  }, [dealId, entityId, popLoading, pushLoading, t])
 
   const viewerLabel = React.useMemo(() => viewerName ?? viewerEmail ?? null, [viewerEmail, viewerName])
 
@@ -405,7 +413,7 @@ export function NotesSection({
 
   const handleCreateNote = React.useCallback(
     async (input: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => {
-      if (!hasEntity || !entityId) {
+      if (!hasEntity || !resolvedEntityId) {
         flash(t('customers.people.detail.notes.entityMissing', 'Unable to determine current person.'), 'error')
         return false
       }
@@ -416,6 +424,8 @@ export function NotesSection({
       }
       const icon = input.appearanceIcon && input.appearanceIcon.trim().length ? input.appearanceIcon.trim() : null
       const color = sanitizeHexColor(input.appearanceColor)
+      const targetDealId = resolvedDealId.length ? resolvedDealId : null
+      const dealLabel = targetDealId ? dealLabelMap.get(targetDealId) ?? null : null
       setIsSubmitting(true)
       pushLoading()
       try {
@@ -423,10 +433,11 @@ export function NotesSection({
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            entityId,
+            entityId: resolvedEntityId,
             body,
             appearanceIcon: icon ?? undefined,
             appearanceColor: color ?? undefined,
+            dealId: targetDealId ?? undefined,
           }),
         })
         if (!res.ok) {
@@ -461,7 +472,8 @@ export function NotesSection({
             authorUserId: resolvedAuthorId,
             authorName: resolvedAuthorName,
             authorEmail: resolvedAuthorEmail,
-            dealId: null,
+            dealId: targetDealId,
+            dealTitle: dealLabel,
             appearanceIcon: icon,
             appearanceColor: color,
           }
@@ -478,7 +490,7 @@ export function NotesSection({
         popLoading()
       }
     },
-    [entityId, hasEntity, popLoading, pushLoading, viewerEmail, viewerName, viewerUserId, t, focusComposer],
+    [dealLabelMap, focusComposer, hasEntity, popLoading, pushLoading, resolvedDealId, resolvedEntityId, t, viewerEmail, viewerName, viewerUserId],
   )
 
   const handleUpdateNote = React.useCallback(
@@ -791,6 +803,59 @@ export function NotesSection({
                 </Button>
               </div>
             </div>
+            {(normalizedEntityOptions.length || normalizedDealOptions.length) ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {normalizedEntityOptions.length ? (
+                  <div className="flex flex-col gap-1">
+                    <label
+                      htmlFor="note-entity-select"
+                      className="text-xs font-medium text-muted-foreground"
+                    >
+                      {t('customers.people.detail.notes.fields.entity', 'Assign to customer')}
+                    </label>
+                    <select
+                      id="note-entity-select"
+                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      value={selectedEntityId}
+                      onChange={(event) => setSelectedEntityId(event.target.value)}
+                      disabled={isSubmitting || isLoading || !normalizedEntityOptions.length}
+                    >
+                      {normalizedEntityOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+                {normalizedDealOptions.length ? (
+                  <div className="flex flex-col gap-1">
+                    <label
+                      htmlFor="note-deal-select"
+                      className="text-xs font-medium text-muted-foreground"
+                    >
+                      {t('customers.people.detail.notes.fields.deal', 'Link to deal (optional)')}
+                    </label>
+                    <select
+                      id="note-deal-select"
+                      className="h-9 rounded border border-muted-foreground/40 bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      value={selectedDealId}
+                      onChange={(event) => setSelectedDealId(event.target.value)}
+                      disabled={isSubmitting || isLoading}
+                    >
+                      <option value="">
+                        {t('customers.people.detail.notes.fields.dealPlaceholder', 'No linked deal')}
+                      </option>
+                      {normalizedDealOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {isMarkdownEnabled ? (
               <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
                 <div data-color-mode="light" className="w-full">
@@ -876,13 +941,28 @@ export function NotesSection({
             return (
               <div key={note.id} className="group space-y-2 rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <TimelineItemHeader
-                    title={author}
-                    timestamp={timestampValue}
-                    fallbackTimestampLabel={fallbackTimestampLabel}
-                    icon={displayIcon}
-                    color={displayColor}
-                  />
+                  <div className="space-y-1">
+                    <TimelineItemHeader
+                      title={author}
+                      timestamp={timestampValue}
+                      fallbackTimestampLabel={fallbackTimestampLabel}
+                      icon={displayIcon}
+                      color={displayColor}
+                    />
+                    {note.dealId ? (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <ArrowUpRightSquare className="h-3.5 w-3.5" />
+                        <Link
+                          href={`/backend/customers/deals/${encodeURIComponent(note.dealId)}`}
+                          className="font-medium text-foreground hover:underline"
+                        >
+                          {note.dealTitle && note.dealTitle.length
+                            ? note.dealTitle
+                            : t('customers.people.detail.notes.linkedDeal', 'Linked deal')}
+                        </Link>
+                      </div>
+                    ) : null}
+                  </div>
                   <div
                     className={`flex items-center gap-2 transition-opacity ${
                       isEditingContent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'

@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowUpRightSquare, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -37,20 +38,51 @@ type PendingAction =
 
 export type ActivitiesSectionProps = {
   entityId: string | null
+  dealId?: string | null
   addActionLabel: string
   emptyState: TabEmptyState
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
+  dealOptions?: Array<{ id: string; label: string }>
+  entityOptions?: Array<{ id: string; label: string }>
+  defaultEntityId?: string | null
 }
 
 export function ActivitiesSection({
   entityId,
+  dealId,
   addActionLabel,
   emptyState,
   onActionChange,
   onLoadingChange,
+  dealOptions,
+  entityOptions,
+  defaultEntityId,
 }: ActivitiesSectionProps) {
   const t = useT()
+  const resolvedDefaultEntityId = React.useMemo(() => {
+    const primary = typeof entityId === 'string' ? entityId.trim() : ''
+    if (primary.length) return primary
+    const fallback = typeof defaultEntityId === 'string' ? defaultEntityId.trim() : ''
+    if (fallback.length) return fallback
+    if (Array.isArray(entityOptions)) {
+      for (const option of entityOptions) {
+        if (!option || typeof option !== 'object') continue
+        const id = typeof option.id === 'string' ? option.id.trim() : ''
+        if (id.length) return id
+      }
+    }
+    return ''
+  }, [defaultEntityId, entityId, entityOptions])
+
+  const resolveEntityForSubmission = React.useCallback(
+    (input?: string | null) => {
+      const candidate = typeof input === 'string' ? input.trim() : ''
+      if (candidate.length) return candidate
+      return resolvedDefaultEntityId.length ? resolvedDefaultEntityId : null
+    },
+    [resolvedDefaultEntityId],
+  )
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
   const dictionaryQuery = useCustomerDictionary('activity-types', scopeVersion)
@@ -164,7 +196,9 @@ export function ActivitiesSection({
   }, [])
 
   const loadActivities = React.useCallback(async () => {
-    if (!entityId) {
+    const queryEntityId = typeof entityId === 'string' ? entityId.trim() : ''
+    const queryDealId = typeof dealId === 'string' ? dealId.trim() : ''
+    if (!queryEntityId && !queryDealId) {
       setActivities([])
       setLoadError(null)
       updateVisibleCount(0)
@@ -174,11 +208,12 @@ export function ActivitiesSection({
     setIsLoading(true)
     try {
       const params = new URLSearchParams({
-        entityId,
         pageSize: '50',
         sortField: 'occurredAt',
         sortDir: 'desc',
       })
+      if (queryEntityId) params.set('entityId', queryEntityId)
+      if (queryDealId) params.set('dealId', queryDealId)
       const res = await apiFetch(`/api/customers/activities?${params.toString()}`)
       const payload = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -202,14 +237,16 @@ export function ActivitiesSection({
       setIsLoading(false)
       popLoading()
     }
-  }, [entityId, popLoading, pushLoading, t, updateVisibleCount])
+  }, [dealId, entityId, popLoading, pushLoading, t, updateVisibleCount])
 
   React.useEffect(() => {
     updateVisibleCount(activities.length)
   }, [activities.length, updateVisibleCount])
 
   React.useEffect(() => {
-    if (!entityId) {
+    const queryEntityId = typeof entityId === 'string' ? entityId.trim() : ''
+    const queryDealId = typeof dealId === 'string' ? dealId.trim() : ''
+    if (!queryEntityId && !queryDealId) {
       setActivities([])
       setLoadError(null)
       setIsLoading(false)
@@ -219,15 +256,14 @@ export function ActivitiesSection({
       return
     }
     loadActivities().catch(() => {})
-  }, [entityId, loadActivities, onLoadingChange, updateVisibleCount])
+  }, [dealId, entityId, loadActivities, onLoadingChange, updateVisibleCount])
 
   const openCreateDialog = React.useCallback(() => {
-    if (!entityId) return
     setDialogMode('create')
     setEditingActivityId(null)
     setInitialValues(undefined)
     setDialogOpen(true)
-  }, [entityId])
+  }, [])
 
   const openEditDialog = React.useCallback((activity: ActivitySummary) => {
     setDialogMode('edit')
@@ -237,6 +273,7 @@ export function ActivitiesSection({
       subject: activity.subject ?? '',
       body: activity.body ?? '',
       occurredAt: activity.occurredAt ?? activity.createdAt ?? null,
+      dealId: activity.dealId ?? '',
     }
     const customEntries = Array.isArray(activity.customFields) ? activity.customFields : []
     customEntries.forEach((entry) => {
@@ -265,20 +302,24 @@ export function ActivitiesSection({
   )
 
   const handleCreate = React.useCallback(
-    async ({ base, custom }: ActivityFormSubmitPayload) => {
-      if (!entityId) {
-        throw new Error(t('customers.people.detail.activities.error', 'Failed to save activity'))
+    async ({ base, custom, entityId: formEntityId }: ActivityFormSubmitPayload) => {
+      const submissionEntityId = resolveEntityForSubmission(formEntityId)
+      if (!submissionEntityId) {
+        const message = t('customers.people.detail.activities.entityMissing', 'Select a related customer before saving.')
+        flash(message, 'error')
+        throw new Error(message)
       }
       setPendingAction({ kind: 'create' })
       pushLoading()
       try {
         const payload: Record<string, unknown> = {
-          entityId,
+          entityId: submissionEntityId,
           activityType: base.activityType,
           subject: base.subject ?? undefined,
           body: base.body ?? undefined,
           occurredAt: base.occurredAt ?? undefined,
         }
+        if (base.dealId) payload.dealId = base.dealId
         if (Object.keys(custom).length) payload.customFields = custom
         const res = await apiFetch('/api/customers/activities', {
           method: 'POST',
@@ -306,13 +347,16 @@ export function ActivitiesSection({
         popLoading()
       }
     },
-    [entityId, loadActivities, popLoading, pushLoading, t],
+    [loadActivities, popLoading, pushLoading, resolveEntityForSubmission, t],
   )
 
   const handleUpdate = React.useCallback(
-    async (activityId: string, { base, custom }: ActivityFormSubmitPayload) => {
-      if (!entityId) {
-        throw new Error(t('customers.people.detail.activities.error', 'Failed to save activity'))
+    async (activityId: string, { base, custom, entityId: formEntityId }: ActivityFormSubmitPayload) => {
+      const submissionEntityId = resolveEntityForSubmission(formEntityId)
+      if (!submissionEntityId) {
+        const message = t('customers.people.detail.activities.entityMissing', 'Select a related customer before saving.')
+        flash(message, 'error')
+        throw new Error(message)
       }
       setPendingAction({ kind: 'update', id: activityId })
       pushLoading()
@@ -322,11 +366,12 @@ export function ActivitiesSection({
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             id: activityId,
-            entityId,
+            entityId: submissionEntityId,
             activityType: base.activityType,
             subject: base.subject ?? undefined,
             body: base.body ?? undefined,
             occurredAt: base.occurredAt ?? undefined,
+            dealId: base.dealId ?? undefined,
             ...(Object.keys(custom).length ? { customFields: custom } : {}),
           }),
         })
@@ -351,7 +396,7 @@ export function ActivitiesSection({
         popLoading()
       }
     },
-    [entityId, loadActivities, popLoading, pushLoading, t],
+    [loadActivities, popLoading, pushLoading, resolveEntityForSubmission, t],
   )
 
   const handleDelete = React.useCallback(
@@ -412,7 +457,7 @@ export function ActivitiesSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
-    const disabled = !entityId || pendingAction !== null || isLoading
+    const disabled = resolveEntityForSubmission(null) === null || pendingAction !== null || isLoading
     const action: SectionAction = {
       label: addActionLabel,
       onClick: () => {
@@ -424,7 +469,7 @@ export function ActivitiesSection({
     return () => {
       onActionChange(null)
     }
-  }, [addActionLabel, entityId, isLoading, onActionChange, openCreateDialog, pendingAction])
+  }, [addActionLabel, isLoading, onActionChange, openCreateDialog, pendingAction, resolveEntityForSubmission])
 
   const isFormPending =
     pendingAction?.kind === 'create' ||
@@ -592,6 +637,9 @@ export function ActivitiesSection({
         activityTypeLabels={activityTypeLabels}
         loadActivityOptions={loadDictionaryOptions}
         createActivityOption={createDictionaryOption}
+        dealOptions={dealOptions}
+        entityOptions={entityOptions}
+        defaultEntityId={resolvedDefaultEntityId || undefined}
       />
     </div>
   )
