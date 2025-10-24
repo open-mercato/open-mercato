@@ -389,6 +389,7 @@
   "customers.deals.form.companies.error": "Unternehmen konnten nicht geladen werden.",
   "customers.deals.form.assignees.remove": "Entfernen",
   "customers.deals.form.currency.loading": "Währungen werden geladen…",
+  "customers.deals.form.currency.placeholder": "Währung auswählen…",
   "customers.deals.form.currency.error": "Währungswörterbuch konnte nicht geladen werden.",
   "customers.deals.form.currency.missing": "Das Währungswörterbuch ist noch nicht konfiguriert.",
   "customers.deals.list.unnamedPerson": "Unbenannte Person",

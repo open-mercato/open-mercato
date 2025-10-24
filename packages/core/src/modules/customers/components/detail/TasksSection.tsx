@@ -249,13 +249,6 @@ export function TasksSection({
   return (
     <div className="mt-4 space-y-6">
       <div className="space-y-4">
-        {isInitialLoading ? (
-          <div className="flex min-h-[160px] items-center justify-center text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {t('customers.people.detail.tasks.loading', 'Loading tasks…')}
-          </div>
-        ) : null}
-
         {!isInitialLoading && !hasTasks ? (
           <EmptyState
             title={emptyState.title}

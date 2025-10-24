@@ -41,7 +41,6 @@ export function TaskForm({
         id: 'is_done',
         label: t('customers.people.detail.tasks.fields.done', 'Mark as done'),
         type: 'checkbox',
-        layout: 'half',
       },
     ]
   }, [t])
@@ -52,13 +51,29 @@ export function TaskForm({
         id: 'details',
         title: t('customers.people.detail.tasks.form.details', 'Task details'),
         column: 1,
-        fields: ['title', 'is_done'],
+        fields: ['title'],
+      },
+      {
+        id: 'status',
+        title: t('customers.people.detail.tasks.form.status', 'Status'),
+        column: 2,
+        fields: ['is_done'],
       },
       {
         id: 'attributes',
         title: t('customers.people.detail.tasks.form.customFields', 'Task attributes'),
         column: 1,
         kind: 'customFields',
+      },
+      {
+        id: 'tips',
+        title: t('customers.people.detail.tasks.form.tips', 'Tips'),
+        column: 2,
+        component: () => (
+          <div className="text-sm text-muted-foreground">
+            {t('customers.people.detail.tasks.form.tipsBody', 'Use clear titles like "Follow up call" or "Send pricing deck".')}
+          </div>
+        ),
       },
     ]
   }, [t])

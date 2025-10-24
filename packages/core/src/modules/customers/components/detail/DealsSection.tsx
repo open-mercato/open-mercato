@@ -14,6 +14,7 @@ import { formatDate } from './utils'
 import { DealDialog } from './DealDialog'
 import type { DealFormBaseValues, DealFormSubmitPayload } from './DealForm'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 
 const DEALS_PAGE_SIZE = 10
@@ -211,6 +212,7 @@ export function DealsSection({
       }),
     [translator, tHook],
   )
+  useCurrencyDictionary()
   const scopeVersion = useOrganizationScopeVersion()
   const statusDictionaryQuery = useCustomerDictionary('deal-statuses', scopeVersion)
   const statusDictionaryMap = statusDictionaryQuery.data?.map ?? null

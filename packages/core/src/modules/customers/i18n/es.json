@@ -400,6 +400,7 @@
   "customers.deals.form.companies.error": "No se pudieron cargar las empresas.",
   "customers.deals.form.assignees.remove": "Eliminar",
   "customers.deals.form.currency.loading": "Cargando monedas…",
+  "customers.deals.form.currency.placeholder": "Selecciona una moneda…",
   "customers.deals.form.currency.error": "No se pudo cargar el diccionario de monedas.",
   "customers.deals.form.currency.missing": "El diccionario de monedas aún no está configurado.",
   "customers.deals.list.actions.new": "Nueva oportunidad",

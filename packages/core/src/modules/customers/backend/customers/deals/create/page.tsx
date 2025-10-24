@@ -7,11 +7,13 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
 import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
+import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
 
 export default function CreateDealPage() {
   const t = useT()
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  useCurrencyDictionary()
 
   const handleCancel = React.useCallback(() => {
     router.push('/backend/customers/deals')

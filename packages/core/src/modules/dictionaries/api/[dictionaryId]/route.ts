@@ -18,6 +18,11 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['dictionaries.manage'] },
 }
 
+function isProtectedCurrencyDictionary(dictionary: Dictionary) {
+  const key = dictionary.key?.trim().toLowerCase() ?? ''
+  return key === 'currency' || key === 'currencies'
+}
+
 async function loadDictionary(
   context: Awaited<ReturnType<typeof resolveDictionariesRouteContext>>,
   id: string,
@@ -68,6 +73,15 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const payload = updateSchema.parse(await req.json().catch(() => ({})))
     const dictionary = await loadDictionary(context, dictionaryId)
+
+    if (isProtectedCurrencyDictionary(dictionary)) {
+      if (payload.key && payload.key.trim().toLowerCase() !== dictionary.key) {
+        throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.') })
+      }
+      if (payload.isActive === false) {
+        throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.') })
+      }
+    }
 
     if (payload.key) {
       const key = payload.key.trim().toLowerCase()
@@ -127,6 +141,10 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     const context = await resolveDictionariesRouteContext(req)
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const dictionary = await loadDictionary(context, dictionaryId)
+
+    if (isProtectedCurrencyDictionary(dictionary)) {
+      throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.') })
+    }
 
     dictionary.isActive = false
     dictionary.deletedAt = dictionary.deletedAt ?? new Date()

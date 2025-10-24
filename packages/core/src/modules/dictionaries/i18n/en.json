@@ -87,5 +87,6 @@
   "dictionaries.errors.duplicate": "A dictionary with this key already exists",
   "dictionaries.errors.entry_duplicate": "An entry with this value already exists",
   "dictionaries.errors.entry_not_found": "Dictionary entry not found",
-  "dictionaries.errors.entry_required": "Value is required"
+  "dictionaries.errors.entry_required": "Value is required",
+  "dictionaries.errors.currency_protected": "The currency dictionary is required and cannot be modified or deleted."
 }

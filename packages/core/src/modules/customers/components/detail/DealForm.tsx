@@ -3,18 +3,14 @@
 import * as React from 'react'
 import { z } from 'zod'
 import { useT } from '@/lib/i18n/context'
-import {
-  CrudForm,
-  type CrudField,
-  type CrudFormGroup,
-} from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries/components/DictionarySelectControl'
 import { DictionarySelectField } from '../formConfig'
 import { createDictionarySelectLabels } from './utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Loader2 } from 'lucide-react'
+import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 
 export type DealFormBaseValues = {
   title: string
@@ -409,62 +405,38 @@ export function DealForm({
 }: DealFormProps) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
-  const [currencyDictionaryId, setCurrencyDictionaryId] = React.useState<string | null>(null)
-  const [currencyDictionaryLoading, setCurrencyDictionaryLoading] = React.useState(true)
-  const [currencyDictionaryError, setCurrencyDictionaryError] = React.useState<string | null>(null)
-  const hasRequestedCurrencyDictionaryRef = React.useRef(false)
-
-  React.useEffect(() => {
-    if (hasRequestedCurrencyDictionaryRef.current) return
-    hasRequestedCurrencyDictionaryRef.current = true
-    let cancelled = false
-    let resolved = false
-    async function loadCurrencyDictionary() {
-      setCurrencyDictionaryLoading(true)
-      setCurrencyDictionaryError(null)
-      try {
-        const res = await apiFetch('/api/dictionaries?includeInactive=true')
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to load dictionaries')
-        }
-        const items = Array.isArray(payload.items) ? payload.items : []
-        const match = items.find((item) => {
-          if (!item || typeof item !== 'object') return false
-          const record = item as Record<string, unknown>
-          const key = typeof record.key === 'string' ? record.key.trim().toLowerCase() : ''
-          return key === 'currency' || key === 'currencies'
-        })
-        if (cancelled) return
-        if (match && typeof (match as Record<string, unknown>).id === 'string') {
-          setCurrencyDictionaryId((match as Record<string, string>).id)
-          setCurrencyDictionaryError(null)
-        } else {
-          setCurrencyDictionaryId(null)
-          setCurrencyDictionaryError(t('customers.deals.form.currency.missing', 'Currency dictionary is not configured yet.'))
-        }
-        resolved = true
-      } catch (err) {
-        if (!cancelled) {
-          console.error('dealForm.currencyDictionary.load failed', err)
-          setCurrencyDictionaryId(null)
-          setCurrencyDictionaryError(t('customers.deals.form.currency.error', 'Failed to load currency dictionary.'))
-        }
-      } finally {
-        if (!cancelled) {
-          setCurrencyDictionaryLoading(false)
-          resolved = true
-        }
-      }
-    }
-    loadCurrencyDictionary().catch(() => {})
-    return () => {
-      cancelled = true
-      if (!resolved) {
-        hasRequestedCurrencyDictionaryRef.current = false
-      }
-    }
-  }, [t])
+  const currencyDictionaryQuery = useCurrencyDictionary()
+  const currencyDictionaryLoading = currencyDictionaryQuery.isLoading
+  const currencyDictionaryData = currencyDictionaryQuery.data ?? null
+  const currencyDictionaryError =
+    currencyDictionaryQuery.isError && currencyDictionaryQuery.error
+      ? currencyDictionaryQuery.error instanceof Error
+        ? currencyDictionaryQuery.error.message
+        : String(currencyDictionaryQuery.error)
+      : null
+  const currencyOptions = React.useMemo(() => {
+    const entries = currencyDictionaryData?.entries ?? []
+    if (!entries.length) return []
+    const priorityOrder = new Map<string, number>()
+    CURRENCY_PRIORITY.forEach((code, index) => priorityOrder.set(code, index))
+    const prioritized: { value: string; label: string }[] = []
+    const remainder: { value: string; label: string }[] = []
+    entries.forEach((entry) => {
+      const value = entry.value.toUpperCase()
+      const label = entry.label.length ? entry.label : value
+      const option = { value, label }
+      if (priorityOrder.has(value)) prioritized.push(option)
+      else remainder.push(option)
+    })
+    prioritized.sort((a, b) => (priorityOrder.get(a.value)! - priorityOrder.get(b.value)!))
+    remainder.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+    return [...prioritized, ...remainder]
+  }, [currencyDictionaryData])
+  const resolvedCurrencyError =
+    currencyDictionaryError ??
+    (!currencyDictionaryLoading && !currencyOptions.length
+      ? t('customers.deals.form.currency.missing', 'Currency dictionary is not configured yet.')
+      : null)
 
   const translate = React.useCallback(
     (key: string, fallback: string) => {
@@ -614,15 +586,21 @@ export function DealForm({
                 {t('customers.deals.form.currency.loading', 'Loading currencies…')}
               </span>
             </div>
-          ) : currencyDictionaryId ? (
-            <DictionarySelectControl
-              dictionaryId={currencyDictionaryId}
-              value={typeof value === 'string' ? value : undefined}
-              onChange={(next) => setValue(next ?? '')}
+          ) : currencyOptions.length ? (
+            <select
+              className="h-9 w-full rounded border px-2 text-sm"
+              value={typeof value === 'string' ? value : ''}
+              onChange={(event) => setValue(event.target.value || '')}
               disabled={disabled}
-              selectClassName="w-full"
-              priorityValues={Array.from(CURRENCY_PRIORITY)}
-            />
+              data-crud-focus-target=""
+            >
+              <option value="">{t('customers.deals.form.currency.placeholder', 'Select currency…')}</option>
+              {currencyOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           ) : (
             <input
               type="text"
@@ -638,8 +616,8 @@ export function DealForm({
               autoComplete="off"
             />
           )}
-          {currencyDictionaryError ? (
-            <div className="text-xs text-muted-foreground">{currencyDictionaryError}</div>
+          {resolvedCurrencyError ? (
+            <div className="text-xs text-muted-foreground">{resolvedCurrencyError}</div>
           ) : null}
         </div>
       ),
@@ -702,7 +680,7 @@ export function DealForm({
         />
       ),
     } as CrudField,
-  ], [currencyDictionaryError, currencyDictionaryId, currencyDictionaryLoading, dictionaryLabels.pipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
+  ], [currencyDictionaryLoading, currencyOptions, resolvedCurrencyError, dictionaryLabels.pipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
