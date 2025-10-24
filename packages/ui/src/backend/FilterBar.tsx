@@ -13,9 +13,21 @@ export type FilterBarProps = {
   onApply?: (values: FilterValues) => void
   onClear?: () => void
   className?: string
+  leadingItems?: React.ReactNode
 }
 
-export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Search', searchAlign = 'left', filters = [], values = {}, onApply, onClear, className }: FilterBarProps) {
+export function FilterBar({
+  searchValue,
+  onSearchChange,
+  searchPlaceholder = 'Search',
+  searchAlign = 'left',
+  filters = [],
+  values = {},
+  onApply,
+  onClear,
+  className,
+  leadingItems,
+}: FilterBarProps) {
   const [open, setOpen] = React.useState(false)
   const activeCount = React.useMemo(() => {
     const isActive = (v: any) => {
@@ -37,6 +49,7 @@ export function FilterBar({ searchValue, onSearchChange, searchPlaceholder = 'Se
             Filters{activeCount ? ` ${activeCount}` : ''}
           </Button>
         )}
+        {leadingItems}
         {onSearchChange && (
           <div className={`relative w-full sm:w-[240px] ${searchAlign === 'right' ? 'ml-auto' : ''}`}>
             <input

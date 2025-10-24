@@ -319,6 +319,7 @@ export RECORD_ID="<record uuid>"`}</code></pre>
           actions={actions}
           columns={columns}
           data={data}
+          perspective={{ tableId: `entities.user.records.${entityId}` }}
           exporter={exportConfig}
           filters={baseFilters}
           filterValues={filterValues}

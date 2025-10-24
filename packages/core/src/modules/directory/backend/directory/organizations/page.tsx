@@ -202,6 +202,7 @@ export default function DirectoryOrganizationsPage() {
             setPage(1)
           }}
           sortable={false}
+          perspective={{ tableId: 'directory.organizations.list' }}
           rowActions={(row) => (
             canManage ? (
               <RowActions

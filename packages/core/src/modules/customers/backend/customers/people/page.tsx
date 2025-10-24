@@ -468,6 +468,7 @@ export default function CustomersPeoplePage() {
           onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
           onFiltersClear={() => { setFilterValues({}); setPage(1) }}
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
+          perspective={{ tableId: 'customers.people.list' }}
           onRowClick={(row) => router.push(`/backend/customers/people/${row.id}`)}
           rowActions={(row) => (
             <RowActions

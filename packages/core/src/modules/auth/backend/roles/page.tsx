@@ -116,6 +116,7 @@ export default function RolesListPage() {
           sortable
           sorting={sorting}
           onSortingChange={setSorting}
+          perspective={{ tableId: 'auth.roles.list' }}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
         />

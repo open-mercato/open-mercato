@@ -246,6 +246,7 @@ export function CustomerTodosTable(): JSX.Element {
         setSearch(value)
         setPage(1)
       }}
+      perspective={{ tableId: 'customers.todos.list' }}
       filters={filterDefs}
       filterValues={filters}
       onFiltersApply={onFiltersApply}

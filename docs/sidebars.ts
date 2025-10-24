@@ -24,6 +24,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/user-custom-fields",
         "user-guide/dictionaries",
         "user-guide/user-entities",
+        "user-guide/perspectives-and-sidebar",
         "user-guide/organizations",
         "user-guide/customers",
         "user-guide/audit-logs",
@@ -140,6 +141,7 @@ const sidebars: SidebarsConfig = {
             "framework/admin-ui/crud-form",
             "framework/admin-ui/field-registry",
             "framework/admin-ui/custom-field-validation",
+            "framework/admin-ui/perspectives"
           ],
         },
         {
