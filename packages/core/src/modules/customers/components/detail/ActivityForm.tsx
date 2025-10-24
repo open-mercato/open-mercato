@@ -60,7 +60,7 @@ const schema = z.object({
       return !Number.isNaN(parsed.getTime())
     }, { message: 'customers.people.detail.activities.invalidDate' })
     .optional(),
-})
+}).passthrough()
 
 const ACTIVITY_ENTITY_IDS = [E.customers.customer_activity]
 
@@ -313,13 +313,17 @@ export function ActivityForm({
           dealId: rawDealId.length ? rawDealId : undefined,
         }
         const customEntries: Record<string, unknown> = {}
+        const reservedCustomKeys = new Set(['entityId', 'dealId'])
         Object.entries(values).forEach(([key, value]) => {
           const normalizedValue = normalizeCustomFieldSubmitValue(value)
           if (key.startsWith('cf_')) {
-            customEntries[key.slice(3)] = normalizedValue
+            const trimmedKey = key.slice(3)
+            if (reservedCustomKeys.has(trimmedKey)) return
+            customEntries[trimmedKey] = normalizedValue
             return
           }
           if (!baseFieldIds.has(key) && key !== 'id') {
+            if (reservedCustomKeys.has(key)) return
             customEntries[key] = normalizedValue
           }
         })
@@ -354,7 +358,11 @@ export function ActivityForm({
       occurredAt,
       ...Object.fromEntries(
         Object.entries(initialValues ?? {})
-          .filter(([key]) => key.startsWith('cf_'))
+          .filter(([key]) => {
+            if (!key.startsWith('cf_')) return false
+            const trimmed = key.slice(3)
+            return trimmed !== 'entityId' && trimmed !== 'dealId'
+          })
           .map(([key, value]) => [key, value]),
       ),
     }

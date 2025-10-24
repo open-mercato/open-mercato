@@ -6,8 +6,9 @@ import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '.
 import { dealCreateSchema, dealUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { withScopedPayload } from '../utils'
+import { parseScopedCommandInput } from '../utils'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { extractAllCustomFieldEntries, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -128,7 +129,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return dealCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return parseScopedCommandInput(dealCreateSchema, raw ?? {}, ctx, translate)
       },
       response: ({ result }) => ({ id: result?.dealId ?? result?.id ?? null }),
       status: 201,
@@ -138,7 +139,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return dealUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return parseScopedCommandInput(dealUpdateSchema, raw ?? {}, ctx, translate)
       },
       response: () => ({ ok: true }),
     },
@@ -288,6 +289,9 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
           return selected.every((id) => membership.has(id))
         }
 
+        const tenantByRecord: Record<string, string | null | undefined> = {}
+        const orgByRecord: Record<string, string | null | undefined> = {}
+        const missingCustomValues: string[] = []
         const enhancedItems = items
           .map((item) => {
             if (!item || typeof item !== 'object') return null
@@ -299,15 +303,89 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
             const matchesPerson = matchesAll(selectedPersonIds, personMemberships, candidate)
             const matchesCompany = matchesAll(selectedCompanyIds, companyMemberships, candidate)
             if (!matchesPerson || !matchesCompany) return null
+            const tenantId =
+              typeof data.tenantId === 'string'
+                ? data.tenantId
+                : typeof data.tenant_id === 'string'
+                  ? data.tenant_id
+                  : null
+            const organizationId =
+              typeof data.organizationId === 'string'
+                ? data.organizationId
+                : typeof data.organization_id === 'string'
+                  ? data.organization_id
+                  : null
+            tenantByRecord[candidate] = tenantId
+            orgByRecord[candidate] = organizationId
+
+            const rawCustom = extractAllCustomFieldEntries(data as any)
+            const normalizedValues = Object.fromEntries(
+              Object.entries(rawCustom).map(([prefixedKey, value]) => [
+                prefixedKey.replace(/^cf_/, ''),
+                value,
+              ]),
+            )
+            const customEntries = Object.entries(normalizedValues).map(([key, value]) => ({
+              key,
+              label: key,
+              value,
+              kind: null,
+              multi: Array.isArray(value),
+            }))
+            if (!customEntries.length) missingCustomValues.push(candidate)
+            const customValues = Object.keys(normalizedValues).length ? normalizedValues : null
             return {
               ...data,
               personIds: people.map((entry) => entry.id),
               people,
               companyIds: companies.map((entry) => entry.id),
               companies,
+              customValues,
+              customFields: customValues ? customEntries : [],
             }
           })
           .filter((item): item is Record<string, unknown> => !!item)
+
+        if (missingCustomValues.length) {
+          try {
+            const em = ctx.container.resolve<EntityManager>('em')
+            const loaded = await loadCustomFieldValues({
+              em,
+              entityId: E.customers.customer_deal,
+              recordIds: Array.from(new Set(missingCustomValues)),
+              tenantIdByRecord: tenantByRecord,
+              organizationIdByRecord: orgByRecord,
+              tenantFallbacks: [ctx.auth?.tenantId ?? null],
+            })
+            if (loaded && Object.keys(loaded).length) {
+              enhancedItems.forEach((item) => {
+                const values = loaded[item.id as string]
+                if (!values || (item.customValues && Object.keys(item.customValues as Record<string, unknown>).length)) {
+                  return
+                }
+                const normalized = Object.fromEntries(
+                  Object.entries(values).map(([prefixedKey, value]) => [
+                    prefixedKey.replace(/^cf_/, ''),
+                    value,
+                  ]),
+                )
+                const entries = Object.entries(normalized).map(([key, value]) => ({
+                  key,
+                  label: key,
+                  value,
+                  kind: null,
+                  multi: Array.isArray(value),
+                }))
+                if (entries.length) {
+                  ;(item as any).customValues = normalized
+                  ;(item as any).customFields = entries
+                }
+              })
+            }
+          } catch (err) {
+            console.warn('[customers.deals] failed to backfill custom fields', err)
+          }
+        }
 
         payload.items = enhancedItems
         if (hasPersonFilter || hasCompanyFilter) {

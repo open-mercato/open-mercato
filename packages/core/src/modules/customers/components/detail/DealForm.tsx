@@ -140,7 +140,7 @@ const schema = z.object({
   description: z.string().max(4000, 'customers.people.detail.deals.descriptionTooLong').optional(),
   personIds: z.array(z.string().trim().min(1)).optional(),
   companyIds: z.array(z.string().trim().min(1)).optional(),
-})
+}).passthrough()
 
 function toDateInputValue(value: string | null | undefined): string {
   if (!value) return ''

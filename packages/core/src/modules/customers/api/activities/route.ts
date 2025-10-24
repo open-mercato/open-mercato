@@ -6,10 +6,10 @@ import { CustomerActivity, CustomerDictionaryEntry, CustomerDeal } from '../../d
 import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { withScopedPayload } from '../utils'
+import { parseScopedCommandInput } from '../utils'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
-import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
+import { extractAllCustomFieldEntries, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -62,8 +62,6 @@ const crud = makeCrudRoute({
       'created_at',
       'appearance_icon',
       'appearance_color',
-      'cf:meta',
-      'cf:dictcase',
     ],
     sortFieldMap: {
       occurredAt: 'occurred_at',
@@ -140,9 +138,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { parsed, custom } = parseWithCustomFields(activityCreateSchema, scoped)
-        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
+        return parseScopedCommandInput(activityCreateSchema, raw ?? {}, ctx, translate)
       },
       response: ({ result }) => ({ id: result?.activityId ?? result?.id ?? null }),
       status: 201,
@@ -152,9 +148,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { parsed, custom } = parseWithCustomFields(activityUpdateSchema, scoped)
-        return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
+        return parseScopedCommandInput(activityUpdateSchema, raw ?? {}, ctx, translate)
       },
       response: () => ({ ok: true }),
     },
@@ -341,6 +335,9 @@ const crud = makeCrudRoute({
       }
 
       // Map custom field entries using query engine output (cf_* keys)
+      const tenantIdByRecord: Record<string, string | null | undefined> = {}
+      const orgByRecord: Record<string, string | null | undefined> = {}
+      const missingCustomValues: string[] = []
       typedItems.forEach((item) => {
         const raw = extractAllCustomFieldEntries(item as any)
         const values = Object.fromEntries(
@@ -353,9 +350,63 @@ const crud = makeCrudRoute({
           kind: null,
           multi: Array.isArray(value),
         }))
+        const id = item.id
+        const tenantId =
+          typeof item.tenantId === 'string'
+            ? item.tenantId
+            : typeof (item as any).tenant_id === 'string'
+              ? (item as any).tenant_id
+              : null
+        const organizationId =
+          typeof item.organizationId === 'string'
+            ? item.organizationId
+            : typeof (item as any).organization_id === 'string'
+              ? (item as any).organization_id
+              : null
+        tenantIdByRecord[id] = tenantId
+        orgByRecord[id] = organizationId
+        if (!entries.length) missingCustomValues.push(id)
         item.customFields = entries
         ;(item as any).customValues = values
       })
+
+      if (missingCustomValues.length) {
+        try {
+          const em = ctx.container.resolve<EntityManager>('em')
+          const loaded = await loadCustomFieldValues({
+            em,
+            entityId: E.customers.customer_activity,
+            recordIds: Array.from(new Set(missingCustomValues)),
+            tenantIdByRecord,
+            organizationIdByRecord: orgByRecord,
+            tenantFallbacks: [ctx.auth?.tenantId ?? null],
+          })
+          if (loaded && Object.keys(loaded).length) {
+            typedItems.forEach((item) => {
+              if (item.customFields && item.customFields.length) return
+              const values = loaded[item.id]
+              if (!values) return
+              const normalized = Object.fromEntries(
+                Object.entries(values).map(([prefixedKey, value]) => [
+                  prefixedKey.replace(/^cf_/, ''),
+                  value,
+                ]),
+              )
+              const entries = Object.entries(normalized).map(([key, value]) => ({
+                key,
+                label: key,
+                value,
+                kind: null,
+                multi: Array.isArray(value),
+              }))
+              item.customFields = entries
+              ;(item as any).customValues = normalized
+            })
+          }
+        } catch (err) {
+          console.warn('[customers.activities] failed to backfill custom fields', err)
+        }
+      }
     },
   },
 })

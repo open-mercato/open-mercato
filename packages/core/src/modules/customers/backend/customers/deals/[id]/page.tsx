@@ -59,6 +59,9 @@ function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) 
   return <LoadingMessage label={label} className="mb-4 mt-4 min-h-[160px]" />
 }
 
+const CRUD_FOCUSABLE_SELECTOR =
+  '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1")]'
+
 function formatCurrency(amount: string | null, currency: string | null): string | null {
   if (!amount) return null
   const value = Number(amount)
@@ -94,6 +97,57 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     activities: false,
   })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+  const handleNotesLoadingChange = React.useCallback((loading: boolean) => {
+    setSectionPending((prev) => ({ ...prev, notes: loading }))
+  }, [])
+  const handleActivitiesLoadingChange = React.useCallback((loading: boolean) => {
+    setSectionPending((prev) => ({ ...prev, activities: loading }))
+  }, [])
+  const focusDealField = React.useCallback(
+    (fieldId: 'personIds' | 'companyIds') => {
+      if (typeof window === 'undefined' || typeof document === 'undefined') return
+      const focusOnce = () => {
+        const container = document.querySelector<HTMLElement>(`[data-crud-field-id="${fieldId}"]`)
+        if (!container) return false
+        const target =
+          container.querySelector<HTMLElement>(CRUD_FOCUSABLE_SELECTOR) ?? container
+        if (!target || typeof target.focus !== 'function') return false
+        if (typeof container.scrollIntoView === 'function') {
+          container.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+        target.focus()
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+          try {
+            target.select()
+          } catch {}
+        }
+        return true
+      }
+
+      const schedule = () => {
+        const focused = focusOnce()
+        if (focused) return
+        window.setTimeout(() => {
+          focusOnce()
+        }, 60)
+      }
+
+      if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(schedule)
+      } else {
+        schedule()
+      }
+    },
+    [],
+  )
+  const handleEditPeopleAssignments = React.useCallback(() => {
+    setActiveTab('notes')
+    focusDealField('personIds')
+  }, [focusDealField])
+  const handleEditCompanyAssignments = React.useCallback(() => {
+    setActiveTab('notes')
+    focusDealField('companyIds')
+  }, [focusDealField])
 
   React.useEffect(() => {
     if (!id) {
@@ -479,9 +533,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     }}
                     onActionChange={setSectionAction}
                     translator={t}
-                    onLoadingChange={(loading) =>
-                      setSectionPending((prev) => ({ ...prev, notes: loading }))
-                    }
+                    onLoadingChange={handleNotesLoadingChange}
                   />
                 ) : null}
                 {activeTab === 'activities' ? (
@@ -497,9 +549,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                       actionLabel: t('customers.deals.detail.activitiesEmptyAction', 'Add an activity'),
                     }}
                     onActionChange={setSectionAction}
-                    onLoadingChange={(loading) =>
-                      setSectionPending((prev) => ({ ...prev, activities: loading }))
-                    }
+                    onLoadingChange={handleActivitiesLoadingChange}
                   />
                 ) : null}
               </div>
@@ -510,7 +560,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     <h3 className="text-sm font-semibold text-foreground">
                       {t('customers.deals.detail.peopleSection', 'People')}
                     </h3>
-                    <Button variant="ghost" size="xs" onClick={() => setActiveTab('notes')}>
+                    <Button variant="ghost" size="xs" onClick={handleEditPeopleAssignments}>
                       {t('customers.deals.detail.editAssignments', 'Edit assignments')}
                     </Button>
                   </div>
@@ -538,7 +588,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     <h3 className="text-sm font-semibold text-foreground">
                       {t('customers.deals.detail.companiesSection', 'Companies')}
                     </h3>
-                    <Button variant="ghost" size="xs" onClick={() => setActiveTab('notes')}>
+                    <Button variant="ghost" size="xs" onClick={handleEditCompanyAssignments}>
                       {t('customers.deals.detail.editAssignments', 'Edit assignments')}
                     </Button>
                   </div>

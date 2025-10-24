@@ -278,6 +278,7 @@ export function ActivitiesSection({
     }
     const customEntries = Array.isArray(activity.customFields) ? activity.customFields : []
     customEntries.forEach((entry) => {
+      if (entry.key === 'entityId' || entry.key === 'dealId') return
       baseValues[`cf_${entry.key}`] = entry.value ?? null
     })
     setInitialValues(baseValues)

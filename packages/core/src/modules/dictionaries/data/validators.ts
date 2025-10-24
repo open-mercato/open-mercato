@@ -27,8 +27,8 @@ export type UpsertDictionaryInput = z.infer<typeof upsertDictionarySchema>
 export const createDictionaryEntrySchema = z.object({
   value: z.string().trim().min(1).max(150),
   label: z.string().trim().min(1).max(150).optional(),
-  color: hexColorSchema.optional(),
-  icon: iconSchema.optional(),
+  color: hexColorSchema.nullable().optional(),
+  icon: iconSchema.nullable().optional(),
 })
 
 export type CreateDictionaryEntryInput = z.infer<typeof createDictionaryEntrySchema>
@@ -37,8 +37,8 @@ export const updateDictionaryEntrySchema = z
   .object({
     value: z.string().trim().min(1).max(150).optional(),
     label: z.string().trim().min(1).max(150).optional(),
-    color: z.union([hexColorSchema, z.null()]).optional(),
-    icon: z.union([iconSchema, z.null()]).optional(),
+    color: hexColorSchema.nullable().optional(),
+    icon: iconSchema.nullable().optional(),
   })
   .refine((payload) => Object.keys(payload).length > 0, {
     message: 'Provide at least one field to update.',
