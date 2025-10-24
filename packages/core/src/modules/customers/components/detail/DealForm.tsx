@@ -14,6 +14,7 @@ import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries
 import { DictionarySelectField } from '../formConfig'
 import { createDictionarySelectLabels } from './utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { Loader2 } from 'lucide-react'
 
 export type DealFormBaseValues = {
   title: string
@@ -431,6 +432,7 @@ export function DealForm({
           return key === 'currency' || key === 'currencies'
         })
         if (cancelled) return
+        if (cancelled) return
         if (match && typeof (match as Record<string, unknown>).id === 'string') {
           setCurrencyDictionaryId((match as Record<string, string>).id)
           setCurrencyDictionaryError(null)
@@ -593,33 +595,37 @@ export function DealForm({
       layout: 'half',
       component: ({ value, setValue }) => (
         <div className="space-y-1">
-          {currencyDictionaryId ? (
+          {currencyDictionaryLoading ? (
+            <div className="flex h-9 w-full items-center justify-center gap-2 rounded border border-dashed border-muted-foreground/30 bg-muted">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
+              <span className="text-xs text-muted-foreground">
+                {t('customers.deals.form.currency.loading', 'Loading currencies…')}
+              </span>
+            </div>
+          ) : currencyDictionaryId ? (
             <DictionarySelectControl
               dictionaryId={currencyDictionaryId}
               value={typeof value === 'string' ? value : undefined}
               onChange={(next) => setValue(next ?? '')}
-              disabled={disabled || currencyDictionaryLoading}
+              disabled={disabled}
               selectClassName="w-full"
               priorityValues={Array.from(CURRENCY_PRIORITY)}
             />
-          ) : currencyDictionaryLoading ? (
-            <div className="h-9 w-full animate-pulse rounded border bg-muted" aria-hidden />
           ) : (
             <input
               type="text"
               className="h-9 w-full rounded border px-2 text-sm"
               value={typeof value === 'string' ? value : ''}
-              onChange={(event) => setValue(event.target.value)}
+              onChange={(event) => {
+                const next = event.target.value.toUpperCase().slice(0, 3)
+                setValue(next)
+              }}
               placeholder="USD"
               disabled={disabled}
               data-crud-focus-target=""
+              autoComplete="off"
             />
           )}
-          {currencyDictionaryLoading ? (
-            <div className="text-xs text-muted-foreground">
-              {t('customers.deals.form.currency.loading', 'Loading currencies…')}
-            </div>
-          ) : null}
           {currencyDictionaryError ? (
             <div className="text-xs text-muted-foreground">{currencyDictionaryError}</div>
           ) : null}

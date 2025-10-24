@@ -427,6 +427,8 @@
   "customers.deals.list.columns.companies": "Companies",
   "customers.deals.list.columns.people": "People",
   "customers.deals.list.columns.updatedAt": "Updated",
+  "customers.deals.list.unnamedPerson": "Unnamed person",
+  "customers.deals.list.unnamedCompany": "Unnamed company",
   "customers.people.detail.deals.save": "Save deal (⌘/Ctrl + Enter)",
   "customers.people.detail.deals.saving": "Saving…",
   "customers.people.detail.deals.cancel": "Cancel",

@@ -2,14 +2,14 @@
 
 import * as React from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
+import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
-import { useQueryClient } from '@tanstack/react-query'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -19,10 +19,13 @@ import {
   type CustomerDictionaryMap,
 } from '../../../lib/dictionaries'
 import {
+  ensureCustomerDictionary,
+  invalidateCustomerDictionary,
+} from '../../../components/detail/hooks/useCustomerDictionary'
+import {
   useCustomFieldDefs,
   filterCustomFieldDefs,
 } from '@open-mercato/ui/backend/utils/customFieldDefs'
-import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
 
 type DealRow = {
   id: string
@@ -48,6 +51,32 @@ type FilterOption = { value: string; label: string }
 
 type DictionaryKey = Extract<CustomerDictionaryKind, 'deal-statuses' | 'pipeline-stages'>
 
+type PersonLookupRecord = {
+  id: string
+  name: string | null
+  email: string | null
+  phone: string | null
+}
+
+type CompanyLookupRecord = {
+  id: string
+  name: string | null
+  domain: string | null
+  email: string | null
+}
+
+type OptionsState = {
+  options: FilterOption[]
+  idToLabel: Record<string, string>
+  labelToId: Record<string, string>
+}
+
+const EMPTY_OPTIONS_STATE: OptionsState = {
+  options: [],
+  idToLabel: {},
+  labelToId: {},
+}
+
 const PAGE_SIZE = 20
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -70,44 +99,54 @@ function normalizeIdCandidates(raw: Array<string>): string[] {
   return Array.from(set)
 }
 
-function formatTagLabel(name: string | null | undefined, id: string): string {
-  const display = name && name.trim().length ? name.trim() : id.slice(0, 8)
-  return `${display} (${id.slice(0, 8)})`
-}
-
 function extractIdsFromParams(params: URLSearchParams | null | undefined, key: string): string[] {
   if (!params) return []
   const values = params.getAll(key)
   return normalizeIdCandidates(values)
 }
 
-async function fetchCustomerOptions(
-  kind: 'people' | 'companies',
-  query?: string,
-): Promise<FilterOption[]> {
+function ensureUniqueLabel(base: string, occupied: Set<string>): string {
+  const trimmed = base.trim() || 'Unnamed'
+  if (!occupied.has(trimmed)) {
+    occupied.add(trimmed)
+    return trimmed
+  }
+  let counter = 2
+  let candidate = `${trimmed} • ${counter}`
+  while (occupied.has(candidate)) {
+    counter += 1
+    candidate = `${trimmed} • ${counter}`
+  }
+  occupied.add(candidate)
+  return candidate
+}
+
+async function fetchPeopleLookup(query?: string): Promise<PersonLookupRecord[]> {
   const search = new URLSearchParams()
   search.set('page', '1')
   search.set('pageSize', '20')
   if (query && query.trim().length) search.set('search', query.trim())
   try {
-    const res = await apiFetch(`/api/customers/${kind}?${search.toString()}`)
+    const res = await apiFetch(`/api/customers/people?${search.toString()}`)
     if (!res.ok) return []
     const data = await res.json().catch(() => ({}))
     const items = Array.isArray(data?.items) ? data.items : []
     return items
       .map((item: any) => {
         const id = typeof item?.id === 'string' ? item.id : null
-        const labelSource = typeof item?.display_name === 'string' ? item.display_name : null
         if (!id || !isUuid(id)) return null
-        return { value: id, label: formatTagLabel(labelSource, id) }
+        const name = typeof item?.display_name === 'string' ? item.display_name : null
+        const email = typeof item?.primary_email === 'string' ? item.primary_email : null
+        const phone = typeof item?.primary_phone === 'string' ? item.primary_phone : null
+        return { id, name, email, phone }
       })
-      .filter((opt): opt is FilterOption => !!opt)
+      .filter((record): record is PersonLookupRecord => !!record)
   } catch {
     return []
   }
 }
 
-async function fetchCustomerOptionsByIds(kind: 'people' | 'companies', ids: string[]): Promise<FilterOption[]> {
+async function fetchPeopleLookupByIds(ids: string[]): Promise<PersonLookupRecord[]> {
   const unique = Array.from(new Set(ids.filter((id) => isUuid(id))))
   if (!unique.length) return []
   const results = await Promise.all(
@@ -117,87 +156,75 @@ async function fetchCustomerOptionsByIds(kind: 'people' | 'companies', ids: stri
       search.set('page', '1')
       search.set('pageSize', '1')
       try {
-        const res = await apiFetch(`/api/customers/${kind}?${search.toString()}`)
+        const res = await apiFetch(`/api/customers/people?${search.toString()}`)
         if (!res.ok) return null
         const data = await res.json().catch(() => ({}))
         const items = Array.isArray(data?.items) ? data.items : []
         const match = items.find((item: any) => typeof item?.id === 'string' && item.id === id)
-        const labelSource = typeof match?.display_name === 'string' ? match.display_name : null
-        return { value: id, label: formatTagLabel(labelSource, id) }
+        if (!match) return null
+        const name = typeof match?.display_name === 'string' ? match.display_name : null
+        const email = typeof match?.primary_email === 'string' ? match.primary_email : null
+        const phone = typeof match?.primary_phone === 'string' ? match.primary_phone : null
+        return { id, name, email, phone }
       } catch {
-        return { value: id, label: formatTagLabel(null, id) }
+        return null
       }
     }),
   )
-  return results.filter((opt): opt is FilterOption => !!opt)
+  return results.filter((record): record is PersonLookupRecord => !!record)
 }
 
-function mapDeal(item: Record<string, unknown>): DealRow | null {
-  const id = typeof item.id === 'string' ? item.id : null
-  if (!id) return null
-  const title = typeof item.title === 'string' ? item.title : ''
-  const status = typeof item.status === 'string' ? item.status : null
-  const pipelineStage = typeof item.pipeline_stage === 'string' ? item.pipeline_stage : null
-  const valueAmountRaw = item.value_amount
-  const valueAmount =
-    typeof valueAmountRaw === 'number'
-      ? valueAmountRaw
-      : typeof valueAmountRaw === 'string' && valueAmountRaw.trim()
-        ? Number(valueAmountRaw)
-        : null
-  const valueCurrency =
-    typeof item.value_currency === 'string' && item.value_currency.trim().length
-      ? item.value_currency.trim().toUpperCase()
-      : null
-  const probabilityRaw = item.probability
-  const probability =
-    typeof probabilityRaw === 'number'
-      ? probabilityRaw
-      : typeof probabilityRaw === 'string' && probabilityRaw.trim().length
-        ? Number(probabilityRaw)
-        : null
-  const expectedCloseAt = typeof item.expected_close_at === 'string' ? item.expected_close_at : null
-  const updatedAt = typeof item.updated_at === 'string' ? item.updated_at : null
-  const peopleRaw = Array.isArray(item.people) ? item.people : []
-  const companiesRaw = Array.isArray(item.companies) ? item.companies : []
-  const people = peopleRaw
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object') return null
-      const data = entry as Record<string, unknown>
-      const pid = typeof data.id === 'string' ? data.id : null
-      if (!pid) return null
-      const label = typeof data.label === 'string' ? data.label : ''
-      return { id: pid, label }
-    })
-    .filter((entry): entry is { id: string; label: string } => !!entry)
-  const companies = companiesRaw
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object') return null
-      const data = entry as Record<string, unknown>
-      const cid = typeof data.id === 'string' ? data.id : null
-      if (!cid) return null
-      const label = typeof data.label === 'string' ? data.label : ''
-      return { id: cid, label }
-    })
-    .filter((entry): entry is { id: string; label: string } => !!entry)
-  const customFields: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(item)) {
-    if (key.startsWith('cf_')) customFields[key] = value
+async function fetchCompaniesLookup(query?: string): Promise<CompanyLookupRecord[]> {
+  const search = new URLSearchParams()
+  search.set('page', '1')
+  search.set('pageSize', '20')
+  if (query && query.trim().length) search.set('search', query.trim())
+  try {
+    const res = await apiFetch(`/api/customers/companies?${search.toString()}`)
+    if (!res.ok) return []
+    const data = await res.json().catch(() => ({}))
+    const items = Array.isArray(data?.items) ? data.items : []
+    return items
+      .map((item: any) => {
+        const id = typeof item?.id === 'string' ? item.id : null
+        if (!id || !isUuid(id)) return null
+        const name = typeof item?.display_name === 'string' ? item.display_name : null
+        const domain = typeof item?.primary_domain === 'string' ? item.primary_domain : null
+        const email = typeof item?.primary_email === 'string' ? item.primary_email : null
+        return { id, name, domain, email }
+      })
+      .filter((record): record is CompanyLookupRecord => !!record)
+  } catch {
+    return []
   }
-  return {
-    id,
-    title,
-    status,
-    pipelineStage,
-    valueAmount,
-    valueCurrency,
-    probability,
-    expectedCloseAt,
-    updatedAt,
-    people,
-    companies,
-    ...customFields,
-  }
+}
+
+async function fetchCompaniesLookupByIds(ids: string[]): Promise<CompanyLookupRecord[]> {
+  const unique = Array.from(new Set(ids.filter((id) => isUuid(id))))
+  if (!unique.length) return []
+  const results = await Promise.all(
+    unique.map(async (id) => {
+      const search = new URLSearchParams()
+      search.set('id', id)
+      search.set('page', '1')
+      search.set('pageSize', '1')
+      try {
+        const res = await apiFetch(`/api/customers/companies?${search.toString()}`)
+        if (!res.ok) return null
+        const data = await res.json().catch(() => ({}))
+        const items = Array.isArray(data?.items) ? data.items : []
+        const match = items.find((item: any) => typeof item?.id === 'string' && item.id === id)
+        if (!match) return null
+        const name = typeof match?.display_name === 'string' ? match.display_name : null
+        const domain = typeof match?.primary_domain === 'string' ? match.primary_domain : null
+        const email = typeof match?.primary_email === 'string' ? match.primary_email : null
+        return { id, name, domain, email }
+      } catch {
+        return null
+      }
+    }),
+  )
+  return results.filter((record): record is CompanyLookupRecord => !!record)
 }
 
 function formatCurrency(amount: number | null | undefined, currency: string | null | undefined, fallback: string): string {
@@ -261,88 +288,147 @@ export default function CustomersDealsPage() {
   const [selectedPersonIds, setSelectedPersonIds] = React.useState<string[]>(initialPersonIds)
   const [selectedCompanyIds, setSelectedCompanyIds] = React.useState<string[]>(initialCompanyIds)
 
-  const [personOptions, setPersonOptions] = React.useState<FilterOption[]>([])
-  const [companyOptions, setCompanyOptions] = React.useState<FilterOption[]>([])
-  const [personIdToLabel, setPersonIdToLabel] = React.useState<Record<string, string>>({})
-  const [personLabelToId, setPersonLabelToId] = React.useState<Record<string, string>>({})
-  const [companyIdToLabel, setCompanyIdToLabel] = React.useState<Record<string, string>>({})
-  const [companyLabelToId, setCompanyLabelToId] = React.useState<Record<string, string>>({})
+  const [peopleState, setPeopleState] = React.useState<OptionsState>(EMPTY_OPTIONS_STATE)
+  const [companiesState, setCompaniesState] = React.useState<OptionsState>(EMPTY_OPTIONS_STATE)
+  const peopleCacheRef = React.useRef<Map<string, FilterOption[]>>(new Map())
+  const companiesCacheRef = React.useRef<Map<string, FilterOption[]>>(new Map())
 
-  const applyPersonOptions = React.useCallback((options: FilterOption[]) => {
-    if (!options.length) return
-    setPersonOptions((prev) => {
-      const map = new Map<string, FilterOption>()
-      prev.forEach((opt) => map.set(opt.value, opt))
-      options.forEach((opt) => map.set(opt.value, opt))
-      return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label))
-    })
-    setPersonIdToLabel((prev) => {
-      const next = { ...prev }
-      options.forEach((opt) => { next[opt.value] = opt.label })
-      return next
-    })
-    setPersonLabelToId((prev) => {
-      const next = { ...prev }
-      options.forEach((opt) => { next[opt.label] = opt.value })
-      return next
-    })
-  }, [])
+  const buildPersonLabel = React.useCallback((record: PersonLookupRecord): string => {
+    const parts: string[] = []
+    const name = record.name?.trim()
+    if (name) parts.push(name)
+    const email = record.email?.trim()
+    if (email && !parts.includes(email)) parts.push(email)
+    const phone = record.phone?.trim()
+    if (!parts.length && phone) parts.push(phone)
+    if (!parts.length) parts.push(t('customers.deals.list.unnamedPerson', 'Unnamed person'))
+    return parts.join(' • ')
+  }, [t])
 
-  const applyCompanyOptions = React.useCallback((options: FilterOption[]) => {
-    if (!options.length) return
-    setCompanyOptions((prev) => {
-      const map = new Map<string, FilterOption>()
-      prev.forEach((opt) => map.set(opt.value, opt))
-      options.forEach((opt) => map.set(opt.value, opt))
-      return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label))
+  const buildCompanyLabel = React.useCallback((record: CompanyLookupRecord): string => {
+    const parts: string[] = []
+    const name = record.name?.trim()
+    if (name) parts.push(name)
+    const domain = record.domain?.trim()
+    if (domain && !parts.includes(domain)) parts.push(domain)
+    const email = record.email?.trim()
+    if (!parts.length && email) parts.push(email)
+    if (!parts.length) parts.push(t('customers.deals.list.unnamedCompany', 'Unnamed company'))
+    return parts.join(' • ')
+  }, [t])
+
+  const ingestPeopleRecords = React.useCallback((records: PersonLookupRecord[]) => {
+    if (!records.length) return [] as FilterOption[]
+    const queryMap = new Map<string, FilterOption>()
+    setPeopleState((prev) => {
+      const idToLabel = { ...prev.idToLabel }
+      const labelToId: Record<string, string> = {}
+      const merged = new Map(prev.options.map((opt) => [opt.value, opt]))
+      const occupied = new Set<string>()
+      Object.entries(prev.labelToId).forEach(([label, id]) => {
+        occupied.add(label)
+        labelToId[label] = id
+      })
+      records.forEach((record) => {
+        if (!isUuid(record.id)) return
+        const base = buildPersonLabel(record)
+        let previousLabel = idToLabel[record.id]
+        if (previousLabel) {
+          // remove previous label before reassigning
+          delete labelToId[previousLabel]
+          occupied.delete(previousLabel)
+        }
+        const label = ensureUniqueLabel(base, occupied)
+        idToLabel[record.id] = label
+        labelToId[label] = record.id
+        const option = { value: record.id, label }
+        merged.set(record.id, option)
+        queryMap.set(record.id, option)
+      })
+      const nextOptions = Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label))
+      return { options: nextOptions, idToLabel, labelToId }
     })
-    setCompanyIdToLabel((prev) => {
-      const next = { ...prev }
-      options.forEach((opt) => { next[opt.value] = opt.label })
-      return next
+    return Array.from(queryMap.values()).sort((a, b) => a.label.localeCompare(b.label))
+  }, [buildPersonLabel])
+
+  const ingestCompanyRecords = React.useCallback((records: CompanyLookupRecord[]) => {
+    if (!records.length) return [] as FilterOption[]
+    const queryMap = new Map<string, FilterOption>()
+    setCompaniesState((prev) => {
+      const idToLabel = { ...prev.idToLabel }
+      const labelToId: Record<string, string> = {}
+      const merged = new Map(prev.options.map((opt) => [opt.value, opt]))
+      const occupied = new Set<string>()
+      Object.entries(prev.labelToId).forEach(([label, id]) => {
+        occupied.add(label)
+        labelToId[label] = id
+      })
+      records.forEach((record) => {
+        if (!isUuid(record.id)) return
+        const base = buildCompanyLabel(record)
+        let previousLabel = idToLabel[record.id]
+        if (previousLabel) {
+          delete labelToId[previousLabel]
+          occupied.delete(previousLabel)
+        }
+        const label = ensureUniqueLabel(base, occupied)
+        idToLabel[record.id] = label
+        labelToId[label] = record.id
+        const option = { value: record.id, label }
+        merged.set(record.id, option)
+        queryMap.set(record.id, option)
+      })
+      const nextOptions = Array.from(merged.values()).sort((a, b) => a.label.localeCompare(b.label))
+      return { options: nextOptions, idToLabel, labelToId }
     })
-    setCompanyLabelToId((prev) => {
-      const next = { ...prev }
-      options.forEach((opt) => { next[opt.label] = opt.value })
-      return next
-    })
-  }, [])
+    return Array.from(queryMap.values()).sort((a, b) => a.label.localeCompare(b.label))
+  }, [buildCompanyLabel])
+
+  const loadPeopleOptions = React.useCallback(async (query?: string) => {
+    const normalizedQuery = (query || '').trim().toLowerCase()
+    const cacheKey = `${scopeVersion}|${normalizedQuery}`
+    const cached = peopleCacheRef.current.get(cacheKey)
+    if (cached) return cached
+    const records = await fetchPeopleLookup(query)
+    const options = ingestPeopleRecords(records)
+    peopleCacheRef.current.set(cacheKey, options)
+    return options
+  }, [scopeVersion, ingestPeopleRecords])
+
+  const loadCompanyOptions = React.useCallback(async (query?: string) => {
+    const normalizedQuery = (query || '').trim().toLowerCase()
+    const cacheKey = `${scopeVersion}|${normalizedQuery}`
+    const cached = companiesCacheRef.current.get(cacheKey)
+    if (cached) return cached
+    const records = await fetchCompaniesLookup(query)
+    const options = ingestCompanyRecords(records)
+    companiesCacheRef.current.set(cacheKey, options)
+    return options
+  }, [scopeVersion, ingestCompanyRecords])
 
   React.useEffect(() => {
     let cancelled = false
     if (!selectedPersonIds.length) return
-    const missing = selectedPersonIds.filter((id) => !personIdToLabel[id])
+    const missing = selectedPersonIds.filter((id) => !peopleState.idToLabel[id])
     if (!missing.length) return
-    fetchCustomerOptionsByIds('people', missing).then((opts) => {
+    fetchPeopleLookupByIds(missing).then((records) => {
       if (cancelled) return
-      applyPersonOptions(opts)
+      ingestPeopleRecords(records)
     })
     return () => { cancelled = true }
-  }, [selectedPersonIds, personIdToLabel, applyPersonOptions])
+  }, [selectedPersonIds, peopleState.idToLabel, ingestPeopleRecords])
 
   React.useEffect(() => {
     let cancelled = false
     if (!selectedCompanyIds.length) return
-    const missing = selectedCompanyIds.filter((id) => !companyIdToLabel[id])
+    const missing = selectedCompanyIds.filter((id) => !companiesState.idToLabel[id])
     if (!missing.length) return
-    fetchCustomerOptionsByIds('companies', missing).then((opts) => {
+    fetchCompaniesLookupByIds(missing).then((records) => {
       if (cancelled) return
-      applyCompanyOptions(opts)
+      ingestCompanyRecords(records)
     })
     return () => { cancelled = true }
-  }, [selectedCompanyIds, companyIdToLabel, applyCompanyOptions])
-
-  const loadPeopleOptions = React.useCallback(async (query?: string) => {
-    const options = await fetchCustomerOptions('people', query)
-    applyPersonOptions(options)
-    return options
-  }, [applyPersonOptions])
-
-  const loadCompanyOptions = React.useCallback(async (query?: string) => {
-    const options = await fetchCustomerOptions('companies', query)
-    applyCompanyOptions(options)
-    return options
-  }, [applyCompanyOptions])
+  }, [selectedCompanyIds, companiesState.idToLabel, ingestCompanyRecords])
 
   const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKey, CustomerDictionaryMap>>({
     'deal-statuses': {},
@@ -369,30 +455,52 @@ export default function CustomersDealsPage() {
     }
     loadDictionaries().catch(() => {})
     return () => { cancelled = true }
-  }, [fetchDictionaryEntries])
+  }, [fetchDictionaryEntries, reloadToken])
 
-  const syncFilterLabels = React.useCallback((key: 'people' | 'companies', ids: string[], idToLabel: Record<string, string>) => {
-    const labels = ids.map((id) => idToLabel[id] ?? formatTagLabel(null, id))
+  React.useEffect(() => {
+    peopleCacheRef.current.clear()
+    companiesCacheRef.current.clear()
+    setPeopleState((prev) => {
+      if (!prev.options.length && !Object.keys(prev.idToLabel).length) return prev
+      return { ...EMPTY_OPTIONS_STATE }
+    })
+    setCompaniesState((prev) => {
+      if (!prev.options.length && !Object.keys(prev.idToLabel).length) return prev
+      return { ...EMPTY_OPTIONS_STATE }
+    })
+  }, [scopeVersion, reloadToken])
+
+  const syncFilterLabels = React.useCallback((
+    key: 'people' | 'companies',
+    ids: string[],
+    idToLabel: Record<string, string>,
+  ) => {
     setFilterValues((prev) => {
-      const prevLabels = Array.isArray(prev[key]) ? (prev[key] as string[]) : []
-      if (labels.length === 0) {
-        if (!prevLabels.length) return prev
+      const current = Array.isArray(prev[key]) ? (prev[key] as string[]) : []
+      if (!ids.length) {
+        if (!current.length) return prev
         const next = { ...prev }
         delete next[key]
         return next
       }
-      if (arraysEqual(prevLabels, labels)) return prev
+      const labels: string[] = []
+      ids.forEach((id) => {
+        const label = idToLabel[id]
+        if (label && !labels.includes(label)) labels.push(label)
+      })
+      if (labels.length < ids.length) return prev
+      if (arraysEqual(current, labels)) return prev
       return { ...prev, [key]: labels }
     })
   }, [])
 
   React.useEffect(() => {
-    syncFilterLabels('people', selectedPersonIds, personIdToLabel)
-  }, [selectedPersonIds, personIdToLabel, syncFilterLabels])
+    syncFilterLabels('people', selectedPersonIds, peopleState.idToLabel)
+  }, [selectedPersonIds, peopleState.idToLabel, syncFilterLabels])
 
   React.useEffect(() => {
-    syncFilterLabels('companies', selectedCompanyIds, companyIdToLabel)
-  }, [selectedCompanyIds, companyIdToLabel, syncFilterLabels])
+    syncFilterLabels('companies', selectedCompanyIds, companiesState.idToLabel)
+  }, [selectedCompanyIds, companiesState.idToLabel, syncFilterLabels])
 
   const handleSearchChange = React.useCallback((value: string) => {
     setSearch(value.trim())
@@ -400,27 +508,40 @@ export default function CustomersDealsPage() {
   }, [])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
-    const extractIds = (labels: unknown[], labelToId: Record<string, string>): string[] => {
-      if (!Array.isArray(labels)) return []
-      return labels
-        .map((label) => {
-          if (typeof label !== 'string') return null
-          const trimmed = label.trim()
-          if (!trimmed.length) return null
-          const mapped = labelToId[trimmed]
-          if (mapped && isUuid(mapped)) return mapped
-          const match = trimmed.match(UUID_REGEX)
-          return match ? match[0] : null
-        })
-        .filter((id): id is string => !!id)
+    const next: FilterValues = { ...values }
+    const rawPeople = Array.isArray(values.people) ? (values.people as string[]) : []
+    const nextPersonIds: string[] = []
+    rawPeople.forEach((value) => {
+      const trimmed = typeof value === 'string' ? value.trim() : ''
+      if (!trimmed) return
+      const mapped = peopleState.labelToId[trimmed]
+      if (mapped && !nextPersonIds.includes(mapped)) nextPersonIds.push(mapped)
+    })
+    setSelectedPersonIds(nextPersonIds)
+    if (nextPersonIds.length) {
+      next.people = Array.from(new Set(rawPeople.map((value) => (typeof value === 'string' ? value.trim() : '')).filter((value) => value.length > 0)))
+    } else {
+      delete next.people
     }
-    const nextPeopleIds = extractIds(values.people as string[] || [], personLabelToId)
-    const nextCompanyIds = extractIds(values.companies as string[] || [], companyLabelToId)
-    setSelectedPersonIds(Array.from(new Set(nextPeopleIds)))
-    setSelectedCompanyIds(Array.from(new Set(nextCompanyIds)))
-    setFilterValues(values)
+
+    const rawCompanies = Array.isArray(values.companies) ? (values.companies as string[]) : []
+    const nextCompanyIds: string[] = []
+    rawCompanies.forEach((value) => {
+      const trimmed = typeof value === 'string' ? value.trim() : ''
+      if (!trimmed) return
+      const mapped = companiesState.labelToId[trimmed]
+      if (mapped && !nextCompanyIds.includes(mapped)) nextCompanyIds.push(mapped)
+    })
+    setSelectedCompanyIds(nextCompanyIds)
+    if (nextCompanyIds.length) {
+      next.companies = Array.from(new Set(rawCompanies.map((value) => (typeof value === 'string' ? value.trim() : '')).filter((value) => value.length > 0)))
+    } else {
+      delete next.companies
+    }
+
+    setFilterValues(next)
     setPage(1)
-  }, [personLabelToId, companyLabelToId])
+  }, [peopleState.labelToId, companiesState.labelToId])
 
   const handleFiltersClear = React.useCallback(() => {
     setFilterValues({})
@@ -536,8 +657,17 @@ export default function CustomersDealsPage() {
   }, [pathname, router, page, search, selectedPersonIds, selectedCompanyIds])
 
   const handleRefresh = React.useCallback(() => {
+    peopleCacheRef.current.clear()
+    companiesCacheRef.current.clear()
+    void Promise.all([
+      invalidateCustomerDictionary(queryClient, 'deal-statuses'),
+      invalidateCustomerDictionary(queryClient, 'pipeline-stages'),
+    ])
     setReloadToken((token) => token + 1)
-  }, [])
+  }, [queryClient])
+
+  const personOptions = peopleState.options
+  const companyOptions = companiesState.options
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {
@@ -575,6 +705,22 @@ export default function CustomersDealsPage() {
         colorClassName="h-3 w-3 rounded-full"
       />
     )
+    const renderAssociationList = (
+      items: { id: string; label: string }[],
+      fallbackLabel: string,
+    ) => {
+      if (!items.length) return noValue
+      return (
+        <ul className="flex flex-wrap gap-1 text-sm">
+          {items.map((entry) => (
+            <li key={entry.id} className="rounded border px-2 py-0.5 text-xs bg-muted">
+              {entry.label && entry.label.trim().length ? entry.label : fallbackLabel}
+            </li>
+          ))}
+        </ul>
+      )
+    }
+
     const customColumns = filterCustomFieldDefs(customFieldDefs, 'list').map<ColumnDef<DealRow>>((def) => ({
       accessorKey: `cf_${def.key}`,
       header: def.label || def.key,
@@ -606,6 +752,7 @@ export default function CustomersDealsPage() {
         return <span className="text-sm">{stringValue}</span>
       },
     }))
+
     return [
       {
         accessorKey: 'title',
@@ -654,34 +801,12 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'companies',
         header: t('customers.deals.list.columns.companies'),
-        cell: ({ row }) => {
-          if (!row.original.companies.length) return noValue
-          return (
-            <ul className="flex flex-wrap gap-1 text-sm">
-              {row.original.companies.map((company) => (
-                <li key={company.id} className="rounded border px-2 py-0.5 text-xs bg-muted">
-                  {company.label || company.id.slice(0, 8)}
-                </li>
-              ))}
-            </ul>
-          )
-        },
+        cell: ({ row }) => renderAssociationList(row.original.companies, t('customers.deals.list.unnamedCompany')),
       },
       {
         accessorKey: 'people',
         header: t('customers.deals.list.columns.people'),
-        cell: ({ row }) => {
-          if (!row.original.people.length) return noValue
-          return (
-            <ul className="flex flex-wrap gap-1 text-sm">
-              {row.original.people.map((person) => (
-                <li key={person.id} className="rounded border px-2 py-0.5 text-xs bg-muted">
-                  {person.label || person.id.slice(0, 8)}
-                </li>
-              ))}
-            </ul>
-          )
-        },
+        cell: ({ row }) => renderAssociationList(row.original.people, t('customers.deals.list.unnamedPerson')),
       },
       {
         accessorKey: 'updatedAt',
@@ -728,4 +853,72 @@ export default function CustomersDealsPage() {
       </PageBody>
     </Page>
   )
+}
+
+function mapDeal(item: Record<string, unknown>): DealRow | null {
+  const id = typeof item.id === 'string' ? item.id : null
+  if (!id) return null
+  const title = typeof item.title === 'string' ? item.title : ''
+  const status = typeof item.status === 'string' ? item.status : null
+  const pipelineStage = typeof item.pipeline_stage === 'string' ? item.pipeline_stage : null
+  const valueAmountRaw = item.value_amount
+  const valueAmount =
+    typeof valueAmountRaw === 'number'
+      ? valueAmountRaw
+      : typeof valueAmountRaw === 'string' && valueAmountRaw.trim()
+        ? Number(valueAmountRaw)
+        : null
+  const valueCurrency =
+    typeof item.value_currency === 'string' && item.value_currency.trim().length
+      ? item.value_currency.trim().toUpperCase()
+      : null
+  const probabilityRaw = item.probability
+  const probability =
+    typeof probabilityRaw === 'number'
+      ? probabilityRaw
+      : typeof probabilityRaw === 'string' && probabilityRaw.trim().length
+        ? Number(probabilityRaw)
+        : null
+  const expectedCloseAt = typeof item.expected_close_at === 'string' ? item.expected_close_at : null
+  const updatedAt = typeof item.updated_at === 'string' ? item.updated_at : null
+  const peopleRaw = Array.isArray(item.people) ? item.people : []
+  const companiesRaw = Array.isArray(item.companies) ? item.companies : []
+  const people = peopleRaw
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+      const data = entry as Record<string, unknown>
+      const pid = typeof data.id === 'string' ? data.id : null
+      if (!pid) return null
+      const label = typeof data.label === 'string' ? data.label : ''
+      return { id: pid, label }
+    })
+    .filter((entry): entry is { id: string; label: string } => !!entry)
+  const companies = companiesRaw
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+      const data = entry as Record<string, unknown>
+      const cid = typeof data.id === 'string' ? data.id : null
+      if (!cid) return null
+      const label = typeof data.label === 'string' ? data.label : ''
+      return { id: cid, label }
+    })
+    .filter((entry): entry is { id: string; label: string } => !!entry)
+  const customFields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(item)) {
+    if (key.startsWith('cf_')) customFields[key] = value
+  }
+  return {
+    id,
+    title,
+    status,
+    pipelineStage,
+    valueAmount,
+    valueCurrency,
+    probability,
+    expectedCloseAt,
+    updatedAt,
+    people,
+    companies,
+    ...customFields,
+  }
 }
