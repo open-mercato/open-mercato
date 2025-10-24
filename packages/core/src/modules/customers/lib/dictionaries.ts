@@ -20,6 +20,7 @@ export type CustomerDictionaryKind =
   | 'deal-statuses'
   | 'pipeline-stages'
   | 'job-titles'
+  | 'industries'
 export type CustomerDictionaryDisplayEntry = DictionaryDisplayEntry
 export type CustomerDictionaryMap = DictionaryMap
 

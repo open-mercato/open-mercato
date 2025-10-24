@@ -119,6 +119,26 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
+  const translateCompanyDetail = React.useCallback(
+    (key: string, fallback?: string) => {
+      const mappedKey = key.startsWith('customers.people.detail.')
+        ? key.replace('customers.people.detail.', 'customers.companies.detail.')
+        : key
+      const adjustedFallback =
+        key.startsWith('customers.people.detail.') && fallback
+          ? fallback
+              .replace(/\bPerson\b/g, 'Company')
+              .replace(/\bperson\b/g, 'company')
+              .replace(/\bPeople\b/g, 'Companies')
+              .replace(/\bpeople\b/g, 'companies')
+          : fallback
+      const translated = t(mappedKey, adjustedFallback)
+      if (translated !== mappedKey || mappedKey === key) return translated
+      const fallbackValue = t(key, adjustedFallback)
+      return fallbackValue === key && adjustedFallback ? adjustedFallback : fallbackValue
+    },
+    [t],
+  )
   const sectionLoaderLabel =
     activeTab === 'activities'
       ? t('customers.companies.detail.activities.loading', 'Loading activities…')
@@ -175,14 +195,19 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       }
       return null
     },
-    annualRevenueCurrency: (value: string) => {
-      if (!value) return null
-      const normalized = value.trim().toUpperCase()
-      return /^[A-Z]{3}$/.test(normalized)
-        ? null
-        : t('customers.companies.detail.inline.annualRevenueCurrencyInvalid', 'Use a three-letter currency code (e.g. USD).')
-    },
   }), [t])
+
+  const tabs = React.useMemo(
+    () => [
+      { id: 'notes' as const, label: t('customers.companies.detail.tabs.notes', 'Notes') },
+      { id: 'activities' as const, label: t('customers.companies.detail.tabs.activities', 'Activities') },
+      { id: 'deals' as const, label: t('customers.companies.detail.tabs.deals', 'Deals') },
+      { id: 'people' as const, label: t('customers.companies.detail.tabs.people', 'People') },
+      { id: 'addresses' as const, label: t('customers.companies.detail.tabs.addresses', 'Addresses') },
+      { id: 'tasks' as const, label: t('customers.companies.detail.tabs.tasks', 'Tasks') },
+    ],
+    [t],
+  )
 
   React.useEffect(() => {
     if (!id) {
@@ -304,30 +329,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     [saveCompany],
   )
 
-  const handleAnnualRevenueSave = React.useCallback(
-    async (next: string | null) => {
-      const normalized = typeof next === 'string' ? next.replace(/[, ]+/g, '').trim() : ''
-      const amount = normalized.length ? Number(normalized) : null
-      if (amount !== null && (Number.isNaN(amount) || amount < 0)) {
-        throw new Error(t('customers.companies.detail.inline.annualRevenueInvalid', 'Enter a non-negative number.'))
-      }
-      await saveCompany(
-        { annualRevenue: amount },
-        (prev) => {
-          if (!prev.profile) return prev
-          return {
-            ...prev,
-            profile: {
-              ...prev.profile,
-              annualRevenue: amount === null ? null : String(amount),
-            },
-          }
-        }
-      )
-    },
-    [saveCompany, t],
-  )
-
   const submitCustomFields = React.useCallback(
     async (prefixedValues: Record<string, unknown>, { showFlash = true } = {}) => {
       if (!data) throw new Error(t('customers.companies.detail.inline.error', 'Unable to update company.'))
@@ -386,12 +387,28 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     [data, t],
   )
 
-  const handleAnnualRevenueCurrencySave = React.useCallback(
-    async (next: string | null) => {
-      const normalized = typeof next === 'string' && next.trim().length ? next.trim().toUpperCase() : null
-      await submitCustomFields({ cf_annual_revenue_currency: normalized }, { showFlash: false })
+  const handleAnnualRevenueChange = React.useCallback(
+    async ({ amount, currency }: { amount: number | null; currency: string | null }) => {
+      await saveCompany(
+        { annualRevenue: amount ?? null },
+        (prev) => {
+          if (!prev.profile) return prev
+          return {
+            ...prev,
+            profile: {
+              ...prev.profile,
+              annualRevenue: amount === null ? null : String(amount),
+            },
+          }
+        }
+      )
+      await submitCustomFields(
+        { cf_annual_revenue_currency: currency ?? null },
+        { showFlash: false },
+      )
+      flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
     },
-    [submitCustomFields],
+    [saveCompany, submitCustomFields, t],
   )
 
   const handleDelete = React.useCallback(async () => {
@@ -460,6 +477,12 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     setSectionPending((prev) => ({ ...prev, tasks: loading }))
   }, [])
 
+  const companyId = data?.company?.id ?? null
+  const dealsScope = React.useMemo(
+    () => (companyId ? ({ kind: 'company', entityId: companyId } as const) : null),
+    [companyId],
+  )
+
   if (isLoading) {
     return (
       <Page>
@@ -491,11 +514,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   }
 
   const { company, profile } = data
-  const companyId = company.id
-  const dealsScope = React.useMemo(
-    () => ({ kind: 'company', entityId: companyId } as const),
-    [companyId],
-  )
   const annualRevenueCurrency =
     typeof data.customFields?.cf_annual_revenue_currency === 'string'
       ? (data.customFields.cf_annual_revenue_currency as string)
@@ -589,18 +607,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     },
   ]
 
-  const tabs = React.useMemo(
-    () => [
-      { id: 'notes' as const, label: t('customers.companies.detail.tabs.notes', 'Notes') },
-      { id: 'activities' as const, label: t('customers.companies.detail.tabs.activities', 'Activities') },
-      { id: 'deals' as const, label: t('customers.companies.detail.tabs.deals', 'Deals') },
-      { id: 'people' as const, label: t('customers.companies.detail.tabs.people', 'People') },
-      { id: 'addresses' as const, label: t('customers.companies.detail.tabs.addresses', 'Addresses') },
-      { id: 'tasks' as const, label: t('customers.companies.detail.tabs.tasks', 'Tasks') },
-    ],
-    [t],
-  )
-
   return (
     <Page>
       <PageBody className="space-y-8">
@@ -616,11 +622,15 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           onNextInteractionSave={async (payload) => {
             await saveCompany(
               {
-                nextInteractionAt: payload?.at ?? null,
-                nextInteractionName: payload?.name ?? null,
-                nextInteractionRefId: payload?.refId ?? null,
-                nextInteractionIcon: payload?.icon ?? null,
-                nextInteractionColor: payload?.color ?? null,
+                nextInteraction: payload
+                  ? {
+                      at: payload.at,
+                      name: payload.name ?? undefined,
+                      refId: payload.refId ?? undefined,
+                      icon: payload.icon ?? undefined,
+                      color: payload.color ?? undefined,
+                    }
+                  : null,
               },
               (prev) => ({
                 ...prev,
@@ -639,8 +649,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           onLegalNameSave={(value) => updateProfileField('legalName', value)}
           onWebsiteUrlSave={(value) => updateProfileField('websiteUrl', value)}
           onIndustrySave={(value) => updateProfileField('industry', value)}
-          onAnnualRevenueSave={handleAnnualRevenueSave}
-          onAnnualRevenueCurrencySave={handleAnnualRevenueCurrencySave}
+          onAnnualRevenueChange={handleAnnualRevenueChange}
           onDelete={handleDelete}
           isDeleting={isDeleting}
         />
@@ -701,7 +710,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                   actionLabel: t('customers.companies.detail.emptyState.notes.action', 'Create a note'),
                 }}
                 onActionChange={handleSectionActionChange}
-                translator={t}
+                translator={translateCompanyDetail}
                 onLoadingChange={handleNotesLoadingChange}
               />
             )}
@@ -775,7 +784,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                 }}
                 onActionChange={handleSectionActionChange}
                 onLoadingChange={handleTasksLoadingChange}
-                translator={t}
+                translator={translateCompanyDetail}
               />
             )}
           </div>

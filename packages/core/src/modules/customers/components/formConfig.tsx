@@ -63,6 +63,24 @@ export type PersonFormValues = {
   addresses?: CustomerAddressValue[]
 } & Record<string, unknown>
 
+export type CompanyFormValues = {
+  displayName: string
+  primaryEmail?: string
+  primaryPhone?: string
+  status?: string
+  lifecycleStage?: string
+  source?: string
+  legalName?: string
+  brandName?: string
+  domain?: string
+  websiteUrl?: string
+  industry?: string
+  sizeBucket?: string
+  annualRevenue?: string
+  description?: string
+  addresses?: CustomerAddressValue[]
+} & Record<string, unknown>
+
 type DictionarySelectFieldProps = {
   kind:
     | 'statuses'
@@ -320,6 +338,39 @@ const buildDictionaryLabels = (t: Translator, definition: DictionaryFieldDefinit
   loadingLabel: t('customers.people.form.dictionary.loading'),
   manageTitle: t('customers.people.form.dictionary.manage'),
 })
+
+const companyDictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
+  {
+    id: 'status',
+    kind: 'statuses',
+    labelKey: 'customers.companies.form.status',
+    placeholderKey: 'customers.companies.form.status.placeholder',
+    addLabelKey: 'customers.companies.form.dictionary.addStatus',
+    promptKey: 'customers.companies.form.dictionary.promptStatus',
+    dialogTitleKey: 'customers.companies.form.dictionary.dialogTitleStatus',
+    layout: 'third',
+  },
+  {
+    id: 'lifecycleStage',
+    kind: 'lifecycle-stages',
+    labelKey: 'customers.companies.form.lifecycleStage',
+    placeholderKey: 'customers.companies.form.lifecycleStage.placeholder',
+    addLabelKey: 'customers.companies.form.dictionary.addLifecycleStage',
+    promptKey: 'customers.companies.form.dictionary.promptLifecycleStage',
+    dialogTitleKey: 'customers.companies.form.dictionary.dialogTitleLifecycleStage',
+    layout: 'third',
+  },
+  {
+    id: 'source',
+    kind: 'sources',
+    labelKey: 'customers.companies.form.source',
+    placeholderKey: 'customers.companies.form.source.placeholder',
+    addLabelKey: 'customers.companies.form.dictionary.addSource',
+    promptKey: 'customers.companies.form.dictionary.promptSource',
+    dialogTitleKey: 'customers.companies.form.dictionary.dialogTitleSource',
+    layout: 'third',
+  },
+]
 
 const createPrimaryPhoneField = (t: Translator): CrudField => ({
   id: 'primaryPhone',
@@ -899,6 +950,339 @@ export function buildPersonPayload(values: PersonFormValues, organizationId?: st
   assign('source', typeof values.source === 'string' ? values.source : undefined)
   assign('companyEntityId', typeof values.companyEntityId === 'string' ? values.companyEntityId : undefined)
   assign('description', typeof values.description === 'string' ? values.description : undefined)
+
+  for (const [key, fieldValue] of Object.entries(values)) {
+    if (key.startsWith('cf_')) {
+      payload[key] = fieldValue
+    }
+  }
+
+  if (organizationId) payload.organizationId = organizationId
+
+  return payload
+}
+
+export const createCompanyFormSchema = () =>
+  z
+    .object({
+      displayName: z.string().trim().min(1),
+      primaryEmail: z
+        .string()
+        .trim()
+        .email()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val)),
+      primaryPhone: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      status: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      lifecycleStage: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      source: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      legalName: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      brandName: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      domain: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      websiteUrl: z
+        .string()
+        .trim()
+        .url()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      industry: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      sizeBucket: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      annualRevenue: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+    })
+    .passthrough()
+
+export const createCompanyFormFields = (t: Translator): CrudField[] => {
+  const dictionaryFields: CrudField[] = companyDictionaryFieldDefinitions.map((definition) => ({
+    id: definition.id,
+    label: t(definition.labelKey),
+    type: 'custom',
+    layout: definition.layout ?? 'third',
+    component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+      <DictionarySelectField
+        kind={definition.kind}
+        value={typeof value === 'string' ? value : undefined}
+        onChange={(next) => setValue(next)}
+        labels={buildDictionaryLabels(t, definition)}
+      />
+    ),
+  }))
+
+  return [
+    {
+      id: 'displayName',
+      label: t('customers.companies.form.displayName.label', 'Display name'),
+      type: 'text',
+      required: true,
+    },
+    {
+      id: 'primaryEmail',
+      label: t('customers.companies.detail.highlights.primaryEmail', 'Primary email'),
+      type: 'text',
+      layout: 'half',
+      placeholder: t('customers.companies.form.primaryEmailPlaceholder', 'name@example.com'),
+    },
+    {
+      id: 'primaryPhone',
+      label: t('customers.companies.detail.highlights.primaryPhone', 'Primary phone'),
+      type: 'text',
+      layout: 'half',
+      placeholder: t('customers.companies.form.primaryPhonePlaceholder', '+00 000 000 000'),
+    },
+    ...dictionaryFields,
+    {
+      id: 'legalName',
+      label: t('customers.companies.detail.fields.legalName', 'Legal name'),
+      type: 'text',
+      layout: 'half',
+    },
+    {
+      id: 'brandName',
+      label: t('customers.companies.detail.fields.brandName', 'Brand name'),
+      type: 'text',
+      layout: 'half',
+    },
+    {
+      id: 'domain',
+      label: t('customers.companies.detail.fields.domain', 'Domain'),
+      type: 'text',
+      layout: 'half',
+      placeholder: t('customers.companies.detail.fields.domainPlaceholder', 'example.com'),
+    },
+    {
+      id: 'websiteUrl',
+      label: t('customers.companies.detail.highlights.website', 'Website'),
+      type: 'text',
+      layout: 'half',
+      placeholder: t('customers.companies.detail.highlights.websitePlaceholder', 'https://example.com'),
+    },
+    {
+      id: 'industry',
+      label: t('customers.companies.detail.highlights.industry', 'Industry'),
+      type: 'text',
+      layout: 'half',
+    },
+    {
+      id: 'sizeBucket',
+      label: t('customers.companies.detail.fields.sizeBucket', 'Company size'),
+      type: 'text',
+      layout: 'half',
+    },
+    {
+      id: 'annualRevenue',
+      label: t('customers.companies.detail.highlights.annualRevenue', 'Annual revenue'),
+      type: 'text',
+      layout: 'half',
+      placeholder: t('customers.companies.detail.highlights.annualRevenuePlaceholder', 'Enter amount'),
+    },
+    {
+      id: 'description',
+      label: t('customers.companies.detail.fields.description', 'Description'),
+      type: 'textarea',
+    },
+    {
+      id: 'addresses',
+      label: '',
+      type: 'custom',
+      layout: 'full',
+      component: ({ value, setValue }: CrudCustomFieldRenderProps) => {
+        const addresses = Array.isArray(value) ? (value as CustomerAddressValue[]) : []
+        return (
+          <CustomerAddressTiles
+            addresses={addresses}
+            t={t}
+            emptyLabel={t('customers.companies.detail.empty.addresses')}
+            gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
+            onCreate={async (payload: CustomerAddressInput) => {
+              const nextId =
+                typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                  ? crypto.randomUUID()
+                  : `tmp-${Math.random().toString(36).slice(2)}`
+              const next: CustomerAddressValue = {
+                id: nextId,
+                name: payload.name ?? null,
+                purpose: payload.purpose ?? null,
+                addressLine1: payload.addressLine1,
+                addressLine2: payload.addressLine2 ?? null,
+                buildingNumber: payload.buildingNumber ?? null,
+                flatNumber: payload.flatNumber ?? null,
+                city: payload.city ?? null,
+                region: payload.region ?? null,
+                postalCode: payload.postalCode ?? null,
+                country: payload.country ?? null,
+                isPrimary: payload.isPrimary ?? false,
+              }
+              const current = Array.isArray(addresses) ? addresses : []
+              const nextAddresses =
+                next.isPrimary === true
+                  ? [next, ...current.map((item) => ({ ...item, isPrimary: false }))]
+                  : [next, ...current]
+              setValue(nextAddresses)
+            }}
+            onUpdate={async (id, payload) => {
+              const current = Array.isArray(addresses) ? addresses : []
+              const updated = current.map((item) => {
+                if (item.id !== id) {
+                  return payload.isPrimary ? { ...item, isPrimary: false } : item
+                }
+                return {
+                  ...item,
+                  name: payload.name ?? null,
+                  purpose: payload.purpose ?? null,
+                  addressLine1: payload.addressLine1,
+                  addressLine2: payload.addressLine2 ?? null,
+                  buildingNumber: payload.buildingNumber ?? null,
+                  flatNumber: payload.flatNumber ?? null,
+                  city: payload.city ?? null,
+                  region: payload.region ?? null,
+                  postalCode: payload.postalCode ?? null,
+                  country: payload.country ?? null,
+                  isPrimary: payload.isPrimary ?? false,
+                }
+              })
+              setValue(updated)
+            }}
+            onDelete={async (id) => {
+              const current = Array.isArray(addresses) ? addresses : []
+              setValue(current.filter((item) => item.id !== id))
+            }}
+          />
+        )
+      },
+    },
+  ]
+}
+
+export const createCompanyFormGroups = (t: Translator): CrudFormGroup[] => [
+  {
+    id: 'details',
+    title: t('customers.companies.form.groups.details'),
+    column: 1,
+    fields: ['displayName', 'primaryEmail', 'primaryPhone', 'status', 'lifecycleStage', 'source'],
+  },
+  {
+    id: 'profile',
+    title: t('customers.companies.form.groups.profile'),
+    column: 1,
+    fields: ['legalName', 'brandName', 'domain', 'websiteUrl', 'industry', 'sizeBucket', 'annualRevenue'],
+  },
+  {
+    id: 'addresses',
+    title: t('customers.companies.form.groups.addresses'),
+    column: 1,
+    fields: ['addresses'],
+  },
+  {
+    id: 'notes',
+    title: t('customers.companies.form.groups.notes'),
+    column: 2,
+    fields: ['description'],
+  },
+  {
+    id: 'customFields',
+    title: t('customers.companies.form.groups.custom'),
+    column: 2,
+    kind: 'customFields',
+  },
+]
+
+export function buildCompanyPayload(values: CompanyFormValues, organizationId?: string | null): Record<string, unknown> {
+  const payload: Record<string, unknown> = {}
+
+  const displayNameValue = blankToUndefined(values.displayName)
+  if (!displayNameValue) {
+    throw new Error('DISPLAY_NAME_REQUIRED')
+  }
+  payload.displayName = displayNameValue
+
+  const assign = (key: string, val?: string) => {
+    const normalized = blankToUndefined(val)
+    if (normalized !== undefined) payload[key] = normalized
+  }
+
+  assign('primaryEmail', typeof values.primaryEmail === 'string' ? values.primaryEmail : undefined)
+  assign('primaryPhone', typeof values.primaryPhone === 'string' ? values.primaryPhone : undefined)
+  assign('status', typeof values.status === 'string' ? values.status : undefined)
+  assign('lifecycleStage', typeof values.lifecycleStage === 'string' ? values.lifecycleStage : undefined)
+  assign('source', typeof values.source === 'string' ? values.source : undefined)
+  assign('legalName', typeof values.legalName === 'string' ? values.legalName : undefined)
+  assign('brandName', typeof values.brandName === 'string' ? values.brandName : undefined)
+  assign('domain', typeof values.domain === 'string' ? values.domain?.toLowerCase() : undefined)
+  assign('websiteUrl', typeof values.websiteUrl === 'string' ? values.websiteUrl : undefined)
+  assign('industry', typeof values.industry === 'string' ? values.industry : undefined)
+  assign('sizeBucket', typeof values.sizeBucket === 'string' ? values.sizeBucket : undefined)
+  assign('description', typeof values.description === 'string' ? values.description : undefined)
+
+  const rawRevenue = typeof values.annualRevenue === 'string' ? values.annualRevenue.trim() : ''
+  if (rawRevenue.length) {
+    const normalized = rawRevenue.replace(/,/g, '').replace(/\s+/g, '')
+    if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+      throw new Error('ANNUAL_REVENUE_INVALID')
+    }
+    payload.annualRevenue = normalized
+  }
 
   for (const [key, fieldValue] of Object.entries(values)) {
     if (key.startsWith('cf_')) {

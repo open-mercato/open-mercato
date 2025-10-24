@@ -18,6 +18,26 @@ const unlinkSchema = z.object({
   id: z.string().uuid(),
 })
 
+function toPlainRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value) return undefined
+  if (value instanceof Map) {
+    const record: Record<string, unknown> = {}
+    value.forEach((v, k) => {
+      record[String(k)] = v
+    })
+    return record
+  }
+  if (typeof FormData !== 'undefined' && value instanceof FormData) {
+    const record: Record<string, unknown> = {}
+    value.forEach((v, k) => {
+      record[k] = v
+    })
+    return record
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) return undefined
+  return { ...(value as Record<string, unknown>) }
+}
+
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.activities.view'] },
   POST: { requireAuth: true, requireFeatures: ['customers.activities.manage'] },
@@ -411,9 +431,15 @@ export async function POST(req: Request) {
     const { ctx, translate } = await buildContext(req)
     const raw = await req.json().catch(() => ({}))
     const scopedPayload = withScopedPayload(raw, ctx, translate)
+    const normalizedTodoCustom = toPlainRecord(
+      (scopedPayload as { todoCustom?: unknown }).todoCustom ??
+        (scopedPayload as { custom?: unknown }).custom,
+    )
+    const normalizedCustom = toPlainRecord((scopedPayload as { custom?: unknown }).custom)
     const input = todoLinkWithTodoCreateSchema.parse({
       ...scopedPayload,
-      todoCustom: (scopedPayload as { todoCustom?: unknown; custom?: unknown }).todoCustom ?? (scopedPayload as { custom?: unknown }).custom,
+      todoCustom: normalizedTodoCustom,
+      custom: normalizedCustom,
     })
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
