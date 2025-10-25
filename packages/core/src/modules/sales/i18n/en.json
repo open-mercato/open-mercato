@@ -1,0 +1,56 @@
+{
+  "sales": {
+    "module": {
+      "title": "Sales Management",
+      "description": "Quotes, orders, fulfillment, invoicing, and payments connected to the product catalog."
+    },
+    "navigation": {
+      "quotes": "Quotes",
+      "orders": "Orders",
+      "taxRates": "Tax Rates",
+      "shippingMethods": "Shipping Methods",
+      "paymentMethods": "Payment Methods",
+      "channels": "Channels"
+    },
+    "orders": {
+      "list": {
+        "title": "Orders"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Line Items",
+        "shipments": "Shipments",
+        "invoices": "Invoices",
+        "payments": "Payments",
+        "notes": "Notes"
+      }
+    },
+    "quotes": {
+      "list": {
+        "title": "Quotes"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Line Items",
+        "notes": "Notes"
+      }
+    },
+    "settings": {
+      "taxRates": {
+        "title": "Tax Rates"
+      },
+      "shippingMethods": {
+        "title": "Shipping Methods"
+      },
+      "paymentMethods": {
+        "title": "Payment Methods"
+      },
+      "deliveryWindows": {
+        "title": "Delivery Windows"
+      },
+      "channels": {
+        "title": "Sales Channels"
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "catalog": {
+    "module": {
+      "title": "Product Catalog",
+      "description": "Manage reusable products, variants, and pricing for sales documents."
+    },
+    "products": {
+      "list": {
+        "title": "Products"
+      },
+      "form": {
+        "general": "General",
+        "pricing": "Pricing",
+        "options": "Options",
+        "variants": "Variants"
+      }
+    },
+    "options": {
+      "list": {
+        "title": "Options"
+      }
+    },
+    "pricing": {
+      "list": {
+        "title": "Price Lists"
+      }
+    }
+  }
+}

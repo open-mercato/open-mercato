@@ -1,0 +1,56 @@
+{
+  "sales": {
+    "module": {
+      "title": "Sprzedaż",
+      "description": "Oferty, zamówienia, realizacja, fakturowanie i płatności powiązane z katalogiem produktów."
+    },
+    "navigation": {
+      "quotes": "Oferty",
+      "orders": "Zamówienia",
+      "taxRates": "Stawki podatku",
+      "shippingMethods": "Metody wysyłki",
+      "paymentMethods": "Metody płatności",
+      "channels": "Kanały sprzedaży"
+    },
+    "orders": {
+      "list": {
+        "title": "Zamówienia"
+      },
+      "form": {
+        "general": "Ogólne",
+        "lines": "Pozycje",
+        "shipments": "Wysyłki",
+        "invoices": "Faktury",
+        "payments": "Płatności",
+        "notes": "Notatki"
+      }
+    },
+    "quotes": {
+      "list": {
+        "title": "Oferty"
+      },
+      "form": {
+        "general": "Ogólne",
+        "lines": "Pozycje",
+        "notes": "Notatki"
+      }
+    },
+    "settings": {
+      "taxRates": {
+        "title": "Stawki podatkowe"
+      },
+      "shippingMethods": {
+        "title": "Metody wysyłki"
+      },
+      "paymentMethods": {
+        "title": "Metody płatności"
+      },
+      "deliveryWindows": {
+        "title": "Terminy dostaw"
+      },
+      "channels": {
+        "title": "Kanały sprzedaży"
+      }
+    }
+  }
+}

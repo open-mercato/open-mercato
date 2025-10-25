@@ -1,0 +1,68 @@
+export const entities = [
+  {
+    id: 'sales:order',
+    label: 'Sales Order',
+    description: 'Committed sales document that drives fulfillment and invoicing.',
+    labelField: 'orderNumber',
+    showInSidebar: false,
+    fields: [],
+  },
+  {
+    id: 'sales:order_line',
+    label: 'Sales Order Line',
+    description: 'Individual line on a sales order, including product or service details.',
+    labelField: 'name',
+    showInSidebar: false,
+    fields: [],
+  },
+  {
+    id: 'sales:quote',
+    label: 'Sales Quote',
+    description: 'Pre-order offer shared with customers before confirmation.',
+    labelField: 'quoteNumber',
+    showInSidebar: false,
+    fields: [],
+  },
+  {
+    id: 'sales:quote_line',
+    label: 'Sales Quote Line',
+    description: 'Line within a quote containing proposed products or services.',
+    labelField: 'name',
+    showInSidebar: false,
+    fields: [],
+  },
+  {
+    id: 'sales:invoice',
+    label: 'Sales Invoice',
+    description: 'Financial invoice derived from orders and shipments.',
+    labelField: 'invoiceNumber',
+    showInSidebar: false,
+    fields: [],
+  },
+  {
+    id: 'sales:invoice_line',
+    label: 'Sales Invoice Line',
+    description: 'Line within an invoice referencing products or services billed.',
+    labelField: 'description',
+    showInSidebar: false,
+    fields: [],
+  },
+  {
+    id: 'sales:payment',
+    label: 'Sales Payment',
+    description: 'Payment captured against orders or invoices.',
+    labelField: 'paymentReference',
+    showInSidebar: false,
+    fields: [],
+  },
+  {
+    id: 'sales:credit_memo',
+    label: 'Sales Credit Memo',
+    description: 'Credit memo issued for returns or adjustments.',
+    labelField: 'creditMemoNumber',
+    showInSidebar: false,
+    fields: [],
+  },
+]
+
+export default entities

@@ -1,0 +1,29 @@
+{
+  "catalog": {
+    "module": {
+      "title": "Produktkatalog",
+      "description": "Verwalte wiederverwendbare Produkte, Varianten und Preise für Vertriebsdokumente."
+    },
+    "products": {
+      "list": {
+        "title": "Produkte"
+      },
+      "form": {
+        "general": "Allgemein",
+        "pricing": "Preise",
+        "options": "Optionen",
+        "variants": "Varianten"
+      }
+    },
+    "options": {
+      "list": {
+        "title": "Optionen"
+      }
+    },
+    "pricing": {
+      "list": {
+        "title": "Preislisten"
+      }
+    }
+  }
+}
