@@ -1,0 +1,29 @@
+{
+  "catalog": {
+    "module": {
+      "title": "Katalog produktów",
+      "description": "Zarządzaj produktami, wariantami i cennikami wykorzystywanymi w sprzedaży."
+    },
+    "products": {
+      "list": {
+        "title": "Produkty"
+      },
+      "form": {
+        "general": "Ogólne",
+        "pricing": "Ceny",
+        "options": "Opcje",
+        "variants": "Warianty"
+      }
+    },
+    "options": {
+      "list": {
+        "title": "Opcje"
+      }
+    },
+    "pricing": {
+      "list": {
+        "title": "Cenniki"
+      }
+    }
+  }
+}

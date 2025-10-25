@@ -1,0 +1,29 @@
+{
+  "catalog": {
+    "module": {
+      "title": "Catálogo de productos",
+      "description": "Administra productos reutilizables, variantes y precios para los documentos de ventas."
+    },
+    "products": {
+      "list": {
+        "title": "Productos"
+      },
+      "form": {
+        "general": "General",
+        "pricing": "Precios",
+        "options": "Opciones",
+        "variants": "Variantes"
+      }
+    },
+    "options": {
+      "list": {
+        "title": "Opciones"
+      }
+    },
+    "pricing": {
+      "list": {
+        "title": "Listas de precios"
+      }
+    }
+  }
+}

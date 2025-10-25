@@ -1,0 +1,56 @@
+{
+  "sales": {
+    "module": {
+      "title": "Gestión de ventas",
+      "description": "Cotizaciones, pedidos, cumplimiento, facturación y pagos conectados al catálogo de productos."
+    },
+    "navigation": {
+      "quotes": "Cotizaciones",
+      "orders": "Pedidos",
+      "taxRates": "Tasas de impuestos",
+      "shippingMethods": "Métodos de envío",
+      "paymentMethods": "Métodos de pago",
+      "channels": "Canales de venta"
+    },
+    "orders": {
+      "list": {
+        "title": "Pedidos"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Líneas",
+        "shipments": "Envíos",
+        "invoices": "Facturas",
+        "payments": "Pagos",
+        "notes": "Notas"
+      }
+    },
+    "quotes": {
+      "list": {
+        "title": "Cotizaciones"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Líneas",
+        "notes": "Notas"
+      }
+    },
+    "settings": {
+      "taxRates": {
+        "title": "Tasas de impuestos"
+      },
+      "shippingMethods": {
+        "title": "Métodos de envío"
+      },
+      "paymentMethods": {
+        "title": "Métodos de pago"
+      },
+      "deliveryWindows": {
+        "title": "Plazos de entrega"
+      },
+      "channels": {
+        "title": "Canales de venta"
+      }
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "sales": {
+    "module": {
+      "title": "Vertriebsmanagement",
+      "description": "Angebote, Aufträge, Fulfillment, Rechnungsstellung und Zahlungen verbunden mit dem Produktkatalog."
+    },
+    "navigation": {
+      "quotes": "Angebote",
+      "orders": "Aufträge",
+      "taxRates": "Steuersätze",
+      "shippingMethods": "Versandarten",
+      "paymentMethods": "Zahlungsarten",
+      "channels": "Vertriebskanäle"
+    },
+    "orders": {
+      "list": {
+        "title": "Aufträge"
+      },
+      "form": {
+        "general": "Allgemein",
+        "lines": "Positionen",
+        "shipments": "Sendungen",
+        "invoices": "Rechnungen",
+        "payments": "Zahlungen",
+        "notes": "Notizen"
+      }
+    },
+    "quotes": {
+      "list": {
+        "title": "Angebote"
+      },
+      "form": {
+        "general": "Allgemein",
+        "lines": "Positionen",
+        "notes": "Notizen"
+      }
+    },
+    "settings": {
+      "taxRates": {
+        "title": "Steuersätze"
+      },
+      "shippingMethods": {
+        "title": "Versandarten"
+      },
+      "paymentMethods": {
+        "title": "Zahlungsarten"
+      },
+      "deliveryWindows": {
+        "title": "Lieferfenster"
+      },
+      "channels": {
+        "title": "Vertriebskanäle"
+      }
+    }
+  }
+}
