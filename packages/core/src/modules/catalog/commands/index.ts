@@ -1,1 +1,4 @@
-// Catalog module commands will be registered here in subsequent iterations.
+import './products'
+import './variants'
+import './options'
+import './prices'
