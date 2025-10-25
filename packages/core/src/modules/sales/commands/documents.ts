@@ -645,4 +645,61 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
   },
 }
 
+const deleteQuoteCommand: CommandHandler<
+  { body?: Record<string, unknown>; query?: Record<string, unknown> },
+  { quoteId: string }
+> = {
+  id: 'sales.quotes.delete',
+  async prepare(input, ctx) {
+    const id = requireId(input, 'Quote id is required')
+    const em = ctx.container.resolve<EntityManager>('em')
+    const snapshot = await loadQuoteSnapshot(em, id)
+    if (snapshot) {
+      ensureQuoteScope(ctx, snapshot.quote.organizationId, snapshot.quote.tenantId)
+    }
+    return snapshot ? { before: snapshot } : {}
+  },
+  async execute(input, ctx) {
+    const id = requireId(input, 'Quote id is required')
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const quote = await em.findOne(SalesQuote, { id })
+    if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
+    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
+    await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id })
+    await em.nativeDelete(SalesQuoteLine, { quote: quote.id })
+    em.remove(quote)
+    await em.flush()
+    return { quoteId: id }
+  },
+  buildLog: async ({ snapshots }) => {
+    const before = snapshots.before as QuoteGraphSnapshot | undefined
+    if (!before) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('sales.audit.quotes.delete', 'Delete sales quote'),
+      resourceKind: 'sales.quote',
+      resourceId: before.quote.id,
+      tenantId: before.quote.tenantId,
+      organizationId: before.quote.organizationId,
+      snapshotBefore: before,
+      payload: {
+        undo: {
+          before,
+        } satisfies QuoteUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
+    const quote = await restoreQuoteGraph(em, before)
+    await em.flush()
+    return quote.id
+  },
+}
+
 registerCommand(createQuoteCommand)
+registerCommand(deleteQuoteCommand)
