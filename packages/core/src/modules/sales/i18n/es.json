@@ -51,6 +51,26 @@
       "channels": {
         "title": "Canales de venta"
       }
+    },
+    "configuration": {
+      "errors": {
+        "tenant_required": "Se requiere el contexto del tenant.",
+        "organization_required": "Se requiere el contexto de la organización.",
+        "id_required": "Se requiere el identificador del registro.",
+        "load_failed": "No se pudieron cargar los registros.",
+        "save_failed": "No se pudo guardar el registro.",
+        "delete_failed": "No se pudo eliminar el registro."
+      },
+      "form": {
+        "createTitle": "Crear registro",
+        "editTitle": "Editar registro",
+        "submitCreate": "Crear",
+        "submitUpdate": "Guardar cambios"
+      },
+      "table": {
+        "search": "Buscar registros",
+        "refresh": "Actualizar"
+      }
     }
   }
 }

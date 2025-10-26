@@ -51,6 +51,26 @@
       "channels": {
         "title": "Vertriebskanäle"
       }
+    },
+    "configuration": {
+      "errors": {
+        "tenant_required": "Mandantenkontext ist erforderlich.",
+        "organization_required": "Organisationskontext ist erforderlich.",
+        "id_required": "Ein Datensatzkennzeichen ist erforderlich.",
+        "load_failed": "Datensätze konnten nicht geladen werden.",
+        "save_failed": "Datensatz konnte nicht gespeichert werden.",
+        "delete_failed": "Datensatz konnte nicht gelöscht werden."
+      },
+      "form": {
+        "createTitle": "Datensatz erstellen",
+        "editTitle": "Datensatz bearbeiten",
+        "submitCreate": "Erstellen",
+        "submitUpdate": "Änderungen speichern"
+      },
+      "table": {
+        "search": "Datensätze durchsuchen",
+        "refresh": "Aktualisieren"
+      }
     }
   }
 }

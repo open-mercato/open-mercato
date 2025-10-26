@@ -51,6 +51,26 @@
       "channels": {
         "title": "Kanały sprzedaży"
       }
+    },
+    "configuration": {
+      "errors": {
+        "tenant_required": "Wymagany jest kontekst tenant.",
+        "organization_required": "Wymagany jest kontekst organizacji.",
+        "id_required": "Wymagany jest identyfikator rekordu.",
+        "load_failed": "Nie udało się wczytać rekordów.",
+        "save_failed": "Nie udało się zapisać rekordu.",
+        "delete_failed": "Nie udało się usunąć rekordu."
+      },
+      "form": {
+        "createTitle": "Utwórz rekord",
+        "editTitle": "Edytuj rekord",
+        "submitCreate": "Utwórz",
+        "submitUpdate": "Zapisz zmiany"
+      },
+      "table": {
+        "search": "Szukaj rekordów",
+        "refresh": "Odśwież"
+      }
     }
   }
 }

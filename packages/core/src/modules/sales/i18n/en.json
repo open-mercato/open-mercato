@@ -51,6 +51,26 @@
       "channels": {
         "title": "Sales Channels"
       }
+    },
+    "configuration": {
+      "errors": {
+        "tenant_required": "Tenant context is required.",
+        "organization_required": "Organization context is required.",
+        "id_required": "Record identifier is required.",
+        "load_failed": "Failed to load records.",
+        "save_failed": "Failed to save record.",
+        "delete_failed": "Failed to delete record."
+      },
+      "form": {
+        "createTitle": "Create record",
+        "editTitle": "Edit record",
+        "submitCreate": "Create",
+        "submitUpdate": "Save changes"
+      },
+      "table": {
+        "search": "Search records",
+        "refresh": "Refresh"
+      }
     }
   }
 }
