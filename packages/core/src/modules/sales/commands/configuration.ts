@@ -3,7 +3,10 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   SalesChannel,
   SalesDeliveryWindow,
@@ -64,6 +67,7 @@ type ChannelSnapshot = {
   longitude: string | null
   metadata: Record<string, unknown> | null
   isActive: boolean
+  custom: Record<string, unknown> | null
 }
 
 type DeliveryWindowSnapshot = {
@@ -78,6 +82,7 @@ type DeliveryWindowSnapshot = {
   timezone: string | null
   metadata: Record<string, unknown> | null
   isActive: boolean
+  custom: Record<string, unknown> | null
 }
 
 type ShippingMethodSnapshot = {
@@ -95,6 +100,7 @@ type ShippingMethodSnapshot = {
   currencyCode: string | null
   metadata: Record<string, unknown> | null
   isActive: boolean
+  custom: Record<string, unknown> | null
 }
 
 type PaymentMethodSnapshot = {
@@ -108,6 +114,7 @@ type PaymentMethodSnapshot = {
   terms: string | null
   metadata: Record<string, unknown> | null
   isActive: boolean
+  custom: Record<string, unknown> | null
 }
 
 type TaxRateSnapshot = {
@@ -129,6 +136,7 @@ type TaxRateSnapshot = {
   metadata: Record<string, unknown> | null
   startsAt: string | null
   endsAt: string | null
+  custom: Record<string, unknown> | null
 }
 
 type UndoPayload<T> = {
@@ -136,9 +144,26 @@ type UndoPayload<T> = {
   after?: T | null
 }
 
+type ChannelCreateCommandInput = ChannelCreateInput & { customFields?: Record<string, unknown> }
+type ChannelUpdateCommandInput = ChannelUpdateInput & { customFields?: Record<string, unknown> }
+type DeliveryWindowCreateCommandInput = DeliveryWindowCreateInput & { customFields?: Record<string, unknown> }
+type DeliveryWindowUpdateCommandInput = DeliveryWindowUpdateInput & { customFields?: Record<string, unknown> }
+type ShippingMethodCreateCommandInput = ShippingMethodCreateInput & { customFields?: Record<string, unknown> }
+type ShippingMethodUpdateCommandInput = ShippingMethodUpdateInput & { customFields?: Record<string, unknown> }
+type PaymentMethodCreateCommandInput = PaymentMethodCreateInput & { customFields?: Record<string, unknown> }
+type PaymentMethodUpdateCommandInput = PaymentMethodUpdateInput & { customFields?: Record<string, unknown> }
+type TaxRateCreateCommandInput = TaxRateCreateInput & { customFields?: Record<string, unknown> }
+type TaxRateUpdateCommandInput = TaxRateUpdateInput & { customFields?: Record<string, unknown> }
+
 async function loadChannelSnapshot(em: EntityManager, id: string): Promise<ChannelSnapshot | null> {
   const channel = await em.findOne(SalesChannel, { id, deletedAt: null })
   if (!channel) return null
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.sales.sales_channel,
+    recordId: channel.id,
+    tenantId: channel.tenantId,
+    organizationId: channel.organizationId,
+  })
   return {
     id: channel.id,
     organizationId: channel.organizationId,
@@ -160,6 +185,7 @@ async function loadChannelSnapshot(em: EntityManager, id: string): Promise<Chann
     longitude: channel.longitude ?? null,
     metadata: channel.metadata ? cloneJson(channel.metadata) : null,
     isActive: channel.isActive,
+    custom: Object.keys(custom).length ? custom : null,
   }
 }
 
@@ -169,6 +195,12 @@ async function loadDeliveryWindowSnapshot(
 ): Promise<DeliveryWindowSnapshot | null> {
   const record = await em.findOne(SalesDeliveryWindow, { id, deletedAt: null })
   if (!record) return null
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.sales.sales_delivery_window,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -181,6 +213,7 @@ async function loadDeliveryWindowSnapshot(
     timezone: record.timezone ?? null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     isActive: record.isActive,
+    custom: Object.keys(custom).length ? custom : null,
   }
 }
 
@@ -190,6 +223,12 @@ async function loadShippingMethodSnapshot(
 ): Promise<ShippingMethodSnapshot | null> {
   const record = await em.findOne(SalesShippingMethod, { id, deletedAt: null })
   if (!record) return null
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.sales.sales_shipping_method,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -205,6 +244,7 @@ async function loadShippingMethodSnapshot(
     currencyCode: record.currencyCode ?? null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     isActive: record.isActive,
+    custom: Object.keys(custom).length ? custom : null,
   }
 }
 
@@ -214,6 +254,12 @@ async function loadPaymentMethodSnapshot(
 ): Promise<PaymentMethodSnapshot | null> {
   const record = await em.findOne(SalesPaymentMethod, { id, deletedAt: null })
   if (!record) return null
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.sales.sales_payment_method,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -225,12 +271,19 @@ async function loadPaymentMethodSnapshot(
     terms: record.terms ?? null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     isActive: record.isActive,
+    custom: Object.keys(custom).length ? custom : null,
   }
 }
 
 async function loadTaxRateSnapshot(em: EntityManager, id: string): Promise<TaxRateSnapshot | null> {
   const record = await em.findOne(SalesTaxRate, { id, deletedAt: null })
   if (!record) return null
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.sales.sales_tax_rate,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -250,6 +303,7 @@ async function loadTaxRateSnapshot(em: EntityManager, id: string): Promise<TaxRa
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     startsAt: record.startsAt ? record.startsAt.toISOString() : null,
     endsAt: record.endsAt ? record.endsAt.toISOString() : null,
+    custom: Object.keys(custom).length ? custom : null,
   }
 }
 
@@ -358,10 +412,10 @@ function resolveScopeFromUpdate<T extends { organizationId: string; tenantId: st
   return { organizationId, tenantId }
 }
 
-const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: string }> = {
+const createChannelCommand: CommandHandler<ChannelCreateCommandInput, { channelId: string }> = {
   id: 'sales.channels.create',
   async execute(rawInput, ctx) {
-    const parsed = channelCreateSchema.parse(rawInput)
+    const parsed = channelCreateSchema.parse(rawInput) as ChannelCreateCommandInput
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -388,6 +442,14 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     })
     em.persist(record)
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.sales.sales_channel,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: parsed.customFields ?? {},
+    })
     return { channelId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -423,10 +485,21 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_channel,
+        recordId: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
-const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: string }> = {
+const updateChannelCommand: CommandHandler<ChannelUpdateCommandInput, { channelId: string }> = {
   id: 'sales.channels.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Channel id is required')
@@ -439,7 +512,7 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = channelUpdateSchema.parse(rawInput)
+    const parsed = channelUpdateSchema.parse(rawInput) as ChannelUpdateCommandInput
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(SalesChannel, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Channel not found' })
@@ -471,6 +544,16 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     record.organizationId = scope.organizationId
     record.tenantId = scope.tenantId
     await em.flush()
+    if (parsed.customFields) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_channel,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: parsed.customFields,
+      })
+    }
     return { channelId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -511,8 +594,20 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    applyChannelSnapshot(record, before)
-    await em.flush()
+   applyChannelSnapshot(record, before)
+   await em.flush()
+    const after = payload?.after
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after?.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_channel,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -574,6 +669,16 @@ const deleteChannelCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyChannelSnapshot(record, before)
     await em.flush()
+    if (before.custom && Object.keys(before.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_channel,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: before.custom,
+      })
+    }
   },
 }
 
