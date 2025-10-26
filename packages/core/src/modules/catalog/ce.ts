@@ -1,6 +1,6 @@
 export const entities = [
   {
-    id: 'catalog:product',
+    id: 'catalog:catalog_product',
     label: 'Product',
     description: 'Base catalog item representing a sellable product or service.',
     labelField: 'name',
@@ -8,7 +8,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'catalog:variant',
+    id: 'catalog:catalog_product_variant',
     label: 'Product Variant',
     description: 'Specific configuration of a catalog product, including SKU-level attributes.',
     labelField: 'sku',
@@ -16,10 +16,34 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'catalog:option',
+    id: 'catalog:catalog_product_option',
     label: 'Product Option',
     description: 'Configurable option exposed on catalog products (e.g., size, color).',
     labelField: 'label',
+    showInSidebar: false,
+    fields: [],
+  },
+  {
+    id: 'catalog:catalog_product_option_value',
+    label: 'Option Value',
+    description: 'Concrete selectable value for a catalog product option.',
+    labelField: 'label',
+    showInSidebar: false,
+    fields: [],
+  },
+  {
+    id: 'catalog:catalog_variant_option_value',
+    label: 'Variant Option Value',
+    description: 'Resolved option value assignment for a specific product variant.',
+    labelField: 'label',
+    showInSidebar: false,
+    fields: [],
+  },
+  {
+    id: 'catalog:catalog_product_price',
+    label: 'Product Price',
+    description: 'Tiered price record for a product or variant in a specific currency or channel.',
+    labelField: 'id',
     showInSidebar: false,
     fields: [],
   },
