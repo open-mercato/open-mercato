@@ -162,3 +162,33 @@ export function resolveCrudRecordId(
   const msg = resolveMessage(options.messages, 'idRequired')
   throw new CrudHttpError(400, { error: translate(msg.key, msg.fallback) })
 }
+
+export function createScopedApiHelpers(baseOptions?: ScopedPayloadOptions) {
+  return {
+    withScopedPayload: <T extends Record<string, unknown>>(
+      payload: T | null | undefined,
+      ctx: ScopedContext,
+      translate: TranslateFn,
+      options: ScopedPayloadOptions = {}
+    ) => withScopedPayload(payload, ctx, translate, { ...baseOptions, ...options }),
+    parseScopedCommandInput: <TSchema extends z.ZodTypeAny>(
+      schema: TSchema,
+      payload: unknown,
+      ctx: ScopedContext,
+      translate: TranslateFn,
+      options: ScopedPayloadOptions = {}
+    ) => parseScopedCommandInput(schema, payload, ctx, translate, { ...baseOptions, ...options }),
+    requireRecordId: (
+      candidate: unknown,
+      ctx: ScopedContext,
+      translate: TranslateFn,
+      options: ScopedPayloadOptions = {}
+    ) => requireRecordId(candidate, ctx, translate, { ...baseOptions, ...options }),
+    resolveCrudRecordId: (
+      parsed: unknown,
+      ctx: ScopedContext,
+      translate: TranslateFn,
+      options: ScopedPayloadOptions & { fieldName?: string; queryParam?: string } = {}
+    ) => resolveCrudRecordId(parsed, ctx, translate, { ...baseOptions, ...options }),
+  }
+}

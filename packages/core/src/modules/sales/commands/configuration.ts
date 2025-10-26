@@ -683,12 +683,12 @@ const deleteChannelCommand: CommandHandler<
 }
 
 const createDeliveryWindowCommand: CommandHandler<
-  DeliveryWindowCreateInput,
+  DeliveryWindowCreateCommandInput,
   { deliveryWindowId: string }
 > = {
   id: 'sales.delivery-windows.create',
   async execute(rawInput, ctx) {
-    const parsed = deliveryWindowCreateSchema.parse(rawInput)
+    const parsed = deliveryWindowCreateSchema.parse(rawInput) as DeliveryWindowCreateCommandInput
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -706,6 +706,14 @@ const createDeliveryWindowCommand: CommandHandler<
     })
     em.persist(record)
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.sales.sales_delivery_window,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: parsed.customFields ?? {},
+    })
     return { deliveryWindowId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -741,11 +749,22 @@ const createDeliveryWindowCommand: CommandHandler<
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_delivery_window,
+        recordId: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
 const updateDeliveryWindowCommand: CommandHandler<
-  DeliveryWindowUpdateInput,
+  DeliveryWindowUpdateCommandInput,
   { deliveryWindowId: string }
 > = {
   id: 'sales.delivery-windows.update',
@@ -760,7 +779,7 @@ const updateDeliveryWindowCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = deliveryWindowUpdateSchema.parse(rawInput)
+    const parsed = deliveryWindowUpdateSchema.parse(rawInput) as DeliveryWindowUpdateCommandInput
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(SalesDeliveryWindow, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Delivery window not found' })
@@ -778,6 +797,16 @@ const updateDeliveryWindowCommand: CommandHandler<
     }
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     await em.flush()
+    if (parsed.customFields) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_delivery_window,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: parsed.customFields,
+      })
+    }
     return { deliveryWindowId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -820,6 +849,17 @@ const updateDeliveryWindowCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyDeliveryWindowSnapshot(record, before)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_delivery_window,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -881,16 +921,26 @@ const deleteDeliveryWindowCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyDeliveryWindowSnapshot(record, before)
     await em.flush()
+    if (before.custom && Object.keys(before.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_delivery_window,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: before.custom,
+      })
+    }
   },
 }
 
 const createShippingMethodCommand: CommandHandler<
-  ShippingMethodCreateInput,
+  ShippingMethodCreateCommandInput,
   { shippingMethodId: string }
 > = {
   id: 'sales.shipping-methods.create',
   async execute(rawInput, ctx) {
-    const parsed = shippingMethodCreateSchema.parse(rawInput)
+    const parsed = shippingMethodCreateSchema.parse(rawInput) as ShippingMethodCreateCommandInput
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -911,6 +961,14 @@ const createShippingMethodCommand: CommandHandler<
     })
     em.persist(record)
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.sales.sales_shipping_method,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: parsed.customFields ?? {},
+    })
     return { shippingMethodId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -946,11 +1004,22 @@ const createShippingMethodCommand: CommandHandler<
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_shipping_method,
+        recordId: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
 const updateShippingMethodCommand: CommandHandler<
-  ShippingMethodUpdateInput,
+  ShippingMethodUpdateCommandInput,
   { shippingMethodId: string }
 > = {
   id: 'sales.shipping-methods.update',
@@ -965,7 +1034,7 @@ const updateShippingMethodCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = shippingMethodUpdateSchema.parse(rawInput)
+    const parsed = shippingMethodUpdateSchema.parse(rawInput) as ShippingMethodUpdateCommandInput
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(SalesShippingMethod, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Shipping method not found' })
@@ -992,6 +1061,16 @@ const updateShippingMethodCommand: CommandHandler<
     }
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     await em.flush()
+    if (parsed.customFields) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_shipping_method,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: parsed.customFields,
+      })
+    }
     return { shippingMethodId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1034,6 +1113,17 @@ const updateShippingMethodCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyShippingMethodSnapshot(record, before)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_shipping_method,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -1095,6 +1185,16 @@ const deleteShippingMethodCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyShippingMethodSnapshot(record, before)
     await em.flush()
+    if (before.custom && Object.keys(before.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_shipping_method,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: before.custom,
+      })
+    }
   },
 }
 
