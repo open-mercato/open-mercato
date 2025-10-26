@@ -617,7 +617,29 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
     }
     selectedOrganizationId = scope?.selectedId ?? auth?.orgId ?? null
-    organizationIds = scope ? scope.filterIds : (selectedOrganizationId ? [selectedOrganizationId] : null)
+    const fallbackOrgId = selectedOrganizationId ?? auth?.orgId ?? null
+    const rawScopeIds = scope?.filterIds
+    const scopedIds = Array.isArray(rawScopeIds) ? rawScopeIds.filter((id): id is string => typeof id === 'string' && id.length > 0) : null
+    if (scopedIds === null) {
+      organizationIds = fallbackOrgId ? [fallbackOrgId] : null
+    } else if (scopedIds.length > 0) {
+      organizationIds = Array.from(new Set(scopedIds))
+    } else if (fallbackOrgId) {
+      const allowedIds = Array.isArray(scope?.allowedIds) ? scope.allowedIds : null
+      let canUseFallback = false
+      if (allowedIds === null) {
+        canUseFallback = true
+      } else if (allowedIds.includes(fallbackOrgId) || allowedIds.length === 0) {
+        canUseFallback = true
+      }
+      if (canUseFallback) {
+        organizationIds = [fallbackOrgId]
+      } else {
+        organizationIds = []
+      }
+    } else {
+      organizationIds = []
+    }
     return { container, auth, organizationScope: scope, selectedOrganizationId, organizationIds, request }
   }
 

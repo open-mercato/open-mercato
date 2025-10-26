@@ -73,6 +73,16 @@ export async function resolveOrganizationScope({
   const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId: auth.orgId ?? null })
   const accessibleList = Array.isArray(acl.organizations) ? acl.organizations.filter(Boolean) : null
 
+  const fallbackOrgId = auth.orgId ?? null
+  let fallbackSet: Set<string> | null = null
+  const loadFallbackSet = async (): Promise<Set<string> | null> => {
+    if (!fallbackOrgId) return null
+    if (!fallbackSet) {
+      fallbackSet = await collectWithDescendants(em, tenantId, [fallbackOrgId])
+    }
+    return fallbackSet
+  }
+
   let allowedSet: Set<string> | null = null
   if (accessibleList === null) {
     allowedSet = null
@@ -80,6 +90,13 @@ export async function resolveOrganizationScope({
     allowedSet = new Set()
   } else {
     allowedSet = await collectWithDescendants(em, tenantId, accessibleList)
+  }
+
+  if (allowedSet && allowedSet.size === 0 && fallbackOrgId) {
+    const computed = await loadFallbackSet()
+    if (computed && computed.size > 0) {
+      allowedSet = computed
+    }
   }
 
   const initialSelected = selectedId ?? auth.orgId ?? null
@@ -96,7 +113,17 @@ export async function resolveOrganizationScope({
   } else if (allowedSet !== null) {
     filterSet = allowedSet
   } else if (auth.orgId) {
-    filterSet = await collectWithDescendants(em, tenantId, [auth.orgId])
+    filterSet = await loadFallbackSet()
+  }
+
+  if ((!filterSet || filterSet.size === 0) && fallbackOrgId) {
+    const computed = await loadFallbackSet()
+    if (computed && computed.size > 0) {
+      filterSet = computed
+      if (!effectiveSelected) {
+        effectiveSelected = fallbackOrgId
+      }
+    }
   }
 
   return {
