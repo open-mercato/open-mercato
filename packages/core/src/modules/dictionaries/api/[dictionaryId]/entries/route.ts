@@ -4,6 +4,8 @@ import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictiona
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
 import { createDictionaryEntrySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
 
@@ -23,22 +25,6 @@ async function loadDictionary(
     throw new CrudHttpError(404, { error: context.translate('dictionaries.errors.not_found', 'Dictionary not found') })
   }
   return dictionary
-}
-
-function normalizeColor(color: string | null | undefined): string | null {
-  if (!color) return null
-  const trimmed = color.trim()
-  if (!trimmed) return null
-  const match = /^#([0-9a-fA-F]{6})$/.exec(trimmed)
-  if (!match) return null
-  return `#${match[1].toLowerCase()}`
-}
-
-function normalizeIcon(icon: string | null | undefined): string | null {
-  if (!icon) return null
-  const trimmed = icon.trim()
-  if (!trimmed) return null
-  return trimmed.slice(0, 64)
 }
 
 export const metadata = {
@@ -85,38 +71,18 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
   try {
     const context = await resolveDictionariesRouteContext(req)
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
-    const dictionary = await loadDictionary(context, dictionaryId)
     const payload = createDictionaryEntrySchema.parse(await req.json().catch(() => ({})))
-    const value = payload.value.trim()
-    const normalized = value.toLowerCase()
-    const label = payload.label?.trim() || value
-    const color = normalizeColor(payload.color ?? null)
-    const icon = normalizeIcon(payload.icon ?? null)
-
-    const duplicate = await context.em.findOne(DictionaryEntry, {
-      dictionary,
-      organizationId: dictionary.organizationId,
-      tenantId: dictionary.tenantId,
-      normalizedValue: normalized,
+    // These nested routes do not use makeCrudRoute, so we invoke the command bus directly.
+    const commandBus = context.container.resolve<CommandBus>('commandBus')
+    const { result, logEntry } = await commandBus.execute('dictionaries.entries.create', {
+      input: { ...payload, dictionaryId },
+      ctx: context.ctx,
     })
-    if (duplicate) {
-      throw new CrudHttpError(409, { error: context.translate('dictionaries.errors.entry_duplicate', 'An entry with this value already exists') })
+    const entry = await context.em.fork().findOne(DictionaryEntry, result.entryId, { populate: ['dictionary'] })
+    if (!entry) {
+      throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_create_failed', 'Failed to create dictionary entry') })
     }
-
-    const entry = context.em.create(DictionaryEntry, {
-      dictionary,
-      organizationId: dictionary.organizationId,
-      tenantId: dictionary.tenantId,
-      value,
-      normalizedValue: normalized,
-      label,
-      color,
-      icon,
-    })
-    context.em.persist(entry)
-    await context.em.flush()
-
-    return NextResponse.json({
+    const response = NextResponse.json({
       id: entry.id,
       value: entry.value,
       label: entry.label,
@@ -125,6 +91,21 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
     }, { status: 201 })
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'dictionaries.entry',
+          resourceId: result.entryId,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
+        })
+      )
+    }
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

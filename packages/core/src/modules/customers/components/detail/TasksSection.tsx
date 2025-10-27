@@ -23,6 +23,9 @@ type TasksSectionProps = {
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
   translator?: Translator
+  entityName?: string | null
+  dialogContextKey?: string
+  dialogContextFallback?: string
 }
 
 function buildInitialFormValues(task: TodoLinkSummary | null): Record<string, unknown> | undefined {
@@ -53,6 +56,9 @@ export function TasksSection({
   onActionChange,
   onLoadingChange,
   translator,
+  entityName,
+  dialogContextKey,
+  dialogContextFallback,
 }: TasksSectionProps) {
   const tHook = useT()
   const t: Translator = React.useMemo(
@@ -87,6 +93,11 @@ export function TasksSection({
   const [dialogMode, setDialogMode] = React.useState<'create' | 'edit'>('create')
   const [editingTask, setEditingTask] = React.useState<TodoLinkSummary | null>(null)
   const sentinelRef = React.useRef<HTMLDivElement | null>(null)
+
+  const dialogContextMessage = React.useMemo(() => {
+    if (!dialogContextKey || !entityName) return undefined
+    return t(dialogContextKey, dialogContextFallback ?? 'This task will be linked to {{name}}', { name: entityName })
+  }, [dialogContextFallback, dialogContextKey, entityName, t])
 
   const openCreateDialog = React.useCallback(() => {
     setEditingTask(null)
@@ -391,6 +402,7 @@ export function TasksSection({
         initialValues={buildInitialFormValues(editingTask)}
         onSubmit={handleDialogSubmit}
         isSubmitting={isMutating}
+        contextMessage={dialogContextMessage}
       />
     </div>
   )

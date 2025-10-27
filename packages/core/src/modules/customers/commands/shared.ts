@@ -11,7 +11,7 @@ type UndoEnvelope<T> = {
   [key: string]: unknown
 }
 
-function normalizeDictionaryColor(input: unknown): string | null {
+export function normalizeDictionaryColor(input: unknown): string | null {
   if (typeof input !== 'string') return null
   const trimmed = input.trim()
   if (!trimmed) return null
@@ -20,7 +20,7 @@ function normalizeDictionaryColor(input: unknown): string | null {
   return `#${hexMatch[1].toLowerCase()}`
 }
 
-function normalizeDictionaryIcon(input: unknown): string | null {
+export function normalizeDictionaryIcon(input: unknown): string | null {
   if (typeof input !== 'string') return null
   const trimmed = input.trim()
   if (!trimmed) return null

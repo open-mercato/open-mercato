@@ -29,6 +29,7 @@ import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights'
+import { formatTemplate } from '../../../../components/detail/utils'
 import {
   CompanyPeopleSection,
   type CompanyPersonSummary,
@@ -120,7 +121,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const translateCompanyDetail = React.useCallback(
-    (key: string, fallback?: string) => {
+    (key: string, fallback?: string, params?: Record<string, string | number>) => {
       const mappedKey = key.startsWith('customers.people.detail.')
         ? key.replace('customers.people.detail.', 'customers.companies.detail.')
         : key
@@ -132,10 +133,12 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
               .replace(/\bPeople\b/g, 'Companies')
               .replace(/\bpeople\b/g, 'companies')
           : fallback
-      const translated = t(mappedKey, adjustedFallback)
+      const translated = t(mappedKey, params)
       if (translated !== mappedKey || mappedKey === key) return translated
-      const fallbackValue = t(key, adjustedFallback)
-      return fallbackValue === key && adjustedFallback ? adjustedFallback : fallbackValue
+      const fallbackValue = t(key, params)
+      if (fallbackValue !== key) return fallbackValue
+      if (!adjustedFallback) return mappedKey
+      return formatTemplate(adjustedFallback, params)
     },
     [t],
   )
@@ -785,6 +788,9 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                 onActionChange={handleSectionActionChange}
                 onLoadingChange={handleTasksLoadingChange}
                 translator={translateCompanyDetail}
+                entityName={companyName}
+                dialogContextKey="customers.companies.detail.tasks.dialog.context"
+                dialogContextFallback="This task will be linked to {{name}}"
               />
             )}
           </div>

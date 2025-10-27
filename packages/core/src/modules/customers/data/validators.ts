@@ -202,6 +202,66 @@ export const tagUpdateSchema = z
   })
   .merge(tagCreateSchema.partial())
 
+const dictionaryKindEnum = z.enum([
+  'status',
+  'source',
+  'lifecycle_stage',
+  'address_type',
+  'activity_type',
+  'deal_status',
+  'pipeline_stage',
+  'job_title',
+  'industry',
+])
+
+const dictionaryValueSchema = z.string().trim().min(1).max(150)
+const dictionaryLabelSchema = z.string().trim().max(150)
+const dictionaryColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#([0-9a-fA-F]{6})$/, 'Color must be a valid six-digit hex code like #3366ff')
+const dictionaryIconSchema = z.string().trim().max(48)
+
+export const customerDictionaryEntryCreateSchema = scopedSchema.extend({
+  kind: dictionaryKindEnum,
+  value: dictionaryValueSchema,
+  label: dictionaryLabelSchema.optional(),
+  color: dictionaryColorSchema.nullable().optional(),
+  icon: dictionaryIconSchema.nullable().optional(),
+})
+
+export type CustomerDictionaryEntryCreateInput = z.infer<typeof customerDictionaryEntryCreateSchema>
+
+export const customerDictionaryEntryUpdateSchema = scopedSchema
+  .extend({
+    id: uuid(),
+    kind: dictionaryKindEnum,
+    value: dictionaryValueSchema.optional(),
+    label: dictionaryLabelSchema.optional(),
+    color: dictionaryColorSchema.nullable().optional(),
+    icon: dictionaryIconSchema.nullable().optional(),
+  })
+  .refine(
+    (payload) =>
+      payload.value !== undefined ||
+      payload.label !== undefined ||
+      payload.color !== undefined ||
+      payload.icon !== undefined,
+    {
+      message: 'Provide at least one field to update.',
+      path: ['value'],
+    }
+  )
+
+export type CustomerDictionaryEntryUpdateInput = z.infer<typeof customerDictionaryEntryUpdateSchema>
+
+export const customerDictionaryEntryDeleteSchema = scopedSchema.extend({
+  id: uuid(),
+  kind: dictionaryKindEnum,
+})
+
+export type CustomerDictionaryEntryDeleteInput = z.infer<typeof customerDictionaryEntryDeleteSchema>
+
 export const tagAssignmentSchema = scopedSchema.extend({
   tagId: uuid(),
   entityId: uuid(),

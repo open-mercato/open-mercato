@@ -4,6 +4,15 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import type { IconOption } from './dictionaryAppearance'
 import { AppearanceSelector, type AppearanceSelectorLabels } from './AppearanceSelector'
 
+type AppearanceValue = {
+  color: string | null
+  icon: string | null
+}
+
+type DictionaryFormState = DictionaryFormValues & {
+  appearance?: AppearanceValue
+}
+
 export type DictionaryFormValues = {
   value: string
   label: string
@@ -42,6 +51,14 @@ export function DictionaryForm({
   iconSuggestions,
   iconLibrary,
 }: DictionaryFormProps) {
+  const initialFormValues = React.useMemo<DictionaryFormState>(() => ({
+    ...initialValues,
+    appearance: {
+      color: initialValues.color ?? null,
+      icon: initialValues.icon ?? null,
+    },
+  }), [initialValues])
+
   const fields = React.useMemo<CrudField[]>(() => {
     const valueField: CrudField = {
       id: 'value',
@@ -61,19 +78,34 @@ export function DictionaryForm({
     const appearanceField: CrudField = {
       id: 'appearance',
       type: 'custom',
-      component: ({ values, setValue }) => {
-        const currentIcon = typeof values?.icon === 'string' ? values.icon : null
-        const currentColor = typeof values?.color === 'string' ? values.color : null
+      component: ({ value, setValue, disabled }) => {
+        const appearance = value && typeof value === 'object'
+          ? (value as AppearanceValue)
+          : { color: null, icon: null }
+        const currentColor = typeof appearance.color === 'string' ? appearance.color : null
+        const currentIcon = typeof appearance.icon === 'string' ? appearance.icon : null
         return (
           <AppearanceSelector
             icon={currentIcon}
             color={currentColor}
-            onIconChange={(next) => setValue('icon', next)}
-            onColorChange={(next) => setValue('color', next)}
+            onIconChange={(next) => {
+              const sanitized = typeof next === 'string' && next.trim().length ? next.trim() : null
+              setValue({
+                color: currentColor,
+                icon: sanitized,
+              })
+            }}
+            onColorChange={(next) => {
+              const sanitized = typeof next === 'string' && next.trim().length ? next.trim() : null
+              setValue({
+                color: sanitized,
+                icon: currentIcon,
+              })
+            }}
             labels={translations.appearance}
             iconSuggestions={iconSuggestions}
             iconLibrary={iconLibrary}
-            disabled={submitting}
+            disabled={Boolean(disabled) || submitting}
           />
         )
       },
@@ -83,10 +115,10 @@ export function DictionaryForm({
 
   return (
     <div className="space-y-4">
-      <CrudForm<DictionaryFormValues>
+      <CrudForm<DictionaryFormState>
         title={translations.title}
         fields={fields}
-        initialValues={initialValues}
+        initialValues={initialFormValues}
         submitLabel={translations.saveLabel}
         embedded
         extraActions={
@@ -96,11 +128,22 @@ export function DictionaryForm({
         }
         isLoading={false}
         onSubmit={async (values) => {
+          const appearance = values.appearance && typeof values.appearance === 'object'
+            ? values.appearance as AppearanceValue
+            : { color: null, icon: null }
+          const submittedColor =
+            typeof appearance.color === 'string' && appearance.color.trim().length
+              ? appearance.color.trim()
+              : null
+          const submittedIcon =
+            typeof appearance.icon === 'string' && appearance.icon.trim().length
+              ? appearance.icon.trim()
+              : null
           await onSubmit({
             value: values.value.trim(),
             label: values.label?.trim() || values.value.trim(),
-            color: values.color ? values.color.trim() : null,
-            icon: values.icon ? values.icon.trim() : null,
+            color: submittedColor,
+            icon: submittedIcon,
           })
         }}
       />

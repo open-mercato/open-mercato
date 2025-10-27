@@ -87,7 +87,6 @@ async function resolveTodoSummaries(
         tenantId,
         organizationIds: scopedOrgIds.length > 0 ? scopedOrgIds : undefined,
         filters: { id: { $in: ids } },
-        fields: ['id', 'title', 'subject', 'name', 'summary', 'text', 'description'],
         includeCustomFields: false,
         page: { page: 1, pageSize: Math.max(ids.length, 1) },
       })

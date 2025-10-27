@@ -45,3 +45,17 @@ export const updateDictionaryEntrySchema = z
   })
 
 export type UpdateDictionaryEntryInput = z.infer<typeof updateDictionaryEntrySchema>
+
+export const dictionaryEntryCommandCreateSchema = createDictionaryEntrySchema.extend({
+  dictionaryId: z.string().uuid(),
+})
+
+export type DictionaryEntryCommandCreateInput = z.infer<typeof dictionaryEntryCommandCreateSchema>
+
+export const dictionaryEntryCommandUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .merge(updateDictionaryEntrySchema)
+
+export type DictionaryEntryCommandUpdateInput = z.infer<typeof dictionaryEntryCommandUpdateSchema>

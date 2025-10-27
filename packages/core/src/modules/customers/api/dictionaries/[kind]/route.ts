@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/types'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { CustomerDictionaryEntry } from '../../../data/entities'
-import { ensureDictionaryEntry } from '../../../commands/shared'
 import { mapDictionaryKind, resolveDictionaryRouteContext } from '../context'
 import { createDictionaryCacheKey, createDictionaryCacheTags, invalidateDictionaryCache, DICTIONARY_CACHE_TTL_MS } from '../cache'
 import { z } from 'zod'
@@ -13,8 +15,8 @@ const iconSchema = z.string().trim().min(1).max(48)
 const postSchema = z.object({
   value: z.string().trim().min(1).max(150),
   label: z.string().trim().max(150).optional(),
-  color: colorSchema.optional(),
-  icon: iconSchema.optional(),
+  color: colorSchema.or(z.null()).optional(),
+  icon: iconSchema.or(z.null()).optional(),
 })
 
 export const metadata = {
@@ -111,35 +113,21 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
     const context = await resolveDictionaryRouteContext(req)
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const body = postSchema.parse(await req.json().catch(() => ({})))
-    const value = body.value.trim()
-    const normalized = value.toLowerCase()
-
-    const existing = await context.em.findOne(CustomerDictionaryEntry, {
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-      kind: mappedKind,
-      normalizedValue: normalized,
-    })
-
-    const entry = await ensureDictionaryEntry(context.em, {
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-      kind: mappedKind,
-      value,
-      label: body.label ?? value,
-      color: body.color,
-      icon: body.icon,
-    })
-    let hasChanges = false
-    if (existing && body.label !== undefined && entry.label !== body.label) {
-      entry.label = body.label
-      hasChanges = true
-    }
-    if (hasChanges) {
-      entry.updatedAt = new Date()
-    }
-    await context.em.flush()
-
+    const commandBus = context.container.resolve<CommandBus>('commandBus')
+    const { result, logEntry } =
+      (await commandBus.execute('customers.dictionaryEntries.create', {
+        input: {
+          tenantId: context.tenantId,
+          organizationId: context.organizationId,
+          kind: mappedKind,
+          value: body.value,
+          label: body.label,
+          color: body.color,
+          icon: body.icon,
+        },
+        ctx: context.ctx,
+      })) as CommandExecuteResult<{ entryId: string; mode: 'created' | 'updated' | 'unchanged' }>
+    const entry = await context.em.fork().findOne(CustomerDictionaryEntry, result.entryId)
     if (!entry) {
       throw new CrudHttpError(400, { error: context.translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') })
     }
@@ -150,7 +138,7 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
       organizationIds: [entry.organizationId],
     })
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         id: entry.id,
         value: entry.value,
@@ -160,8 +148,23 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
         organizationId: entry.organizationId,
         isInherited: false,
       },
-      { status: existing ? 200 : 201 }
+      { status: result.mode === 'created' ? 201 : 200 }
     )
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'customers.dictionary_entry',
+          resourceId: entry.id,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
+        })
+      )
+    }
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

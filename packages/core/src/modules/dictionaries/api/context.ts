@@ -5,8 +5,13 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { AwilixContainer } from 'awilix'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
 export type DictionariesRouteContext = {
+  container: AwilixContainer
+  ctx: CommandRuntimeContext
+  auth: Awaited<ReturnType<typeof getAuthFromRequest>>
   em: EntityManager
   organizationId: string
   tenantId: string
@@ -47,7 +52,19 @@ export async function resolveDictionariesRouteContext(req: Request): Promise<Dic
     console.warn('[dictionaries.resolveContext] Failed to resolve ancestor organizations', err)
   }
 
+  const ctx: CommandRuntimeContext = {
+    container,
+    auth,
+    organizationScope: scope,
+    selectedOrganizationId: organizationId,
+    organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
+    request: req,
+  }
+
   return {
+    container,
+    ctx,
+    auth,
     em,
     organizationId,
     tenantId: auth.tenantId,

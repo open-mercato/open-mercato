@@ -128,5 +128,11 @@
         }
       }
     }
-  }
+  },
+  "sales.order-statuses.create": "Agregar estado de pedido",
+  "sales.order-statuses.update": "Actualizar estado de pedido",
+  "sales.order-statuses.delete": "Eliminar estado de pedido",
+  "sales.order-line-statuses.create": "Agregar estado de línea de pedido",
+  "sales.order-line-statuses.update": "Actualizar estado de línea de pedido",
+  "sales.order-line-statuses.delete": "Eliminar estado de línea de pedido"
 }

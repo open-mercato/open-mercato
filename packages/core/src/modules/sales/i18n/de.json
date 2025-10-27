@@ -128,5 +128,11 @@
         }
       }
     }
-  }
+  },
+  "sales.order-statuses.create": "Bestellstatus hinzufügen",
+  "sales.order-statuses.update": "Bestellstatus aktualisieren",
+  "sales.order-statuses.delete": "Bestellstatus löschen",
+  "sales.order-line-statuses.create": "Positionsstatus hinzufügen",
+  "sales.order-line-statuses.update": "Positionsstatus aktualisieren",
+  "sales.order-line-statuses.delete": "Positionsstatus löschen"
 }

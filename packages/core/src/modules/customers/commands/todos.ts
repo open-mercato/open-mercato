@@ -5,6 +5,7 @@ import { emitCrudSideEffects, emitCrudUndoSideEffects, requireId } from '@open-m
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { ZodError } from 'zod'
 import { CustomerTodoLink } from '../data/entities'
 import {
   todoLinkCreateSchema,
@@ -50,6 +51,131 @@ type LinkedTodoUndoPayload = {
 
 const DEFAULT_TODO_SOURCE = 'example:todo'
 
+const isZodRuntimeMissing = (err: unknown): err is TypeError => err instanceof TypeError && typeof err.message === 'string' && err.message.includes('_zod')
+
+type ValidationRuntimeState = { available: boolean | null; warningLogged: boolean }
+
+const commandTodoCreateValidationState: ValidationRuntimeState = { available: null, warningLogged: false }
+const commandTodoLinkValidationState: ValidationRuntimeState = { available: null, warningLogged: false }
+
+function ensureString(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim().length > 0) return value
+  return null
+}
+
+function ensureRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  return value as Record<string, unknown>
+}
+
+function normalizeTodoCreateCommandInput(raw: unknown): TodoLinkWithTodoCreateInput {
+  if (!raw || typeof raw !== 'object') {
+    throw new CrudHttpError(400, { error: 'Invalid todo payload' })
+  }
+  const payload = raw as Record<string, unknown>
+  const tenantId = ensureString(payload.tenantId)
+  const organizationId = ensureString(payload.organizationId)
+  const entityId = ensureString(payload.entityId)
+  const titleRaw = typeof payload.title === 'string' ? payload.title : ''
+  const title = titleRaw.trim()
+  if (!tenantId || !organizationId || !entityId || !title) {
+    throw new CrudHttpError(400, { error: 'Invalid todo payload' })
+  }
+  const todoSource = ensureString(payload.todoSource) ?? DEFAULT_TODO_SOURCE
+  const isDone = typeof payload.isDone === 'boolean'
+    ? payload.isDone
+    : typeof payload.is_done === 'boolean'
+      ? payload.is_done
+      : undefined
+  const createdByUserId = ensureString(payload.createdByUserId) ?? undefined
+  const todoCustom = ensureRecord(payload.todoCustom)
+  const custom = ensureRecord(payload.custom)
+
+  const result: TodoLinkWithTodoCreateInput = {
+    tenantId,
+    organizationId,
+    entityId,
+    title,
+    todoSource,
+  }
+  if (isDone !== undefined) result.isDone = isDone
+  if (createdByUserId) result.createdByUserId = createdByUserId
+  if (todoCustom) result.todoCustom = todoCustom
+  if (custom) result.custom = custom
+  return result
+}
+
+function normalizeTodoLinkCommandInput(raw: unknown): TodoLinkCreateInput {
+  if (!raw || typeof raw !== 'object') {
+    throw new CrudHttpError(400, { error: 'Invalid todo link payload' })
+  }
+  const payload = raw as Record<string, unknown>
+  const tenantId = ensureString(payload.tenantId)
+  const organizationId = ensureString(payload.organizationId)
+  const entityId = ensureString(payload.entityId)
+  const todoId = ensureString(payload.todoId)
+  if (!tenantId || !organizationId || !entityId || !todoId) {
+    throw new CrudHttpError(400, { error: 'Invalid todo link payload' })
+  }
+  const todoSource = ensureString(payload.todoSource) ?? DEFAULT_TODO_SOURCE
+  const createdByUserId = ensureString(payload.createdByUserId) ?? undefined
+  const result: TodoLinkCreateInput = {
+    tenantId,
+    organizationId,
+    entityId,
+    todoId,
+    todoSource,
+  }
+  if (createdByUserId) result.createdByUserId = createdByUserId
+  return result
+}
+
+function parseTodoCreateCommandInput(raw: unknown): TodoLinkWithTodoCreateInput {
+  const shouldValidate = commandTodoCreateValidationState.available !== false
+  if (shouldValidate) {
+    try {
+      const parsed = todoLinkWithTodoCreateSchema.parse(raw)
+      commandTodoCreateValidationState.available = true
+      return parsed
+    } catch (err) {
+      if (err instanceof ZodError) throw err
+      if (isZodRuntimeMissing(err)) {
+        commandTodoCreateValidationState.available = false
+        if (!commandTodoCreateValidationState.warningLogged) {
+          commandTodoCreateValidationState.warningLogged = true
+          console.warn('[customers.todos] command fallback to permissive todo create parser', err)
+        }
+      } else {
+        throw err
+      }
+    }
+  }
+  return normalizeTodoCreateCommandInput(raw)
+}
+
+function parseTodoLinkCommandInput(raw: unknown): TodoLinkCreateInput {
+  const shouldValidate = commandTodoLinkValidationState.available !== false
+  if (shouldValidate) {
+    try {
+      const parsed = todoLinkCreateSchema.parse(raw)
+      commandTodoLinkValidationState.available = true
+      return parsed
+    } catch (err) {
+      if (err instanceof ZodError) throw err
+      if (isZodRuntimeMissing(err)) {
+        commandTodoLinkValidationState.available = false
+        if (!commandTodoLinkValidationState.warningLogged) {
+          commandTodoLinkValidationState.warningLogged = true
+          console.warn('[customers.todos] command fallback to permissive todo link parser', err)
+        }
+      } else {
+        throw err
+      }
+    }
+  }
+  return normalizeTodoLinkCommandInput(raw)
+}
+
 async function loadTodoLinkSnapshot(em: EntityManager, id: string): Promise<TodoLinkSnapshot | null> {
   const link = await em.findOne(CustomerTodoLink, { id })
   if (!link) return null
@@ -89,7 +215,7 @@ function serializeTodoSnapshot(snapshot: unknown): TodoSnapshot | null {
 const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { todoId: string; linkId: string; todoSnapshot: TodoSnapshot }> = {
   id: 'customers.todos.create',
   async execute(rawInput, ctx) {
-    const parsed = todoLinkWithTodoCreateSchema.parse(rawInput)
+    const parsed = parseTodoCreateCommandInput(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
@@ -219,7 +345,7 @@ const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { tod
 const linkExistingTodoCommand: CommandHandler<TodoLinkCreateInput, { linkId: string }> = {
   id: 'customers.todos.link',
   async execute(rawInput, ctx) {
-    const parsed = todoLinkCreateSchema.parse(rawInput)
+    const parsed = parseTodoLinkCommandInput(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
