@@ -46,6 +46,7 @@ export async function GET(req: Request) {
       orgName: request.organizationName,
       includeDerivedUsers: false,
       failIfUserExists: true,
+      primaryUserRoles: ['admin'],
       primaryUser: {
         email: request.email,
         firstName: request.firstName,

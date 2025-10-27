@@ -18,6 +18,7 @@ export async function fetchRoleOptions(query?: string): Promise<CrudFieldOption[
       .map((item) => {
         const name = typeof item?.name === 'string' ? item?.name.trim() : ''
         if (!name) return null
+        if (name === 'superadmin') return null
         return { value: name, label: name }
       })
       .filter((opt): opt is CrudFieldOption => !!opt)

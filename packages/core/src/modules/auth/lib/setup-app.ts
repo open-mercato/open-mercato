@@ -37,6 +37,7 @@ export type SetupInitialTenantOptions = {
   roleNames?: string[]
   includeDerivedUsers?: boolean
   failIfUserExists?: boolean
+  primaryUserRoles?: string[]
 }
 
 export type SetupInitialTenantResult = {
@@ -50,14 +51,15 @@ export async function setupInitialTenant(
   em: EntityManager,
   options: SetupInitialTenantOptions,
 ): Promise<SetupInitialTenantResult> {
-  const roleNames = options.roleNames ?? [...DEFAULT_ROLE_NAMES]
-  await ensureRoles(em, { roleNames })
-
   const {
     primaryUser,
     includeDerivedUsers = true,
     failIfUserExists = false,
+    primaryUserRoles,
   } = options
+  const primaryRoles = primaryUserRoles && primaryUserRoles.length ? primaryUserRoles : ['superadmin']
+  const roleNames = Array.from(new Set([...(options.roleNames ?? [...DEFAULT_ROLE_NAMES]), ...primaryRoles]))
+  await ensureRoles(em, { roleNames })
 
   const mainEmail = primaryUser.email
   const existingUser = await em.findOne(User, { email: mainEmail })
@@ -76,7 +78,7 @@ export async function setupInitialTenant(
       tenantId = existingUser.tenantId ? String(existingUser.tenantId) : undefined
       organizationId = existingUser.organizationId ? String(existingUser.organizationId) : undefined
 
-      const requiredRoleSet = new Set(roleNames)
+      const requiredRoleSet = new Set([...roleNames, ...primaryRoles])
       const links = await tem.find(UserRole, { user: existingUser }, { populate: ['role'] })
       const currentRoles = new Set(links.map((link) => link.role.name))
       for (const roleName of requiredRoleSet) {
@@ -103,7 +105,7 @@ export async function setupInitialTenant(
     organizationId = String(organization.id)
 
     const baseUsers: Array<{ email: string; roles: string[]; name?: string | null }> = [
-      { email: primaryUser.email, roles: ['superadmin'], name: resolvePrimaryName(primaryUser) },
+      { email: primaryUser.email, roles: primaryRoles, name: resolvePrimaryName(primaryUser) },
     ]
     if (includeDerivedUsers) {
       const [local, domain] = String(primaryUser.email).split('@')
