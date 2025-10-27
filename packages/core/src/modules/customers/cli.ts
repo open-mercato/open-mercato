@@ -1596,6 +1596,9 @@ const seedExamples: ModuleCli = {
   },
 }
 
+export { seedCustomerDictionaries, seedCustomerExamples, seedCurrencyDictionary }
+export type { SeedArgs as CustomerSeedArgs }
+
 const customersCliCommands = [seedDictionaries, seedExamples]
 
 export default customersCliCommands

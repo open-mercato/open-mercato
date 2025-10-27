@@ -1,5 +1,5 @@
 import type { ModuleCli } from '@/modules/registry'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer, type AppContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
@@ -80,6 +80,11 @@ const EXAMPLE_TODO_SEEDS: TodoSeed[] = [
   },
 ]
 
+type TodoSeedArgs = {
+  organizationId: string
+  tenantId: string
+}
+
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}
   for (let i = 0; i < rest.length; i++) {
@@ -93,6 +98,73 @@ function parseArgs(rest: string[]) {
     }
   }
   return args
+}
+
+export async function seedExampleTodos(
+  em: EntityManager,
+  container: AppContainer,
+  { organizationId, tenantId }: TodoSeedArgs,
+  options: { logger?: (message: string) => void } = {},
+): Promise<boolean> {
+  const logger = options.logger ?? (() => {})
+  const entityId = E.example.todo
+
+  let cache: CacheStrategy | null = null
+  try {
+    cache = container.resolve('cache') as CacheStrategy
+  } catch {
+    cache = null
+  }
+
+  await installCustomEntitiesFromModules(em as any, cache, {
+    tenantIds: [tenantId],
+    includeGlobal: false,
+    dryRun: false,
+    logger,
+  })
+
+  const existing = await em.count(Todo, { organizationId, tenantId })
+  if (existing > 0) {
+    logger(`Example todos already seeded for org=${organizationId}, tenant=${tenantId}; skipping`)
+    return false
+  }
+
+  const todos: Todo[] = []
+  for (const seed of EXAMPLE_TODO_SEEDS) {
+    const createdAt = new Date(seed.createdAt)
+    const todo = em.create(Todo, {
+      title: seed.title,
+      isDone: seed.isDone ?? false,
+      organizationId,
+      tenantId,
+      createdAt,
+      updatedAt: createdAt,
+    })
+    em.persist(todo)
+    todos.push(todo)
+  }
+  await em.flush()
+
+  const de = container.resolve<DataEngine>('dataEngine')
+  for (let i = 0; i < todos.length; i++) {
+    const todo = todos[i]
+    const seed = EXAMPLE_TODO_SEEDS[i]
+    await de.setCustomFields({
+      entityId,
+      recordId: String(todo.id),
+      organizationId,
+      tenantId,
+      values: {
+        priority: seed.priority,
+        severity: seed.severity,
+        blocked: seed.blocked ?? false,
+        labels: seed.labels,
+      },
+    })
+  }
+
+  logger(`Seeded ${todos.length} todos with custom fields for org=${organizationId}, tenant=${tenantId}`)
+  return true
 }
 
 const hello: ModuleCli = {
@@ -120,61 +192,9 @@ const seedTodos: ModuleCli = {
     const container = await createRequestContainer()
     const em = container.resolve<EntityManager>('em')
 
-    // Ensure module custom entities/fields are installed for this tenant
-    const entityId = E.example.todo
-    let cache: CacheStrategy | null = null
-    try { cache = container.resolve('cache') as CacheStrategy } catch {}
-    const installResult = await installCustomEntitiesFromModules(em as any, cache, {
-      tenantIds: [tenantId],
-      includeGlobal: false,
-      dryRun: false,
-      logger: (message) => console.log(message),
-    })
-    if (installResult.synchronized === 0 && installResult.fieldChanges === 0) {
-      console.log(`Custom entity definitions already up to date for tenant=${tenantId}`)
-    }
-
-    const existing = await em.count(Todo, { organizationId: orgId, tenantId })
-    if (existing > 0) {
-      console.log(`Example todos already seeded for org=${orgId}, tenant=${tenantId}; skipping`)
-      return
-    }
-
-    const todos: Todo[] = []
-    for (const seed of EXAMPLE_TODO_SEEDS) {
-      const createdAt = new Date(seed.createdAt)
-      const todo = em.create(Todo, {
-        title: seed.title,
-        isDone: seed.isDone ?? false,
-        organizationId: orgId,
-        tenantId,
-        createdAt,
-        updatedAt: createdAt,
-      })
-      em.persist(todo)
-      todos.push(todo)
-    }
-    await em.flush()
-
-    const de = container.resolve<DataEngine>('dataEngine')
-    for (let i = 0; i < todos.length; i++) {
-      const todo = todos[i]
-      const seed = EXAMPLE_TODO_SEEDS[i]
-      await de.setCustomFields({
-        entityId,
-        recordId: String(todo.id),
-        organizationId: orgId,
-        tenantId,
-        values: {
-          priority: seed.priority,
-          severity: seed.severity,
-          blocked: seed.blocked ?? false,
-          labels: seed.labels,
-        },
-      })
-    }
-    console.log(`Seeded ${todos.length} todos with custom fields for org=${orgId}, tenant=${tenantId}`)
+    await seedExampleTodos(em, container, { organizationId: orgId, tenantId }, { logger: (message) => console.log(message) })
   },
 }
 
 export default [hello, seedTodos]
+export type { TodoSeedArgs as ExampleTodoSeedArgs }

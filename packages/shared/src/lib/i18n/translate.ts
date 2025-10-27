@@ -23,7 +23,7 @@ export function translateWithFallback(
   params?: Record<string, string | number>,
 ): string {
   const value = t(key, params)
-  return value === key ? fallback : value
+  return value === key ? format(fallback, params) : value
 }
 
 export function createFallbackTranslator(dict: Dict): TranslateWithFallbackFn {

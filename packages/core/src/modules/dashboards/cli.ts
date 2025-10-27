@@ -1,5 +1,6 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
@@ -14,6 +15,69 @@ function parseArgs(rest: string[]): Args {
     if (key) args[key] = value ?? ''
   }
   return args
+}
+
+export async function seedDashboardDefaultsForTenant(
+  em: EntityManager,
+  {
+    tenantId,
+    organizationId = null,
+    roleNames = ['superadmin', 'admin', 'employee'],
+    widgetIds,
+    logger,
+  }: {
+    tenantId: string
+    organizationId?: string | null
+    roleNames?: string[]
+    widgetIds?: string[]
+    logger?: (message: string) => void
+  },
+): Promise<boolean> {
+  if (!tenantId) throw new Error('tenantId is required')
+  const log = logger ?? (() => {})
+
+  const widgets = await loadAllWidgets()
+  const widgetMap = new Map(widgets.map((widget) => [widget.metadata.id, widget]))
+  const resolvedWidgetIds = widgetIds && widgetIds.length
+    ? widgetIds.filter((id) => widgetMap.has(id))
+    : widgets.filter((widget) => widget.metadata.defaultEnabled).map((widget) => widget.metadata.id)
+
+  if (!resolvedWidgetIds.length) {
+    log('No widgets resolved for dashboard seeding.')
+    return false
+  }
+
+  await em.transactional(async (tem) => {
+    for (const roleName of roleNames) {
+      const role = await tem.findOne(Role, { name: roleName })
+      if (!role) {
+        log(`Skipping role "${roleName}" (not found)`)
+        continue
+      }
+      const existing = await tem.findOne(DashboardRoleWidgets, {
+        roleId: String(role.id),
+        tenantId,
+        organizationId,
+        deletedAt: null,
+      })
+      if (existing) {
+        existing.widgetIdsJson = resolvedWidgetIds
+        tem.persist(existing)
+        log(`Updated dashboard widgets for role "${roleName}"`)
+      } else {
+        const record = tem.create(DashboardRoleWidgets, {
+          roleId: String(role.id),
+          tenantId,
+          organizationId,
+          widgetIdsJson: resolvedWidgetIds,
+        })
+        tem.persist(record)
+        log(`Created dashboard widgets for role "${roleName}"`)
+      }
+    }
+  })
+
+  return true
 }
 
 const seedDefaults: ModuleCli = {
@@ -42,45 +106,12 @@ const seedDefaults: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
 
-    const widgets = await loadAllWidgets()
-    const widgetMap = new Map(widgets.map((widget) => [widget.metadata.id, widget]))
-    const widgetIds = widgetCsv
-      ? widgetCsv.split(',').map((id) => id.trim()).filter((id) => widgetMap.has(id))
-      : widgets.filter((w) => w.metadata.defaultEnabled).map((w) => w.metadata.id)
-
-    if (!widgetIds.length) {
-      console.error('No valid widget IDs to assign.')
-      return
-    }
-
-    await em.transactional(async (tem: any) => {
-      for (const name of roleNames) {
-        const role = await tem.findOne(Role, { name })
-        if (!role) {
-          console.warn(`Skipping role "${name}" (not found)`)
-          continue
-        }
-        const existing = await tem.findOne(DashboardRoleWidgets, {
-          roleId: String(role.id),
-          tenantId,
-          organizationId,
-          deletedAt: null,
-        })
-        if (existing) {
-          existing.widgetIdsJson = widgetIds
-          tem.persist(existing)
-          console.log(`Updated dashboard widgets for role "${name}"`)
-        } else {
-          const record = tem.create(DashboardRoleWidgets, {
-            roleId: String(role.id),
-            tenantId,
-            organizationId,
-            widgetIdsJson: widgetIds,
-          })
-          tem.persist(record)
-          console.log(`Created dashboard widgets for role "${name}"`)
-        }
-      }
+    await seedDashboardDefaultsForTenant(em as EntityManager, {
+      tenantId,
+      organizationId,
+      roleNames,
+      widgetIds: widgetCsv ? widgetCsv.split(',').map((id) => id.trim()).filter(Boolean) : undefined,
+      logger: (message) => console.log(message),
     })
   },
 }

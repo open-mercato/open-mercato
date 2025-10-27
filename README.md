@@ -106,6 +106,13 @@ Follow these steps after the prerequisites are in place:
    yarn dev
    ```
    Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
+   If you plan to use the self-service onboarding flow or send transactional emails, opt-in by setting the following environment variables in your `.env` file before starting the server (the onboarding toggle defaults to `false`):
+   ```env
+   RESEND_API_KEY=your_resend_api_key
+   APP_URL=http://localhost:3000
+   EMAIL_FROM=no-reply@your-domain.com
+   SELF_SERVICE_ONBOARDING_ENABLED=true
+   ```
 
 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything. Prefer `yarn mercato init --no-examples` if you simply want to skip demo CRM data while keeping core roles and users.
 

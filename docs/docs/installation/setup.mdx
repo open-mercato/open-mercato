@@ -24,6 +24,13 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    yarn dev
    ```
    Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
+   If you plan to use the email-enabled onboarding flow, opt-in by setting the following environment variables in your `.env` (the toggle defaults to `false`):
+    ```env
+    RESEND_API_KEY=your_resend_api_key
+    APP_URL=http://localhost:3000
+    EMAIL_FROM=no-reply@your-domain.com
+    SELF_SERVICE_ONBOARDING_ENABLED=true
+    ```
 
 ![Open Mercato admin home](/screenshots/open-mercato-homepage.png)
 
