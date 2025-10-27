@@ -61,18 +61,22 @@ export function DictionaryForm({
     const appearanceField: CrudField = {
       id: 'appearance',
       type: 'custom',
-      component: ({ values, setValue }) => (
-        <AppearanceSelector
-          icon={typeof values.icon === 'string' ? values.icon : null}
-          color={typeof values.color === 'string' ? values.color : null}
-          onIconChange={(next) => setValue('icon', next)}
-          onColorChange={(next) => setValue('color', next)}
-          labels={translations.appearance}
-          iconSuggestions={iconSuggestions}
-          iconLibrary={iconLibrary}
-          disabled={submitting}
-        />
-      ),
+      component: ({ values, setValue }) => {
+        const currentIcon = typeof values?.icon === 'string' ? values.icon : null
+        const currentColor = typeof values?.color === 'string' ? values.color : null
+        return (
+          <AppearanceSelector
+            icon={currentIcon}
+            color={currentColor}
+            onIconChange={(next) => setValue('icon', next)}
+            onColorChange={(next) => setValue('color', next)}
+            labels={translations.appearance}
+            iconSuggestions={iconSuggestions}
+            iconLibrary={iconLibrary}
+            disabled={submitting}
+          />
+        )
+      },
     }
     return [valueField, labelField, appearanceField]
   }, [iconLibrary, iconSuggestions, mode, submitting, translations])

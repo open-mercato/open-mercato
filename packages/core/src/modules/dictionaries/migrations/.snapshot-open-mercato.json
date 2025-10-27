@@ -81,6 +81,16 @@
           "default": "true",
           "mappedType": "boolean"
         },
+        "manager_visibility": {
+          "name": "manager_visibility",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'default'",
+          "mappedType": "text"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",

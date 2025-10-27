@@ -71,6 +71,62 @@
         "search": "Search records",
         "refresh": "Refresh"
       }
+    },
+    "config": {
+      "statuses": {
+        "orders": {
+          "title": "Order statuses",
+          "description": "Configure the status values available for sales orders."
+        },
+        "lines": {
+          "title": "Order line statuses",
+          "description": "Configure the status values available for order lines."
+        },
+        "columns": {
+          "value": "Value",
+          "label": "Label",
+          "appearance": "Appearance"
+        },
+        "actions": {
+          "add": "Add status",
+          "edit": "Edit",
+          "delete": "Delete",
+          "refresh": "Refresh"
+        },
+        "empty": "No statuses yet.",
+        "search": "Search statuses…",
+        "dialog": {
+          "addTitle": "Add status",
+          "editTitle": "Edit status",
+          "valueLabel": "Value",
+          "labelLabel": "Label",
+          "colorLabel": "Color",
+          "colorHelp": "Pick a highlight color for this status.",
+          "colorClear": "Remove color",
+          "iconLabel": "Icon",
+          "iconPlaceholder": "Type an emoji or pick one of the suggestions.",
+          "iconBrowse": "Browse icons and emojis",
+          "iconSearchPlaceholder": "Search icons or emojis…",
+          "iconSearchEmpty": "No icons match your search.",
+          "iconSuggestions": "Suggestions",
+          "iconClear": "Remove icon",
+          "save": "Save",
+          "cancel": "Cancel"
+        },
+        "appearance": {
+          "empty": "None"
+        },
+        "deleteConfirm": "Delete status \"{{value}}\"?",
+        "error": {
+          "load": "Failed to load status entries.",
+          "save": "Failed to save status.",
+          "delete": "Failed to delete status."
+        },
+        "success": {
+          "save": "Status saved.",
+          "delete": "Status deleted."
+        }
+      }
     }
   }
 }

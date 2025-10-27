@@ -7,6 +7,8 @@ import {
   ManyToOne,
 } from '@mikro-orm/core'
 
+export type DictionaryManagerVisibility = 'default' | 'hidden'
+
 @Entity({ tableName: 'dictionaries' })
 @Unique({ name: 'dictionaries_scope_key_unique', properties: ['organizationId', 'tenantId', 'key'] })
 export class Dictionary {
@@ -33,6 +35,9 @@ export class Dictionary {
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
+
+  @Property({ name: 'manager_visibility', type: 'text', default: 'default' })
+  managerVisibility: DictionaryManagerVisibility = 'default'
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

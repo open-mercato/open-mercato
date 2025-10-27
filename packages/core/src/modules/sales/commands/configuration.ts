@@ -13,6 +13,7 @@ import {
   SalesShippingMethod,
   SalesTaxRate,
 } from '../data/entities'
+import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import {
   channelCreateSchema,
   channelUpdateSchema,
@@ -53,6 +54,7 @@ type ChannelSnapshot = {
   code: string | null
   description: string | null
   statusEntryId: string | null
+  status: string | null
   websiteUrl: string | null
   contactEmail: string | null
   contactPhone: string | null
@@ -160,6 +162,7 @@ async function loadChannelSnapshot(em: EntityManager, id: string): Promise<Chann
     code: channel.code ?? null,
     description: channel.description ?? null,
     statusEntryId: channel.statusEntryId ?? null,
+    status: channel.status ?? null,
     websiteUrl: channel.websiteUrl ?? null,
     contactEmail: channel.contactEmail ?? null,
     contactPhone: channel.contactPhone ?? null,
@@ -302,6 +305,7 @@ function applyChannelSnapshot(record: SalesChannel, snapshot: ChannelSnapshot): 
   record.code = snapshot.code ?? null
   record.description = snapshot.description ?? null
   record.statusEntryId = snapshot.statusEntryId ?? null
+  record.status = snapshot.status ?? null
   record.websiteUrl = snapshot.websiteUrl ?? null
   record.contactEmail = snapshot.contactEmail ?? null
   record.contactPhone = snapshot.contactPhone ?? null
@@ -407,6 +411,7 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
+    const statusValue = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null)
     const record = em.create(SalesChannel, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -414,6 +419,7 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
       code: parsed.code ?? null,
       description: parsed.description ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
+      status: statusValue,
       websiteUrl: parsed.websiteUrl ?? null,
       contactEmail: parsed.contactEmail ?? null,
       contactPhone: parsed.contactPhone ?? null,
@@ -509,7 +515,10 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     if (parsed.name !== undefined) record.name = parsed.name
     if (parsed.code !== undefined) record.code = parsed.code ?? null
     if (parsed.description !== undefined) record.description = parsed.description ?? null
-    if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
+    if (parsed.statusEntryId !== undefined) {
+      record.statusEntryId = parsed.statusEntryId ?? null
+      record.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null)
+    }
     if (parsed.websiteUrl !== undefined) record.websiteUrl = parsed.websiteUrl ?? null
     if (parsed.contactEmail !== undefined) record.contactEmail = parsed.contactEmail ?? null
     if (parsed.contactPhone !== undefined) record.contactPhone = parsed.contactPhone ?? null

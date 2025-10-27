@@ -72,7 +72,6 @@ const crud = makeCrudRoute({
       F.tenant_id,
       F.created_at,
       F.updated_at,
-      F.dictionary,
     ],
     sortFieldMap: {
       id: F.id,
@@ -84,7 +83,7 @@ const crud = makeCrudRoute({
     buildFilters: async (query, ctx) => {
       const dictionaryId = await resolveDictionaryId(ctx)
       const filters: Record<string, unknown> = {
-        [F.dictionary]: dictionaryId,
+        dictionary_id: dictionaryId,
       }
       if (query.search && query.search.trim().length > 0) {
         const term = `%${query.search.trim().replace(/%/g, '\\%')}%`

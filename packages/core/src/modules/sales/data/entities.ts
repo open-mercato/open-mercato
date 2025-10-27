@@ -15,6 +15,7 @@ export type SalesAdjustmentKind = 'tax' | 'discount' | 'surcharge' | 'shipping' 
 
 @Entity({ tableName: 'sales_channels' })
 @Index({ name: 'sales_channels_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'sales_channels_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 @Unique({ name: 'sales_channels_code_unique', properties: ['organizationId', 'tenantId', 'code'] })
 export class SalesChannel {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -37,6 +38,9 @@ export class SalesChannel {
 
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
+
+  @Property({ name: 'status', type: 'text', nullable: true })
+  status?: string | null
 
   @Property({ name: 'website_url', type: 'text', nullable: true })
   websiteUrl?: string | null
@@ -320,6 +324,9 @@ export class SalesTaxRate {
 @Entity({ tableName: 'sales_orders' })
 @Index({ name: 'sales_orders_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'sales_orders_customer_idx', properties: ['customerEntityId', 'organizationId', 'tenantId'] })
+@Index({ name: 'sales_orders_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
+@Index({ name: 'sales_orders_fulfillment_status_idx', properties: ['organizationId', 'tenantId', 'fulfillmentStatus'] })
+@Index({ name: 'sales_orders_payment_status_idx', properties: ['organizationId', 'tenantId', 'paymentStatus'] })
 @Unique({ name: 'sales_orders_number_unique', properties: ['organizationId', 'tenantId', 'orderNumber'] })
 export class SalesOrder {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -361,11 +368,20 @@ export class SalesOrder {
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
 
+  @Property({ name: 'status', type: 'text', nullable: true })
+  status?: string | null
+
   @Property({ name: 'fulfillment_status_entry_id', type: 'uuid', nullable: true })
   fulfillmentStatusEntryId?: string | null
 
+  @Property({ name: 'fulfillment_status', type: 'text', nullable: true })
+  fulfillmentStatus?: string | null
+
   @Property({ name: 'payment_status_entry_id', type: 'uuid', nullable: true })
   paymentStatusEntryId?: string | null
+
+  @Property({ name: 'payment_status', type: 'text', nullable: true })
+  paymentStatus?: string | null
 
   @Property({ name: 'tax_strategy_key', type: 'text', nullable: true })
   taxStrategyKey?: string | null
@@ -496,6 +512,7 @@ export class SalesOrder {
 
 @Entity({ tableName: 'sales_order_lines' })
 @Index({ name: 'sales_order_lines_scope_idx', properties: ['order', 'organizationId', 'tenantId'] })
+@Index({ name: 'sales_order_lines_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 export class SalesOrderLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -517,6 +534,9 @@ export class SalesOrderLine {
 
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
+
+  @Property({ name: 'status', type: 'text', nullable: true })
+  status?: string | null
 
   @Property({ name: 'product_id', type: 'uuid', nullable: true })
   productId?: string | null
@@ -681,6 +701,7 @@ export class SalesOrderAdjustment {
 
 @Entity({ tableName: 'sales_quotes' })
 @Index({ name: 'sales_quotes_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'sales_quotes_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 @Unique({ name: 'sales_quotes_number_unique', properties: ['organizationId', 'tenantId', 'quoteNumber'] })
 export class SalesQuote {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -697,6 +718,9 @@ export class SalesQuote {
 
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
+
+  @Property({ name: 'status', type: 'text', nullable: true })
+  status?: string | null
 
   @Property({ name: 'customer_entity_id', type: 'uuid', nullable: true })
   customerEntityId?: string | null
@@ -767,6 +791,7 @@ export class SalesQuote {
 
 @Entity({ tableName: 'sales_quote_lines' })
 @Index({ name: 'sales_quote_lines_scope_idx', properties: ['quote', 'organizationId', 'tenantId'] })
+@Index({ name: 'sales_quote_lines_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 export class SalesQuoteLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -788,6 +813,9 @@ export class SalesQuoteLine {
 
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
+
+  @Property({ name: 'status', type: 'text', nullable: true })
+  status?: string | null
 
   @Property({ name: 'product_id', type: 'uuid', nullable: true })
   productId?: string | null
@@ -931,6 +959,7 @@ export class SalesQuoteAdjustment {
 
 @Entity({ tableName: 'sales_shipments' })
 @Index({ name: 'sales_shipments_scope_idx', properties: ['order', 'organizationId', 'tenantId'] })
+@Index({ name: 'sales_shipments_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 export class SalesShipment {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -952,6 +981,9 @@ export class SalesShipment {
 
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
+
+  @Property({ name: 'status', type: 'text', nullable: true })
+  status?: string | null
 
   @Property({ name: 'carrier_name', type: 'text', nullable: true })
   carrierName?: string | null
@@ -1026,6 +1058,7 @@ export class SalesShipmentItem {
 
 @Entity({ tableName: 'sales_invoices' })
 @Index({ name: 'sales_invoices_scope_idx', properties: ['order', 'organizationId', 'tenantId'] })
+@Index({ name: 'sales_invoices_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 @Unique({ name: 'sales_invoices_number_unique', properties: ['organizationId', 'tenantId', 'invoiceNumber'] })
 export class SalesInvoice {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -1045,6 +1078,9 @@ export class SalesInvoice {
 
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
+
+  @Property({ name: 'status', type: 'text', nullable: true })
+  status?: string | null
 
   @Property({ name: 'issue_date', type: Date, nullable: true })
   issueDate?: Date | null
@@ -1167,6 +1203,7 @@ export class SalesInvoiceLine {
 
 @Entity({ tableName: 'sales_credit_memos' })
 @Index({ name: 'sales_credit_memos_scope_idx', properties: ['order', 'organizationId', 'tenantId'] })
+@Index({ name: 'sales_credit_memos_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 @Unique({
   name: 'sales_credit_memos_number_unique',
   properties: ['organizationId', 'tenantId', 'creditMemoNumber'],
@@ -1192,6 +1229,9 @@ export class SalesCreditMemo {
 
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
+
+  @Property({ name: 'status', type: 'text', nullable: true })
+  status?: string | null
 
   @Property({ name: 'issue_date', type: Date, nullable: true })
   issueDate?: Date | null
@@ -1293,6 +1333,7 @@ export class SalesCreditMemoLine {
 
 @Entity({ tableName: 'sales_payments' })
 @Index({ name: 'sales_payments_scope_idx', properties: ['order', 'organizationId', 'tenantId'] })
+@Index({ name: 'sales_payments_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 export class SalesPayment {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1314,6 +1355,9 @@ export class SalesPayment {
 
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
+
+  @Property({ name: 'status', type: 'text', nullable: true })
+  status?: string | null
 
   @Property({ name: 'amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   amount: string = '0'

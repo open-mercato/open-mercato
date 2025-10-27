@@ -4,30 +4,9 @@ import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 
 let ormInstance: MikroORM<PostgreSqlDriver> | null = null
-let ormInitPromise: Promise<MikroORM<PostgreSqlDriver>> | null = null
-
-type GlobalOrmCache = typeof globalThis & {
-  __openMercatoOrmInstance?: MikroORM<PostgreSqlDriver>
-  __openMercatoOrmPromise?: Promise<MikroORM<PostgreSqlDriver>>
-}
-
-const globalOrm = globalThis as GlobalOrmCache
 
 export async function getOrm() {
-  if (process.env.NODE_ENV !== 'production') {
-    if (globalOrm.__openMercatoOrmInstance) {
-      ormInstance = globalOrm.__openMercatoOrmInstance
-      return ormInstance
-    }
-    if (globalOrm.__openMercatoOrmPromise) {
-      ormInitPromise = globalOrm.__openMercatoOrmPromise
-      return ormInitPromise
-    }
-  }
-
   if (ormInstance) return ormInstance
-  if (ormInitPromise) return ormInitPromise
-
   const { entities } = await import('@/generated/entities.generated')
   const clientUrl = process.env.DATABASE_URL
   if (!clientUrl) throw new Error('DATABASE_URL is not set')
@@ -38,7 +17,7 @@ export async function getOrm() {
   const poolIdleTimeout = parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '30000')
   const poolAcquireTimeout = parseInt(process.env.DB_POOL_ACQUIRE_TIMEOUT || '60000')
   
-  ormInitPromise = MikroORM.init<PostgreSqlDriver>({
+  ormInstance = await MikroORM.init<PostgreSqlDriver>({
     driver: PostgreSqlDriver,
     clientUrl,
     entities,
@@ -67,21 +46,17 @@ export async function getOrm() {
       },
     },
   })
-  if (process.env.NODE_ENV !== 'production') {
-    globalOrm.__openMercatoOrmPromise = ormInitPromise
-  }
-  ormInstance = await ormInitPromise
-
-  if (process.env.NODE_ENV !== 'production') {
-    globalOrm.__openMercatoOrmInstance = ormInstance
-    delete globalOrm.__openMercatoOrmPromise
-  }
-
-  ormInitPromise = null
   return ormInstance
 }
 
 export async function getEm() {
   const orm = await getOrm()
   return orm.em.fork({ clear: true })
+}
+
+export async function closeOrm() {
+  if (ormInstance) {
+    await ormInstance.close(true)
+    ormInstance = null
+  }
 }

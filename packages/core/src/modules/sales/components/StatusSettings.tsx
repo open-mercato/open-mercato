@@ -42,19 +42,23 @@ const DEFAULT_FORM_VALUES: DictionaryFormValues = {
 
 export function StatusSettings() {
   const t = useT()
+  const translate = React.useCallback((key: string, fallback: string) => {
+    const value = t(key)
+    return value === key ? fallback : value
+  }, [t])
 
   const sections = React.useMemo<SectionDefinition[]>(() => [
     {
       kind: 'order-statuses',
-      title: t('sales.config.statuses.orders.title', 'Order statuses'),
-      description: t('sales.config.statuses.orders.description', 'Configure the status values available for sales orders.'),
+      title: translate('sales.config.statuses.orders.title', 'Order statuses'),
+      description: translate('sales.config.statuses.orders.description', 'Configure the status values available for sales orders.'),
     },
     {
       kind: 'order-line-statuses',
-      title: t('sales.config.statuses.lines.title', 'Order line statuses'),
-      description: t('sales.config.statuses.lines.description', 'Configure the status values available for sales order lines.'),
+      title: translate('sales.config.statuses.lines.title', 'Order line statuses'),
+      description: translate('sales.config.statuses.lines.description', 'Configure the status values available for sales order lines.'),
     },
-  ], [t])
+  ], [translate])
 
   const [entriesByKind, setEntriesByKind] = React.useState<Record<SalesStatusKind, DictionaryTableEntry[]>>({
     'order-statuses': [],
@@ -68,10 +72,13 @@ export function StatusSettings() {
   const [submitting, setSubmitting] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
 
-  const apiPaths: Record<SalesStatusKind, string> = {
-    'order-statuses': '/api/sales/order-statuses',
-    'order-line-statuses': '/api/sales/order-line-statuses',
-  }
+  const apiPaths = React.useMemo<Record<SalesStatusKind, string>>(
+    () => ({
+      'order-statuses': '/api/sales/order-statuses',
+      'order-line-statuses': '/api/sales/order-line-statuses',
+    }),
+    []
+  )
 
   const loadEntries = React.useCallback(async (kind: SalesStatusKind) => {
     setLoadingKind((prev) => ({ ...prev, [kind]: true }))
@@ -96,15 +103,15 @@ export function StatusSettings() {
       setEntriesByKind((prev) => ({ ...prev, [kind]: items }))
     } catch (err) {
       console.error('sales.statuses.list failed', err)
-      flash(t('sales.config.statuses.error.load', 'Failed to load status entries.'), 'error')
+      flash(translate('sales.config.statuses.error.load', 'Failed to load status entries.'), 'error')
     } finally {
       setLoadingKind((prev) => ({ ...prev, [kind]: false }))
     }
-  }, [apiPaths, t])
+  }, [apiPaths, translate])
 
   React.useEffect(() => {
-    loadEntries('order-statuses').catch(() => {})
-    loadEntries('order-line-statuses').catch(() => {})
+    void loadEntries('order-statuses')
+    void loadEntries('order-line-statuses')
   }, [loadEntries, scopeVersion])
 
   const closeDialog = React.useCallback(() => {
@@ -112,40 +119,40 @@ export function StatusSettings() {
   }, [])
 
   const tableTranslations = React.useMemo(() => ({
-    valueColumn: t('sales.config.statuses.columns.value', 'Value'),
-    labelColumn: t('sales.config.statuses.columns.label', 'Label'),
-    appearanceColumn: t('sales.config.statuses.columns.appearance', 'Appearance'),
-    addLabel: t('sales.config.statuses.actions.add', 'Add status'),
-    editLabel: t('sales.config.statuses.actions.edit', 'Edit'),
-    deleteLabel: t('sales.config.statuses.actions.delete', 'Delete'),
-    refreshLabel: t('sales.config.statuses.actions.refresh', 'Refresh'),
+    valueColumn: translate('sales.config.statuses.columns.value', 'Value'),
+    labelColumn: translate('sales.config.statuses.columns.label', 'Label'),
+    appearanceColumn: translate('sales.config.statuses.columns.appearance', 'Appearance'),
+    addLabel: translate('sales.config.statuses.actions.add', 'Add status'),
+    editLabel: translate('sales.config.statuses.actions.edit', 'Edit'),
+    deleteLabel: translate('sales.config.statuses.actions.delete', 'Delete'),
+    refreshLabel: translate('sales.config.statuses.actions.refresh', 'Refresh'),
     inheritedLabel: '',
     inheritedTooltip: '',
-    emptyLabel: t('sales.config.statuses.empty', 'No statuses yet.'),
-    searchPlaceholder: t('sales.config.statuses.search', 'Search statuses…'),
-  }), [t])
+    emptyLabel: translate('sales.config.statuses.empty', 'No statuses yet.'),
+    searchPlaceholder: translate('sales.config.statuses.search', 'Search statuses…'),
+  }), [translate])
 
   const formTranslations = React.useMemo(() => ({
-    createTitle: t('sales.config.statuses.dialog.addTitle', 'Add status'),
-    editTitle: t('sales.config.statuses.dialog.editTitle', 'Edit status'),
-    valueLabel: t('sales.config.statuses.dialog.valueLabel', 'Value'),
-    labelLabel: t('sales.config.statuses.dialog.labelLabel', 'Label'),
-    saveLabel: t('sales.config.statuses.dialog.save', 'Save'),
-    cancelLabel: t('sales.config.statuses.dialog.cancel', 'Cancel'),
+    createTitle: translate('sales.config.statuses.dialog.addTitle', 'Add status'),
+    editTitle: translate('sales.config.statuses.dialog.editTitle', 'Edit status'),
+    valueLabel: translate('sales.config.statuses.dialog.valueLabel', 'Value'),
+    labelLabel: translate('sales.config.statuses.dialog.labelLabel', 'Label'),
+    saveLabel: translate('sales.config.statuses.dialog.save', 'Save'),
+    cancelLabel: translate('sales.config.statuses.dialog.cancel', 'Cancel'),
     appearance: {
-      colorLabel: t('sales.config.statuses.dialog.colorLabel', 'Color'),
-      colorHelp: t('sales.config.statuses.dialog.colorHelp', 'Pick a highlight color for this status.'),
-      colorClearLabel: t('sales.config.statuses.dialog.colorClear', 'Remove color'),
-      iconLabel: t('sales.config.statuses.dialog.iconLabel', 'Icon'),
-      iconPlaceholder: t('sales.config.statuses.dialog.iconPlaceholder', 'Type an emoji or pick one of the suggestions.'),
-      iconPickerTriggerLabel: t('sales.config.statuses.dialog.iconBrowse', 'Browse icons and emojis'),
-      iconSearchPlaceholder: t('sales.config.statuses.dialog.iconSearchPlaceholder', 'Search icons or emojis…'),
-      iconSearchEmptyLabel: t('sales.config.statuses.dialog.iconSearchEmpty', 'No icons match your search.'),
-      iconSuggestionsLabel: t('sales.config.statuses.dialog.iconSuggestions', 'Suggestions'),
-      iconClearLabel: t('sales.config.statuses.dialog.iconClear', 'Remove icon'),
-      previewEmptyLabel: t('sales.config.statuses.appearance.empty', 'None'),
+      colorLabel: translate('sales.config.statuses.dialog.colorLabel', 'Color'),
+      colorHelp: translate('sales.config.statuses.dialog.colorHelp', 'Pick a highlight color for this status.'),
+      colorClearLabel: translate('sales.config.statuses.dialog.colorClear', 'Remove color'),
+      iconLabel: translate('sales.config.statuses.dialog.iconLabel', 'Icon'),
+      iconPlaceholder: translate('sales.config.statuses.dialog.iconPlaceholder', 'Type an emoji or pick one of the suggestions.'),
+      iconPickerTriggerLabel: translate('sales.config.statuses.dialog.iconBrowse', 'Browse icons and emojis'),
+      iconSearchPlaceholder: translate('sales.config.statuses.dialog.iconSearchPlaceholder', 'Search icons or emojis…'),
+      iconSearchEmptyLabel: translate('sales.config.statuses.dialog.iconSearchEmpty', 'No icons match your search.'),
+      iconSuggestionsLabel: translate('sales.config.statuses.dialog.iconSuggestions', 'Suggestions'),
+      iconClearLabel: translate('sales.config.statuses.dialog.iconClear', 'Remove icon'),
+      previewEmptyLabel: translate('sales.config.statuses.appearance.empty', 'None'),
     },
-  }), [t])
+  }), [translate])
 
   const startCreate = React.useCallback((kind: SalesStatusKind) => {
     setDialog({ mode: 'create', kind })
@@ -156,7 +163,7 @@ export function StatusSettings() {
   }, [])
 
   const deleteEntry = React.useCallback(async (kind: SalesStatusKind, entry: DictionaryTableEntry) => {
-    const message = t('sales.config.statuses.deleteConfirm', 'Delete status "{{value}}"?').replace('{{value}}', entry.label || entry.value)
+    const message = translate('sales.config.statuses.deleteConfirm', 'Delete status "{{value}}"?').replace('{{value}}', entry.label || entry.value)
     if (!window.confirm(message)) return
     try {
       const res = await apiFetch(apiPaths[kind], {
@@ -166,17 +173,17 @@ export function StatusSettings() {
       })
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}))
-        const msg = typeof payload?.error === 'string' ? payload.error : t('sales.config.statuses.error.delete', 'Failed to delete status.')
+        const msg = typeof payload?.error === 'string' ? payload.error : translate('sales.config.statuses.error.delete', 'Failed to delete status.')
         throw new Error(msg)
       }
-      flash(t('sales.config.statuses.success.delete', 'Status deleted.'), 'success')
+      flash(translate('sales.config.statuses.success.delete', 'Status deleted.'), 'success')
       await loadEntries(kind)
     } catch (err) {
       console.error('sales.statuses.delete failed', err)
-      const message = err instanceof Error ? err.message : t('sales.config.statuses.error.delete', 'Failed to delete status.')
+      const message = err instanceof Error ? err.message : translate('sales.config.statuses.error.delete', 'Failed to delete status.')
       flash(message, 'error')
     }
-  }, [apiPaths, loadEntries, t])
+  }, [apiPaths, loadEntries, translate])
 
   const submitForm = React.useCallback(async (values: DictionaryFormValues) => {
     if (!dialog) return
@@ -191,10 +198,10 @@ export function StatusSettings() {
         })
         const payload = await res.json().catch(() => ({}))
         if (!res.ok) {
-          const msg = typeof payload?.error === 'string' ? payload.error : t('sales.config.statuses.error.save', 'Failed to save status.')
+          const msg = typeof payload?.error === 'string' ? payload.error : translate('sales.config.statuses.error.save', 'Failed to save status.')
           throw new Error(msg)
         }
-        flash(t('sales.config.statuses.success.save', 'Status saved.'), 'success')
+        flash(translate('sales.config.statuses.success.save', 'Status saved.'), 'success')
       } else if (dialog.mode === 'edit') {
         const entry = dialog.entry
         const body: Record<string, unknown> = { id: entry.id }
@@ -211,22 +218,22 @@ export function StatusSettings() {
         })
         const payload = await res.json().catch(() => ({}))
         if (!res.ok) {
-          const msg = typeof payload?.error === 'string' ? payload.error : t('sales.config.statuses.error.save', 'Failed to save status.')
+          const msg = typeof payload?.error === 'string' ? payload.error : translate('sales.config.statuses.error.save', 'Failed to save status.')
           throw new Error(msg)
         }
-        flash(t('sales.config.statuses.success.save', 'Status saved.'), 'success')
+        flash(translate('sales.config.statuses.success.save', 'Status saved.'), 'success')
       }
       closeDialog()
       await loadEntries(dialog.kind)
     } catch (err) {
       console.error('sales.statuses.submit failed', err)
-      const message = err instanceof Error ? err.message : t('sales.config.statuses.error.save', 'Failed to save status.')
+      const message = err instanceof Error ? err.message : translate('sales.config.statuses.error.save', 'Failed to save status.')
       flash(message, 'error')
       throw err instanceof Error ? err : new Error(message)
     } finally {
       setSubmitting(false)
     }
-  }, [apiPaths, closeDialog, dialog, loadEntries, t])
+  }, [apiPaths, closeDialog, dialog, loadEntries, translate])
 
   const currentValues = React.useMemo<DictionaryFormValues>(() => {
     if (dialog && dialog.mode === 'edit') {

@@ -1,10 +1,84 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@open-mercato/example/datamodel/entities'
 import type { CacheStrategy } from '@open-mercato/cache/types'
+
+type TodoSeed = {
+  title: string
+  isDone?: boolean
+  priority: number
+  severity: 'low' | 'medium' | 'high'
+  blocked?: boolean
+  labels: string[]
+  createdAt: string
+}
+
+const NOW = new Date()
+
+function isoDaysFromNow(days: number, options?: { hour?: number; minute?: number }): string {
+  const base = new Date(NOW)
+  const hour = options?.hour ?? 12
+  const minute = options?.minute ?? 0
+  base.setUTCHours(hour, minute, 0, 0)
+  base.setUTCDate(base.getUTCDate() + days)
+  return base.toISOString()
+}
+
+const EXAMPLE_TODO_SEEDS: TodoSeed[] = [
+  {
+    title: 'Review onboarding checklist for Brightside Solar pilot',
+    priority: 4,
+    severity: 'medium',
+    blocked: false,
+    labels: ['customers', 'onboarding'],
+    createdAt: isoDaysFromNow(-12, { hour: 14 }),
+  },
+  {
+    title: 'Compile ROI dashboard snapshots for Harborview Analytics',
+    priority: 5,
+    severity: 'high',
+    blocked: false,
+    labels: ['customers', 'analytics'],
+    createdAt: isoDaysFromNow(-9, { hour: 10, minute: 30 }),
+  },
+  {
+    title: 'Prepare upsell talking points for Midwest Outfitters',
+    priority: 3,
+    severity: 'medium',
+    blocked: false,
+    labels: ['sales', 'expansion'],
+    createdAt: isoDaysFromNow(-7, { hour: 9, minute: 45 }),
+  },
+  {
+    title: 'Archive closed Cedar Creek design project',
+    priority: 2,
+    severity: 'low',
+    blocked: false,
+    labels: ['ops', 'cleanup'],
+    isDone: true,
+    createdAt: isoDaysFromNow(-60, { hour: 18, minute: 15 }),
+  },
+  {
+    title: 'Draft Q3 roadmap summary for leadership sync',
+    priority: 4,
+    severity: 'high',
+    blocked: false,
+    labels: ['internal', 'planning'],
+    createdAt: isoDaysFromNow(-5, { hour: 12, minute: 5 }),
+  },
+  {
+    title: 'Update customer health scores in dashboard widgets',
+    priority: 3,
+    severity: 'medium',
+    blocked: false,
+    labels: ['customers', 'health'],
+    createdAt: isoDaysFromNow(-3, { hour: 11, minute: 20 }),
+  },
+]
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}
@@ -43,13 +117,13 @@ const seedTodos: ModuleCli = {
     }
     const orgId = orgIdArg as string
     const tenantId = tenantIdArg as string
-    const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
+    const container = await createRequestContainer()
+    const em = container.resolve<EntityManager>('em')
 
     // Ensure module custom entities/fields are installed for this tenant
     const entityId = E.example.todo
     let cache: CacheStrategy | null = null
-    try { cache = resolve('cache') as CacheStrategy } catch {}
+    try { cache = container.resolve('cache') as CacheStrategy } catch {}
     const installResult = await installCustomEntitiesFromModules(em as any, cache, {
       tenantIds: [tenantId],
       includeGlobal: false,
@@ -60,33 +134,46 @@ const seedTodos: ModuleCli = {
       console.log(`Custom entity definitions already up to date for tenant=${tenantId}`)
     }
 
-    // Seed 10 todos with custom field values
-    const titles = Array.from({ length: 10 }).map((_, i) => `Todo #${i + 1}`)
-    const severities = ['low', 'medium', 'high']
-    const labelsOptions = ['frontend', 'backend', 'ops', 'bug', 'feature']
-    const makePriority = (i: number) => (i % 5) + 1
-    const makeSeverity = (i: number) => severities[i % severities.length]
-    const makeBlocked = (i: number) => i % 4 === 0 // every 4th is blocked
+    const existing = await em.count(Todo, { organizationId: orgId, tenantId })
+    if (existing > 0) {
+      console.log(`Example todos already seeded for org=${orgId}, tenant=${tenantId}; skipping`)
+      return
+    }
 
-    for (let i = 0; i < titles.length; i++) {
-      const todo = em.create(Todo, { title: titles[i], isDone: i % 3 === 0, organizationId: orgId, tenantId })
-      await em.persistAndFlush(todo)
-      const recordId = String(todo.id)
-      const de = resolve('dataEngine') as DataEngine
+    const todos: Todo[] = []
+    for (const seed of EXAMPLE_TODO_SEEDS) {
+      const createdAt = new Date(seed.createdAt)
+      const todo = em.create(Todo, {
+        title: seed.title,
+        isDone: seed.isDone ?? false,
+        organizationId: orgId,
+        tenantId,
+        createdAt,
+        updatedAt: createdAt,
+      })
+      em.persist(todo)
+      todos.push(todo)
+    }
+    await em.flush()
+
+    const de = container.resolve<DataEngine>('dataEngine')
+    for (let i = 0; i < todos.length; i++) {
+      const todo = todos[i]
+      const seed = EXAMPLE_TODO_SEEDS[i]
       await de.setCustomFields({
         entityId,
-        recordId,
+        recordId: String(todo.id),
         organizationId: orgId,
-        tenantId: tenantId,
+        tenantId,
         values: {
-          priority: makePriority(i),
-          severity: makeSeverity(i),
-          blocked: makeBlocked(i),
-          labels: [labelsOptions[i % labelsOptions.length], labelsOptions[(i + 2) % labelsOptions.length]].filter((v, idx, arr) => arr.indexOf(v) === idx),
+          priority: seed.priority,
+          severity: seed.severity,
+          blocked: seed.blocked ?? false,
+          labels: seed.labels,
         },
       })
     }
-    console.log(`Seeded 10 todos with custom fields for org=${orgId}, tenant=${tenantId}`)
+    console.log(`Seeded ${todos.length} todos with custom fields for org=${orgId}, tenant=${tenantId}`)
   },
 }
 

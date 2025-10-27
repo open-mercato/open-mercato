@@ -71,6 +71,62 @@
         "search": "Buscar registros",
         "refresh": "Actualizar"
       }
+    },
+    "config": {
+      "statuses": {
+        "orders": {
+          "title": "Estados de pedidos",
+          "description": "Configura los estados disponibles para los pedidos de ventas."
+        },
+        "lines": {
+          "title": "Estados de líneas",
+          "description": "Configura los estados disponibles para las líneas de pedido."
+        },
+        "columns": {
+          "value": "Valor",
+          "label": "Etiqueta",
+          "appearance": "Apariencia"
+        },
+        "actions": {
+          "add": "Agregar estado",
+          "edit": "Editar",
+          "delete": "Eliminar",
+          "refresh": "Actualizar"
+        },
+        "empty": "Todavía no hay estados.",
+        "search": "Buscar estados…",
+        "dialog": {
+          "addTitle": "Agregar estado",
+          "editTitle": "Editar estado",
+          "valueLabel": "Valor",
+          "labelLabel": "Etiqueta",
+          "colorLabel": "Color",
+          "colorHelp": "Elige un color destacado para este estado.",
+          "colorClear": "Quitar color",
+          "iconLabel": "Icono",
+          "iconPlaceholder": "Escribe un emoji o elige una sugerencia.",
+          "iconBrowse": "Explorar iconos y emojis",
+          "iconSearchPlaceholder": "Buscar iconos o emojis…",
+          "iconSearchEmpty": "No se encontraron iconos coincidentes.",
+          "iconSuggestions": "Sugerencias",
+          "iconClear": "Quitar icono",
+          "save": "Guardar",
+          "cancel": "Cancelar"
+        },
+        "appearance": {
+          "empty": "Ninguno"
+        },
+        "deleteConfirm": "¿Eliminar el estado \"{{value}}\"?",
+        "error": {
+          "load": "No se pudieron cargar los estados.",
+          "save": "No se pudo guardar el estado.",
+          "delete": "No se pudo eliminar el estado."
+        },
+        "success": {
+          "save": "Estado guardado.",
+          "delete": "Estado eliminado."
+        }
+      }
     }
   }
 }

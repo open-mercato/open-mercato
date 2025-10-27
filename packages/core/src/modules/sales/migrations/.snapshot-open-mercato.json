@@ -70,6 +70,15 @@
           "nullable": true,
           "mappedType": "uuid"
         },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "website_url": {
           "name": "website_url",
           "type": "text",
@@ -226,6 +235,18 @@
       "name": "sales_channels",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "sales_channels_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "sales_channels_org_tenant_idx",
           "columnNames": [
@@ -653,6 +674,15 @@
           "nullable": true,
           "mappedType": "uuid"
         },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "customer_entity_id": {
           "name": "customer_entity_id",
           "type": "uuid",
@@ -853,6 +883,18 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "sales_quotes_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "sales_quotes_scope_idx",
           "columnNames": [
             "organization_id",
@@ -957,6 +999,15 @@
           "primary": false,
           "nullable": true,
           "mappedType": "uuid"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
         },
         "product_id": {
           "name": "product_id",
@@ -1217,6 +1268,18 @@
       "name": "sales_quote_lines",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "sales_quote_lines_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "sales_quote_lines_scope_idx",
           "columnNames": [
@@ -1835,6 +1898,15 @@
           "nullable": true,
           "mappedType": "uuid"
         },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "fulfillment_status_entry_id": {
           "name": "fulfillment_status_entry_id",
           "type": "uuid",
@@ -1844,6 +1916,15 @@
           "nullable": true,
           "mappedType": "uuid"
         },
+        "fulfillment_status": {
+          "name": "fulfillment_status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "payment_status_entry_id": {
           "name": "payment_status_entry_id",
           "type": "uuid",
@@ -1852,6 +1933,15 @@
           "primary": false,
           "nullable": true,
           "mappedType": "uuid"
+        },
+        "payment_status": {
+          "name": "payment_status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
         },
         "tax_strategy_key": {
           "name": "tax_strategy_key",
@@ -2216,6 +2306,42 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "sales_orders_payment_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "payment_status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "sales_orders_fulfillment_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "fulfillment_status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "sales_orders_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "sales_orders_customer_idx",
           "columnNames": [
             "customer_entity_id",
@@ -2388,6 +2514,15 @@
           "nullable": true,
           "mappedType": "uuid"
         },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "carrier_name": {
           "name": "carrier_name",
           "type": "text",
@@ -2530,6 +2665,18 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "sales_shipments_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "sales_shipments_scope_idx",
           "columnNames": [
             "order_id",
@@ -2635,6 +2782,15 @@
           "primary": false,
           "nullable": true,
           "mappedType": "uuid"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
         },
         "amount": {
           "name": "amount",
@@ -2753,6 +2909,18 @@
       "name": "sales_payments",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "sales_payments_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "sales_payments_scope_idx",
           "columnNames": [
@@ -2876,6 +3044,15 @@
           "primary": false,
           "nullable": true,
           "mappedType": "uuid"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
         },
         "product_id": {
           "name": "product_id",
@@ -3184,6 +3361,18 @@
       "name": "sales_order_lines",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "sales_order_lines_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "sales_order_lines_scope_idx",
           "columnNames": [
@@ -3819,6 +4008,15 @@
           "nullable": true,
           "mappedType": "uuid"
         },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "issue_date": {
           "name": "issue_date",
           "type": "timestamptz",
@@ -3996,6 +4194,18 @@
       "name": "sales_invoices",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "sales_invoices_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "sales_invoices_scope_idx",
           "columnNames": [
@@ -4547,6 +4757,15 @@
           "nullable": true,
           "mappedType": "uuid"
         },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "issue_date": {
           "name": "issue_date",
           "type": "timestamptz",
@@ -4678,6 +4897,18 @@
       "name": "sales_credit_memos",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "sales_credit_memos_status_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "status"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "sales_credit_memos_scope_idx",
           "columnNames": [

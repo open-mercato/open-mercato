@@ -2,7 +2,7 @@ import * as React from 'react'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 
 export type DictionaryTableEntry = {
@@ -135,12 +135,20 @@ export function DictionaryTable({
     return buttons.length ? <div className="flex items-center gap-2">{buttons}</div> : null
   }, [canManage, onCreate, onRefresh, translations.addLabel, translations.refreshLabel])
 
+  const handleRowClick = canManage && onEdit
+    ? (entry: DictionaryTableEntry) => {
+        if (entry.isInherited) return
+        onEdit(entry)
+      }
+    : undefined
+
   return (
     <DataTable<DictionaryTableEntry>
       title={translations.title}
       actions={actions}
       columns={columns}
       data={paginated}
+      embedded
       sortable
       sorting={sorting}
       onSortingChange={setSorting}
@@ -159,19 +167,26 @@ export function DictionaryTable({
         totalPages,
         onPageChange: setPage,
       }}
+      onRowClick={handleRowClick}
       rowActions={
         canManage
-          ? (row) => {
-              const entry = row.original
+          ? (entry) => {
+              if (!entry) return null
               if (entry.isInherited) return null
-              const items = [
-                onEdit
-                  ? { label: translations.editLabel, onClick: () => onEdit(entry) }
-                  : null,
-                onDelete
-                  ? { label: translations.deleteLabel, onClick: () => onDelete(entry) }
-                  : null,
-              ].filter(Boolean) as { label: string; onClick: () => void }[]
+              const items: RowActionItem[] = []
+              if (onEdit) {
+                items.push({
+                  label: translations.editLabel,
+                  onSelect: () => onEdit(entry),
+                })
+              }
+              if (onDelete) {
+                items.push({
+                  label: translations.deleteLabel,
+                  onSelect: () => onDelete(entry),
+                  destructive: true,
+                })
+              }
               return items.length ? <RowActions items={items} /> : null
             }
           : undefined

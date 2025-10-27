@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 
 export type SalesDictionaryKind = 'order-status' | 'order-line-status'
 
@@ -58,6 +58,7 @@ export async function ensureSalesDictionary(params: {
       description: def.description,
       isSystem: true,
       isActive: true,
+      managerVisibility: 'hidden',
     })
     em.persist(dictionary)
     await em.flush()
@@ -83,4 +84,14 @@ export function sanitizeDictionaryIcon(icon: string | null | undefined): string 
   const trimmed = icon.trim()
   if (!trimmed) return null
   return trimmed.slice(0, 64)
+}
+
+export async function resolveDictionaryEntryValue(
+  em: EntityManager,
+  entryId: string | null | undefined
+): Promise<string | null> {
+  if (!entryId) return null
+  const entry = await em.findOne(DictionaryEntry, entryId)
+  if (!entry) return null
+  return entry.value?.trim() || null
 }

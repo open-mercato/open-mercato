@@ -1,6 +1,6 @@
 import { Migration } from '@mikro-orm/migrations';
 
-export class Migration20251025091717 extends Migration {
+export class Migration20251027101505 extends Migration {
 
   override async up(): Promise<void> {
     this.addSql(`create table "catalog_products" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "name" text not null, "description" text null, "code" text null, "status_entry_id" uuid null, "primary_currency_code" text null, "default_unit" text null, "channel_ids" jsonb null, "metadata" jsonb null, "is_configurable" boolean not null default false, "is_active" boolean not null default true, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, constraint "catalog_products_pkey" primary key ("id"));`);
@@ -25,16 +25,16 @@ export class Migration20251025091717 extends Migration {
     this.addSql(`create table "catalog_variant_option_values" ("id" uuid not null default gen_random_uuid(), "variant_id" uuid not null, "option_value_id" uuid not null, "organization_id" uuid not null, "tenant_id" uuid not null, "metadata" jsonb null, "created_at" timestamptz not null, "updated_at" timestamptz not null, constraint "catalog_variant_option_values_pkey" primary key ("id"));`);
     this.addSql(`alter table "catalog_variant_option_values" add constraint "catalog_variant_option_values_unique" unique ("variant_id", "option_value_id");`);
 
-    this.addSql(`alter table "catalog_product_options" add constraint "catalog_product_options_product_id_foreign" foreign key ("product_id") references "catalog_products" ("id") on update cascade on delete cascade;`);
+    this.addSql(`alter table "catalog_product_options" add constraint "catalog_product_options_product_id_foreign" foreign key ("product_id") references "catalog_products" ("id") on update cascade;`);
 
-    this.addSql(`alter table "catalog_product_option_values" add constraint "catalog_product_option_values_option_id_foreign" foreign key ("option_id") references "catalog_product_options" ("id") on update cascade on delete cascade;`);
+    this.addSql(`alter table "catalog_product_option_values" add constraint "catalog_product_option_values_option_id_foreign" foreign key ("option_id") references "catalog_product_options" ("id") on update cascade;`);
 
-    this.addSql(`alter table "catalog_product_variants" add constraint "catalog_product_variants_product_id_foreign" foreign key ("product_id") references "catalog_products" ("id") on update cascade on delete cascade;`);
+    this.addSql(`alter table "catalog_product_variants" add constraint "catalog_product_variants_product_id_foreign" foreign key ("product_id") references "catalog_products" ("id") on update cascade;`);
 
-    this.addSql(`alter table "catalog_product_prices" add constraint "catalog_product_prices_variant_id_foreign" foreign key ("variant_id") references "catalog_product_variants" ("id") on update cascade on delete cascade;`);
+    this.addSql(`alter table "catalog_product_prices" add constraint "catalog_product_prices_variant_id_foreign" foreign key ("variant_id") references "catalog_product_variants" ("id") on update cascade;`);
 
-    this.addSql(`alter table "catalog_variant_option_values" add constraint "catalog_variant_option_values_variant_id_foreign" foreign key ("variant_id") references "catalog_product_variants" ("id") on update cascade on delete cascade;`);
-    this.addSql(`alter table "catalog_variant_option_values" add constraint "catalog_variant_option_values_option_value_id_foreign" foreign key ("option_value_id") references "catalog_product_option_values" ("id") on update cascade on delete cascade;`);
+    this.addSql(`alter table "catalog_variant_option_values" add constraint "catalog_variant_option_values_variant_id_foreign" foreign key ("variant_id") references "catalog_product_variants" ("id") on update cascade;`);
+    this.addSql(`alter table "catalog_variant_option_values" add constraint "catalog_variant_option_values_option_value_id_foreign" foreign key ("option_value_id") references "catalog_product_option_values" ("id") on update cascade;`);
   }
 
   override async down(): Promise<void> {

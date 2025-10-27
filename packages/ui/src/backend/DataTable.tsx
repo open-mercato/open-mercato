@@ -123,6 +123,7 @@ export type DataTableProps<T> = {
   entityIds?: string[]
   exporter?: DataTableExportConfig | false
   perspective?: DataTablePerspectiveConfig
+  embedded?: boolean
 }
 
 const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
@@ -468,6 +469,7 @@ export function DataTable<T>({
   entityIds,
   exporter,
   perspective,
+  embedded = false,
 }: DataTableProps<T>) {
   const router = useRouter()
   React.useEffect(() => {
@@ -1145,9 +1147,11 @@ export function DataTable<T>({
         onApply={onFiltersApply}
         onClear={onFiltersClear}
         leadingItems={perspectiveButton}
+        layout={embedded ? 'inline' : 'stacked'}
+        className={embedded ? 'min-h-[2.25rem]' : undefined}
       />
     )
-  }, [toolbar, searchValue, onSearchChange, searchPlaceholder, searchAlign, baseFilters, cfFilters, filterValues, onFiltersApply, onFiltersClear, canUsePerspectives])
+  }, [toolbar, searchValue, onSearchChange, searchPlaceholder, searchAlign, baseFilters, cfFilters, filterValues, onFiltersApply, onFiltersClear, canUsePerspectives, embedded])
 
   const hasTitle = title != null
   const hasActions = actions !== undefined && actions !== null && actions !== false
@@ -1159,16 +1163,30 @@ export function DataTable<T>({
   const hasRefreshButton = Boolean(refreshButtonConfig)
   const hasToolbar = builtToolbar != null
   const shouldRenderActionsWrapper = hasActions || hasRefreshButton || shouldReserveActionsSpace || hasExport
-  const shouldRenderHeader = hasTitle || hasToolbar || shouldRenderActionsWrapper
+  const renderToolbarInline = embedded && hasToolbar
+  const shouldRenderToolbarBelow = hasToolbar && !renderToolbarInline
+  const shouldRenderHeader = hasTitle || renderToolbarInline || shouldRenderActionsWrapper || shouldRenderToolbarBelow
+
+  const containerClassName = embedded ? '' : 'rounded-lg border bg-card'
+  const headerWrapperClassName = embedded ? 'pb-3' : 'px-4 py-3 border-b'
+  const headerContentClassName = 'flex items-center justify-between gap-2'
+  const toolbarWrapperClassName = embedded ? 'mt-2' : 'mt-3 pt-3 border-t'
+  const tableScrollWrapperClassName = embedded ? '' : 'overflow-auto'
+
+  const titleContent = hasTitle ? (
+    <div className="text-base font-semibold leading-tight min-h-[2.25rem] flex items-center">
+      {typeof title === 'string' ? <h2 className="text-base font-semibold">{title}</h2> : title}
+    </div>
+  ) : <div className="min-h-[2.25rem]" />
 
   return (
-    <div className="rounded-lg border bg-card">
+    <div className={containerClassName}>
       {shouldRenderHeader && (
-        <div className="px-4 py-3 border-b">
-          {(hasTitle || shouldRenderActionsWrapper) && (
-            <div className="flex items-center justify-between">
-              <div className="text-base font-semibold leading-tight min-h-[2.25rem] flex items-center">
-                {hasTitle ? (typeof title === 'string' ? <h2 className="text-base font-semibold">{title}</h2> : title) : null}
+        <div className={headerWrapperClassName}>
+          {(hasTitle || shouldRenderActionsWrapper || renderToolbarInline) && (
+            <div className={headerContentClassName}>
+              <div className="flex-1 min-w-0">
+                {renderToolbarInline ? builtToolbar : titleContent}
               </div>
               {shouldRenderActionsWrapper ? (
                 <div className="flex items-center gap-2 min-h-[2.25rem]">
@@ -1209,10 +1227,10 @@ export function DataTable<T>({
               ) : null}
             </div>
           )}
-          {hasToolbar ? <div className="mt-3 pt-3 border-t">{builtToolbar}</div> : null}
+          {shouldRenderToolbarBelow ? <div className={toolbarWrapperClassName}>{builtToolbar}</div> : null}
         </div>
       )}
-      <div className="overflow-auto">
+      <div className={tableScrollWrapperClassName}>
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (

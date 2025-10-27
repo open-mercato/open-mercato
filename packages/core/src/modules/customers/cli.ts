@@ -1,7 +1,15 @@
 import type { ModuleCli } from '@/modules/registry'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer, type AppContainer } from '@/lib/di/container'
+import { cf } from '@/modules/dsl'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
+import type { CacheStrategy } from '@open-mercato/cache/types'
+import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
+import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
+import { Todo } from '@open-mercato/example/modules/example/data/entities'
+import { E as CoreEntities } from '@open-mercato/core/generated/entities.ids.generated'
+import { E as ExampleEntities } from '@open-mercato/example/generated/entities.ids.generated'
 import {
   CustomerEntity,
   CustomerCompanyProfile,
@@ -12,6 +20,7 @@ import {
   CustomerActivity,
   CustomerAddress,
   CustomerComment,
+  CustomerTodoLink,
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
 
@@ -28,70 +37,70 @@ type DictionaryDefault = {
 }
 
 const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
-  { value: 'open', label: 'Open', color: '#2563eb', icon: 'circle-dot' },
-  { value: 'closed', label: 'Closed', color: '#6b7280', icon: 'circle-check' },
-  { value: 'win', label: 'Win', color: '#22c55e', icon: 'trophy' },
-  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'x-octagon' },
-  { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'loader' },
+  { value: 'open', label: 'Open', color: '#2563eb', icon: 'lucide:circle' },
+  { value: 'closed', label: 'Closed', color: '#6b7280', icon: 'lucide:check-circle' },
+  { value: 'win', label: 'Win', color: '#22c55e', icon: 'lucide:trophy' },
+  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'lucide:flag' },
+  { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'lucide:activity' },
 ]
 
 const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
-  { value: 'opportunity', label: 'Opportunity', color: '#38bdf8', icon: 'target' },
-  { value: 'marketing_qualified_lead', label: 'Marketing Qualified Lead', color: '#a855f7', icon: 'sparkles' },
-  { value: 'sales_qualified_lead', label: 'Sales Qualified Lead', color: '#f97316', icon: 'users' },
-  { value: 'offering', label: 'Offering', color: '#22c55e', icon: 'file-text' },
-  { value: 'negotiations', label: 'Negotiations', color: '#facc15', icon: 'handshake' },
-  { value: 'win', label: 'Win', color: '#16a34a', icon: 'award' },
-  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'x-circle' },
-  { value: 'stalled', label: 'Stalled', color: '#6b7280', icon: 'pause-circle' },
+  { value: 'opportunity', label: 'Opportunity', color: '#38bdf8', icon: 'lucide:target' },
+  { value: 'marketing_qualified_lead', label: 'Marketing Qualified Lead', color: '#a855f7', icon: 'lucide:sparkles' },
+  { value: 'sales_qualified_lead', label: 'Sales Qualified Lead', color: '#f97316', icon: 'lucide:users' },
+  { value: 'offering', label: 'Offering', color: '#22c55e', icon: 'lucide:package' },
+  { value: 'negotiations', label: 'Negotiations', color: '#facc15', icon: 'lucide:handshake' },
+  { value: 'win', label: 'Win', color: '#16a34a', icon: 'lucide:award' },
+  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'lucide:flag' },
+  { value: 'stalled', label: 'Stalled', color: '#6b7280', icon: 'lucide:alert-circle' },
 ]
 
 const ENTITY_STATUS_DEFAULTS: DictionaryDefault[] = [
-  { value: 'customer', label: 'Customer', color: '#16a34a', icon: 'handshake' },
-  { value: 'active', label: 'Active', color: '#2563eb', icon: 'user-check' },
-  { value: 'prospect', label: 'Prospect', color: '#f59e0b', icon: 'user-plus' },
-  { value: 'inactive', label: 'Inactive', color: '#6b7280', icon: 'user-x' },
+  { value: 'customer', label: 'Customer', color: '#16a34a', icon: 'lucide:handshake' },
+  { value: 'active', label: 'Active', color: '#2563eb', icon: 'lucide:user-check' },
+  { value: 'prospect', label: 'Prospect', color: '#f59e0b', icon: 'lucide:target' },
+  { value: 'inactive', label: 'Inactive', color: '#6b7280', icon: 'lucide:archive' },
 ]
 
 const ENTITY_LIFECYCLE_STAGE_DEFAULTS: DictionaryDefault[] = [
-  { value: 'prospect', label: 'Prospect', color: '#f59e0b', icon: 'sparkles' },
-  { value: 'evaluation', label: 'Evaluation', color: '#a855f7', icon: 'bar-chart-3' },
-  { value: 'customer', label: 'Customer', color: '#22c55e', icon: 'handshake' },
-  { value: 'expansion', label: 'Expansion', color: '#0ea5e9', icon: 'trending-up' },
-  { value: 'churned', label: 'Churned', color: '#ef4444', icon: 'circle-slash' },
+  { value: 'prospect', label: 'Prospect', color: '#f59e0b', icon: 'lucide:sparkles' },
+  { value: 'evaluation', label: 'Evaluation', color: '#a855f7', icon: 'lucide:clipboard-list' },
+  { value: 'customer', label: 'Customer', color: '#22c55e', icon: 'lucide:handshake' },
+  { value: 'expansion', label: 'Expansion', color: '#0ea5e9', icon: 'lucide:trending-up' },
+  { value: 'churned', label: 'Churned', color: '#ef4444', icon: 'lucide:alert-circle' },
 ]
 
 const ENTITY_SOURCE_DEFAULTS: DictionaryDefault[] = [
-  { value: 'partner_referral', label: 'Partner referral', color: '#6366f1', icon: 'users' },
-  { value: 'customer_referral', label: 'Customer referral', color: '#22c55e', icon: 'sparkles' },
-  { value: 'industry_event', label: 'Industry event', color: '#f97316', icon: 'calendar' },
-  { value: 'inbound_web', label: 'Inbound web', color: '#0ea5e9', icon: 'globe' },
-  { value: 'outbound_campaign', label: 'Outbound campaign', color: '#facc15', icon: 'megaphone' },
+  { value: 'partner_referral', label: 'Partner referral', color: '#6366f1', icon: 'lucide:handshake' },
+  { value: 'customer_referral', label: 'Customer referral', color: '#22c55e', icon: 'lucide:thumbs-up' },
+  { value: 'industry_event', label: 'Industry event', color: '#f97316', icon: 'lucide:calendar' },
+  { value: 'inbound_web', label: 'Inbound web', color: '#0ea5e9', icon: 'lucide:globe' },
+  { value: 'outbound_campaign', label: 'Outbound campaign', color: '#facc15', icon: 'lucide:megaphone' },
 ]
 
 const ADDRESS_TYPE_DEFAULTS: DictionaryDefault[] = [
-  { value: 'office', label: 'Office', color: '#3b82f6', icon: 'building' },
-  { value: 'work', label: 'Work', color: '#6366f1', icon: 'briefcase' },
-  { value: 'billing', label: 'Billing', color: '#f97316', icon: 'receipt' },
-  { value: 'shipping', label: 'Shipping', color: '#22c55e', icon: 'package' },
-  { value: 'home', label: 'Home', color: '#10b981', icon: 'home' },
+  { value: 'office', label: 'Office', color: '#3b82f6', icon: 'lucide:building' },
+  { value: 'work', label: 'Work', color: '#6366f1', icon: 'lucide:briefcase' },
+  { value: 'billing', label: 'Billing', color: '#f97316', icon: 'lucide:wallet' },
+  { value: 'shipping', label: 'Shipping', color: '#22c55e', icon: 'lucide:truck' },
+  { value: 'home', label: 'Home', color: '#10b981', icon: 'lucide:map-pin' },
 ]
 
 const ACTIVITY_TYPE_DEFAULTS: DictionaryDefault[] = [
-  { value: 'call', label: 'Call', color: '#2563eb', icon: 'phone' },
-  { value: 'email', label: 'Email', color: '#16a34a', icon: 'mail' },
-  { value: 'meeting', label: 'Meeting', color: '#f59e0b', icon: 'users' },
-  { value: 'note', label: 'Note', color: '#a855f7', icon: 'file-text' },
-  { value: 'task', label: 'Task', color: '#ef4444', icon: 'check-square' },
+  { value: 'call', label: 'Call', color: '#2563eb', icon: 'lucide:phone-call' },
+  { value: 'email', label: 'Email', color: '#16a34a', icon: 'lucide:mail' },
+  { value: 'meeting', label: 'Meeting', color: '#f59e0b', icon: 'lucide:users' },
+  { value: 'note', label: 'Note', color: '#a855f7', icon: 'lucide:notebook' },
+  { value: 'task', label: 'Task', color: '#ef4444', icon: 'lucide:check-square' },
 ]
 
 const JOB_TITLE_DEFAULTS: DictionaryDefault[] = [
-  { value: 'Director of Operations', label: 'Director of Operations', color: '#f97316', icon: 'settings' },
-  { value: 'VP of Partnerships', label: 'VP of Partnerships', color: '#6366f1', icon: 'users' },
-  { value: 'Founder & Principal', label: 'Founder & Principal', color: '#ec4899', icon: 'star' },
-  { value: 'Senior Project Manager', label: 'Senior Project Manager', color: '#0ea5e9', icon: 'clipboard-list' },
-  { value: 'Chief Revenue Officer', label: 'Chief Revenue Officer', color: '#8b5cf6', icon: 'line-chart' },
-  { value: 'Director of Retail Partnerships', label: 'Director of Retail Partnerships', color: '#f59e0b', icon: 'shopping-bag' },
+  { value: 'Director of Operations', label: 'Director of Operations', color: '#f97316', icon: 'lucide:settings' },
+  { value: 'VP of Partnerships', label: 'VP of Partnerships', color: '#6366f1', icon: 'lucide:users' },
+  { value: 'Founder & Principal', label: 'Founder & Principal', color: '#ec4899', icon: 'lucide:star' },
+  { value: 'Senior Project Manager', label: 'Senior Project Manager', color: '#0ea5e9', icon: 'lucide:clipboard-list' },
+  { value: 'Chief Revenue Officer', label: 'Chief Revenue Officer', color: '#8b5cf6', icon: 'lucide:bar-chart-3' },
+  { value: 'Director of Retail Partnerships', label: 'Director of Retail Partnerships', color: '#f59e0b', icon: 'lucide:shopping-bag' },
 ]
 
 const PRIORITY_CURRENCIES = ['EUR', 'USD', 'GBP', 'PLN']
@@ -127,6 +136,7 @@ type ExamplePerson = {
   address?: ExampleAddress
   description?: string
   source?: string
+  custom?: Record<string, unknown>
 }
 
 type ExampleDealParticipant = {
@@ -135,6 +145,7 @@ type ExampleDealParticipant = {
 }
 
 type ExampleActivity = {
+  slug: string
   entity: 'company' | 'person'
   personSlug?: string
   type: string
@@ -143,6 +154,7 @@ type ExampleActivity = {
   occurredAt: string
   icon?: string
   color?: string
+  custom?: Record<string, unknown>
 }
 
 type ExampleNote = {
@@ -152,6 +164,30 @@ type ExampleNote = {
   occurredAt?: string
   icon?: string
   color?: string
+}
+
+type ExampleTodoTarget = {
+  type: 'company' | 'person'
+  slug: string
+}
+
+type ExampleTodoFollowUp = {
+  at: string
+  name: string
+  icon?: string
+  color?: string
+}
+
+type ExampleTodoSeed = {
+  title: string
+  isDone?: boolean
+  priority: number
+  severity: 'low' | 'medium' | 'high'
+  blocked?: boolean
+  labels: string[]
+  createdAt: string
+  target: ExampleTodoTarget
+  followUp?: ExampleTodoFollowUp
 }
 
 type ExampleDeal = {
@@ -167,6 +203,7 @@ type ExampleDeal = {
   people: ExampleDealParticipant[]
   activities?: ExampleActivity[]
   source?: string
+  custom?: Record<string, unknown>
 }
 
 type ExampleCompany = {
@@ -190,6 +227,18 @@ type ExampleCompany = {
   deals?: ExampleDeal[]
   interactions?: ExampleActivity[]
   notes?: ExampleNote[]
+  custom?: Record<string, unknown>
+}
+
+const NOW = new Date()
+
+function isoDaysFromNow(days: number, options?: { hour?: number; minute?: number }): string {
+  const base = new Date(NOW)
+  const hour = options?.hour ?? 12
+  const minute = options?.minute ?? 0
+  base.setUTCHours(hour, minute, 0, 0)
+  base.setUTCDate(base.getUTCDate() + days)
+  return base.toISOString()
 }
 
 const CUSTOMER_EXAMPLES: ExampleCompany[] = [
@@ -209,6 +258,12 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
     source: 'partner_referral',
     lifecycleStage: 'customer',
     status: 'customer',
+    custom: {
+      relationship_health: 'healthy',
+      renewal_quarter: 'Q3',
+      executive_notes: 'High NPS across HOA portfolio; exploring bundled battery upsell for 2025 budgets.',
+      customer_marketing_case: true,
+    },
     address: {
       name: 'Headquarters',
       purpose: 'office',
@@ -234,6 +289,11 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         timezone: 'America/Los_Angeles',
         linkedInUrl: 'https://www.linkedin.com/in/miajohnson-operations/',
         source: 'partner_referral',
+        custom: {
+          buying_role: 'champion',
+          preferred_pronouns: 'she/her',
+          newsletter_opt_in: true,
+        },
         address: {
           purpose: 'work',
           addressLine1: '245 Market St Suite 410',
@@ -255,6 +315,11 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         timezone: 'America/Los_Angeles',
         linkedInUrl: 'https://www.linkedin.com/in/danielcho-energy/',
         source: 'outbound_campaign',
+        custom: {
+          buying_role: 'economic_buyer',
+          preferred_pronouns: 'he/him',
+          newsletter_opt_in: false,
+        },
       },
     ],
     deals: [
@@ -264,34 +329,52 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: '40-home solar installation with ongoing maintenance plan.',
         status: 'in_progress',
         pipelineStage: 'negotiations',
-        source: 'partner_referral',
         valueAmount: 185000,
         valueCurrency: 'USD',
-        expectedCloseAt: '2024-09-30T00:00:00.000Z',
+        expectedCloseAt: isoDaysFromNow(45),
         probability: 55,
+        source: 'partner_referral',
+        custom: {
+          competitive_risk: 'medium',
+          implementation_complexity: 'standard',
+          estimated_seats: 40,
+          requires_legal_review: true,
+        },
         people: [
           { slug: 'mia-johnson', role: 'Project Sponsor' },
           { slug: 'daniel-cho', role: 'Executive Sponsor' },
         ],
         activities: [
           {
+            slug: 'redwood-hoa-follow-up',
             entity: 'company',
             type: 'call',
             subject: 'Follow-up with HOA board',
             body: 'Reviewed financing options and clarified maintenance service tiers for the board.',
-            occurredAt: '2024-07-18T17:30:00.000Z',
-            icon: 'phone',
+            occurredAt: isoDaysFromNow(-9, { hour: 17, minute: 30 }),
+            icon: 'lucide:phone-call',
             color: '#2563eb',
+            custom: {
+              engagement_sentiment: 'positive',
+              shared_with_leadership: true,
+              follow_up_owner: 'Sofia Nguyen',
+            },
           },
           {
+            slug: 'redwood-case-studies',
             entity: 'person',
             personSlug: 'mia-johnson',
             type: 'note',
             subject: 'Shared case studies',
             body: 'Sent two case studies highlighting 18% average utility bill savings for similar complexes.',
-            occurredAt: '2024-07-22T19:15:00.000Z',
-            icon: 'file-text',
+            occurredAt: isoDaysFromNow(-7, { hour: 19, minute: 15 }),
+            icon: 'lucide:notebook',
             color: '#a855f7',
+            custom: {
+              engagement_sentiment: 'positive',
+              shared_with_leadership: false,
+              follow_up_owner: 'Daniel Cho',
+            },
           },
         ],
       },
@@ -301,50 +384,68 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: 'Battery upgrade for existing solar customers to extend overnight coverage.',
         status: 'open',
         pipelineStage: 'offering',
-        source: 'inbound_web',
         valueAmount: 82000,
         valueCurrency: 'USD',
-        expectedCloseAt: '2024-10-20T00:00:00.000Z',
+        expectedCloseAt: isoDaysFromNow(65),
         probability: 40,
+        source: 'inbound_web',
+        custom: {
+          competitive_risk: 'high',
+          implementation_complexity: 'complex',
+          estimated_seats: 28,
+          requires_legal_review: false,
+        },
         people: [{ slug: 'mia-johnson', role: 'Point of Contact' }],
         activities: [
           {
+            slug: 'sunset-energy-audit',
             entity: 'company',
             type: 'meeting',
             subject: 'On-site energy audit completed',
             body: 'Audit identified 28 units that need inverter firmware updates before batteries ship.',
-            occurredAt: '2024-07-10T21:00:00.000Z',
-            icon: 'users',
+            occurredAt: isoDaysFromNow(-17, { hour: 21 }),
+            icon: 'lucide:users',
             color: '#f59e0b',
+            custom: {
+              engagement_sentiment: 'neutral',
+              shared_with_leadership: false,
+              follow_up_owner: 'Mia Johnson',
+            },
           },
         ],
       },
     ],
     interactions: [
       {
+        slug: 'brightside-nps-email',
         entity: 'company',
         type: 'email',
         subject: 'Quarterly NPS survey sent',
         body: 'Shared Q2 satisfaction survey with portfolio property managers.',
-        occurredAt: '2024-07-05T16:00:00.000Z',
-        icon: 'mail',
+        occurredAt: isoDaysFromNow(-20, { hour: 16 }),
+        icon: 'lucide:mail',
         color: '#16a34a',
+        custom: {
+          engagement_sentiment: 'positive',
+          shared_with_leadership: false,
+          follow_up_owner: 'Customer Success Team',
+        },
       },
     ],
     notes: [
       {
         entity: 'company',
         body: 'Completed energy audit across 12 HOA buildings; evaluating maintenance bundle add-on.',
-        occurredAt: '2024-07-14T18:00:00.000Z',
-        icon: 'sun',
-        color: '#fbbf24',
+        occurredAt: isoDaysFromNow(-11, { hour: 18 }),
+        icon: 'lucide:lightbulb',
+        color: '#facc15',
       },
       {
         entity: 'person',
         personSlug: 'mia-johnson',
         body: 'Mia requested financing comparison deck before the board vote.',
-        occurredAt: '2024-07-18T15:30:00.000Z',
-        icon: 'bookmark',
+        occurredAt: isoDaysFromNow(-9, { hour: 15, minute: 30 }),
+        icon: 'lucide:bookmark',
         color: '#a855f7',
       },
     ],
@@ -365,6 +466,12 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
     source: 'industry_event',
     lifecycleStage: 'prospect',
     status: 'active',
+    custom: {
+      relationship_health: 'monitor',
+      renewal_quarter: 'Q4',
+      executive_notes: 'Pilot success metrics trending positive; CFO wants ROI modeling before expansion.',
+      customer_marketing_case: false,
+    },
     address: {
       name: 'Boston HQ',
       purpose: 'office',
@@ -389,6 +496,11 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         timezone: 'America/New_York',
         linkedInUrl: 'https://www.linkedin.com/in/arjunpatel-sales/',
         source: 'industry_event',
+        custom: {
+          buying_role: 'economic_buyer',
+          preferred_pronouns: 'he/him',
+          newsletter_opt_in: true,
+        },
       },
       {
         slug: 'lena-ortiz',
@@ -402,6 +514,11 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         timezone: 'America/New_York',
         linkedInUrl: 'https://www.linkedin.com/in/lenaortiz-retail/',
         source: 'industry_event',
+        custom: {
+          buying_role: 'champion',
+          preferred_pronouns: 'she/her',
+          newsletter_opt_in: true,
+        },
       },
     ],
     deals: [
@@ -411,34 +528,52 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: 'Six-month pilot of merchandising analytics across 28 locations.',
         status: 'win',
         pipelineStage: 'win',
-        source: 'industry_event',
         valueAmount: 96000,
         valueCurrency: 'USD',
-        expectedCloseAt: '2024-06-15T00:00:00.000Z',
+        expectedCloseAt: isoDaysFromNow(-25),
         probability: 100,
+        source: 'industry_event',
+        custom: {
+          competitive_risk: 'low',
+          implementation_complexity: 'standard',
+          estimated_seats: 28,
+          requires_legal_review: false,
+        },
         people: [
           { slug: 'arjun-patel', role: 'Executive Sponsor' },
           { slug: 'lena-ortiz', role: 'Account Lead' },
         ],
         activities: [
           {
+            slug: 'blue-harbor-contract',
             entity: 'company',
             type: 'meeting',
             subject: 'Contract signed with procurement',
             body: 'Procurement signed SOW; onboarding kickoff scheduled for next Tuesday.',
-            occurredAt: '2024-06-11T14:30:00.000Z',
-            icon: 'users',
-            color: '#f59e0b',
+            occurredAt: isoDaysFromNow(-28, { hour: 14, minute: 30 }),
+            icon: 'lucide:handshake',
+            color: '#22c55e',
+            custom: {
+              engagement_sentiment: 'positive',
+              shared_with_leadership: true,
+              follow_up_owner: 'Lena Ortiz',
+            },
           },
           {
+            slug: 'blue-harbor-onboarding-email',
             entity: 'person',
             personSlug: 'lena-ortiz',
             type: 'email',
             subject: 'Shared onboarding checklist',
             body: 'Sent checklist covering data exports and point-of-sale integrations required for go-live.',
-            occurredAt: '2024-06-12T13:05:00.000Z',
-            icon: 'mail',
+            occurredAt: isoDaysFromNow(-27, { hour: 13, minute: 5 }),
+            icon: 'lucide:mail',
             color: '#16a34a',
+            custom: {
+              engagement_sentiment: 'positive',
+              shared_with_leadership: false,
+              follow_up_owner: 'Implementation Team',
+            },
           },
         ],
       },
@@ -448,51 +583,69 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: 'Expansion opportunity covering 120 stores in the Midwest region.',
         status: 'open',
         pipelineStage: 'opportunity',
-        source: 'outbound_campaign',
         valueAmount: 210000,
         valueCurrency: 'USD',
-        expectedCloseAt: '2024-12-05T00:00:00.000Z',
+        expectedCloseAt: isoDaysFromNow(120),
         probability: 35,
+        source: 'outbound_campaign',
+        custom: {
+          competitive_risk: 'medium',
+          implementation_complexity: 'complex',
+          estimated_seats: 120,
+          requires_legal_review: true,
+        },
         people: [{ slug: 'lena-ortiz', role: 'Account Lead' }],
         activities: [
           {
+            slug: 'midwest-forecasting-call',
             entity: 'company',
             type: 'call',
             subject: 'Introduced predictive forecasting module',
             body: 'Walkthrough of demand forecasting module with COO and finance controller.',
-            occurredAt: '2024-07-08T15:45:00.000Z',
-            icon: 'phone',
+            occurredAt: isoDaysFromNow(-14, { hour: 15, minute: 45 }),
+            icon: 'lucide:phone-call',
             color: '#2563eb',
+            custom: {
+              engagement_sentiment: 'positive',
+              shared_with_leadership: true,
+              follow_up_owner: 'Arjun Patel',
+            },
           },
         ],
       },
     ],
     interactions: [
       {
+        slug: 'harborview-pricing-note',
         entity: 'person',
         personSlug: 'arjun-patel',
         type: 'note',
         subject: 'Requested pricing comparison',
         body: 'Arjun asked for pricing comparison versus Qlik ahead of board review.',
-        occurredAt: '2024-07-03T12:10:00.000Z',
-        icon: 'file-text',
+        occurredAt: isoDaysFromNow(-18, { hour: 12, minute: 10 }),
+        icon: 'lucide:notebook',
         color: '#a855f7',
+        custom: {
+          engagement_sentiment: 'neutral',
+          shared_with_leadership: true,
+          follow_up_owner: 'Finance Team',
+        },
       },
     ],
     notes: [
       {
         entity: 'company',
         body: 'Pilot success metrics shared with board; expansion depends on Q4 budget review.',
-        occurredAt: '2024-07-06T17:45:00.000Z',
-        icon: 'line-chart',
+        occurredAt: isoDaysFromNow(-16, { hour: 17, minute: 45 }),
+        icon: 'lucide:bar-chart-3',
         color: '#38bdf8',
       },
       {
         entity: 'person',
         personSlug: 'lena-ortiz',
         body: 'Lena confirmed data team can supply POS exports within two weeks.',
-        occurredAt: '2024-07-09T11:20:00.000Z',
-        icon: 'clipboard-list',
+        occurredAt: isoDaysFromNow(-13, { hour: 11, minute: 20 }),
+        icon: 'lucide:clipboard-list',
         color: '#0ea5e9',
       },
     ],
@@ -513,6 +666,12 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
     source: 'customer_referral',
     lifecycleStage: 'customer',
     status: 'customer',
+    custom: {
+      relationship_health: 'healthy',
+      renewal_quarter: 'Q1',
+      executive_notes: 'Boutique studio with strong referrals; share sustainability case studies with ownership group.',
+      customer_marketing_case: true,
+    },
     address: {
       name: 'Austin Studio',
       purpose: 'office',
@@ -537,6 +696,11 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         timezone: 'America/Chicago',
         linkedInUrl: 'https://www.linkedin.com/in/taylorbrooks-design/',
         source: 'customer_referral',
+        custom: {
+          buying_role: 'economic_buyer',
+          preferred_pronouns: 'they/them',
+          newsletter_opt_in: false,
+        },
       },
       {
         slug: 'naomi-harris',
@@ -550,6 +714,11 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         timezone: 'America/Chicago',
         linkedInUrl: 'https://www.linkedin.com/in/naomiharris-pm/',
         source: 'customer_referral',
+        custom: {
+          buying_role: 'influencer',
+          preferred_pronouns: 'she/her',
+          newsletter_opt_in: true,
+        },
       },
     ],
     deals: [
@@ -559,25 +728,37 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: 'Full lobby and guest suite redesign for the Wanderstay hospitality group.',
         status: 'in_progress',
         pipelineStage: 'sales_qualified_lead',
-        source: 'customer_referral',
         valueAmount: 145000,
         valueCurrency: 'USD',
-        expectedCloseAt: '2024-08-25T00:00:00.000Z',
+        expectedCloseAt: isoDaysFromNow(35),
         probability: 65,
+        source: 'customer_referral',
+        custom: {
+          competitive_risk: 'medium',
+          implementation_complexity: 'complex',
+          estimated_seats: 12,
+          requires_legal_review: true,
+        },
         people: [
           { slug: 'taylor-brooks', role: 'Principal Designer' },
           { slug: 'naomi-harris', role: 'Project Lead' },
         ],
         activities: [
           {
+            slug: 'wanderstay-workshop-recap',
             entity: 'person',
             personSlug: 'naomi-harris',
             type: 'meeting',
             subject: 'Design workshop recap',
             body: 'Captured lighting and materials feedback from onsite workshop with hospitality team.',
-            occurredAt: '2024-07-16T20:00:00.000Z',
-            icon: 'users',
+            occurredAt: isoDaysFromNow(-6, { hour: 20 }),
+            icon: 'lucide:users',
             color: '#f59e0b',
+            custom: {
+              engagement_sentiment: 'positive',
+              shared_with_leadership: false,
+              follow_up_owner: 'Naomi Harris',
+            },
           },
         ],
       },
@@ -587,53 +768,144 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: 'New wellness center build-out including retail area and treatment rooms.',
         status: 'loose',
         pipelineStage: 'loose',
-        source: 'customer_referral',
         valueAmount: 98000,
         valueCurrency: 'USD',
-        expectedCloseAt: '2024-05-20T00:00:00.000Z',
+        expectedCloseAt: isoDaysFromNow(-70),
         probability: 0,
+        source: 'customer_referral',
+        custom: {
+          competitive_risk: 'high',
+          implementation_complexity: 'standard',
+          estimated_seats: 8,
+          requires_legal_review: false,
+        },
         people: [{ slug: 'taylor-brooks', role: 'Principal Designer' }],
         activities: [
           {
+            slug: 'cedar-creek-loss-note',
             entity: 'company',
             type: 'note',
             subject: 'Lost due to budget constraints',
             body: 'Retreat selected lower-cost vendor focused on prefabricated interiors.',
-            occurredAt: '2024-05-22T18:45:00.000Z',
-            icon: 'file-text',
-            color: '#a855f7',
+            occurredAt: isoDaysFromNow(-68, { hour: 18, minute: 45 }),
+            icon: 'lucide:alert-circle',
+            color: '#ef4444',
+            custom: {
+              engagement_sentiment: 'negative',
+              shared_with_leadership: true,
+              follow_up_owner: 'Taylor Brooks',
+            },
           },
         ],
       },
     ],
     interactions: [
       {
+        slug: 'copperleaf-referral-call',
         entity: 'company',
         type: 'call',
         subject: 'Referred by Venture Hospitality',
         body: 'Received referral from Venture Hospitality after successful Austin project.',
-        occurredAt: '2024-06-27T16:45:00.000Z',
-        icon: 'phone',
+        occurredAt: isoDaysFromNow(-25, { hour: 16, minute: 45 }),
+        icon: 'lucide:phone',
         color: '#2563eb',
+        custom: {
+          engagement_sentiment: 'positive',
+          shared_with_leadership: true,
+          follow_up_owner: 'Taylor Brooks',
+        },
       },
     ],
     notes: [
       {
         entity: 'company',
         body: 'Client interested in sustainable materials library review during next site visit.',
-        occurredAt: '2024-06-30T19:10:00.000Z',
-        icon: 'leaf',
+        occurredAt: isoDaysFromNow(-22, { hour: 19, minute: 10 }),
+        icon: 'lucide:lightbulb',
         color: '#22c55e',
       },
       {
         entity: 'person',
         personSlug: 'naomi-harris',
         body: 'Naomi requested updated FF&E budget before presenting to ownership group.',
-        occurredAt: '2024-07-18T21:05:00.000Z',
-        icon: 'edit-3',
+        occurredAt: isoDaysFromNow(-6, { hour: 21, minute: 5 }),
+        icon: 'lucide:clipboard-list',
         color: '#0ea5e9',
       },
     ],
+  },
+]
+
+const CUSTOMER_TODO_SEEDS: ExampleTodoSeed[] = [
+  {
+    title: 'Schedule Q3 performance review with Brightside Solar HOA board',
+    priority: 4,
+    severity: 'medium',
+    blocked: false,
+    labels: ['brightside', 'retention'],
+    createdAt: isoDaysFromNow(-12, { hour: 18, minute: 30 }),
+    target: { type: 'company', slug: 'brightside-solar' },
+    followUp: {
+      at: isoDaysFromNow(14, { hour: 16 }),
+      name: 'Brightside quarterly performance review',
+      icon: 'lucide:calendar-clock',
+      color: '#2563eb',
+    },
+  },
+  {
+    title: 'Send expansion ROI model to Harborview leadership team',
+    priority: 5,
+    severity: 'high',
+    blocked: false,
+    labels: ['harborview', 'expansion'],
+    createdAt: isoDaysFromNow(-9, { hour: 14, minute: 5 }),
+    target: { type: 'company', slug: 'harborview-analytics' },
+    followUp: {
+      at: isoDaysFromNow(21, { hour: 15, minute: 30 }),
+      name: 'ROI model review with Harborview COO',
+      icon: 'lucide:bar-chart-3',
+      color: '#22c55e',
+    },
+  },
+  {
+    title: 'Share Wanderstay sustainability materials with Naomi Harris',
+    priority: 3,
+    severity: 'medium',
+    blocked: false,
+    labels: ['copperleaf', 'sustainability'],
+    createdAt: isoDaysFromNow(-11, { hour: 13, minute: 20 }),
+    target: { type: 'person', slug: 'naomi-harris' },
+    followUp: {
+      at: isoDaysFromNow(10, { hour: 20 }),
+      name: 'Discuss Wanderstay sustainability concepts',
+      icon: 'lucide:clipboard-list',
+      color: '#f97316',
+    },
+  },
+  {
+    title: 'Confirm Cedar Creek retreat feedback call',
+    priority: 2,
+    severity: 'low',
+    blocked: false,
+    labels: ['copperleaf', 'postmortem'],
+    createdAt: isoDaysFromNow(-60, { hour: 17, minute: 45 }),
+    target: { type: 'company', slug: 'copperleaf-design' },
+    isDone: true,
+  },
+  {
+    title: 'Prep Harborview upsell workshop agenda for Lena Ortiz',
+    priority: 3,
+    severity: 'medium',
+    blocked: false,
+    labels: ['harborview', 'workshop'],
+    createdAt: isoDaysFromNow(-8, { hour: 12, minute: 10 }),
+    target: { type: 'person', slug: 'lena-ortiz' },
+    followUp: {
+      at: isoDaysFromNow(16, { hour: 14 }),
+      name: 'Harborview expansion workshop dry run',
+      icon: 'lucide:users',
+      color: '#a855f7',
+    },
   },
 ]
 
@@ -852,7 +1124,11 @@ async function seedCurrencyDictionary(em: EntityManager, { tenantId, organizatio
   }
 }
 
-async function seedCustomerExamples(em: EntityManager, { tenantId, organizationId }: SeedArgs): Promise<boolean> {
+async function seedCustomerExamples(
+  em: EntityManager,
+  container: AppContainer,
+  { tenantId, organizationId }: SeedArgs
+): Promise<boolean> {
   const exampleDealTitles = Array.from(
     new Set(
       CUSTOMER_EXAMPLES.flatMap((company) =>
@@ -872,6 +1148,38 @@ async function seedCustomerExamples(em: EntityManager, { tenantId, organizationI
   }
 
   await seedCustomerDictionaries(em, { tenantId, organizationId })
+
+  let cache: CacheStrategy | null = null
+  if (typeof (container as any).hasRegistration === 'function' && container.hasRegistration('cache')) {
+    try {
+      cache = container.resolve<CacheStrategy>('cache')
+    } catch {
+      cache = null
+    }
+  }
+  try {
+    await installCustomEntitiesFromModules(em, cache, {
+      tenantIds: [tenantId],
+      includeGlobal: false,
+      dryRun: false,
+      logger: () => {},
+    })
+  } catch (err) {
+    console.warn('[customers.cli] Failed to install custom entities before seeding examples', err)
+  }
+
+  try {
+    await ensureCustomFieldDefinitions(
+      em,
+      CUSTOMER_CUSTOM_FIELD_SETS,
+      { organizationId: null, tenantId }
+    )
+  } catch (err) {
+    console.warn('[customers.cli] Failed to ensure customer custom field definitions', err)
+  }
+
+  const dataEngine = new DefaultDataEngine(em, container)
+  const customFieldAssignments: Array<() => Promise<void>> = []
 
   const companyEntities = new Map<string, CustomerEntity>()
   const personEntities = new Map<string, CustomerEntity>()
@@ -904,6 +1212,19 @@ async function seedCustomerExamples(em: EntityManager, { tenantId, organizationI
     })
     em.persist(companyEntity)
     em.persist(companyProfile)
+
+    if (company.custom && Object.keys(company.custom).length) {
+      const values = { ...company.custom }
+      customFieldAssignments.push(async () =>
+        dataEngine.setCustomFields({
+          entityId: CoreEntities.customers.customer_company_profile,
+          recordId: companyProfile.id,
+          organizationId,
+          tenantId,
+          values: values as Record<string, unknown>,
+        })
+      )
+    }
 
     if (company.address?.addressLine1) {
       const address = em.create(CustomerAddress, {
@@ -963,6 +1284,19 @@ async function seedCustomerExamples(em: EntityManager, { tenantId, organizationI
       em.persist(personEntity)
       em.persist(personProfile)
 
+      if (person.custom && Object.keys(person.custom).length) {
+        const values = { ...person.custom }
+        customFieldAssignments.push(async () =>
+          dataEngine.setCustomFields({
+            entityId: CoreEntities.customers.customer_person_profile,
+            recordId: personProfile.id,
+            organizationId,
+            tenantId,
+            values: values as Record<string, unknown>,
+          })
+        )
+      }
+
       if (person.address?.addressLine1) {
         const address = em.create(CustomerAddress, {
           organizationId,
@@ -1008,6 +1342,19 @@ async function seedCustomerExamples(em: EntityManager, { tenantId, organizationI
         authorUserId: null,
       })
       em.persist(activity)
+
+      if (interaction.custom && Object.keys(interaction.custom).length) {
+        const values = { ...interaction.custom }
+        customFieldAssignments.push(async () =>
+          dataEngine.setCustomFields({
+            entityId: CoreEntities.customers.customer_activity,
+            recordId: activity.id,
+            organizationId,
+            tenantId,
+            values: values as Record<string, unknown>,
+          })
+        )
+      }
     }
 
     for (const note of company.notes ?? []) {
@@ -1057,6 +1404,19 @@ async function seedCustomerExamples(em: EntityManager, { tenantId, organizationI
       })
       em.persist(deal)
 
+      if (dealInfo.custom && Object.keys(dealInfo.custom).length) {
+        const values = { ...dealInfo.custom }
+        customFieldAssignments.push(async () =>
+          dataEngine.setCustomFields({
+            entityId: CoreEntities.customers.customer_deal,
+            recordId: deal.id,
+            organizationId,
+            tenantId,
+            values: values as Record<string, unknown>,
+          })
+        )
+      }
+
       const companyLink = em.create(CustomerDealCompanyLink, {
         deal,
         company: companyEntity,
@@ -1094,13 +1454,103 @@ async function seedCustomerExamples(em: EntityManager, { tenantId, organizationI
           authorUserId: null,
         })
         em.persist(activity)
+
+        if (activityInfo.custom && Object.keys(activityInfo.custom).length) {
+          const values = { ...activityInfo.custom }
+          customFieldAssignments.push(async () =>
+            dataEngine.setCustomFields({
+              entityId: CoreEntities.customers.customer_activity,
+              recordId: activity.id,
+              organizationId,
+              tenantId,
+              values: values as Record<string, unknown>,
+            })
+          )
+        }
       }
     }
   }
 
   await em.flush()
+
+  for (const assign of customFieldAssignments) {
+    try {
+      await assign()
+    } catch (err) {
+      console.warn('[customers.cli] Failed to set custom fields for seeded record', err)
+    }
+  }
+
+  const todoSeedsWithTargets: Array<{ seed: ExampleTodoSeed; todo: Todo; target: CustomerEntity | undefined }> = []
+
+  for (const seed of CUSTOMER_TODO_SEEDS) {
+    const createdAt = new Date(seed.createdAt)
+    const todo = em.create(Todo, {
+      title: seed.title,
+      isDone: seed.isDone ?? false,
+      organizationId,
+      tenantId,
+      createdAt,
+      updatedAt: createdAt,
+    })
+    em.persist(todo)
+
+    const target =
+      seed.target.type === 'company'
+        ? companyEntities.get(seed.target.slug)
+        : personEntities.get(seed.target.slug)
+    todoSeedsWithTargets.push({ seed, todo, target })
+  }
+
+  await em.flush()
+
+  for (const { seed, todo, target } of todoSeedsWithTargets) {
+    if (!target) continue
+    const link = em.create(CustomerTodoLink, {
+      organizationId,
+      tenantId,
+      todoId: todo.id,
+      entity: target,
+      createdAt: new Date(seed.createdAt),
+    })
+    em.persist(link)
+
+    if (seed.followUp) {
+      const followUpAt = new Date(seed.followUp.at)
+      if (!Number.isNaN(followUpAt.getTime())) {
+        target.nextInteractionAt = followUpAt
+      }
+      target.nextInteractionName = seed.followUp.name
+      target.nextInteractionIcon = seed.followUp.icon ?? 'lucide:calendar'
+      target.nextInteractionColor = seed.followUp.color ?? '#2563eb'
+      target.nextInteractionRefId = todo.id
+    }
+  }
+
+  await em.flush()
+
+  for (const { seed, todo } of todoSeedsWithTargets) {
+    try {
+      await dataEngine.setCustomFields({
+        entityId: ExampleEntities.example.todo,
+        recordId: todo.id,
+        organizationId,
+        tenantId,
+        values: {
+          priority: seed.priority,
+          severity: seed.severity,
+          blocked: seed.blocked ?? false,
+          labels: seed.labels,
+        },
+      })
+    } catch (err) {
+      console.warn('[customers.cli] Failed to set custom fields for seeded todo', err)
+    }
+  }
+
   return true
 }
+
 
 const seedDictionaries: ModuleCli = {
   command: 'seed-dictionaries',
@@ -1133,10 +1583,10 @@ const seedExamples: ModuleCli = {
       console.error('Usage: mercato customers seed-examples --tenant <tenantId> --org <organizationId>')
       return
     }
-    const { resolve } = await createRequestContainer()
-    const em = resolve<EntityManager>('em')
+    const container = await createRequestContainer()
+    const em = container.resolve<EntityManager>('em')
     const seeded = await em.transactional(async (tem) =>
-      seedCustomerExamples(tem, { tenantId, organizationId })
+      seedCustomerExamples(tem, container, { tenantId, organizationId })
     )
     if (seeded) {
       console.log('Customer example data seeded for organization', organizationId)
@@ -1149,3 +1599,92 @@ const seedExamples: ModuleCli = {
 const customersCliCommands = [seedDictionaries, seedExamples]
 
 export default customersCliCommands
+const CUSTOMER_CUSTOM_FIELD_SETS = [
+  {
+    entity: CoreEntities.customers.customer_person_profile,
+    fields: [
+      cf.select('buying_role', ['economic_buyer', 'champion', 'technical_evaluator', 'influencer'], {
+        label: 'Buying role',
+        description: 'Contact role within the buying committee.',
+        filterable: true,
+      }),
+      cf.text('preferred_pronouns', {
+        label: 'Preferred pronouns',
+        description: 'How the contact prefers to be addressed.',
+      }),
+      cf.boolean('newsletter_opt_in', {
+        label: 'Newsletter opt-in',
+        description: 'Indicates whether marketing newsletters are permitted.',
+        defaultValue: false,
+      }),
+    ],
+  },
+  {
+    entity: CoreEntities.customers.customer_company_profile,
+    fields: [
+      cf.select('relationship_health', ['healthy', 'monitor', 'at_risk'], {
+        label: 'Relationship health',
+        description: 'Overall account health assessment.',
+        filterable: true,
+      }),
+      cf.select('renewal_quarter', ['Q1', 'Q2', 'Q3', 'Q4'], {
+        label: 'Renewal quarter',
+        description: 'Expected renewal quarter for subscription accounts.',
+        filterable: true,
+      }),
+      cf.multiline('executive_notes', {
+        label: 'Executive notes',
+        description: 'Context shared during executive reviews.',
+        listVisible: false,
+      }),
+      cf.boolean('customer_marketing_case', {
+        label: 'Marketing case study ready',
+        description: 'The customer has approved participation in marketing collateral.',
+        defaultValue: false,
+      }),
+    ],
+  },
+  {
+    entity: CoreEntities.customers.customer_deal,
+    fields: [
+      cf.select('competitive_risk', ['low', 'medium', 'high'], {
+        label: 'Competitive risk',
+        description: 'Perceived threat level from competitors.',
+        filterable: true,
+      }),
+      cf.select('implementation_complexity', ['light', 'standard', 'complex'], {
+        label: 'Implementation complexity',
+        description: 'Expected level of effort for delivery.',
+      }),
+      cf.integer('estimated_seats', {
+        label: 'Estimated seats/licenses',
+        description: 'Projected seat count for the opportunity.',
+        filterable: true,
+      }),
+      cf.boolean('requires_legal_review', {
+        label: 'Requires legal review',
+        description: 'Deal includes terms that need legal approval.',
+        defaultValue: false,
+      }),
+    ],
+  },
+  {
+    entity: CoreEntities.customers.customer_activity,
+    fields: [
+      cf.select('engagement_sentiment', ['positive', 'neutral', 'negative'], {
+        label: 'Engagement sentiment',
+        description: 'Tone of the interaction based on the latest touchpoint.',
+        filterable: true,
+      }),
+      cf.boolean('shared_with_leadership', {
+        label: 'Shared with leadership',
+        description: 'Activity summary was shared with leadership or executives.',
+        defaultValue: false,
+      }),
+      cf.text('follow_up_owner', {
+        label: 'Follow-up owner',
+        description: 'Team member responsible for the next follow-up.',
+      }),
+    ],
+  },
+]

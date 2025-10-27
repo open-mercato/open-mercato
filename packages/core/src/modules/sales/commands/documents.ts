@@ -32,6 +32,7 @@ import {
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
 } from '../lib/calculations'
+import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 
 type QuoteGraphSnapshot = {
   quote: {
@@ -40,6 +41,7 @@ type QuoteGraphSnapshot = {
     tenantId: string
     quoteNumber: string
     statusEntryId: string | null
+    status: string | null
     customerEntityId: string | null
     customerContactId: string | null
     currencyCode: string
@@ -65,6 +67,7 @@ type QuoteLineSnapshot = {
   lineNumber: number
   kind: string
   statusEntryId: string | null
+  status: string | null
   productId: string | null
   productVariantId: string | null
   catalogSnapshot: Record<string, unknown> | null
@@ -129,6 +132,7 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
       tenantId: quote.tenantId,
       quoteNumber: quote.quoteNumber,
       statusEntryId: quote.statusEntryId ?? null,
+      status: quote.status ?? null,
       customerEntityId: quote.customerEntityId ?? null,
       customerContactId: quote.customerContactId ?? null,
       currencyCode: quote.currencyCode,
@@ -150,6 +154,7 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
       lineNumber: line.lineNumber,
       kind: line.kind,
       statusEntryId: line.statusEntryId ?? null,
+      status: line.status ?? null,
       productId: line.productId ?? null,
       productVariantId: line.productVariantId ?? null,
       catalogSnapshot: line.catalogSnapshot ? cloneJson(line.catalogSnapshot) : null,
@@ -378,15 +383,26 @@ async function replaceQuoteLines(
   lineInputs: QuoteLineCreateInput[]
 ): Promise<void> {
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id })
-  calculation.lines.forEach((lineResult, index) => {
+  const statusCache = new Map<string, string | null>()
+  const resolveStatus = async (entryId?: string | null) => {
+    if (!entryId) return null
+    if (statusCache.has(entryId)) return statusCache.get(entryId) ?? null
+    const value = await resolveDictionaryEntryValue(em, entryId)
+    statusCache.set(entryId, value)
+    return value
+  }
+  for (let index = 0; index < calculation.lines.length; index += 1) {
+    const lineResult = calculation.lines[index]
     const sourceLine = lineInputs[index]
     const entityInput = convertLineCalculationToEntityInput(lineResult, sourceLine, quote, index)
+    const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null)
     const lineEntity = em.create(SalesQuoteLine, {
       quote,
       ...entityInput,
+      status: statusValue,
     })
     em.persist(lineEntity)
-  })
+  }
 }
 
 async function replaceQuoteAdjustments(
@@ -438,6 +454,7 @@ function applyQuoteSnapshot(quote: SalesQuote, snapshot: QuoteGraphSnapshot['quo
   quote.tenantId = snapshot.tenantId
   quote.quoteNumber = snapshot.quoteNumber
   quote.statusEntryId = snapshot.statusEntryId ?? null
+  quote.status = snapshot.status ?? null
   quote.customerEntityId = snapshot.customerEntityId ?? null
   quote.customerContactId = snapshot.customerContactId ?? null
   quote.currencyCode = snapshot.currencyCode
@@ -482,6 +499,7 @@ async function restoreQuoteGraph(
       lineNumber: line.lineNumber,
       kind: line.kind,
       statusEntryId: line.statusEntryId ?? null,
+      status: line.status ?? null,
       productId: line.productId ?? null,
       productVariantId: line.productVariantId ?? null,
       catalogSnapshot: line.catalogSnapshot ? cloneJson(line.catalogSnapshot) : null,
@@ -540,11 +558,13 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     const parsed = quoteCreateSchema.parse(rawInput)
     ensureQuoteScope(ctx, parsed.organizationId, parsed.tenantId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
+    const quoteStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null)
     const quote = em.create(SalesQuote, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       quoteNumber: parsed.quoteNumber,
       statusEntryId: parsed.statusEntryId ?? null,
+      status: quoteStatus,
       customerEntityId: parsed.customerEntityId ?? null,
       customerContactId: parsed.customerContactId ?? null,
       currencyCode: parsed.currencyCode,
