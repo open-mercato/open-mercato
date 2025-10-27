@@ -3,6 +3,8 @@ import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { invalidateDictionaryCache } from '../api/dictionaries/cache'
+import type { CacheStrategy } from '@open-mercato/cache'
 import {
   customerDictionaryEntryCreateSchema,
   customerDictionaryEntryDeleteSchema,
@@ -85,6 +87,25 @@ function applySnapshot(entry: CustomerDictionaryEntry, snapshot: CustomerDiction
   entry.label = snapshot.label
   entry.color = snapshot.color
   entry.icon = snapshot.icon
+}
+
+async function invalidateCache(
+  ctx: CommandRuntimeContext,
+  snapshot: CustomerDictionaryEntrySnapshot | null | undefined
+) {
+  if (!snapshot) return
+  let cache: CacheStrategy | undefined
+  try {
+    cache = ctx.container.resolve<CacheStrategy>('cache')
+  } catch {
+    cache = undefined
+  }
+  if (!cache) return
+  await invalidateDictionaryCache(cache, {
+    tenantId: snapshot.tenantId,
+    mappedKind: snapshot.kind,
+    organizationIds: [snapshot.organizationId],
+  })
 }
 
 type CreateResult = {
@@ -208,38 +229,52 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     if (!undo) return
     const em = ctx.container.resolve<EntityManager>('em').fork()
 
-    if (undo.after && !undo.before) {
-      ensureTenantScope(ctx, undo.after.tenantId)
-      ensureOrganizationScope(ctx, undo.after.organizationId)
-      const entry = await em.findOne(CustomerDictionaryEntry, { id: undo.after.id })
+    const after =
+      undo.after ??
+      (logEntry?.snapshotAfter as CustomerDictionaryEntrySnapshot | null | undefined) ??
+      null
+
+    if (after && !undo.before) {
+      ensureTenantScope(ctx, after.tenantId)
+      ensureOrganizationScope(ctx, after.organizationId)
+      const entry = await em.findOne(CustomerDictionaryEntry, { id: after.id })
       if (entry) {
-        em.remove(entry)
-        await em.flush()
+        await em.removeAndFlush(entry)
+        await invalidateCache(ctx, after)
+        return
       }
+      await em.nativeDelete(CustomerDictionaryEntry, { id: after.id })
+      await invalidateCache(ctx, after)
       return
     }
 
-    if (undo.before) {
-      ensureTenantScope(ctx, undo.before.tenantId)
-      ensureOrganizationScope(ctx, undo.before.organizationId)
-      let entry = await em.findOne(CustomerDictionaryEntry, { id: undo.before.id })
+    const before =
+      undo.before ??
+      (logEntry?.snapshotBefore as CustomerDictionaryEntrySnapshot | null | undefined) ??
+      null
+
+    if (before) {
+      ensureTenantScope(ctx, before.tenantId)
+      ensureOrganizationScope(ctx, before.organizationId)
+      let entry = await em.findOne(CustomerDictionaryEntry, { id: before.id })
       if (!entry) {
         entry = em.create(CustomerDictionaryEntry, {
-          id: undo.before.id,
-          tenantId: undo.before.tenantId,
-          organizationId: undo.before.organizationId,
-          kind: undo.before.kind,
-          value: undo.before.value,
-          normalizedValue: undo.before.normalizedValue,
-          label: undo.before.label,
-          color: undo.before.color,
-          icon: undo.before.icon,
+          id: before.id,
+          tenantId: before.tenantId,
+          organizationId: before.organizationId,
+          kind: before.kind,
+          value: before.value,
+          normalizedValue: before.normalizedValue,
+          label: before.label,
+          color: before.color,
+          icon: before.icon,
         })
         em.persist(entry)
       } else {
-        applySnapshot(entry, undo.before)
+        applySnapshot(entry, before)
       }
       await em.flush()
+      await invalidateCache(ctx, before)
     }
   },
 }
@@ -356,7 +391,10 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
   },
   undo: async ({ logEntry, ctx }) => {
     const undo = extractUndoPayload<CustomerDictionaryEntryUndoPayload>(logEntry)
-    const before = undo?.before
+    const before =
+      undo?.before ??
+      (logEntry?.snapshotBefore as CustomerDictionaryEntrySnapshot | null | undefined) ??
+      null
     if (!before) return
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
@@ -379,6 +417,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
       applySnapshot(entry, before)
     }
     await em.flush()
+    await invalidateCache(ctx, before)
   },
 }
 
@@ -424,7 +463,10 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
   },
   undo: async ({ logEntry, ctx }) => {
     const undo = extractUndoPayload<CustomerDictionaryEntryUndoPayload>(logEntry)
-    const before = undo?.before
+    const before =
+      undo?.before ??
+      (logEntry?.snapshotBefore as CustomerDictionaryEntrySnapshot | null | undefined) ??
+      null
     if (!before) return
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
@@ -447,6 +489,7 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
       applySnapshot(entry, before)
     }
     await em.flush()
+    await invalidateCache(ctx, before)
   },
 }
 

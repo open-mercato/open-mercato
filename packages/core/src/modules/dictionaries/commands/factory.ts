@@ -271,16 +271,21 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
     },
     undo: async ({ logEntry, ctx }) => {
       const undo = extractUndoPayload<DictionaryEntryUndoPayload>(logEntry)
-      const after = undo?.after
+      const after =
+        undo?.after ??
+        (logEntry?.snapshotAfter as DictionaryEntrySnapshot | null | undefined) ??
+        null
       if (!after) return
       const em = ctx.container.resolve<EntityManager>('em').fork()
       scopeEnsurer(ctx, { tenantId: after.tenantId, organizationId: after.organizationId })
       const entry = await em.findOne(DictionaryEntry, after.id)
-      if (!entry) return
-      em.remove(entry)
-      await em.flush()
-    },
-  }
+      if (entry) {
+      await em.removeAndFlush(entry)
+      return
+    }
+    await em.nativeDelete(DictionaryEntry, { id: after.id })
+  },
+}
 
   const updateCommand: CommandHandler<
     ReturnType<typeof config.updateSchema['parse']>,
@@ -360,7 +365,10 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
     },
     undo: async ({ logEntry, ctx }) => {
       const undo = extractUndoPayload<DictionaryEntryUndoPayload>(logEntry)
-      const before = undo?.before
+      const before =
+        undo?.before ??
+        (logEntry?.snapshotBefore as DictionaryEntrySnapshot | null | undefined) ??
+        null
       if (!before) return
       const em = ctx.container.resolve<EntityManager>('em').fork()
       scopeEnsurer(ctx, { tenantId: before.tenantId, organizationId: before.organizationId })
@@ -429,7 +437,10 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
     },
     undo: async ({ logEntry, ctx }) => {
       const undo = extractUndoPayload<DictionaryEntryUndoPayload>(logEntry)
-      const before = undo?.before
+      const before =
+        undo?.before ??
+        (logEntry?.snapshotBefore as DictionaryEntrySnapshot | null | undefined) ??
+        null
       if (!before) return
       const em = ctx.container.resolve<EntityManager>('em').fork()
       scopeEnsurer(ctx, { tenantId: before.tenantId, organizationId: before.organizationId })

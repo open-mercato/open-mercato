@@ -128,5 +128,28 @@
         }
       }
     }
-  }
+    ,
+    "order-statuses": {
+      "create": "Add sales order status",
+      "update": "Update sales order status",
+      "delete": "Delete sales order status",
+      "audit": {
+        "create": "Add sales order status",
+        "update": "Update sales order status",
+        "delete": "Delete sales order status"
+      }
+    },
+    "order-line-statuses": {
+      "create": "Add sales order line status",
+      "update": "Update sales order line status",
+      "delete": "Delete sales order line status",
+      "audit": {
+        "create": "Add sales order line status",
+        "update": "Update sales order line status",
+        "delete": "Delete sales order line status"
+      }
+    }
+  },
+  "sales.order-statuses": {},
+  "sales.order-line-statuses": {}
 }

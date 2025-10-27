@@ -128,5 +128,11 @@
         }
       }
     }
-  }
+  },
+  "sales.order-statuses.create": "Dodaj status zamówienia",
+  "sales.order-statuses.update": "Zaktualizuj status zamówienia",
+  "sales.order-statuses.delete": "Usuń status zamówienia",
+  "sales.order-line-statuses.create": "Dodaj status pozycji zamówienia",
+  "sales.order-line-statuses.update": "Zaktualizuj status pozycji zamówienia",
+  "sales.order-line-statuses.delete": "Usuń status pozycji zamówienia"
 }

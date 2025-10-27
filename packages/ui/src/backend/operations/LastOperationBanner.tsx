@@ -16,7 +16,9 @@ export function LastOperationBanner() {
 
   if (!operation) return null
 
-  const label = operation.actionLabel || operation.commandId
+  const rawLabel = operation.actionLabel ?? operation.commandId
+  const translatedLabel = t(rawLabel)
+  const label = translatedLabel === rawLabel ? rawLabel : translatedLabel
   const isPending = pendingToken === operation.undoToken
 
   async function handleUndo() {

@@ -792,6 +792,9 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                   onActionChange={handleSectionActionChange}
                   onLoadingChange={handleTasksLoadingChange}
                   translator={t}
+                  entityName={personName}
+                  dialogContextKey="customers.people.detail.tasks.dialog.context"
+                  dialogContextFallback="This task will be linked to {{name}}"
                 />
               )}
             </div>

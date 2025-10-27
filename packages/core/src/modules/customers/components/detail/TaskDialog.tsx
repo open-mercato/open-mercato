@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { useT } from '@/lib/i18n/context'
 import type { TaskFormPayload } from './hooks/usePersonTasks'
 import { TaskForm } from './TaskForm'
@@ -13,9 +13,10 @@ export type TaskDialogProps = {
   initialValues?: Record<string, unknown>
   onSubmit: (payload: TaskFormPayload) => Promise<void>
   isSubmitting?: boolean
+  contextMessage?: string
 }
 
-export function TaskDialog({ open, mode, onOpenChange, initialValues, onSubmit, isSubmitting }: TaskDialogProps) {
+export function TaskDialog({ open, mode, onOpenChange, initialValues, onSubmit, isSubmitting, contextMessage }: TaskDialogProps) {
   const t = useT()
 
   const dialogTitle =
@@ -40,6 +41,7 @@ export function TaskDialog({ open, mode, onOpenChange, initialValues, onSubmit, 
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
+          {contextMessage ? <DialogDescription>{contextMessage}</DialogDescription> : null}
         </DialogHeader>
         <TaskForm
           mode={mode}

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { z, parse as zodParse } from 'zod'
+import { z, ZodError } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -11,6 +11,8 @@ import { withScopedPayload } from '../utils'
 import {
   todoLinkCreateSchema,
   todoLinkWithTodoCreateSchema,
+  type TodoLinkCreateInput,
+  type TodoLinkWithTodoCreateInput,
 } from '../../data/validators'
 import { CustomerTodoLink, CustomerEntity } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -20,6 +22,193 @@ import { E as ExampleEntities } from '@open-mercato/example/generated/entities.i
 const unlinkSchema = z.object({
   id: z.string().uuid(),
 })
+
+const isZodRuntimeMissing = (err: unknown): err is TypeError => err instanceof TypeError && typeof err.message === 'string' && err.message.includes('_zod')
+
+type ValidationRuntimeState = { available: boolean | null; warningLogged: boolean }
+
+const todoCreateValidationState: ValidationRuntimeState = { available: null, warningLogged: false }
+const todoLinkValidationState: ValidationRuntimeState = { available: null, warningLogged: false }
+const todoUnlinkValidationState: ValidationRuntimeState = { available: null, warningLogged: false }
+
+function ensureString(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim().length > 0) return value
+  return null
+}
+
+function normalizeTodoCreatePayload(
+  payload: Record<string, unknown>,
+  todoCustom: Record<string, unknown> | undefined,
+  custom: Record<string, unknown> | undefined,
+  translate: (key: string, fallback?: string) => string,
+): TodoLinkWithTodoCreateInput {
+  const tenantId = ensureString(payload.tenantId)
+  const organizationId = ensureString(payload.organizationId)
+  const entityId = ensureString(payload.entityId)
+  const titleRaw = typeof payload.title === 'string' ? payload.title : ''
+  const title = titleRaw.trim()
+  if (!tenantId || !organizationId || !entityId || !title) {
+    throw new CrudHttpError(400, {
+      error: translate('customers.errors.todo_create_failed', 'Failed to create todo'),
+    })
+  }
+
+  const todoSourceValue = ensureString(payload.todoSource) ?? 'example:todo'
+  const isDoneValue = typeof payload.isDone === 'boolean'
+    ? payload.isDone
+    : typeof payload.is_done === 'boolean'
+      ? payload.is_done
+      : undefined
+  const createdByUserId = ensureString(payload.createdByUserId) ?? undefined
+
+  const result: TodoLinkWithTodoCreateInput = {
+    tenantId,
+    organizationId,
+    entityId,
+    title,
+    todoSource: todoSourceValue,
+  }
+  if (isDoneValue !== undefined) result.isDone = isDoneValue
+  if (createdByUserId) result.createdByUserId = createdByUserId
+  if (todoCustom) result.todoCustom = todoCustom
+  if (custom) result.custom = custom
+  return result
+}
+
+function normalizeTodoLinkPayload(
+  payload: Record<string, unknown>,
+  translate: (key: string, fallback?: string) => string,
+): TodoLinkCreateInput {
+  const tenantId = ensureString(payload.tenantId)
+  const organizationId = ensureString(payload.organizationId)
+  const entityId = ensureString(payload.entityId)
+  const todoId = ensureString(payload.todoId)
+  if (!tenantId || !organizationId || !entityId || !todoId) {
+    throw new CrudHttpError(400, {
+      error: translate('customers.errors.todo_link_failed', 'Failed to link todo'),
+    })
+  }
+  const todoSourceValue = ensureString(payload.todoSource) ?? 'example:todo'
+  const createdByUserId = ensureString(payload.createdByUserId) ?? undefined
+  const result: TodoLinkCreateInput = {
+    tenantId,
+    organizationId,
+    entityId,
+    todoId,
+    todoSource: todoSourceValue,
+  }
+  if (createdByUserId) result.createdByUserId = createdByUserId
+  return result
+}
+
+function normalizeTodoUnlinkPayload(
+  payload: Record<string, unknown>,
+  translate: (key: string, fallback?: string) => string,
+): { id: string } {
+  const id = ensureString(payload.id)
+  if (!id) {
+    throw new CrudHttpError(400, {
+      error: translate('customers.errors.todo_unlink_failed', 'Failed to unlink todo'),
+    })
+  }
+  return { id }
+}
+
+function parseTodoCreateInput(
+  payload: Record<string, unknown>,
+  todoCustom: Record<string, unknown> | undefined,
+  custom: Record<string, unknown> | undefined,
+  translate: (key: string, fallback?: string) => string,
+): TodoLinkWithTodoCreateInput {
+  const shouldValidate = todoCreateValidationState.available !== false
+  if (shouldValidate) {
+    try {
+      const parsed = todoLinkWithTodoCreateSchema.parse({
+        ...payload,
+        todoCustom,
+        custom,
+      })
+      todoCreateValidationState.available = true
+      return parsed
+    } catch (err) {
+      if (err instanceof ZodError) {
+        throw new CrudHttpError(400, {
+          error: translate('customers.errors.todo_create_failed', 'Failed to create todo'),
+        })
+      }
+      if (isZodRuntimeMissing(err)) {
+        todoCreateValidationState.available = false
+        if (!todoCreateValidationState.warningLogged) {
+          todoCreateValidationState.warningLogged = true
+          console.warn('[customers.todos] falling back to permissive todo create parser', err)
+        }
+      } else {
+        throw err
+      }
+    }
+  }
+  return normalizeTodoCreatePayload(payload, todoCustom, custom, translate)
+}
+
+function parseTodoLinkInput(
+  payload: Record<string, unknown>,
+  translate: (key: string, fallback?: string) => string,
+): TodoLinkCreateInput {
+  const shouldValidate = todoLinkValidationState.available !== false
+  if (shouldValidate) {
+    try {
+      const parsed = todoLinkCreateSchema.parse(payload)
+      todoLinkValidationState.available = true
+      return parsed
+    } catch (err) {
+      if (err instanceof ZodError) {
+        throw new CrudHttpError(400, {
+          error: translate('customers.errors.todo_link_failed', 'Failed to link todo'),
+        })
+      }
+      if (isZodRuntimeMissing(err)) {
+        todoLinkValidationState.available = false
+        if (!todoLinkValidationState.warningLogged) {
+          todoLinkValidationState.warningLogged = true
+          console.warn('[customers.todos] falling back to permissive todo link parser', err)
+        }
+      } else {
+        throw err
+      }
+    }
+  }
+  return normalizeTodoLinkPayload(payload, translate)
+}
+
+function parseTodoUnlinkInput(
+  payload: Record<string, unknown>,
+  translate: (key: string, fallback?: string) => string,
+): { id: string } {
+  const shouldValidate = todoUnlinkValidationState.available !== false
+  if (shouldValidate) {
+    try {
+      const parsed = unlinkSchema.parse(payload)
+      todoUnlinkValidationState.available = true
+      return parsed
+    } catch (err) {
+      if (err instanceof ZodError) {
+        throw new CrudHttpError(400, {
+          error: translate('customers.errors.todo_unlink_failed', 'Failed to unlink todo'),
+        })
+      }
+      if (isZodRuntimeMissing(err)) {
+        todoUnlinkValidationState.available = false
+        if (!todoUnlinkValidationState.warningLogged) {
+          todoUnlinkValidationState.warningLogged = true
+          console.warn('[customers.todos] falling back to permissive todo unlink parser', err)
+        }
+      } else {
+        throw err
+      }
+    }
+  }
+  return normalizeTodoUnlinkPayload(payload, translate)
+}
 
 function toPlainRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value) return undefined
@@ -100,6 +289,50 @@ type CustomerTodoLinkRow = {
     displayName: string | null
     kind: string | null
   }
+}
+
+const entityIdSchema = z.object({
+  entityId: z.string().uuid(),
+})
+
+async function resolveTaskEntityContext(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  translate: (key: string, fallback?: string) => string,
+  payload: unknown,
+): Promise<{ entityId: string; organizationId: string; tenantId: string }> {
+  const parsed = entityIdSchema.safeParse(payload)
+  if (!parsed.success) {
+    throw new CrudHttpError(400, {
+      error: translate('customers.errors.todo_entity_required', 'Customer reference is required'),
+    })
+  }
+
+  const entityId = parsed.data.entityId
+  const entity = await em.findOne(CustomerEntity, { id: entityId, deletedAt: null })
+  if (!entity) {
+    throw new CrudHttpError(404, {
+      error: translate('customers.errors.todo_entity_not_found', 'Customer not found'),
+    })
+  }
+
+  const tenantScope = ctx.auth?.tenantId ?? null
+  const tenantId = entity.tenantId
+  if (tenantScope && tenantScope !== tenantId) {
+    throw new CrudHttpError(403, {
+      error: translate('customers.errors.todo_scope_forbidden', 'Customer is not accessible in this organization'),
+    })
+  }
+
+  const organizationId = entity.organizationId
+  const allowedOrgIds = ctx.organizationScope?.allowedIds ?? ctx.organizationIds
+  if (Array.isArray(allowedOrgIds) && allowedOrgIds.length > 0 && !allowedOrgIds.includes(organizationId)) {
+    throw new CrudHttpError(403, {
+      error: translate('customers.errors.organization_forbidden', 'Organization not accessible'),
+    })
+  }
+
+  return { entityId, organizationId, tenantId }
 }
 
 export async function GET(req: Request) {
@@ -433,17 +666,32 @@ export async function POST(req: Request) {
   try {
     const { ctx, translate } = await buildContext(req)
     const raw = await req.json().catch(() => ({}))
-    const scopedPayload = withScopedPayload(raw, ctx, translate)
-    const normalizedTodoCustom = toPlainRecord(
-      (scopedPayload as { todoCustom?: unknown }).todoCustom ??
-        (scopedPayload as { custom?: unknown }).custom,
-    )
-    const normalizedCustom = toPlainRecord((scopedPayload as { custom?: unknown }).custom)
-    const input = zodParse(todoLinkWithTodoCreateSchema, {
+    const scopedPayload = withScopedPayload(raw, ctx, translate, { requireOrganization: false })
+    const em = ctx.container.resolve<EntityManager>('em')
+    const entityContext = await resolveTaskEntityContext(em, ctx, translate, scopedPayload)
+
+    if (scopedPayload.tenantId && scopedPayload.tenantId !== entityContext.tenantId) {
+      throw new CrudHttpError(403, {
+        error: translate('customers.errors.todo_scope_forbidden', 'Customer is not accessible in this organization'),
+      })
+    }
+
+    const mergedPayload = {
       ...scopedPayload,
-      todoCustom: normalizedTodoCustom,
-      custom: normalizedCustom,
-    })
+      ...entityContext,
+    }
+
+    const normalizedTodoCustom = toPlainRecord(
+      (mergedPayload as { todoCustom?: unknown }).todoCustom ??
+        (mergedPayload as { custom?: unknown }).custom,
+    )
+    const normalizedCustom = toPlainRecord((mergedPayload as { custom?: unknown }).custom)
+    const input = parseTodoCreateInput(
+      mergedPayload as Record<string, unknown>,
+      normalizedTodoCustom,
+      normalizedCustom,
+      translate,
+    )
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
     const { result, logEntry } = await commandBus.execute('customers.todos.create', { input, ctx })
@@ -470,8 +718,22 @@ export async function PUT(req: Request) {
   try {
     const { ctx, translate } = await buildContext(req)
     const raw = await req.json().catch(() => ({}))
-    const scopedPayload = withScopedPayload(raw, ctx, translate)
-    const input = zodParse(todoLinkCreateSchema, scopedPayload)
+    const scopedPayload = withScopedPayload(raw, ctx, translate, { requireOrganization: false })
+    const em = ctx.container.resolve<EntityManager>('em')
+    const entityContext = await resolveTaskEntityContext(em, ctx, translate, scopedPayload)
+
+    if (scopedPayload.tenantId && scopedPayload.tenantId !== entityContext.tenantId) {
+      throw new CrudHttpError(403, {
+        error: translate('customers.errors.todo_scope_forbidden', 'Customer is not accessible in this organization'),
+      })
+    }
+
+    const mergedPayload = {
+      ...scopedPayload,
+      ...entityContext,
+    }
+
+    const input = parseTodoLinkInput(mergedPayload as Record<string, unknown>, translate)
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
     const { result, logEntry } = await commandBus.execute('customers.todos.link', { input, ctx })
@@ -502,7 +764,7 @@ export async function DELETE(req: Request) {
     if (!idValue) {
       throw new CrudHttpError(400, { error: translate('customers.errors.todo_link_required', 'Todo link id is required') })
     }
-    const input = zodParse(unlinkSchema, { id: idValue })
+    const input = parseTodoUnlinkInput({ id: idValue }, translate)
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
     const { result, logEntry } = await commandBus.execute('customers.todos.unlink', { input, ctx })
