@@ -16,7 +16,9 @@ export async function run(argv = process.argv) {
     try {
       const initArgs = parts.slice(1).filter(Boolean)
       const reinstall = initArgs.includes('--reinstall') || initArgs.includes('-r')
+      const skipExamples = initArgs.includes('--no-examples') || initArgs.includes('--no-exampls')
       console.log(`🔄 Reinstall mode: ${reinstall ? 'enabled' : 'disabled'}`)
+      console.log(`🎨 Example content: ${skipExamples ? 'skipped (--no-examples)' : 'enabled'}`)
 
       if (reinstall) {
         // Load env variables so DATABASE_URL is available
@@ -116,9 +118,17 @@ export async function run(argv = process.argv) {
         execSync(`yarn mercato customers seed-dictionaries --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
         console.log('✅ Customer dictionaries seeded\n')
 
-        console.log('📝 Seeding example todos...')
-        execSync(`yarn mercato example seed-todos --org ${orgId} --tenant ${tenantId}`, { stdio: 'inherit' })
-        console.log('✅ Example todos seeded\n')
+        if (skipExamples) {
+          console.log('🚫 Example data seeding skipped (--no-examples)\n')
+        } else {
+          console.log('🏢 Seeding customer examples...')
+          execSync(`yarn mercato customers seed-examples --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
+          console.log('✅ Customer examples seeded\n')
+
+          console.log('📝 Seeding example todos...')
+          execSync(`yarn mercato example seed-todos --org ${orgId} --tenant ${tenantId}`, { stdio: 'inherit' })
+          console.log('✅ Example todos seeded\n')
+        }
 
         console.log('🧩 Enabling default dashboard widgets...')
         execSync(`yarn mercato dashboards seed-defaults --tenant ${tenantId}`, { stdio: 'inherit' })

@@ -47,9 +47,10 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
     }
   }
 
-  const apply = (patch: Partial<Def>, propagateNow = false) => {
+  const apply = (patch: Partial<Def> | ((current: Def) => Partial<Def>), propagateNow = false) => {
     setLocal((prev) => {
-      const next = { ...prev, ...patch }
+      const resolvedPatch = typeof patch === 'function' ? patch(prev) : patch
+      const next = { ...prev, ...resolvedPatch }
       if (!propagateNow) return next
       const sanitized = sanitizeDef(next)
       onChange(sanitized)
@@ -281,9 +282,11 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
             type="button"
             className="text-xs px-2 py-1 border rounded hover:bg-gray-50 inline-flex items-center gap-1"
             onClick={() => {
-              const list = Array.isArray(local.configJson?.validation) ? [...local.configJson!.validation] : []
-              list.push({ rule: 'required', message: 'This field is required' } as any)
-              apply({ configJson: { ...(local.configJson || {}), validation: list } }, true)
+              apply((current) => {
+                const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
+                list.push({ rule: 'required', message: 'This field is required' } as any)
+                return { configJson: { ...(current.configJson || {}), validation: list } }
+              }, true)
             }}
           >
             <Plus className="h-3.5 w-3.5" />
@@ -298,9 +301,13 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
                   className="border rounded w-full px-2 py-1 text-sm"
                   value={r?.rule || 'required'}
                   onChange={(e) => {
-                    const list = [...(local.configJson?.validation || [])]
-                    list[i] = { rule: e.target.value, message: r?.message || '' }
-                    apply({ configJson: { ...(local.configJson || {}), validation: list } }, true)
+                    const nextRule = e.target.value
+                    apply((current) => {
+                      const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
+                      const existing = (list[i] as any) || {}
+                      list[i] = { ...existing, rule: nextRule, message: existing.message || r?.message || '' }
+                      return { configJson: { ...(current.configJson || {}), validation: list } }
+                    }, true)
                   }}
                 >
                   <option value="required">required</option>
@@ -323,9 +330,12 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
                   value={r?.param ?? ''}
                   onChange={(e) => {
                     const v = ['lt','lte','gt','gte'].includes(r?.rule) ? Number(e.target.value) : e.target.value
-                    const list = [...(local.configJson?.validation || [])]
-                    list[i] = { ...r, param: v }
-                    apply({ configJson: { ...(local.configJson || {}), validation: list } })
+                    apply((current) => {
+                      const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
+                      const existing = (list[i] as any) || {}
+                      list[i] = { ...existing, ...r, param: v }
+                      return { configJson: { ...(current.configJson || {}), validation: list } }
+                    })
                   }}
                   onBlur={commit}
                   disabled={r?.rule === 'required' || r?.rule === 'date' || r?.rule === 'integer' || r?.rule === 'float'}
@@ -337,9 +347,13 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
                   placeholder="Error message"
                   value={r?.message || ''}
                   onChange={(e) => {
-                    const list = [...(local.configJson?.validation || [])]
-                    list[i] = { ...r, message: e.target.value }
-                    apply({ configJson: { ...(local.configJson || {}), validation: list } })
+                    const message = e.target.value
+                    apply((current) => {
+                      const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
+                      const existing = (list[i] as any) || {}
+                      list[i] = { ...existing, ...r, message }
+                      return { configJson: { ...(current.configJson || {}), validation: list } }
+                    })
                   }}
                   onBlur={commit}
                 />
@@ -350,9 +364,11 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
                   className="px-2 py-1 border rounded hover:bg-gray-50"
                   aria-label="Remove rule"
                   onClick={() => {
-                    const list = [...(local.configJson?.validation || [])]
-                    list.splice(i, 1)
-                    apply({ configJson: { ...(local.configJson || {}), validation: list } }, true)
+                    apply((current) => {
+                      const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
+                      list.splice(i, 1)
+                      return { configJson: { ...(current.configJson || {}), validation: list } }
+                    }, true)
                   }}
                 >
                   <Trash2 className="h-4 w-4" />
