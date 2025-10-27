@@ -12,6 +12,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
   const [initial, setInitial] = React.useState<any | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
+  const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
 
   React.useEffect(() => {
     if (!id) return
@@ -22,7 +23,10 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
         const res = await apiFetch(`/api/auth/roles?id=${encodeURIComponent(roleId)}`)
         const j = await res.json()
         const found = (j.items || [])[0]
-        if (!cancelled) setInitial(found || null)
+        if (!cancelled) {
+          setActorIsSuperAdmin(Boolean(j?.isSuperAdmin))
+          setInitial(found || null)
+        }
       } catch {}
       if (!cancelled) setLoading(false)
     }
@@ -36,7 +40,23 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['name'] },
     { id: 'customFields', title: 'Custom Fields', column: 2, kind: 'customFields' },
-    { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="role" targetId={String(id)} canEditOrganizations={true} value={aclData} onChange={setAclData} /> : null) },
+    {
+      id: 'acl',
+      title: 'Access',
+      column: 1,
+      component: () => (id
+        ? (
+          <AclEditor
+            kind="role"
+            targetId={String(id)}
+            canEditOrganizations={true}
+            value={aclData}
+            onChange={setAclData}
+            currentUserIsSuperAdmin={actorIsSuperAdmin}
+          />
+        )
+        : null),
+    },
     {
       id: 'dashboardWidgets',
       title: 'Dashboard Widgets',

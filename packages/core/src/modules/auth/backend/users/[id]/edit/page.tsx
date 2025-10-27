@@ -36,6 +36,7 @@ type UserApiItem = {
 
 type UserListResponse = {
   items?: UserApiItem[]
+  isSuperAdmin?: boolean
 }
 
 export default function EditUserPage({ params }: { params?: { id?: string } }) {
@@ -46,6 +47,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [canEditOrgs, setCanEditOrgs] = React.useState(false)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
+  const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
 
   React.useEffect(() => {
     if (!id) {
@@ -63,6 +65,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         const payload: UserListResponse = await res.json().catch(() => ({}))
         const item = Array.isArray(payload.items) ? payload.items[0] : undefined
         if (!cancelled) {
+          setActorIsSuperAdmin(Boolean(payload?.isSuperAdmin))
           if (!item) {
             setError('User not found')
             setCustomFieldValues({})
@@ -137,7 +140,24 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['email', 'password', 'organizationId', 'roles'] },
     { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
-    { id: 'acl', title: 'Access', column: 1, component: () => (id ? <AclEditor kind="user" targetId={String(id)} canEditOrganizations={canEditOrgs} value={aclData} onChange={setAclData} userRoles={initialUser?.roles || []} /> : null) },
+    {
+      id: 'acl',
+      title: 'Access',
+      column: 1,
+      component: () => (id
+        ? (
+          <AclEditor
+            kind="user"
+            targetId={String(id)}
+            canEditOrganizations={canEditOrgs}
+            value={aclData}
+            onChange={setAclData}
+            userRoles={initialUser?.roles || []}
+            currentUserIsSuperAdmin={actorIsSuperAdmin}
+          />
+        )
+        : null),
+    },
     {
       id: 'dashboardWidgets',
       title: 'Dashboard Widgets',
