@@ -23,6 +23,17 @@ const percentage = () => decimal({ min: 0, max: 100 })
 
 const metadata = z.record(z.string(), z.unknown()).optional()
 
+const dictionaryColor = z
+  .string()
+  .trim()
+  .regex(/^#([0-9A-Fa-f]{6})$/, 'color must be a hex value (e.g. #0060df)')
+
+const dictionaryIcon = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+
 export const channelCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   code: z
@@ -151,6 +162,19 @@ export const taxRateUpdateSchema = z
     id: uuid(),
   })
   .merge(taxRateCreateSchema.partial())
+
+export const statusDictionaryCreateSchema = scoped.extend({
+  value: z.string().trim().min(1).max(150),
+  label: z.string().trim().max(150).optional(),
+  color: dictionaryColor.optional(),
+  icon: dictionaryIcon.optional(),
+})
+
+export const statusDictionaryUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(statusDictionaryCreateSchema.partial())
 
 const lineKindSchema = z.enum(['product', 'service', 'shipping', 'discount', 'adjustment'])
 

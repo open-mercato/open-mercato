@@ -11,6 +11,7 @@ import {
   CustomerDealCompanyLink,
   CustomerActivity,
   CustomerAddress,
+  CustomerComment,
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
 
@@ -19,28 +20,81 @@ type SeedArgs = {
   organizationId: string
 }
 
-const DEAL_STATUS_DEFAULTS = [
-  { value: 'open', label: 'Open' },
-  { value: 'closed', label: 'Closed' },
-  { value: 'win', label: 'Win' },
-  { value: 'loose', label: 'Loose' },
-  { value: 'in_progress', label: 'In progress' },
+type DictionaryDefault = {
+  value: string
+  label: string
+  color?: string
+  icon?: string
+}
+
+const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
+  { value: 'open', label: 'Open', color: '#2563eb', icon: 'circle-dot' },
+  { value: 'closed', label: 'Closed', color: '#6b7280', icon: 'circle-check' },
+  { value: 'win', label: 'Win', color: '#22c55e', icon: 'trophy' },
+  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'x-octagon' },
+  { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'loader' },
 ]
 
-const PIPELINE_STAGE_DEFAULTS = [
-  { value: 'opportunity', label: 'Opportunity' },
-  { value: 'marketing_qualified_lead', label: 'Marketing Qualified Lead' },
-  { value: 'sales_qualified_lead', label: 'Sales Qualified Lead' },
-  { value: 'offering', label: 'Offering' },
-  { value: 'negotiations', label: 'Negotiations' },
-  { value: 'win', label: 'Win' },
-  { value: 'loose', label: 'Loose' },
-  { value: 'stalled', label: 'Stalled' },
+const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
+  { value: 'opportunity', label: 'Opportunity', color: '#38bdf8', icon: 'target' },
+  { value: 'marketing_qualified_lead', label: 'Marketing Qualified Lead', color: '#a855f7', icon: 'sparkles' },
+  { value: 'sales_qualified_lead', label: 'Sales Qualified Lead', color: '#f97316', icon: 'users' },
+  { value: 'offering', label: 'Offering', color: '#22c55e', icon: 'file-text' },
+  { value: 'negotiations', label: 'Negotiations', color: '#facc15', icon: 'handshake' },
+  { value: 'win', label: 'Win', color: '#16a34a', icon: 'award' },
+  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'x-circle' },
+  { value: 'stalled', label: 'Stalled', color: '#6b7280', icon: 'pause-circle' },
+]
+
+const ENTITY_STATUS_DEFAULTS: DictionaryDefault[] = [
+  { value: 'customer', label: 'Customer', color: '#16a34a', icon: 'handshake' },
+  { value: 'active', label: 'Active', color: '#2563eb', icon: 'user-check' },
+  { value: 'prospect', label: 'Prospect', color: '#f59e0b', icon: 'user-plus' },
+  { value: 'inactive', label: 'Inactive', color: '#6b7280', icon: 'user-x' },
+]
+
+const ENTITY_LIFECYCLE_STAGE_DEFAULTS: DictionaryDefault[] = [
+  { value: 'prospect', label: 'Prospect', color: '#f59e0b', icon: 'sparkles' },
+  { value: 'evaluation', label: 'Evaluation', color: '#a855f7', icon: 'bar-chart-3' },
+  { value: 'customer', label: 'Customer', color: '#22c55e', icon: 'handshake' },
+  { value: 'expansion', label: 'Expansion', color: '#0ea5e9', icon: 'trending-up' },
+  { value: 'churned', label: 'Churned', color: '#ef4444', icon: 'circle-slash' },
+]
+
+const ENTITY_SOURCE_DEFAULTS: DictionaryDefault[] = [
+  { value: 'partner_referral', label: 'Partner referral', color: '#6366f1', icon: 'users' },
+  { value: 'customer_referral', label: 'Customer referral', color: '#22c55e', icon: 'sparkles' },
+  { value: 'industry_event', label: 'Industry event', color: '#f97316', icon: 'calendar' },
+  { value: 'inbound_web', label: 'Inbound web', color: '#0ea5e9', icon: 'globe' },
+  { value: 'outbound_campaign', label: 'Outbound campaign', color: '#facc15', icon: 'megaphone' },
+]
+
+const ADDRESS_TYPE_DEFAULTS: DictionaryDefault[] = [
+  { value: 'office', label: 'Office', color: '#3b82f6', icon: 'building' },
+  { value: 'work', label: 'Work', color: '#6366f1', icon: 'briefcase' },
+  { value: 'billing', label: 'Billing', color: '#f97316', icon: 'receipt' },
+  { value: 'shipping', label: 'Shipping', color: '#22c55e', icon: 'package' },
+  { value: 'home', label: 'Home', color: '#10b981', icon: 'home' },
+]
+
+const ACTIVITY_TYPE_DEFAULTS: DictionaryDefault[] = [
+  { value: 'call', label: 'Call', color: '#2563eb', icon: 'phone' },
+  { value: 'email', label: 'Email', color: '#16a34a', icon: 'mail' },
+  { value: 'meeting', label: 'Meeting', color: '#f59e0b', icon: 'users' },
+  { value: 'note', label: 'Note', color: '#a855f7', icon: 'file-text' },
+  { value: 'task', label: 'Task', color: '#ef4444', icon: 'check-square' },
+]
+
+const JOB_TITLE_DEFAULTS: DictionaryDefault[] = [
+  { value: 'Director of Operations', label: 'Director of Operations', color: '#f97316', icon: 'settings' },
+  { value: 'VP of Partnerships', label: 'VP of Partnerships', color: '#6366f1', icon: 'users' },
+  { value: 'Founder & Principal', label: 'Founder & Principal', color: '#ec4899', icon: 'star' },
+  { value: 'Senior Project Manager', label: 'Senior Project Manager', color: '#0ea5e9', icon: 'clipboard-list' },
+  { value: 'Chief Revenue Officer', label: 'Chief Revenue Officer', color: '#8b5cf6', icon: 'line-chart' },
+  { value: 'Director of Retail Partnerships', label: 'Director of Retail Partnerships', color: '#f59e0b', icon: 'shopping-bag' },
 ]
 
 const PRIORITY_CURRENCIES = ['EUR', 'USD', 'GBP', 'PLN']
-
-const EXAMPLE_SOURCE = 'seed:customers.examples'
 
 type ExampleAddress = {
   name?: string
@@ -72,6 +126,7 @@ type ExamplePerson = {
   twitterUrl?: string
   address?: ExampleAddress
   description?: string
+  source?: string
 }
 
 type ExampleDealParticipant = {
@@ -90,6 +145,15 @@ type ExampleActivity = {
   color?: string
 }
 
+type ExampleNote = {
+  entity: 'company' | 'person'
+  personSlug?: string
+  body: string
+  occurredAt?: string
+  icon?: string
+  color?: string
+}
+
 type ExampleDeal = {
   slug: string
   title: string
@@ -102,6 +166,7 @@ type ExampleDeal = {
   expectedCloseAt?: string
   people: ExampleDealParticipant[]
   activities?: ExampleActivity[]
+  source?: string
 }
 
 type ExampleCompany = {
@@ -116,6 +181,7 @@ type ExampleCompany = {
   description?: string
   primaryEmail?: string
   primaryPhone?: string
+  source?: string
   lifecycleStage?: string
   status?: string
   annualRevenue?: number
@@ -123,6 +189,7 @@ type ExampleCompany = {
   people?: ExamplePerson[]
   deals?: ExampleDeal[]
   interactions?: ExampleActivity[]
+  notes?: ExampleNote[]
 }
 
 const CUSTOMER_EXAMPLES: ExampleCompany[] = [
@@ -139,6 +206,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
       'Community solar developer helping multifamily buildings reduce energy costs across California.',
     primaryEmail: 'hello@brightsidesolar.com',
     primaryPhone: '+1 415-555-0148',
+    source: 'partner_referral',
     lifecycleStage: 'customer',
     status: 'customer',
     address: {
@@ -165,6 +233,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         phone: '+1 415-555-0162',
         timezone: 'America/Los_Angeles',
         linkedInUrl: 'https://www.linkedin.com/in/miajohnson-operations/',
+        source: 'partner_referral',
         address: {
           purpose: 'work',
           addressLine1: '245 Market St Suite 410',
@@ -185,6 +254,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         phone: '+1 628-555-0199',
         timezone: 'America/Los_Angeles',
         linkedInUrl: 'https://www.linkedin.com/in/danielcho-energy/',
+        source: 'outbound_campaign',
       },
     ],
     deals: [
@@ -194,6 +264,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: '40-home solar installation with ongoing maintenance plan.',
         status: 'in_progress',
         pipelineStage: 'negotiations',
+        source: 'partner_referral',
         valueAmount: 185000,
         valueCurrency: 'USD',
         expectedCloseAt: '2024-09-30T00:00:00.000Z',
@@ -210,7 +281,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             body: 'Reviewed financing options and clarified maintenance service tiers for the board.',
             occurredAt: '2024-07-18T17:30:00.000Z',
             icon: 'phone',
-            color: '#1f77b4',
+            color: '#2563eb',
           },
           {
             entity: 'person',
@@ -220,7 +291,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             body: 'Sent two case studies highlighting 18% average utility bill savings for similar complexes.',
             occurredAt: '2024-07-22T19:15:00.000Z',
             icon: 'file-text',
-            color: '#9467bd',
+            color: '#a855f7',
           },
         ],
       },
@@ -230,6 +301,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: 'Battery upgrade for existing solar customers to extend overnight coverage.',
         status: 'open',
         pipelineStage: 'offering',
+        source: 'inbound_web',
         valueAmount: 82000,
         valueCurrency: 'USD',
         expectedCloseAt: '2024-10-20T00:00:00.000Z',
@@ -243,7 +315,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             body: 'Audit identified 28 units that need inverter firmware updates before batteries ship.',
             occurredAt: '2024-07-10T21:00:00.000Z',
             icon: 'users',
-            color: '#ff7f0e',
+            color: '#f59e0b',
           },
         ],
       },
@@ -256,7 +328,24 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         body: 'Shared Q2 satisfaction survey with portfolio property managers.',
         occurredAt: '2024-07-05T16:00:00.000Z',
         icon: 'mail',
-        color: '#2ca02c',
+        color: '#16a34a',
+      },
+    ],
+    notes: [
+      {
+        entity: 'company',
+        body: 'Completed energy audit across 12 HOA buildings; evaluating maintenance bundle add-on.',
+        occurredAt: '2024-07-14T18:00:00.000Z',
+        icon: 'sun',
+        color: '#fbbf24',
+      },
+      {
+        entity: 'person',
+        personSlug: 'mia-johnson',
+        body: 'Mia requested financing comparison deck before the board vote.',
+        occurredAt: '2024-07-18T15:30:00.000Z',
+        icon: 'bookmark',
+        color: '#a855f7',
       },
     ],
   },
@@ -273,6 +362,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
       'Boston-based analytics platform helping consumer brands optimize merchandising decisions.',
     primaryEmail: 'info@harborviewanalytics.com',
     primaryPhone: '+1 617-555-0024',
+    source: 'industry_event',
     lifecycleStage: 'prospect',
     status: 'active',
     address: {
@@ -298,6 +388,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         phone: '+1 617-555-0168',
         timezone: 'America/New_York',
         linkedInUrl: 'https://www.linkedin.com/in/arjunpatel-sales/',
+        source: 'industry_event',
       },
       {
         slug: 'lena-ortiz',
@@ -310,6 +401,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         phone: '+1 617-555-0179',
         timezone: 'America/New_York',
         linkedInUrl: 'https://www.linkedin.com/in/lenaortiz-retail/',
+        source: 'industry_event',
       },
     ],
     deals: [
@@ -319,6 +411,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: 'Six-month pilot of merchandising analytics across 28 locations.',
         status: 'win',
         pipelineStage: 'win',
+        source: 'industry_event',
         valueAmount: 96000,
         valueCurrency: 'USD',
         expectedCloseAt: '2024-06-15T00:00:00.000Z',
@@ -334,8 +427,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             subject: 'Contract signed with procurement',
             body: 'Procurement signed SOW; onboarding kickoff scheduled for next Tuesday.',
             occurredAt: '2024-06-11T14:30:00.000Z',
-            icon: 'check',
-            color: '#17becf',
+            icon: 'users',
+            color: '#f59e0b',
           },
           {
             entity: 'person',
@@ -344,8 +437,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             subject: 'Shared onboarding checklist',
             body: 'Sent checklist covering data exports and point-of-sale integrations required for go-live.',
             occurredAt: '2024-06-12T13:05:00.000Z',
-            icon: 'clipboard',
-            color: '#bcbd22',
+            icon: 'mail',
+            color: '#16a34a',
           },
         ],
       },
@@ -355,6 +448,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: 'Expansion opportunity covering 120 stores in the Midwest region.',
         status: 'open',
         pipelineStage: 'opportunity',
+        source: 'outbound_campaign',
         valueAmount: 210000,
         valueCurrency: 'USD',
         expectedCloseAt: '2024-12-05T00:00:00.000Z',
@@ -367,8 +461,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             subject: 'Introduced predictive forecasting module',
             body: 'Walkthrough of demand forecasting module with COO and finance controller.',
             occurredAt: '2024-07-08T15:45:00.000Z',
-            icon: 'bar-chart',
-            color: '#e377c2',
+            icon: 'phone',
+            color: '#2563eb',
           },
         ],
       },
@@ -381,8 +475,25 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         subject: 'Requested pricing comparison',
         body: 'Arjun asked for pricing comparison versus Qlik ahead of board review.',
         occurredAt: '2024-07-03T12:10:00.000Z',
-        icon: 'dollar-sign',
-        color: '#8c564b',
+        icon: 'file-text',
+        color: '#a855f7',
+      },
+    ],
+    notes: [
+      {
+        entity: 'company',
+        body: 'Pilot success metrics shared with board; expansion depends on Q4 budget review.',
+        occurredAt: '2024-07-06T17:45:00.000Z',
+        icon: 'line-chart',
+        color: '#38bdf8',
+      },
+      {
+        entity: 'person',
+        personSlug: 'lena-ortiz',
+        body: 'Lena confirmed data team can supply POS exports within two weeks.',
+        occurredAt: '2024-07-09T11:20:00.000Z',
+        icon: 'clipboard-list',
+        color: '#0ea5e9',
       },
     ],
   },
@@ -399,6 +510,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
       'Boutique interior design studio specializing in hospitality and boutique retail projects across Texas.',
     primaryEmail: 'studio@copperleaf.design',
     primaryPhone: '+1 512-555-0456',
+    source: 'customer_referral',
     lifecycleStage: 'customer',
     status: 'customer',
     address: {
@@ -424,6 +536,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         phone: '+1 512-555-0489',
         timezone: 'America/Chicago',
         linkedInUrl: 'https://www.linkedin.com/in/taylorbrooks-design/',
+        source: 'customer_referral',
       },
       {
         slug: 'naomi-harris',
@@ -436,6 +549,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         phone: '+1 512-555-0521',
         timezone: 'America/Chicago',
         linkedInUrl: 'https://www.linkedin.com/in/naomiharris-pm/',
+        source: 'customer_referral',
       },
     ],
     deals: [
@@ -445,6 +559,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: 'Full lobby and guest suite redesign for the Wanderstay hospitality group.',
         status: 'in_progress',
         pipelineStage: 'sales_qualified_lead',
+        source: 'customer_referral',
         valueAmount: 145000,
         valueCurrency: 'USD',
         expectedCloseAt: '2024-08-25T00:00:00.000Z',
@@ -461,8 +576,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             subject: 'Design workshop recap',
             body: 'Captured lighting and materials feedback from onsite workshop with hospitality team.',
             occurredAt: '2024-07-16T20:00:00.000Z',
-            icon: 'edit-3',
-            color: '#ff9896',
+            icon: 'users',
+            color: '#f59e0b',
           },
         ],
       },
@@ -472,6 +587,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         description: 'New wellness center build-out including retail area and treatment rooms.',
         status: 'loose',
         pipelineStage: 'loose',
+        source: 'customer_referral',
         valueAmount: 98000,
         valueCurrency: 'USD',
         expectedCloseAt: '2024-05-20T00:00:00.000Z',
@@ -484,8 +600,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             subject: 'Lost due to budget constraints',
             body: 'Retreat selected lower-cost vendor focused on prefabricated interiors.',
             occurredAt: '2024-05-22T18:45:00.000Z',
-            icon: 'x-circle',
-            color: '#d62728',
+            icon: 'file-text',
+            color: '#a855f7',
           },
         ],
       },
@@ -497,8 +613,25 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         subject: 'Referred by Venture Hospitality',
         body: 'Received referral from Venture Hospitality after successful Austin project.',
         occurredAt: '2024-06-27T16:45:00.000Z',
-        icon: 'star',
-        color: '#f1c40f',
+        icon: 'phone',
+        color: '#2563eb',
+      },
+    ],
+    notes: [
+      {
+        entity: 'company',
+        body: 'Client interested in sustainable materials library review during next site visit.',
+        occurredAt: '2024-06-30T19:10:00.000Z',
+        icon: 'leaf',
+        color: '#22c55e',
+      },
+      {
+        entity: 'person',
+        personSlug: 'naomi-harris',
+        body: 'Naomi requested updated FF&E budget before presenting to ownership group.',
+        occurredAt: '2024-07-18T21:05:00.000Z',
+        icon: 'edit-3',
+        color: '#0ea5e9',
       },
     ],
   },
@@ -525,6 +658,72 @@ function parseArgs(rest: string[]): Record<string, string> {
 }
 
 async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizationId }: SeedArgs) {
+  for (const entry of ENTITY_STATUS_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'status',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
+  for (const entry of ENTITY_LIFECYCLE_STAGE_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'lifecycle_stage',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
+  for (const entry of ENTITY_SOURCE_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'source',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
+  for (const entry of ADDRESS_TYPE_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'address_type',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
+  for (const entry of ACTIVITY_TYPE_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'activity_type',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
+  for (const entry of JOB_TITLE_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'job_title',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
   for (const entry of DEAL_STATUS_DEFAULTS) {
     await ensureDictionaryEntry(em, {
       tenantId,
@@ -532,6 +731,8 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
       kind: 'deal_status',
       value: entry.value,
       label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
     })
   }
   for (const entry of PIPELINE_STAGE_DEFAULTS) {
@@ -541,16 +742,20 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
       kind: 'pipeline_stage',
       value: entry.value,
       label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
     })
   }
 }
 
 function resolveCurrencyCodes(): string[] {
   const normalizedPriority = PRIORITY_CURRENCIES.map((code) => code.toUpperCase())
-  const prioritySet = new Set(normalizedPriority)
+  const intlWithSupportedValues = Intl as typeof Intl & {
+    supportedValuesOf?: (input: 'currency') => string[]
+  }
   const supported: string[] =
-    typeof (Intl as any)?.supportedValuesOf === 'function'
-      ? ((Intl as any).supportedValuesOf('currency') as string[])
+    typeof intlWithSupportedValues.supportedValuesOf === 'function'
+      ? intlWithSupportedValues.supportedValuesOf('currency')
       : []
   const normalizedSupported = supported
     .map((code) => code.toUpperCase())
@@ -572,8 +777,13 @@ function resolveCurrencyCodes(): string[] {
 
 function resolveCurrencyLabel(code: string): string {
   try {
-    if (typeof (Intl as any).DisplayNames === 'function') {
-      const displayNames = new (Intl as any).DisplayNames(['en'], { type: 'currency' })
+    const intlWithDisplayNames = Intl as typeof Intl & {
+      DisplayNames?: new (locales: string[], options: { type: 'currency' }) => {
+        of(value: string): string | undefined
+      }
+    }
+    if (typeof intlWithDisplayNames.DisplayNames === 'function') {
+      const displayNames = new intlWithDisplayNames.DisplayNames(['en'], { type: 'currency' })
       const label = displayNames.of(code)
       if (typeof label === 'string' && label.trim().length) {
         return `${code} – ${label}`
@@ -643,14 +853,25 @@ async function seedCurrencyDictionary(em: EntityManager, { tenantId, organizatio
 }
 
 async function seedCustomerExamples(em: EntityManager, { tenantId, organizationId }: SeedArgs): Promise<boolean> {
-  const already = await em.count(CustomerDeal, {
-    tenantId,
-    organizationId,
-    source: EXAMPLE_SOURCE,
-  })
-  if (already > 0) {
-    return false
+  const exampleDealTitles = Array.from(
+    new Set(
+      CUSTOMER_EXAMPLES.flatMap((company) =>
+        (company.deals ?? []).map((deal) => deal.title).filter((title): title is string => typeof title === 'string')
+      )
+    )
+  )
+  if (exampleDealTitles.length > 0) {
+    const already = await em.count(CustomerDeal, {
+      tenantId,
+      organizationId,
+      title: { $in: exampleDealTitles as any },
+    })
+    if (already > 0) {
+      return false
+    }
   }
+
+  await seedCustomerDictionaries(em, { tenantId, organizationId })
 
   const companyEntities = new Map<string, CustomerEntity>()
   const personEntities = new Map<string, CustomerEntity>()
@@ -666,7 +887,7 @@ async function seedCustomerExamples(em: EntityManager, { tenantId, organizationI
       primaryPhone: company.primaryPhone ?? null,
       lifecycleStage: company.lifecycleStage ?? null,
       status: company.status ?? null,
-      source: EXAMPLE_SOURCE,
+      source: company.source ?? null,
       isActive: true,
     })
     const companyProfile = em.create(CustomerCompanyProfile, {
@@ -721,7 +942,7 @@ async function seedCustomerExamples(em: EntityManager, { tenantId, organizationI
         primaryPhone: person.phone ?? null,
         lifecycleStage: company.lifecycleStage ?? null,
         status: 'active',
-        source: EXAMPLE_SOURCE,
+        source: person.source ?? company.source ?? null,
         isActive: true,
       })
       const personProfile = em.create(CustomerPersonProfile, {
@@ -788,6 +1009,30 @@ async function seedCustomerExamples(em: EntityManager, { tenantId, organizationI
       })
       em.persist(activity)
     }
+
+    for (const note of company.notes ?? []) {
+      const targetEntity =
+        note.entity === 'person' && note.personSlug ? personEntities.get(note.personSlug) : companyEntity
+      if (!targetEntity) continue
+      const comment = em.create(CustomerComment, {
+        organizationId,
+        tenantId,
+        entity: targetEntity,
+        deal: null,
+        body: note.body,
+        authorUserId: null,
+        appearanceIcon: note.icon ?? null,
+        appearanceColor: note.color ?? null,
+      })
+      if (note.occurredAt) {
+        const timestamp = new Date(note.occurredAt)
+        if (!Number.isNaN(timestamp.getTime())) {
+          comment.createdAt = timestamp
+          comment.updatedAt = timestamp
+        }
+      }
+      em.persist(comment)
+    }
   }
 
   for (const company of CUSTOMER_EXAMPLES) {
@@ -808,7 +1053,7 @@ async function seedCustomerExamples(em: EntityManager, { tenantId, organizationI
           typeof dealInfo.probability === 'number' ? Math.round(dealInfo.probability) : null,
         expectedCloseAt: dealInfo.expectedCloseAt ? new Date(dealInfo.expectedCloseAt) : null,
         ownerUserId: null,
-        source: EXAMPLE_SOURCE,
+        source: dealInfo.source ?? company.source ?? null,
       })
       em.persist(deal)
 
@@ -901,4 +1146,6 @@ const seedExamples: ModuleCli = {
   },
 }
 
-export default [seedDictionaries, seedExamples]
+const customersCliCommands = [seedDictionaries, seedExamples]
+
+export default customersCliCommands
