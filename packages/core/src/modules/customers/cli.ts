@@ -1007,6 +1007,51 @@ const STRESS_TEST_INDUSTRIES = [
 ]
 const STRESS_TEST_SIZE_BUCKETS = ['1-10', '11-50', '51-200', '201-500', '500+']
 const STRESS_TEST_EMAIL_DOMAIN = 'stress.test'
+const STRESS_TEST_BUYING_ROLES = ['economic_buyer', 'champion', 'technical_evaluator', 'influencer']
+const STRESS_TEST_PRONOUNS = ['they/them', 'she/her', 'he/him']
+const STRESS_TEST_RELATIONSHIP_HEALTH = ['healthy', 'monitor', 'at_risk']
+const STRESS_TEST_RENEWAL_QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4']
+const STRESS_TEST_ACTIVITY_SENTIMENT = ['positive', 'neutral', 'negative']
+const STRESS_TEST_ACTIVITY_OWNERS = [
+  'Jordan Lane',
+  'Alex Rivers',
+  'Morgan Ellis',
+  'Taylor Chen',
+  'Casey Ortega',
+  'Riley Summers',
+]
+const STRESS_TEST_DEAL_ACTIVITY_TYPES = ACTIVITY_TYPE_DEFAULTS.map((entry) => entry.value)
+const STRESS_TEST_DEAL_STATUSES = DEAL_STATUS_DEFAULTS.map((entry) => entry.value)
+const STRESS_TEST_DEAL_PIPELINE = PIPELINE_STAGE_DEFAULTS.map((entry) => entry.value)
+const STRESS_TEST_DEAL_CUSTOMER_ROLES = ['evaluation lead', 'decision maker', 'influencer', 'sponsor']
+const STRESS_TEST_DEAL_RISK = ['low', 'medium', 'high']
+const STRESS_TEST_IMPLEMENTATION = ['light', 'standard', 'complex']
+const STRESS_TEST_ACTIVITY_ICONS = ['lucide:phone-call', 'lucide:mail', 'lucide:calendar', 'lucide:users']
+const STRESS_TEST_ACTIVITY_SUBJECTS = [
+  'Discovery call',
+  'Quarterly business review',
+  'Implementation planning',
+  'Renewal alignment',
+  'Expansion pitch',
+  'Stakeholder sync',
+  'Onboarding follow-up',
+]
+const STRESS_TEST_ACTIVITY_BODIES = [
+  'Reviewed account metrics and confirmed action plan for next quarter.',
+  'Aligned on implementation milestones and risk mitigation.',
+  'Shared updated proposal and captured feedback from stakeholders.',
+  'Clarified contract terms and renewal incentives.',
+  'Coordinated pilot scope with the core project team.',
+  'Captured next steps for executive briefing.',
+]
+const STRESS_TEST_NOTE_SNIPPETS = [
+  'Customer excited about roadmap items for Q3.',
+  'Need to loop in billing once pricing draft is approved.',
+  'Leadership wants a success story before expansion.',
+  'Security questionnaire still pending from customer.',
+  'Plan to introduce CS lead during next onsite visit.',
+  'Team asked for sandbox access for analytics squad.',
+]
 
 function toAmount(value?: number): string | null {
   if (typeof value !== 'number') return null
@@ -1015,6 +1060,10 @@ function toAmount(value?: number): string | null {
 
 function randomChoice<T>(values: readonly T[]): T {
   return values[Math.floor(Math.random() * values.length)]
+}
+
+function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min
 }
 
 function slugifyValue(value: string): string {
@@ -1028,6 +1077,20 @@ function buildPhone(index: number): string {
   const block = String(400 + (index % 500)).padStart(3, '0')
   const last = String(1000 + (index % 9000)).slice(0, 4)
   return `+1-555-${block}-${last}`
+}
+
+function randomPastDate(maxDaysOffset: number): Date {
+  const now = Date.now()
+  const days = Math.random() * Math.max(1, maxDaysOffset)
+  const ms = days * 24 * 60 * 60 * 1000
+  return new Date(now - ms)
+}
+
+function randomFutureDate(maxDaysOffset: number): Date {
+  const now = Date.now()
+  const days = Math.random() * Math.max(1, maxDaysOffset)
+  const ms = days * 24 * 60 * 60 * 1000
+  return new Date(now + ms)
 }
 
 type ProgressInfo = {
@@ -1339,7 +1402,20 @@ async function seedCustomerExamples(
   }
 
   const dataEngine = new DefaultDataEngine(em, container)
-  const customFieldAssignments: Array<() => Promise<void>> = []
+  const pendingAssignments: Array<() => Promise<void>> = []
+  const assignmentFlushThreshold = 100
+  const flushAssignments = async (force = false) => {
+    if (!force && pendingAssignments.length < assignmentFlushThreshold) return
+    await em.flush()
+    const tasks = pendingAssignments.splice(0)
+    for (const assign of tasks) {
+      try {
+        await assign()
+      } catch (err) {
+        console.warn('[customers.cli] Failed to set custom fields for stress-test record', err)
+      }
+    }
+  }
 
   const companyEntities = new Map<string, CustomerEntity>()
   const personEntities = new Map<string, CustomerEntity>()
@@ -1713,6 +1789,7 @@ async function seedCustomerExamples(
 
 async function seedCustomerStressTest(
   em: EntityManager,
+  container: AppContainer,
   { tenantId, organizationId }: SeedArgs,
   options: StressTestOptions
 ): Promise<{ created: number; existing: number }> {
@@ -1734,9 +1811,38 @@ async function seedCustomerStressTest(
   const toCreate = requested - existingPersons
   const statusOptions = ENTITY_STATUS_DEFAULTS.map((entry) => entry.value)
   const lifecycleOptions = ENTITY_LIFECYCLE_STAGE_DEFAULTS.map((entry) => entry.value)
-  const companyCount = Math.max(1, Math.min(toCreate, Math.ceil(toCreate / 12)))
+  const companyCount = Math.max(1, Math.min(toCreate, Math.round(toCreate / 3)))
 
-  const companies: CustomerEntity[] = []
+  await seedCustomerDictionaries(em, { tenantId, organizationId })
+
+  let cache: CacheStrategy | null = null
+  if (typeof (container as any).hasRegistration === 'function' && container.hasRegistration('cache')) {
+    try {
+      cache = container.resolve<CacheStrategy>('cache')
+    } catch {
+      cache = null
+    }
+  }
+  try {
+    await installCustomEntitiesFromModules(em, cache, {
+      tenantIds: [tenantId],
+      includeGlobal: false,
+      dryRun: false,
+      logger: () => {},
+    })
+  } catch (err) {
+    console.warn('[customers.cli] Failed to install custom entities before stress-test seeding', err)
+  }
+  try {
+    await ensureCustomFieldDefinitions(em, CUSTOMER_CUSTOM_FIELD_SETS, { organizationId: null, tenantId })
+  } catch (err) {
+    console.warn('[customers.cli] Failed to ensure custom field definitions for stress-test seeding', err)
+  }
+
+  const dataEngine = new DefaultDataEngine(em, container)
+  const customFieldAssignments: Array<() => Promise<void>> = []
+
+  const companies: Array<{ entity: CustomerEntity; profile: CustomerCompanyProfile }> = []
   for (let i = 0; i < companyCount; i += 1) {
     const prefix = randomChoice(STRESS_TEST_COMPANY_PREFIX)
     const suffix = randomChoice(STRESS_TEST_COMPANY_SUFFIX)
@@ -1752,8 +1858,8 @@ async function seedCustomerStressTest(
       kind: 'company',
       displayName,
       description: `Stress test company #${sequence}`,
-      primaryEmail: null,
-      primaryPhone: null,
+      primaryEmail: `hello@${domain}`,
+      primaryPhone: buildPhone(sequence),
       status: randomChoice(statusOptions),
       lifecycleStage: randomChoice(lifecycleOptions),
       source: STRESS_TEST_SOURCE,
@@ -1774,10 +1880,28 @@ async function seedCustomerStressTest(
     em.persist(companyEntity)
     em.persist(companyProfile)
 
-    companies.push(companyEntity)
+    companies.push({ entity: companyEntity, profile: companyProfile })
+
+    const companyFieldValues: Record<string, unknown> = {
+      relationship_health: randomChoice(STRESS_TEST_RELATIONSHIP_HEALTH),
+      renewal_quarter: randomChoice(STRESS_TEST_RENEWAL_QUARTERS),
+      customer_marketing_case: Math.random() < 0.35,
+    }
+    if (Math.random() < 0.4) {
+      companyFieldValues.executive_notes = randomChoice(STRESS_TEST_NOTE_SNIPPETS)
+    }
+    pendingAssignments.push(async () =>
+      dataEngine.setCustomFields({
+        entityId: CoreEntities.customers.customer_company_profile,
+        recordId: companyProfile.id,
+        organizationId,
+        tenantId,
+        values: companyFieldValues,
+      })
+    )
 
     if ((i + 1) % 200 === 0) {
-      await em.flush()
+      await flushAssignments(true)
     }
   }
 
@@ -1811,7 +1935,7 @@ async function seedCustomerStressTest(
       organizationId,
       tenantId,
       entity,
-      company,
+      company: company.entity,
       firstName,
       lastName,
       preferredName: firstName,
@@ -1825,14 +1949,129 @@ async function seedCustomerStressTest(
     em.persist(entity)
     em.persist(profile)
 
+    const personFieldValues: Record<string, unknown> = {
+      buying_role: randomChoice(STRESS_TEST_BUYING_ROLES),
+      preferred_pronouns: randomChoice(STRESS_TEST_PRONOUNS),
+      newsletter_opt_in: Math.random() < 0.5,
+    }
+    pendingAssignments.push(async () =>
+      dataEngine.setCustomFields({
+        entityId: CoreEntities.customers.customer_person_profile,
+        recordId: profile.id,
+        organizationId,
+        tenantId,
+        values: personFieldValues,
+      })
+    )
+
+    const monetaryBase = randomInt(5, 220) * 1000
+    const pipelineStage = randomChoice(STRESS_TEST_DEAL_PIPELINE)
+    const dealStatus = randomChoice(STRESS_TEST_DEAL_STATUSES)
+    const deal = em.create(CustomerDeal, {
+      organizationId,
+      tenantId,
+      title: `${company.entity.displayName} Opportunity ${sequence}`,
+      description: `Stress test deal generated for contact #${sequence}`,
+      status: dealStatus,
+      pipelineStage,
+      valueAmount: toAmount(monetaryBase + randomInt(0, 7500)),
+      valueCurrency: Math.random() < 0.6 ? 'USD' : 'EUR',
+      probability: randomInt(25, 95),
+      expectedCloseAt:
+        dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'loose'
+          ? randomPastDate(120)
+          : randomFutureDate(120),
+      ownerUserId: null,
+      source: company.entity.source ?? STRESS_TEST_SOURCE,
+    })
+    em.persist(deal)
+
+    pendingAssignments.push(async () =>
+      dataEngine.setCustomFields({
+        entityId: CoreEntities.customers.customer_deal,
+        recordId: deal.id,
+        organizationId,
+        tenantId,
+        values: {
+          competitive_risk: randomChoice(STRESS_TEST_DEAL_RISK),
+          implementation_complexity: randomChoice(STRESS_TEST_IMPLEMENTATION),
+          estimated_seats: randomInt(5, 250),
+          requires_legal_review: Math.random() < 0.3,
+        },
+      })
+    )
+
+    const companyLink = em.create(CustomerDealCompanyLink, {
+      deal,
+      company: company.entity,
+    })
+    const personLink = em.create(CustomerDealPersonLink, {
+      deal,
+      person: entity,
+      role: randomChoice(STRESS_TEST_DEAL_CUSTOMER_ROLES),
+    })
+    em.persist(companyLink)
+    em.persist(personLink)
+
+    const activityCount = randomInt(2, 5)
+    for (let idx = 0; idx < activityCount; idx += 1) {
+      const activityType = randomChoice(STRESS_TEST_DEAL_ACTIVITY_TYPES)
+      const activity = em.create(CustomerActivity, {
+        organizationId,
+        tenantId,
+        entity,
+        deal,
+        activityType,
+        subject: randomChoice(STRESS_TEST_ACTIVITY_SUBJECTS),
+        body: randomChoice(STRESS_TEST_ACTIVITY_BODIES),
+        occurredAt: randomPastDate(200),
+        appearanceIcon: randomChoice(STRESS_TEST_ACTIVITY_ICONS),
+        appearanceColor: randomChoice(['#2563eb', '#22c55e', '#f97316', '#a855f7', '#6366f1']),
+        authorUserId: null,
+      })
+      em.persist(activity)
+
+      pendingAssignments.push(async () =>
+        dataEngine.setCustomFields({
+          entityId: CoreEntities.customers.customer_activity,
+          recordId: activity.id,
+          organizationId,
+          tenantId,
+          values: {
+            engagement_sentiment: randomChoice(STRESS_TEST_ACTIVITY_SENTIMENT),
+            shared_with_leadership: Math.random() < 0.4,
+            follow_up_owner: randomChoice(STRESS_TEST_ACTIVITY_OWNERS),
+          },
+        })
+      )
+    }
+
+    const noteCount = randomInt(2, 5)
+    for (let idx = 0; idx < noteCount; idx += 1) {
+      const noteTimestamp = randomPastDate(120)
+      const comment = em.create(CustomerComment, {
+        organizationId,
+        tenantId,
+        entity,
+        deal,
+        body: randomChoice(STRESS_TEST_NOTE_SNIPPETS),
+        authorUserId: null,
+        appearanceIcon: 'lucide:sticky-note',
+        appearanceColor: randomChoice(['#2563eb', '#22c55e', '#f97316', '#a855f7', '#6366f1']),
+        createdAt: noteTimestamp,
+        updatedAt: noteTimestamp,
+      })
+      em.persist(comment)
+    }
+
     created += 1
-    if (created % 250 === 0) {
-      await em.flush()
+    if (created % 200 === 0) {
+      await flushAssignments(true)
     }
     options.onProgress?.({ completed: created, total })
   }
 
-  await em.flush()
+  await flushAssignments(true)
   options.onProgress?.({ completed: total, total })
 
   return { created: toCreate, existing: existingPersons }
@@ -1902,19 +2141,22 @@ const seedStressTest: ModuleCli = {
     const container = await createRequestContainer()
     const em = container.resolve<EntityManager>('em')
     let bar: ReturnType<typeof createProgressBar> | null = null
-    const result = await seedCustomerStressTest(
-      em,
-      { tenantId, organizationId },
-      {
-        count,
-        onProgress: ({ completed, total }) => {
-          if (total <= 0) return
-          if (!bar) {
-            bar = createProgressBar('Generating stress-test customers', total)
-          }
-          bar.update(completed)
-        },
-      }
+    const result = await em.transactional((tem) =>
+      seedCustomerStressTest(
+        tem,
+        container,
+        { tenantId, organizationId },
+        {
+          count,
+          onProgress: ({ completed, total }) => {
+            if (total <= 0) return
+            if (!bar) {
+              bar = createProgressBar('Generating stress-test customers', total)
+            }
+            bar.update(completed)
+          },
+        }
+      )
     )
     bar?.complete()
 
