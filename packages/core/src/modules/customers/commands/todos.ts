@@ -51,7 +51,12 @@ type LinkedTodoUndoPayload = {
 
 const DEFAULT_TODO_SOURCE = 'example:todo'
 
-const isZodRuntimeMissing = (err: unknown): err is TypeError => err instanceof TypeError && typeof err.message === 'string' && err.message.includes('_zod')
+const isZodRuntimeMissing = (err: unknown): boolean => {
+  if (!err || typeof err !== 'object') return false
+  const message = typeof (err as { message?: unknown }).message === 'string' ? (err as { message: string }).message : ''
+  const name = typeof (err as { name?: unknown }).name === 'string' ? (err as { name: string }).name : ''
+  return message.includes('_zod') && (name === 'TypeError' || err instanceof TypeError)
+}
 
 type ValidationRuntimeState = { available: boolean | null; warningLogged: boolean }
 

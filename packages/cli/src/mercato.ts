@@ -17,8 +17,47 @@ export async function run(argv = process.argv) {
       const initArgs = parts.slice(1).filter(Boolean)
       const reinstall = initArgs.includes('--reinstall') || initArgs.includes('-r')
       const skipExamples = initArgs.includes('--no-examples') || initArgs.includes('--no-exampls')
+      const stressTestEnabled =
+        initArgs.includes('--stresstest') || initArgs.includes('--stress-test')
+      let stressTestCount = 6000
+      for (let i = 0; i < initArgs.length; i += 1) {
+        const arg = initArgs[i]
+        const countPrefixes = ['--count=', '--stress-count=', '--stresstest-count=']
+        const matchedPrefix = countPrefixes.find((prefix) => arg.startsWith(prefix))
+        if (matchedPrefix) {
+          const value = arg.slice(matchedPrefix.length)
+          const parsed = Number.parseInt(value, 10)
+          if (Number.isFinite(parsed) && parsed > 0) {
+            stressTestCount = parsed
+            break
+          }
+        }
+        if (arg === '--count' || arg === '--stress-count' || arg === '--stresstest-count' || arg === '-n') {
+          const next = initArgs[i + 1]
+          if (next && !next.startsWith('-')) {
+            const parsed = Number.parseInt(next, 10)
+            if (Number.isFinite(parsed) && parsed > 0) {
+              stressTestCount = parsed
+              break
+            }
+          }
+        }
+        if (arg.startsWith('-n=')) {
+          const value = arg.slice(3)
+          const parsed = Number.parseInt(value, 10)
+          if (Number.isFinite(parsed) && parsed > 0) {
+            stressTestCount = parsed
+            break
+          }
+        }
+      }
       console.log(`🔄 Reinstall mode: ${reinstall ? 'enabled' : 'disabled'}`)
       console.log(`🎨 Example content: ${skipExamples ? 'skipped (--no-examples)' : 'enabled'}`)
+      console.log(
+        `🏋️ Stress test dataset: ${
+          stressTestEnabled ? `enabled (target ${stressTestCount} contacts)` : 'disabled'
+        }`
+      )
 
       if (reinstall) {
         // Load env variables so DATABASE_URL is available
@@ -128,6 +167,15 @@ export async function run(argv = process.argv) {
           console.log('📝 Seeding example todos...')
           execSync(`yarn mercato example seed-todos --org ${orgId} --tenant ${tenantId}`, { stdio: 'inherit' })
           console.log('✅ Example todos seeded\n')
+        }
+
+        if (stressTestEnabled) {
+          console.log('🏋️  Seeding stress test customers...')
+          execSync(
+            `yarn mercato customers seed-stresstest --tenant ${tenantId} --org ${orgId} --count ${stressTestCount}`,
+            { stdio: 'inherit' }
+          )
+          console.log(`✅ Stress test customers seeded (requested ${stressTestCount})\n`)
         }
 
         console.log('🧩 Enabling default dashboard widgets...')

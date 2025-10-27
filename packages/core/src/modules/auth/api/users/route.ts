@@ -48,14 +48,20 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     create: {
       commandId: 'auth.users.create',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed,
+      mapInput: async ({ parsed, req }) => {
+        await assertCanAssignRoles(req, parsed.roles)
+        return parsed
+      },
       response: ({ result }) => ({ id: String(result.id) }),
       status: 201,
     },
     update: {
       commandId: 'auth.users.update',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed,
+      mapInput: async ({ parsed, req }) => {
+        await assertCanAssignRoles(req, parsed.roles)
+        return parsed
+      },
       response: () => ({ ok: true }),
     },
     delete: {
@@ -221,6 +227,29 @@ export async function GET(req: Request) {
   return NextResponse.json({ items, total: count, totalPages, isSuperAdmin })
 }
 
-export const POST = crud.POST
-export const PUT = crud.PUT
+export const POST = async (req: Request) => {
+  const body = await req.clone().json().catch(() => ({}))
+  await assertCanAssignRoles(req, body?.roles)
+  return crud.POST(req)
+}
+
+export const PUT = async (req: Request) => {
+  const body = await req.clone().json().catch(() => ({}))
+  await assertCanAssignRoles(req, body?.roles)
+  return crud.PUT(req)
+}
+
 export const DELETE = crud.DELETE
+
+async function assertCanAssignRoles(req: Request, roles: unknown) {
+  if (!Array.isArray(roles)) return
+  if (!roles.includes('superadmin')) return
+  const auth = await getAuthFromRequest(req)
+  if (!auth) throw new Error('Unauthorized')
+  const container = await createRequestContainer()
+  const rbac = container.resolve('rbacService') as RbacService
+  const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+  if (!acl?.isSuperAdmin) {
+    throw new Error('Only superadmin users may assign the superadmin role')
+  }
+}
