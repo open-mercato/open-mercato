@@ -62,12 +62,14 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
     color: null,
     icon: null,
   }))
+  const [errors, setErrors] = React.useState<{ value?: string; label?: string }>({})
   const appearance = useAppearanceState(formState.icon, formState.color)
 
   const resetForm = React.useCallback(() => {
     setFormState({ value: '', label: '', color: null, icon: null })
     appearance.setColor(null)
     appearance.setIcon(null)
+    setErrors({})
   }, [appearance])
 
   const openDialog = React.useCallback(
@@ -89,6 +91,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
       } else {
         resetForm()
       }
+      setErrors({})
       setDialogOpen(true)
     },
     [appearance, readOnly, readOnlyMessage, resetForm],
@@ -97,6 +100,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
   const closeDialog = React.useCallback(() => {
     setDialogOpen(false)
     resetForm()
+    setErrors({})
   }, [resetForm])
 
   const handleSave = React.useCallback(async () => {
@@ -104,15 +108,22 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
       flash(readOnlyMessage, 'info')
       return
     }
-    if (!formState.value.trim()) {
-      flash(t('dictionaries.config.entries.error.required', 'Value is required.'), 'error')
+    const trimmedValue = formState.value.trim()
+    const trimmedLabel = formState.label.trim()
+    const nextErrors: { value?: string } = {}
+    if (!trimmedValue) {
+      nextErrors.value = t('dictionaries.config.entries.error.required', 'Value is required.')
+    }
+    if (nextErrors.value) {
+      setErrors(nextErrors)
       return
     }
+    setErrors({})
     setIsSaving(true)
     try {
       const payload = {
-        value: formState.value.trim(),
-        label: formState.label.trim() || formState.value.trim(),
+        value: trimmedValue,
+        label: trimmedLabel || trimmedValue,
         color: appearance.color,
         icon: appearance.icon,
       }
@@ -144,6 +155,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
       setFormState({ value: '', label: '', color: null, icon: null })
       appearance.setColor(null)
       appearance.setIcon(null)
+      setErrors({})
     } catch (err) {
       console.error('Failed to save dictionary entry', err)
       flash(t('dictionaries.config.entries.error.save', 'Failed to save dictionary entry.'), 'error')
@@ -319,13 +331,27 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
             <div className="space-y-2">
               <label className="text-sm font-medium">
                 {t('dictionaries.config.entries.dialog.valueLabel', 'Value')}
+                <span className="ml-1 text-destructive">*</span>
               </label>
               <input
                 type="text"
                 value={formState.value}
-                onChange={(event) => setFormState((prev) => ({ ...prev, value: event.target.value }))}
-                className="w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                onChange={(event) => {
+                  const nextValue = event.target.value
+                  setFormState((prev) => ({ ...prev, value: nextValue }))
+                  if (errors.value) {
+                    setErrors((prev) => ({ ...prev, value: undefined }))
+                  }
+                }}
+                className={`w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${errors.value ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                aria-invalid={errors.value ? 'true' : 'false'}
+                aria-describedby="dictionary-entry-value-error"
               />
+              {errors.value ? (
+                <p id="dictionary-entry-value-error" className="text-xs text-destructive">
+                  {errors.value}
+                </p>
+              ) : null}
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">

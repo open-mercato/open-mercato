@@ -4,7 +4,8 @@ import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictiona
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
 import { updateDictionaryEntrySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 const paramsSchema = z.object({
   dictionaryId: z.string().uuid(),
   entryId: z.string().uuid(),
@@ -40,22 +41,6 @@ async function loadEntry(
   return entry
 }
 
-function normalizeColor(color: string | null | undefined): string | null {
-  if (!color) return null
-  const trimmed = color.trim()
-  if (!trimmed) return null
-  const match = /^#([0-9a-fA-F]{6})$/.exec(trimmed)
-  if (!match) return null
-  return `#${match[1].toLowerCase()}`
-}
-
-function normalizeIcon(icon: string | null | undefined): string | null {
-  if (!icon) return null
-  const trimmed = icon.trim()
-  if (!trimmed) return null
-  return trimmed.slice(0, 64)
-}
-
 export const metadata = {
   PATCH: { requireAuth: true, requireFeatures: ['dictionaries.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['dictionaries.manage'] },
@@ -68,60 +53,45 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
       dictionaryId: ctx.params?.dictionaryId,
       entryId: ctx.params?.entryId,
     })
-    const payload = updateDictionaryEntrySchema.parse(await req.json().catch(() => ({})))
     const dictionary = await loadDictionary(context, dictionaryId)
-    const entry = await loadEntry(context, dictionary, entryId)
-
-    if (payload.value !== undefined) {
-      const value = payload.value.trim()
-      if (!value) {
-        throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.entry_required', 'Value is required') })
-      }
-      const normalized = value.toLowerCase()
-      if (normalized !== entry.normalizedValue) {
-        const duplicate = await context.em.findOne(DictionaryEntry, {
-          dictionary,
-          organizationId: dictionary.organizationId,
-          tenantId: context.tenantId,
-          normalizedValue: normalized,
-          id: { $ne: entry.id } as any,
-        })
-        if (duplicate) {
-          throw new CrudHttpError(409, { error: context.translate('dictionaries.errors.entry_duplicate', 'An entry with this value already exists') })
-        }
-        entry.value = value
-        entry.normalizedValue = normalized
-        if (payload.label === undefined) {
-          entry.label = value
-        }
-      }
-    }
-
-    if (payload.label !== undefined) {
-      const label = payload.label ? payload.label.trim() : ''
-      entry.label = label || entry.value
-    }
-
-    if (payload.color !== undefined) {
-      entry.color = normalizeColor(payload.color) ?? null
-    }
-
-    if (payload.icon !== undefined) {
-      entry.icon = normalizeIcon(payload.icon) ?? null
-    }
-
-    entry.updatedAt = new Date()
-    await context.em.flush()
-
-    return NextResponse.json({
-      id: entry.id,
-      value: entry.value,
-      label: entry.label,
-      color: entry.color,
-      icon: entry.icon,
-      createdAt: entry.createdAt,
-      updatedAt: entry.updatedAt,
+    await loadEntry(context, dictionary, entryId)
+    const rawBody = await req.json().catch(() => ({}))
+    const payload = updateDictionaryEntrySchema.parse(rawBody)
+    // These nested routes don't use the CRUD factory, so invoke the command bus explicitly.
+    const commandBus = context.container.resolve<CommandBus>('commandBus')
+    const input = { ...(payload as Record<string, unknown>), id: entryId }
+    const { result, logEntry } = await commandBus.execute('dictionaries.entries.update', {
+      input,
+      ctx: context.ctx,
     })
+    const updated = await context.em.fork().findOne(DictionaryEntry, result.entryId, { populate: ['dictionary'] })
+    if (!updated) {
+      throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_update_failed', 'Failed to update dictionary entry') })
+    }
+    const response = NextResponse.json({
+      id: updated.id,
+      value: updated.value,
+      label: updated.label,
+      color: updated.color,
+      icon: updated.icon,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+    })
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'dictionaries.entry',
+          resourceId: result.entryId,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
+        })
+      )
+    }
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
@@ -140,11 +110,27 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     })
     const dictionary = await loadDictionary(context, dictionaryId)
     const entry = await loadEntry(context, dictionary, entryId)
-
-    context.em.remove(entry)
-    await context.em.flush()
-
-    return NextResponse.json({ ok: true })
+    const commandBus = context.container.resolve<CommandBus>('commandBus')
+    const { logEntry } = await commandBus.execute('dictionaries.entries.delete', {
+      input: { body: { id: entry.id } },
+      ctx: context.ctx,
+    })
+    const response = NextResponse.json({ ok: true })
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'dictionaries.entry',
+          resourceId: entry.id,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
+        })
+      )
+    }
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

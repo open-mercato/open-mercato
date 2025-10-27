@@ -612,6 +612,7 @@ export function DealsSection({
           const customValuesForState = sanitizeCustomValues(
             Object.keys(custom).length ? custom : null,
           )
+          const timestamp = new Date().toISOString()
           const normalized = normalizeDeal({
             id: dealId,
             title: base.title,
@@ -625,6 +626,8 @@ export function DealsSection({
             personIds,
             companyIds,
             customValues: customValuesForState,
+            createdAt: timestamp,
+            updatedAt: timestamp,
           })
           setDeals((prev) => [normalized, ...prev])
         }

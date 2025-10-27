@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { z } from 'zod'
+import { z, parse as zodParse } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -8,7 +8,10 @@ import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
-import { todoLinkCreateSchema, todoLinkWithTodoCreateSchema } from '../../data/validators'
+import {
+  todoLinkCreateSchema,
+  todoLinkWithTodoCreateSchema,
+} from '../../data/validators'
 import { CustomerTodoLink, CustomerEntity } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
@@ -436,7 +439,7 @@ export async function POST(req: Request) {
         (scopedPayload as { custom?: unknown }).custom,
     )
     const normalizedCustom = toPlainRecord((scopedPayload as { custom?: unknown }).custom)
-    const input = todoLinkWithTodoCreateSchema.parse({
+    const input = zodParse(todoLinkWithTodoCreateSchema, {
       ...scopedPayload,
       todoCustom: normalizedTodoCustom,
       custom: normalizedCustom,
@@ -468,7 +471,7 @@ export async function PUT(req: Request) {
     const { ctx, translate } = await buildContext(req)
     const raw = await req.json().catch(() => ({}))
     const scopedPayload = withScopedPayload(raw, ctx, translate)
-    const input = todoLinkCreateSchema.parse(scopedPayload)
+    const input = zodParse(todoLinkCreateSchema, scopedPayload)
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
     const { result, logEntry } = await commandBus.execute('customers.todos.link', { input, ctx })
@@ -499,7 +502,7 @@ export async function DELETE(req: Request) {
     if (!idValue) {
       throw new CrudHttpError(400, { error: translate('customers.errors.todo_link_required', 'Todo link id is required') })
     }
-    const input = unlinkSchema.parse({ id: idValue })
+    const input = zodParse(unlinkSchema, { id: idValue })
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
     const { result, logEntry } = await commandBus.execute('customers.todos.unlink', { input, ctx })

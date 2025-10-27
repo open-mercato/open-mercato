@@ -1,12 +1,13 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer, type AppContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CacheStrategy } from '@open-mercato/cache'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
 export const dictionaryKindSchema = z.enum([
   'statuses',
@@ -56,6 +57,8 @@ export type DictionaryRouteContext = {
   tenantId: string
   readableOrganizationIds: string[]
   cache?: CacheStrategy
+  container: AppContainer
+  ctx: CommandRuntimeContext
 }
 
 export function mapDictionaryKind(kind: string | undefined) {
@@ -104,6 +107,15 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
     console.warn('[customers.dictionaries.context] Failed to resolve ancestor organizations', err)
   }
 
+  const commandContext: CommandRuntimeContext = {
+    container,
+    auth,
+    organizationScope: scope,
+    selectedOrganizationId: organizationId,
+    organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
+    request: req,
+  }
+
   return {
     auth,
     translate,
@@ -112,5 +124,7 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
     tenantId: auth.tenantId,
     readableOrganizationIds,
     cache,
+    container,
+    ctx: commandContext,
   }
 }

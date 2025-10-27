@@ -1,4 +1,5 @@
 import type { ModuleInfo } from '@/modules/registry'
+import './commands'
 
 export const metadata: ModuleInfo = {
   name: 'dictionaries',

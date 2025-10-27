@@ -5,6 +5,7 @@ import { emitCrudSideEffects, emitCrudUndoSideEffects, requireId } from '@open-m
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { parse as zodParse } from 'zod'
 import { CustomerTodoLink } from '../data/entities'
 import {
   todoLinkCreateSchema,
@@ -89,7 +90,7 @@ function serializeTodoSnapshot(snapshot: unknown): TodoSnapshot | null {
 const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { todoId: string; linkId: string; todoSnapshot: TodoSnapshot }> = {
   id: 'customers.todos.create',
   async execute(rawInput, ctx) {
-    const parsed = todoLinkWithTodoCreateSchema.parse(rawInput)
+    const parsed = zodParse(todoLinkWithTodoCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
@@ -219,7 +220,7 @@ const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { tod
 const linkExistingTodoCommand: CommandHandler<TodoLinkCreateInput, { linkId: string }> = {
   id: 'customers.todos.link',
   async execute(rawInput, ctx) {
-    const parsed = todoLinkCreateSchema.parse(rawInput)
+    const parsed = zodParse(todoLinkCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 

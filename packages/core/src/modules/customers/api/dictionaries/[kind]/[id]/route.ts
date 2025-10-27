@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/types'
 import { CustomerDictionaryEntry } from '../../../../data/entities'
 import { mapDictionaryKind, resolveDictionaryRouteContext } from '../../context'
 import { invalidateDictionaryCache } from '../../cache'
@@ -32,99 +35,52 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
     const payload = patchSchema.parse(await req.json().catch(() => ({})))
+    const commandBus = routeContext.container.resolve<CommandBus>('commandBus')
+    let commandResult: CommandExecuteResult<{ entryId: string; changed: boolean }>
+    try {
+      commandResult = (await commandBus.execute('customers.dictionaryEntries.update', {
+        input: {
+          id,
+          tenantId: routeContext.tenantId,
+          organizationId: routeContext.organizationId,
+          kind: mappedKind,
+          value: payload.value,
+          label: payload.label,
+          color: payload.color,
+          icon: payload.icon,
+        },
+        ctx: routeContext.ctx,
+      })) as CommandExecuteResult<{ entryId: string; changed: boolean }>
+    } catch (err) {
+      if (err instanceof CrudHttpError) {
+        if (err.status === 404) {
+          throw new CrudHttpError(404, { error: routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found') })
+        }
+        if (err.status === 409) {
+          throw new CrudHttpError(409, { error: routeContext.translate('customers.config.dictionaries.errors.duplicate', 'An entry with this value already exists') })
+        }
+        if (err.status === 400) {
+          throw new CrudHttpError(400, { error: routeContext.translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') })
+        }
+      }
+      throw err
+    }
+    const { result, logEntry } = commandResult
 
-    const entry = await routeContext.em.findOne(CustomerDictionaryEntry, { id })
-    if (!entry || entry.kind !== mappedKind || entry.organizationId !== routeContext.organizationId || entry.tenantId !== routeContext.tenantId) {
+    const entry = await routeContext.em.fork().findOne(CustomerDictionaryEntry, id)
+    if (!entry) {
       throw new CrudHttpError(404, { error: routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found') })
     }
 
-    let hasChanges = false
-
-    if (payload.value !== undefined) {
-      const value = payload.value.trim()
-      const normalized = value.toLowerCase()
-      if (!value) {
-        throw new CrudHttpError(400, { error: routeContext.translate('customers.config.dictionaries.errors.required', 'Please provide a value') })
-      }
-      const duplicate = await routeContext.em.findOne(CustomerDictionaryEntry, {
-        id: { $ne: entry.id },
+    if (result.changed) {
+      await invalidateDictionaryCache(routeContext.cache, {
         tenantId: routeContext.tenantId,
-        organizationId: routeContext.organizationId,
-        kind: mappedKind,
-        normalizedValue: normalized,
-      })
-      if (duplicate) {
-        throw new CrudHttpError(409, { error: routeContext.translate('customers.config.dictionaries.errors.duplicate', 'An entry with this value already exists') })
-      }
-      entry.value = value
-      entry.normalizedValue = normalized
-      if (payload.label === undefined) {
-        entry.label = value
-      }
-      hasChanges = true
-    }
-
-    if (payload.label !== undefined) {
-      const label = payload.label.trim()
-      entry.label = label || entry.value
-      hasChanges = true
-    }
-
-    if (payload.color !== undefined) {
-      const colorInput = payload.color
-      const normalizedColor =
-        colorInput === null || colorInput === ''
-          ? null
-          : /^#([0-9A-Fa-f]{6})$/.test(colorInput)
-            ? `#${colorInput.slice(1).toLowerCase()}`
-            : null
-      if (colorInput && !normalizedColor) {
-        throw new CrudHttpError(400, { error: routeContext.translate('customers.config.dictionaries.errors.invalidColor', 'Color must be a valid hex value like #3366ff') })
-      }
-      if (entry.color !== normalizedColor) {
-        entry.color = normalizedColor
-        hasChanges = true
-      }
-    }
-
-    if (payload.icon !== undefined) {
-      const iconInput = payload.icon
-      const normalizedIcon =
-        iconInput === null || iconInput === ''
-          ? null
-          : iconInput.length > 48
-            ? iconInput.slice(0, 48)
-            : iconInput
-      if (normalizedIcon && normalizedIcon.length === 0) {
-        throw new CrudHttpError(400, { error: routeContext.translate('customers.config.dictionaries.errors.invalidIcon', 'Icon must be a short name or emoji') })
-      }
-      if (entry.icon !== normalizedIcon) {
-        entry.icon = normalizedIcon
-        hasChanges = true
-      }
-    }
-
-    if (!hasChanges) {
-      return NextResponse.json({
-        id: entry.id,
-        value: entry.value,
-        label: entry.label,
-        color: entry.color,
-        icon: entry.icon,
-        organizationId: entry.organizationId,
-        isInherited: false,
+        mappedKind,
+        organizationIds: [routeContext.organizationId],
       })
     }
 
-    await routeContext.em.flush()
-
-    await invalidateDictionaryCache(routeContext.cache, {
-      tenantId: routeContext.tenantId,
-      mappedKind,
-      organizationIds: [routeContext.organizationId],
-    })
-
-    return NextResponse.json({
+    const response = NextResponse.json({
       id: entry.id,
       value: entry.value,
       label: entry.label,
@@ -133,6 +89,21 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
       organizationId: entry.organizationId,
       isInherited: false,
     })
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'customers.dictionary_entry',
+          resourceId: entry.id,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
+        })
+      )
+    }
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
@@ -148,14 +119,25 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
     const routeContext = await resolveDictionaryRouteContext(req)
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
-
-    const entry = await routeContext.em.findOne(CustomerDictionaryEntry, { id })
-    if (!entry || entry.kind !== mappedKind || entry.organizationId !== routeContext.organizationId || entry.tenantId !== routeContext.tenantId) {
-      throw new CrudHttpError(404, { error: routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found') })
+    const commandBus = routeContext.container.resolve<CommandBus>('commandBus')
+    let deleteResult: CommandExecuteResult<{ entryId: string }>
+    try {
+      deleteResult = (await commandBus.execute('customers.dictionaryEntries.delete', {
+        input: {
+          id,
+          tenantId: routeContext.tenantId,
+          organizationId: routeContext.organizationId,
+          kind: mappedKind,
+        },
+        ctx: routeContext.ctx,
+      })) as CommandExecuteResult<{ entryId: string }>
+    } catch (err) {
+      if (err instanceof CrudHttpError && err.status === 404) {
+        throw new CrudHttpError(404, { error: routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found') })
+      }
+      throw err
     }
-
-    routeContext.em.remove(entry)
-    await routeContext.em.flush()
+    const { logEntry } = deleteResult
 
     await invalidateDictionaryCache(routeContext.cache, {
       tenantId: routeContext.tenantId,
@@ -163,7 +145,22 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
       organizationIds: [routeContext.organizationId],
     })
 
-    return NextResponse.json({ success: true })
+    const response = NextResponse.json({ success: true })
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'customers.dictionary_entry',
+          resourceId: id,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
+        })
+      )
+    }
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

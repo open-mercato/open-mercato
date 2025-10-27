@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import { Undo2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { Button } from '../../primitives/button'
 import { apiFetch } from '../utils/api'
 import { flash } from '../FlashMessages'
@@ -11,6 +12,7 @@ export function LastOperationBanner() {
   const t = useT()
   const operation = useLastOperation()
   const [pendingToken, setPendingToken] = React.useState<string | null>(null)
+  const router = useRouter()
 
   if (!operation) return null
 
@@ -32,6 +34,10 @@ export function LastOperationBanner() {
       }
       markUndoSuccess(operation.undoToken)
       flash(t('audit_logs.banner.undo_success'), 'success')
+      router.refresh()
+      if (typeof window !== 'undefined') {
+        window.location.reload()
+      }
     } catch (err) {
       const message = err instanceof Error && err.message ? err.message : t('audit_logs.banner.undo_error')
       flash(message, 'error')

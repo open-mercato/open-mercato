@@ -56,11 +56,17 @@ export function FlashMessages() {
   const color = kind === 'success' ? 'bg-emerald-600' : kind === 'error' ? 'bg-red-600' : kind === 'warning' ? 'bg-amber-500' : 'bg-blue-600'
 
   return (
-    <div className="fixed z-50 left-3 right-3 top-3 sm:left-auto sm:right-4 sm:w-[380px]">
-      <div className={`text-white rounded shadow-md px-3 py-2 ${color}`}>
+    <div className="pointer-events-none fixed left-3 right-3 top-3 z-[1200] sm:left-auto sm:right-4 sm:w-[380px]">
+      <div className={`pointer-events-auto rounded px-3 py-2 text-white shadow-md ${color}`}>
         <div className="flex items-center justify-between gap-2">
           <div className="text-sm">{msg}</div>
-          <button className="text-white/90 hover:text-white text-sm" onClick={() => setMsg(null)}>×</button>
+          <button
+            type="button"
+            className="text-sm text-white/90 transition hover:text-white"
+            onClick={() => setMsg(null)}
+          >
+            ×
+          </button>
         </div>
       </div>
     </div>

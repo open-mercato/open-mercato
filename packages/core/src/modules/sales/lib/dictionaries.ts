@@ -1,5 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import {
+  normalizeDictionaryValue,
+  sanitizeDictionaryColor,
+  sanitizeDictionaryIcon,
+} from '@open-mercato/core/modules/dictionaries/lib/utils'
 
 export type SalesDictionaryKind = 'order-status' | 'order-line-status'
 
@@ -66,26 +71,6 @@ export async function ensureSalesDictionary(params: {
   return dictionary
 }
 
-export function normalizeDictionaryValue(value: string): string {
-  return value.trim().toLowerCase()
-}
-
-export function sanitizeDictionaryColor(color: string | null | undefined): string | null {
-  if (!color) return null
-  const trimmed = color.trim()
-  if (!trimmed) return null
-  const match = /^#([0-9a-fA-F]{6})$/.exec(trimmed)
-  if (!match) return null
-  return `#${match[1].toLowerCase()}`
-}
-
-export function sanitizeDictionaryIcon(icon: string | null | undefined): string | null {
-  if (!icon) return null
-  const trimmed = icon.trim()
-  if (!trimmed) return null
-  return trimmed.slice(0, 64)
-}
-
 export async function resolveDictionaryEntryValue(
   em: EntityManager,
   entryId: string | null | undefined
@@ -95,3 +80,5 @@ export async function resolveDictionaryEntryValue(
   if (!entry) return null
   return entry.value?.trim() || null
 }
+
+export { normalizeDictionaryValue, sanitizeDictionaryColor, sanitizeDictionaryIcon }

@@ -400,14 +400,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const peopleSummaryLabel =
     data.people.length === 1
-      ? t('customers.deals.detail.peopleSummaryOne', '1 person linked')
-      : t('customers.deals.detail.peopleSummaryMany', '{{count}} people linked', { count: data.people.length })
+      ? t('customers.deals.detail.peopleSummaryOne')
+      : t('customers.deals.detail.peopleSummaryMany', { count: data.people.length })
   const companiesSummaryLabel =
     data.companies.length === 1
-      ? t('customers.deals.detail.companiesSummaryOne', '1 company linked')
-      : t('customers.deals.detail.companiesSummaryMany', '{{count}} companies linked', {
-          count: data.companies.length,
-        })
+      ? t('customers.deals.detail.companiesSummaryOne')
+      : t('customers.deals.detail.companiesSummaryMany', { count: data.companies.length })
 
   const viewer = data.viewer ?? null
 
