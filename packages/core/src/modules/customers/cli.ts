@@ -1108,17 +1108,29 @@ type StressTestOptions = {
 function createProgressBar(label: string, total: number) {
   const width = 28
   let lastPercent = -1
+  let lastCompleted = -1
   let finished = false
+  const minPercentStep =
+    total >= 1_000_000 ? 0.01 : total >= 100_000 ? 0.05 : total >= 10_000 ? 0.1 : 0.5
+  const minCompletedStep = Math.max(1, Math.floor(total / 1000))
   const render = (completed: number) => {
     if (total <= 0 || finished) return
     const ratio = Math.min(1, Math.max(0, completed / total))
-    const percent = Math.floor(ratio * 100)
-    if (percent === lastPercent && completed < total) return
-    lastPercent = percent
+    const percentRaw = ratio * 100
+    if (
+      completed < total &&
+      percentRaw - lastPercent < minPercentStep &&
+      completed - lastCompleted < minCompletedStep
+    ) {
+      return
+    }
+    lastPercent = percentRaw
+    lastCompleted = completed
     const filled = Math.round(ratio * width)
     const bar = '#'.repeat(filled).padEnd(width, '-')
-    const percentLabel = percent.toString().padStart(3, ' ')
-    process.stdout.write(`\r${label} [${bar}] ${percentLabel}% (${completed}/${total})`)
+    const percentLabel = (percentRaw >= 10 ? percentRaw.toFixed(1) : percentRaw.toFixed(2)).padStart(6, ' ')
+    const countsLabel = `${completed.toLocaleString()}/${total.toLocaleString()}`
+    process.stdout.write(`\r${label} [${bar}] ${percentLabel}% (${countsLabel})`)
     if (completed >= total) {
       finished = true
       process.stdout.write('\n')
@@ -1402,20 +1414,7 @@ async function seedCustomerExamples(
   }
 
   const dataEngine = new DefaultDataEngine(em, container)
-  const pendingAssignments: Array<() => Promise<void>> = []
-  const assignmentFlushThreshold = 100
-  const flushAssignments = async (force = false) => {
-    if (!force && pendingAssignments.length < assignmentFlushThreshold) return
-    await em.flush()
-    const tasks = pendingAssignments.splice(0)
-    for (const assign of tasks) {
-      try {
-        await assign()
-      } catch (err) {
-        console.warn('[customers.cli] Failed to set custom fields for stress-test record', err)
-      }
-    }
-  }
+  const customFieldAssignments: Array<() => Promise<void>> = []
 
   const companyEntities = new Map<string, CustomerEntity>()
   const personEntities = new Map<string, CustomerEntity>()
@@ -1813,6 +1812,9 @@ async function seedCustomerStressTest(
   const lifecycleOptions = ENTITY_LIFECYCLE_STAGE_DEFAULTS.map((entry) => entry.value)
   const companyCount = Math.max(1, Math.min(toCreate, Math.round(toCreate / 3)))
 
+  const total = toCreate
+  options.onProgress?.({ completed: 0, total })
+
   await seedCustomerDictionaries(em, { tenantId, organizationId })
 
   let cache: CacheStrategy | null = null
@@ -1840,14 +1842,28 @@ async function seedCustomerStressTest(
   }
 
   const dataEngine = new DefaultDataEngine(em, container)
-  const customFieldAssignments: Array<() => Promise<void>> = []
+  const pendingAssignments: Array<() => Promise<void>> = []
+  const assignmentFlushThreshold = 100
+  const flushAssignments = async (force = false) => {
+    if (!force && pendingAssignments.length < assignmentFlushThreshold) return
+    await em.flush()
+    const tasks = pendingAssignments.splice(0)
+    for (const assign of tasks) {
+      try {
+        await assign()
+      } catch (err) {
+        console.warn('[customers.cli] Failed to set custom fields for stress-test record', err)
+      }
+    }
+  }
 
   const companies: Array<{ entity: CustomerEntity; profile: CustomerCompanyProfile }> = []
-  for (let i = 0; i < companyCount; i += 1) {
+  const contactsPerCompany = Math.max(1, Math.ceil(toCreate / companyCount))
+  const createCompany = () => {
     const prefix = randomChoice(STRESS_TEST_COMPANY_PREFIX)
     const suffix = randomChoice(STRESS_TEST_COMPANY_SUFFIX)
     const baseName = `${prefix} ${suffix}`
-    const sequence = existingPersons + i + 1
+    const sequence = existingPersons + companies.length + 1
     const displayName = `${baseName} ${sequence}`
     const domainBase = slugifyValue(`${prefix}-${suffix}-${sequence}`) || `company-${sequence}`
     const domain = `${domainBase}.${STRESS_TEST_EMAIL_DOMAIN}`
@@ -1879,7 +1895,6 @@ async function seedCustomerStressTest(
     })
     em.persist(companyEntity)
     em.persist(companyProfile)
-
     companies.push({ entity: companyEntity, profile: companyProfile })
 
     const companyFieldValues: Record<string, unknown> = {
@@ -1899,19 +1914,22 @@ async function seedCustomerStressTest(
         values: companyFieldValues,
       })
     )
-
-    if ((i + 1) % 200 === 0) {
-      await flushAssignments(true)
-    }
   }
-
-  const total = toCreate
-  options.onProgress?.({ completed: 0, total })
 
   let created = 0
   for (let i = 0; i < toCreate; i += 1) {
+    const desiredCompanyIndex = Math.floor(i / contactsPerCompany)
+    while (companies.length <= desiredCompanyIndex && companies.length < companyCount) {
+      createCompany()
+      if (companies.length % 50 === 0) {
+        await flushAssignments(true)
+      }
+    }
+    const company =
+      companies[Math.min(desiredCompanyIndex, companies.length - 1)] ??
+      (createCompany(), companies[companies.length - 1])
+
     const sequence = existingPersons + i + 1
-    const company = companies[i % companies.length]
     const firstName = randomChoice(STRESS_TEST_FIRST_NAMES)
     const lastName = randomChoice(STRESS_TEST_LAST_NAMES)
     const displayName = `${firstName} ${lastName}`
@@ -2065,10 +2083,13 @@ async function seedCustomerStressTest(
     }
 
     created += 1
+    options.onProgress?.({ completed: created, total })
+
     if (created % 200 === 0) {
       await flushAssignments(true)
+    } else {
+      await flushAssignments()
     }
-    options.onProgress?.({ completed: created, total })
   }
 
   await flushAssignments(true)
@@ -2141,22 +2162,20 @@ const seedStressTest: ModuleCli = {
     const container = await createRequestContainer()
     const em = container.resolve<EntityManager>('em')
     let bar: ReturnType<typeof createProgressBar> | null = null
-    const result = await em.transactional((tem) =>
-      seedCustomerStressTest(
-        tem,
-        container,
-        { tenantId, organizationId },
-        {
-          count,
-          onProgress: ({ completed, total }) => {
-            if (total <= 0) return
-            if (!bar) {
-              bar = createProgressBar('Generating stress-test customers', total)
-            }
-            bar.update(completed)
-          },
-        }
-      )
+    const result = await seedCustomerStressTest(
+      em,
+      container,
+      { tenantId, organizationId },
+      {
+        count,
+        onProgress: ({ completed, total }) => {
+          if (total <= 0) return
+          if (!bar) {
+            bar = createProgressBar('Generating stress-test customers', total)
+          }
+          bar.update(completed)
+        },
+      }
     )
     bar?.complete()
 
