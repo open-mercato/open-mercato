@@ -184,7 +184,6 @@ export class DefaultDataEngine implements DataEngine {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId)
     const sentinel = rawId.toLowerCase()
     const shouldGenerate = !rawId || !isUuid || sentinel === 'create' || sentinel === 'new' || sentinel === 'null' || sentinel === 'undefined'
-    try { console.log('[DataEngine.createCustomEntityRecord] recordId normalize', { rawId, isUuid, sentinel, shouldGenerate }) } catch {}
     const id = shouldGenerate ? ((): string => {
       const g = globalThis as { crypto?: { randomUUID?: () => string } }
       if (g.crypto?.randomUUID) return g.crypto.randomUUID()
@@ -195,7 +194,6 @@ export class DefaultDataEngine implements DataEngine {
         return v.toString(16)
       })
     })() : rawId
-    try { console.log('[DataEngine.createCustomEntityRecord] chosen id', id) } catch {}
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null
     const doc: Record<string, unknown> = { id, ...this.normalizeDocValues(opts.values || {}) }
@@ -228,7 +226,6 @@ export class DefaultDataEngine implements DataEngine {
         }
       } catch (err) {
         // Surface a clear error so it doesn't silently fall back only to EAV
-        try { console.error('[DataEngine] Failed to persist custom entity doc:', err) } catch {}
         throw err
       }
     }
@@ -279,7 +276,6 @@ export class DefaultDataEngine implements DataEngine {
         })
       }
     } catch (err) {
-      console.error('[DataEngine] Failed to update custom entity doc:', err)
       throw err
     }
 

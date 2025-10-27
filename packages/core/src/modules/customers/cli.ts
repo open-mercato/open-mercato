@@ -2,6 +2,16 @@ import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import {
+  CustomerEntity,
+  CustomerCompanyProfile,
+  CustomerPersonProfile,
+  CustomerDeal,
+  CustomerDealPersonLink,
+  CustomerDealCompanyLink,
+  CustomerActivity,
+  CustomerAddress,
+} from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
 
 type SeedArgs = {

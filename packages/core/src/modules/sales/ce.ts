@@ -1,6 +1,9 @@
-export const entities = [
+import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
+
+const systemEntities: CustomEntitySpec[] = [
   {
-    id: 'sales:sales_order',
+    id: E.sales.sales_order,
     label: 'Sales Order',
     description: 'Committed sales document that drives fulfillment and invoicing.',
     labelField: 'orderNumber',
@@ -8,7 +11,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_order_line',
+    id: E.sales.sales_order_line,
     label: 'Sales Order Line',
     description: 'Individual line on a sales order, including product or service details.',
     labelField: 'name',
@@ -16,7 +19,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_order_adjustment',
+    id: E.sales.sales_order_adjustment,
     label: 'Sales Order Adjustment',
     description: 'Order-level adjustment representing promotions, taxes, or surcharges.',
     labelField: 'label',
@@ -24,7 +27,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_quote',
+    id: E.sales.sales_quote,
     label: 'Sales Quote',
     description: 'Pre-order offer shared with customers before confirmation.',
     labelField: 'quoteNumber',
@@ -32,7 +35,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_quote_line',
+    id: E.sales.sales_quote_line,
     label: 'Sales Quote Line',
     description: 'Line within a quote containing proposed products or services.',
     labelField: 'name',
@@ -40,7 +43,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_quote_adjustment',
+    id: E.sales.sales_quote_adjustment,
     label: 'Sales Quote Adjustment',
     description: 'Quote-level adjustment capturing promotional or tax calculations.',
     labelField: 'label',
@@ -48,7 +51,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_invoice',
+    id: E.sales.sales_invoice,
     label: 'Sales Invoice',
     description: 'Financial invoice derived from orders and shipments.',
     labelField: 'invoiceNumber',
@@ -56,7 +59,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_invoice_line',
+    id: E.sales.sales_invoice_line,
     label: 'Sales Invoice Line',
     description: 'Line within an invoice referencing products or services billed.',
     labelField: 'description',
@@ -64,7 +67,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_payment',
+    id: E.sales.sales_payment,
     label: 'Sales Payment',
     description: 'Payment captured against orders or invoices.',
     labelField: 'paymentReference',
@@ -72,7 +75,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_payment_allocation',
+    id: E.sales.sales_payment_allocation,
     label: 'Sales Payment Allocation',
     description: 'Allocation mapping a payment to specific documents and amounts.',
     labelField: 'id',
@@ -80,7 +83,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_credit_memo',
+    id: E.sales.sales_credit_memo,
     label: 'Sales Credit Memo',
     description: 'Credit memo issued for returns or adjustments.',
     labelField: 'creditMemoNumber',
@@ -88,7 +91,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_credit_memo_line',
+    id: E.sales.sales_credit_memo_line,
     label: 'Sales Credit Memo Line',
     description: 'Line entry within a credit memo detailing refunded items or services.',
     labelField: 'description',
@@ -96,7 +99,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_shipment',
+    id: E.sales.sales_shipment,
     label: 'Sales Shipment',
     description: 'Shipment record tracking dispatched packages for an order.',
     labelField: 'shipmentNumber',
@@ -104,7 +107,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_shipment_item',
+    id: E.sales.sales_shipment_item,
     label: 'Sales Shipment Item',
     description: 'Line-level fulfillment record mapped to shipped quantities.',
     labelField: 'id',
@@ -112,7 +115,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'sales:sales_note',
+    id: E.sales.sales_note,
     label: 'Sales Note',
     description: 'Internal or customer-facing note attached to a sales document.',
     labelField: 'body',
@@ -121,4 +124,5 @@ export const entities = [
   },
 ]
 
-export default entities
+export const entities = systemEntities
+export default systemEntities
