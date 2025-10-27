@@ -909,9 +909,169 @@ const CUSTOMER_TODO_SEEDS: ExampleTodoSeed[] = [
   },
 ]
 
+const STRESS_TEST_SOURCE = 'stress_test'
+const STRESS_TEST_FIRST_NAMES = [
+  'Alex',
+  'Jordan',
+  'Taylor',
+  'Morgan',
+  'Casey',
+  'Riley',
+  'Hayden',
+  'Skyler',
+  'Quinn',
+  'Peyton',
+  'Harper',
+  'Rowan',
+  'Sawyer',
+  'Avery',
+  'Reese',
+]
+const STRESS_TEST_LAST_NAMES = [
+  'Rivera',
+  'Chen',
+  'Nguyen',
+  'Harper',
+  'Ellis',
+  'Patel',
+  'Khan',
+  'Silva',
+  'Lopez',
+  'Murphy',
+  'Baker',
+  'Diaz',
+  'Foster',
+  'Gonzalez',
+  'Kim',
+]
+const STRESS_TEST_JOB_TITLES = [
+  'Account Executive',
+  'Growth Manager',
+  'Customer Success Lead',
+  'Operations Specialist',
+  'Procurement Analyst',
+  'Demand Generation Manager',
+  'Solutions Consultant',
+  'Revenue Operations Partner',
+  'Implementation Manager',
+  'Sales Engineer',
+]
+const STRESS_TEST_DEPARTMENTS = [
+  'Revenue',
+  'Operations',
+  'Customer Experience',
+  'Procurement',
+  'Strategy',
+  'Marketing',
+  'Sales',
+]
+const STRESS_TEST_SENIORITY = ['junior', 'mid', 'senior', 'lead', 'director']
+const STRESS_TEST_TIMEZONES = [
+  'America/New_York',
+  'America/Los_Angeles',
+  'America/Chicago',
+  'Europe/Berlin',
+  'Europe/Warsaw',
+  'Europe/London',
+  'Asia/Singapore',
+]
+const STRESS_TEST_COMPANY_PREFIX = [
+  'Atlas',
+  'Northwind',
+  'Summit',
+  'Vertex',
+  'Harbor',
+  'Cobalt',
+  'Juniper',
+  'Orion',
+  'Beacon',
+  'Silverline',
+  'Brightside',
+  'Evergreen',
+  'Lakeshore',
+  'Bluefield',
+  'Aurora',
+]
+const STRESS_TEST_COMPANY_SUFFIX = ['Industries', 'Partners', 'Holdings', 'Collective', 'Group', 'Ventures']
+const STRESS_TEST_INDUSTRIES = [
+  'SaaS',
+  'E-commerce',
+  'Healthcare',
+  'Manufacturing',
+  'Logistics',
+  'Financial Services',
+  'Retail',
+  'Hospitality',
+  'Energy',
+  'Media',
+]
+const STRESS_TEST_SIZE_BUCKETS = ['1-10', '11-50', '51-200', '201-500', '500+']
+const STRESS_TEST_EMAIL_DOMAIN = 'stress.test'
+
 function toAmount(value?: number): string | null {
   if (typeof value !== 'number') return null
   return value.toFixed(2)
+}
+
+function randomChoice<T>(values: readonly T[]): T {
+  return values[Math.floor(Math.random() * values.length)]
+}
+
+function slugifyValue(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function buildPhone(index: number): string {
+  const block = String(400 + (index % 500)).padStart(3, '0')
+  const last = String(1000 + (index % 9000)).slice(0, 4)
+  return `+1-555-${block}-${last}`
+}
+
+type ProgressInfo = {
+  completed: number
+  total: number
+}
+
+type ProgressCallback = (info: ProgressInfo) => void
+
+type StressTestOptions = {
+  count: number
+  onProgress?: ProgressCallback
+}
+
+function createProgressBar(label: string, total: number) {
+  const width = 28
+  let lastPercent = -1
+  let finished = false
+  const render = (completed: number) => {
+    if (total <= 0 || finished) return
+    const ratio = Math.min(1, Math.max(0, completed / total))
+    const percent = Math.floor(ratio * 100)
+    if (percent === lastPercent && completed < total) return
+    lastPercent = percent
+    const filled = Math.round(ratio * width)
+    const bar = '#'.repeat(filled).padEnd(width, '-')
+    const percentLabel = percent.toString().padStart(3, ' ')
+    process.stdout.write(`\r${label} [${bar}] ${percentLabel}% (${completed}/${total})`)
+    if (completed >= total) {
+      finished = true
+      process.stdout.write('\n')
+    }
+  }
+  return {
+    update: render,
+    complete() {
+      if (!finished && total > 0) {
+        render(total)
+      } else if (!finished) {
+        finished = true
+        process.stdout.write('\n')
+      }
+    },
+  }
 }
 
 function parseArgs(rest: string[]): Record<string, string> {
@@ -1551,6 +1711,133 @@ async function seedCustomerExamples(
   return true
 }
 
+async function seedCustomerStressTest(
+  em: EntityManager,
+  { tenantId, organizationId }: SeedArgs,
+  options: StressTestOptions
+): Promise<{ created: number; existing: number }> {
+  const requested = Math.max(0, Math.floor(options.count ?? 0))
+  if (requested <= 0) return { created: 0, existing: 0 }
+
+  const existingPersons = await em.count(CustomerEntity, {
+    tenantId,
+    organizationId,
+    kind: 'person',
+    source: STRESS_TEST_SOURCE,
+  })
+
+  if (existingPersons >= requested) {
+    options.onProgress?.({ completed: 0, total: 0 })
+    return { created: 0, existing: existingPersons }
+  }
+
+  const toCreate = requested - existingPersons
+  const statusOptions = ENTITY_STATUS_DEFAULTS.map((entry) => entry.value)
+  const lifecycleOptions = ENTITY_LIFECYCLE_STAGE_DEFAULTS.map((entry) => entry.value)
+  const companyCount = Math.max(1, Math.min(toCreate, Math.ceil(toCreate / 12)))
+
+  const companies: CustomerEntity[] = []
+  for (let i = 0; i < companyCount; i += 1) {
+    const prefix = randomChoice(STRESS_TEST_COMPANY_PREFIX)
+    const suffix = randomChoice(STRESS_TEST_COMPANY_SUFFIX)
+    const baseName = `${prefix} ${suffix}`
+    const sequence = existingPersons + i + 1
+    const displayName = `${baseName} ${sequence}`
+    const domainBase = slugifyValue(`${prefix}-${suffix}-${sequence}`) || `company-${sequence}`
+    const domain = `${domainBase}.${STRESS_TEST_EMAIL_DOMAIN}`
+    const websiteUrl = `https://www.${domain}`
+    const companyEntity = em.create(CustomerEntity, {
+      organizationId,
+      tenantId,
+      kind: 'company',
+      displayName,
+      description: `Stress test company #${sequence}`,
+      primaryEmail: null,
+      primaryPhone: null,
+      status: randomChoice(statusOptions),
+      lifecycleStage: randomChoice(lifecycleOptions),
+      source: STRESS_TEST_SOURCE,
+      isActive: true,
+    })
+    const companyProfile = em.create(CustomerCompanyProfile, {
+      organizationId,
+      tenantId,
+      entity: companyEntity,
+      legalName: `${displayName} LLC`,
+      brandName: baseName,
+      domain,
+      websiteUrl,
+      industry: randomChoice(STRESS_TEST_INDUSTRIES),
+      sizeBucket: randomChoice(STRESS_TEST_SIZE_BUCKETS),
+      annualRevenue: null,
+    })
+    em.persist(companyEntity)
+    em.persist(companyProfile)
+
+    companies.push(companyEntity)
+
+    if ((i + 1) % 200 === 0) {
+      await em.flush()
+    }
+  }
+
+  const total = toCreate
+  options.onProgress?.({ completed: 0, total })
+
+  let created = 0
+  for (let i = 0; i < toCreate; i += 1) {
+    const sequence = existingPersons + i + 1
+    const company = companies[i % companies.length]
+    const firstName = randomChoice(STRESS_TEST_FIRST_NAMES)
+    const lastName = randomChoice(STRESS_TEST_LAST_NAMES)
+    const displayName = `${firstName} ${lastName}`
+    const emailHandle = slugifyValue(`${firstName}.${lastName}`) || `contact-${sequence}`
+    const email = `${emailHandle}.${sequence}@${STRESS_TEST_EMAIL_DOMAIN}`
+    const timezone = randomChoice(STRESS_TEST_TIMEZONES)
+    const entity = em.create(CustomerEntity, {
+      organizationId,
+      tenantId,
+      kind: 'person',
+      displayName,
+      description: `Stress test contact #${sequence}`,
+      primaryEmail: email,
+      primaryPhone: buildPhone(sequence),
+      status: randomChoice(statusOptions),
+      lifecycleStage: randomChoice(lifecycleOptions),
+      source: STRESS_TEST_SOURCE,
+      isActive: true,
+    })
+    const profile = em.create(CustomerPersonProfile, {
+      organizationId,
+      tenantId,
+      entity,
+      company,
+      firstName,
+      lastName,
+      preferredName: firstName,
+      jobTitle: randomChoice(STRESS_TEST_JOB_TITLES),
+      department: randomChoice(STRESS_TEST_DEPARTMENTS),
+      seniority: randomChoice(STRESS_TEST_SENIORITY),
+      timezone,
+      linkedInUrl: `https://www.linkedin.com/in/${emailHandle}${sequence}`,
+      twitterUrl: `https://twitter.com/${emailHandle}${sequence}`,
+    })
+    em.persist(entity)
+    em.persist(profile)
+
+    created += 1
+    if (created % 250 === 0) {
+      await em.flush()
+    }
+    options.onProgress?.({ completed: created, total })
+  }
+
+  await em.flush()
+  options.onProgress?.({ completed: total, total })
+
+  return { created: toCreate, existing: existingPersons }
+}
+
 
 const seedDictionaries: ModuleCli = {
   command: 'seed-dictionaries',
@@ -1596,10 +1883,57 @@ const seedExamples: ModuleCli = {
   },
 }
 
-export { seedCustomerDictionaries, seedCustomerExamples, seedCurrencyDictionary }
+const seedStressTest: ModuleCli = {
+  command: 'seed-stresstest',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato customers seed-stresstest --tenant <tenantId> --org <organizationId> [--count <number>]')
+      return
+    }
+    const defaultCount = 6000
+    const countRaw =
+      args.count ?? args.total ?? args.number ?? args.customers ?? String(defaultCount)
+    const parsedCount = Number.parseInt(countRaw, 10)
+    const count = Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : defaultCount
+
+    const container = await createRequestContainer()
+    const em = container.resolve<EntityManager>('em')
+    let bar: ReturnType<typeof createProgressBar> | null = null
+    const result = await seedCustomerStressTest(
+      em,
+      { tenantId, organizationId },
+      {
+        count,
+        onProgress: ({ completed, total }) => {
+          if (total <= 0) return
+          if (!bar) {
+            bar = createProgressBar('Generating stress-test customers', total)
+          }
+          bar.update(completed)
+        },
+      }
+    )
+    bar?.complete()
+
+    if (result.created > 0) {
+      console.log(
+        `Created ${result.created} stress test customer contacts (existing previously: ${result.existing})`
+      )
+    } else {
+      console.log(
+        `Stress test dataset already satisfied (existing contacts: ${result.existing}, requested: ${count})`
+      )
+    }
+  },
+}
+
+export { seedCustomerDictionaries, seedCustomerExamples, seedCustomerStressTest, seedCurrencyDictionary }
 export type { SeedArgs as CustomerSeedArgs }
 
-const customersCliCommands = [seedDictionaries, seedExamples]
+const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest]
 
 export default customersCliCommands
 const CUSTOMER_CUSTOM_FIELD_SETS = [

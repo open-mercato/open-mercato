@@ -4,12 +4,12 @@ sidebar_label: yarn init
 description: Bootstraps an Open Mercato workspace, installs dependencies, runs migrations, and seeds default data.
 ---
 
-The `yarn init` script wraps the Open Mercato CLI `mercato init` command and delivers a ready-to-run workspace. It installs dependencies, prepares generated module artifacts, applies database migrations, seeds baseline RBAC data, and populates demo CRM content (companies, people, deals, activities, todos) unless you disable it with `--no-examples`.
+The `yarn init` script wraps the Open Mercato CLI `mercato init` command and delivers a ready-to-run workspace. It installs dependencies, prepares generated module artifacts, applies database migrations, seeds baseline RBAC data, and populates demo CRM content (companies, people, deals, activities, todos) unless you disable it with `--no-examples`. Enable `--stresstest` to tack on a synthetic, high-volume contact dataset complete with a live progress bar.
 
 ## Usage
 
 ```bash
-yarn init [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--no-examples] [--reinstall|-r]
+yarn init [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--no-examples] [--stresstest] [-n <count>] [--count=<count>] [--reinstall|-r]
 ```
 
 Ensure `DATABASE_URL` points to the Postgres instance you want to initialize before running the command.
@@ -23,6 +23,8 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 | `--password` | Password applied to all seeded accounts. | `secret` |
 | `--roles` | Comma-separated list of roles ensured before user creation. | `superadmin,admin,employee` |
 | `--no-examples` | Skip demo CRM seeders (companies, people, deals, activities, todos). Alias: `--no-exampls`. | off |
+| `--stresstest` | Generate a high-volume synthetic customer dataset in addition to the curated examples. | off |
+| `-n`, `--count`, `--stress-count`, `--stresstest-count` | Number of synthetic contacts to create when `--stresstest` is enabled. | `6000` |
 | `--reinstall`, `-r` | Drops every table in the target database before bootstrapping. Requires a valid `DATABASE_URL`. | off |
 
 ## What the Command Does
@@ -35,6 +37,7 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 6. If organization and tenant IDs are detected:
    - Seeds customer dictionaries (`mercato customers seed-dictionaries`).
    - Unless `--no-examples` is present, seeds demo CRM data (`mercato customers seed-examples`) and example Todos (`mercato example seed-todos`).
+   - When `--stresstest` is present, seeds synthetic contacts with a progress bar via `mercato customers seed-stresstest`.
    - Enables default dashboard widgets (`mercato dashboards seed-defaults`).
 
 On success, the command prints a boxed summary with created accounts and their passwords.
