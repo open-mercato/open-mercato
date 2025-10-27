@@ -5,8 +5,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
 import type { CacheStrategy } from '@open-mercato/cache/types'
-import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
+import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { E as CoreEntities } from '@open-mercato/core/generated/entities.ids.generated'
 import { E as ExampleEntities } from '@open-mercato/example/generated/entities.ids.generated'
@@ -1111,6 +1111,7 @@ function createProgressBar(label: string, total: number) {
   let lastPercent = -1
   let lastCompleted = -1
   let finished = false
+  let startedAt = Date.now()
   const minPercentStep =
     total >= 1_000_000 ? 0.01 : total >= 100_000 ? 0.05 : total >= 10_000 ? 0.1 : 0.5
   const minCompletedStep = Math.max(1, Math.floor(total / 1000))
@@ -1131,7 +1132,10 @@ function createProgressBar(label: string, total: number) {
     const bar = '#'.repeat(filled).padEnd(width, '-')
     const percentLabel = (percentRaw >= 10 ? percentRaw.toFixed(1) : percentRaw.toFixed(2)).padStart(6, ' ')
     const countsLabel = `${completed.toLocaleString()}/${total.toLocaleString()}`
-    process.stdout.write(`\r${label} [${bar}] ${percentLabel}% (${countsLabel})`)
+    const elapsedMs = Math.max(1, Date.now() - startedAt)
+    const recordsPerSecond = completed > 0 ? (completed / elapsedMs) * 1000 : 0
+    const rateLabel = `${recordsPerSecond.toFixed(1)} r/s`
+    process.stdout.write(`\r${label} [${bar}] ${percentLabel}% (${countsLabel}) ${rateLabel}`)
     if (completed >= total) {
       finished = true
       process.stdout.write('\n')
@@ -1817,6 +1821,7 @@ async function seedCustomerStressTest(
 
   const total = toCreate
   options.onProgress?.({ completed: 0, total })
+  const startedAt = Date.now()
 
   await seedCustomerDictionaries(em, { tenantId, organizationId })
 
@@ -1846,24 +1851,128 @@ async function seedCustomerStressTest(
     }
   }
 
-  const dataEngine = includeExtras ? new DefaultDataEngine(em, container) : null
-  const pendingAssignments: Array<() => Promise<void>> = []
-  const assignmentFlushThreshold = 100
+  type Primitive = string | number | boolean | null | undefined
+
+  type PendingCustomFieldAssignment = {
+    entityId: string
+    organizationId: string | null
+    tenantId: string | null
+    values: Record<string, Primitive | Primitive[] | undefined>
+    getRecordId: () => string | undefined
+  }
+
+  type CustomFieldInsertRow = {
+    entityId: string
+    recordId: string
+    organizationId: string | null
+    tenantId: string | null
+    fieldKey: string
+    valueText?: string | null
+    valueMultiline?: string | null
+    valueInt?: number | null
+    valueFloat?: number | null
+    valueBool?: boolean | null
+  }
+
+  const pendingAssignments: PendingCustomFieldAssignment[] = []
+  const cfRowBuffer: CustomFieldInsertRow[] = []
+  const assignmentFlushThreshold = includeExtras ? 100 : 0
+  const cfInsertBatchSize = 500
+  const flushInterval = 100
+  const knex = em.getConnection().getKnex()
+
+  const queueCustomFieldAssignment = (assignment: PendingCustomFieldAssignment) => {
+    if (!includeExtras) return
+    pendingAssignments.push(assignment)
+  }
+
+  const appendRow = (row: CustomFieldInsertRow) => {
+    cfRowBuffer.push(row)
+  }
+
+  const materializeAssignments = () => {
+    if (!pendingAssignments.length) return
+    for (const assignment of pendingAssignments.splice(0)) {
+      const recordId = assignment.getRecordId()
+      if (!recordId) continue
+      for (const [fieldKey, raw] of Object.entries(assignment.values)) {
+        if (raw === undefined) continue
+        if (Array.isArray(raw)) {
+          for (const val of raw as Primitive[]) {
+            appendRow(buildCustomFieldRow(assignment, recordId, fieldKey, val))
+          }
+        } else {
+          appendRow(buildCustomFieldRow(assignment, recordId, fieldKey, raw))
+        }
+      }
+    }
+  }
+
+  const buildCustomFieldRow = (
+    assignment: PendingCustomFieldAssignment,
+    recordId: string,
+    fieldKey: string,
+    value: Primitive
+  ): CustomFieldInsertRow => {
+    const base: CustomFieldInsertRow = {
+      entityId: assignment.entityId,
+      recordId,
+      organizationId: assignment.organizationId ?? null,
+      tenantId: assignment.tenantId ?? null,
+      fieldKey,
+    }
+    if (value === null || value === undefined) {
+      base.valueText = null
+      return base
+    }
+    if (typeof value === 'boolean') {
+      base.valueBool = value
+      return base
+    }
+    if (typeof value === 'number') {
+      if (Number.isInteger(value)) base.valueInt = value
+      else base.valueFloat = value
+      return base
+    }
+    base.valueText = String(value)
+    return base
+  }
+
+  const flushCustomFieldRows = async (force: boolean) => {
+    if (!includeExtras) return
+    if (!force && cfRowBuffer.length < cfInsertBatchSize) return
+    if (!cfRowBuffer.length) return
+    const chunkSize = cfInsertBatchSize
+    while (cfRowBuffer.length) {
+      const chunk = cfRowBuffer.splice(0, chunkSize)
+      const timestamp = new Date()
+      const payload = chunk.map((row) => ({
+        entity_id: row.entityId,
+        record_id: row.recordId,
+        organization_id: row.organizationId,
+        tenant_id: row.tenantId,
+        field_key: row.fieldKey,
+        value_text: row.valueText ?? null,
+        value_multiline: row.valueMultiline ?? null,
+        value_int: row.valueInt ?? null,
+        value_float: row.valueFloat ?? null,
+        value_bool: row.valueBool ?? null,
+        created_at: timestamp,
+        deleted_at: null,
+      }))
+      await knex.insert(payload).into('custom_field_values')
+    }
+  }
+
   const flushAssignments = async (force = false) => {
     if (!includeExtras) {
       if (force) await em.flush()
       return
     }
-    if (!force && pendingAssignments.length < assignmentFlushThreshold) return
+    if (!force && pendingAssignments.length < assignmentFlushThreshold && cfRowBuffer.length < cfInsertBatchSize) return
     await em.flush()
-    const tasks = pendingAssignments.splice(0)
-    for (const assign of tasks) {
-      try {
-        await assign()
-      } catch (err) {
-        console.warn('[customers.cli] Failed to set custom fields for stress-test record', err)
-      }
-    }
+    materializeAssignments()
+    await flushCustomFieldRows(force)
   }
 
   const companies: Array<{ entity: CustomerEntity; profile: CustomerCompanyProfile }> = []
@@ -1903,11 +2012,11 @@ async function seedCustomerStressTest(
       annualRevenue: null,
     })
     em.persist(companyEntity)
-   em.persist(companyProfile)
+    em.persist(companyProfile)
     companies.push({ entity: companyEntity, profile: companyProfile })
 
     if (includeExtras) {
-      const companyFieldValues: Record<string, unknown> = {
+      const companyFieldValues: Record<string, Primitive | Primitive[]> = {
         relationship_health: randomChoice(STRESS_TEST_RELATIONSHIP_HEALTH),
         renewal_quarter: randomChoice(STRESS_TEST_RENEWAL_QUARTERS),
         customer_marketing_case: Math.random() < 0.35,
@@ -1915,15 +2024,13 @@ async function seedCustomerStressTest(
       if (Math.random() < 0.4) {
         companyFieldValues.executive_notes = randomChoice(STRESS_TEST_NOTE_SNIPPETS)
       }
-      pendingAssignments.push(async () =>
-        dataEngine!.setCustomFields({
-          entityId: CoreEntities.customers.customer_company_profile,
-          recordId: companyProfile.id,
-          organizationId,
-          tenantId,
-          values: companyFieldValues,
-        })
-      )
+      queueCustomFieldAssignment({
+        entityId: CoreEntities.customers.customer_company_profile,
+        organizationId,
+        tenantId,
+        values: companyFieldValues,
+        getRecordId: () => companyProfile.id,
+      })
     }
   }
 
@@ -1979,20 +2086,18 @@ async function seedCustomerStressTest(
     em.persist(profile)
 
     if (includeExtras) {
-      const personFieldValues: Record<string, unknown> = {
+      const personFieldValues: Record<string, Primitive | Primitive[]> = {
         buying_role: randomChoice(STRESS_TEST_BUYING_ROLES),
         preferred_pronouns: randomChoice(STRESS_TEST_PRONOUNS),
         newsletter_opt_in: Math.random() < 0.5,
       }
-      pendingAssignments.push(async () =>
-        dataEngine!.setCustomFields({
-          entityId: CoreEntities.customers.customer_person_profile,
-          recordId: profile.id,
-          organizationId,
-          tenantId,
-          values: personFieldValues,
-        })
-      )
+      queueCustomFieldAssignment({
+        entityId: CoreEntities.customers.customer_person_profile,
+        organizationId,
+        tenantId,
+        values: personFieldValues,
+        getRecordId: () => profile.id,
+      })
 
       const monetaryBase = randomInt(5, 220) * 1000
       const pipelineStage = randomChoice(STRESS_TEST_DEAL_PIPELINE)
@@ -2016,20 +2121,18 @@ async function seedCustomerStressTest(
       })
       em.persist(deal)
 
-      pendingAssignments.push(async () =>
-        dataEngine!.setCustomFields({
-          entityId: CoreEntities.customers.customer_deal,
-          recordId: deal.id,
-          organizationId,
-          tenantId,
-          values: {
-            competitive_risk: randomChoice(STRESS_TEST_DEAL_RISK),
-            implementation_complexity: randomChoice(STRESS_TEST_IMPLEMENTATION),
-            estimated_seats: randomInt(5, 250),
-            requires_legal_review: Math.random() < 0.3,
-          },
-        })
-      )
+      queueCustomFieldAssignment({
+        entityId: CoreEntities.customers.customer_deal,
+        organizationId,
+        tenantId,
+        values: {
+          competitive_risk: randomChoice(STRESS_TEST_DEAL_RISK),
+          implementation_complexity: randomChoice(STRESS_TEST_IMPLEMENTATION),
+          estimated_seats: randomInt(5, 250),
+          requires_legal_review: Math.random() < 0.3,
+        },
+        getRecordId: () => deal.id,
+      })
 
       const companyLink = em.create(CustomerDealCompanyLink, {
         deal,
@@ -2061,19 +2164,17 @@ async function seedCustomerStressTest(
         })
         em.persist(activity)
 
-        pendingAssignments.push(async () =>
-          dataEngine!.setCustomFields({
-            entityId: CoreEntities.customers.customer_activity,
-            recordId: activity.id,
-            organizationId,
-            tenantId,
-            values: {
-              engagement_sentiment: randomChoice(STRESS_TEST_ACTIVITY_SENTIMENT),
-              shared_with_leadership: Math.random() < 0.4,
-              follow_up_owner: randomChoice(STRESS_TEST_ACTIVITY_OWNERS),
-            },
-          })
-        )
+        queueCustomFieldAssignment({
+          entityId: CoreEntities.customers.customer_activity,
+          organizationId,
+          tenantId,
+          values: {
+            engagement_sentiment: randomChoice(STRESS_TEST_ACTIVITY_SENTIMENT),
+            shared_with_leadership: Math.random() < 0.4,
+            follow_up_owner: randomChoice(STRESS_TEST_ACTIVITY_OWNERS),
+          },
+          getRecordId: () => activity.id,
+        })
       }
 
       const noteCount = randomInt(2, 5)
@@ -2098,7 +2199,7 @@ async function seedCustomerStressTest(
     created += 1
     options.onProgress?.({ completed: created, total })
 
-    if (created % 200 === 0) {
+    if (created % flushInterval === 0) {
       await flushAssignments(true)
     } else {
       await flushAssignments()
@@ -2107,6 +2208,13 @@ async function seedCustomerStressTest(
 
   await flushAssignments(true)
   options.onProgress?.({ completed: total, total })
+  const elapsedMs = Math.max(1, Date.now() - startedAt)
+  const recordsPerSecond = toCreate > 0 ? (toCreate / elapsedMs) * 1000 : 0
+  console.log(
+    `⚡ Stress test seeding throughput: ${toCreate.toLocaleString()} records in ${(elapsedMs / 1000).toFixed(
+      1
+    )}s (${recordsPerSecond.toFixed(1)} records/s${includeExtras ? '' : ' - lite mode'})`
+  )
 
   return { created: toCreate, existing: existingPersons }
 }
@@ -2163,7 +2271,7 @@ const seedStressTest: ModuleCli = {
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato customers seed-stresstest --tenant <tenantId> --org <organizationId> [--count <number>]')
+      console.error('Usage: mercato customers seed-stresstest --tenant <tenantId> --org <organizationId> [--count <number>] [--lite]')
       return
     }
     const defaultCount = 6000
