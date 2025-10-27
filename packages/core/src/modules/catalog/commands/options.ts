@@ -1,9 +1,11 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   CatalogProduct,
   CatalogProductOption,
@@ -41,6 +43,7 @@ type OptionSnapshot = {
   isRequired: boolean
   isMultiple: boolean
   metadata: Record<string, unknown> | null
+  custom: Record<string, unknown> | null
 }
 
 type OptionValueSnapshot = {
@@ -54,6 +57,7 @@ type OptionValueSnapshot = {
   description: string | null
   position: number
   metadata: Record<string, unknown> | null
+  custom: Record<string, unknown> | null
 }
 
 type OptionUndoPayload = {
@@ -73,6 +77,12 @@ async function loadOptionSnapshot(
   const record = await em.findOne(CatalogProductOption, { id })
   if (!record) return null
   const productId = typeof record.product === 'string' ? record.product : record.product.id
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.catalog.catalog_product_option,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
   return {
     id: record.id,
     productId,
@@ -85,6 +95,7 @@ async function loadOptionSnapshot(
     isRequired: record.isRequired,
     isMultiple: record.isMultiple,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
+    custom: Object.keys(custom).length ? custom : null,
   }
 }
 
@@ -100,6 +111,12 @@ async function loadOptionValueSnapshot(
   if (!optionEntity) return null
   const productId =
     typeof optionEntity.product === 'string' ? optionEntity.product : optionEntity.product.id
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.catalog.catalog_product_option_value,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
   return {
     id: record.id,
     optionId: typeof record.option === 'string' ? record.option : record.option.id,
@@ -111,6 +128,7 @@ async function loadOptionValueSnapshot(
     description: record.description ?? null,
     position: record.position,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
+    custom: Object.keys(custom).length ? custom : null,
   }
 }
 
@@ -142,7 +160,7 @@ function applyOptionValueSnapshot(
 const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string }> = {
   id: 'catalog.options.create',
   async execute(rawInput, ctx) {
-    const parsed = optionCreateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(optionCreateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const product = await requireProduct(em, parsed.productId)
     ensureTenantScope(ctx, product.tenantId)
@@ -162,6 +180,14 @@ const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string 
     })
     em.persist(record)
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.catalog.catalog_product_option,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: custom,
+    })
     return { optionId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -197,6 +223,17 @@ const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string 
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_option,
+        recordId: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -213,7 +250,7 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = optionUpdateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(optionUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(CatalogProductOption, { id: parsed.id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog option not found' })
@@ -233,6 +270,16 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }
     await em.flush()
+    if (custom && Object.keys(custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_option,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: custom,
+      })
+    }
     return { optionId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -265,6 +312,7 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
     const payload = extractUndoPayload<OptionUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
     const em = ctx.container.resolve<EntityManager>('em').fork()
     let record = await em.findOne(CatalogProductOption, { id: before.id })
     if (!record) {
@@ -281,6 +329,20 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
     ensureOrganizationScope(ctx, before.organizationId)
     applyOptionSnapshot(record, before)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(
+      before.custom ?? undefined,
+      after?.custom ?? undefined
+    )
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_option,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -310,6 +372,9 @@ const deleteOptionCommand: CommandHandler<
     ensureTenantScope(ctx, productEntity.tenantId)
     ensureOrganizationScope(ctx, productEntity.organizationId)
 
+    const baseEm = ctx.container.resolve<EntityManager>('em')
+    const snapshot = await loadOptionSnapshot(baseEm, id)
+
     const optionValueCount = await em.count(CatalogProductOptionValue, { option: record })
     if (optionValueCount > 0) {
       throw new CrudHttpError(400, { error: 'Remove option values before deleting the option.' })
@@ -324,6 +389,19 @@ const deleteOptionCommand: CommandHandler<
     }
     em.remove(record)
     await em.flush()
+    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      if (Object.keys(resetValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product_option,
+          recordId: id,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: resetValues,
+        })
+      }
+    }
     return { optionId: id }
   },
   buildLog: async ({ snapshots }) => {
@@ -364,6 +442,16 @@ const deleteOptionCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyOptionSnapshot(record, before)
     await em.flush()
+    if (before.custom && Object.keys(before.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_option,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: before.custom,
+      })
+    }
   },
 }
 
@@ -371,7 +459,7 @@ const createOptionValueCommand: CommandHandler<OptionValueCreateInput, { optionV
   {
     id: 'catalog.option-values.create',
     async execute(rawInput, ctx) {
-      const parsed = optionValueCreateSchema.parse(rawInput)
+      const { parsed, custom } = parseWithCustomFields(optionValueCreateSchema, rawInput)
       const em = ctx.container.resolve<EntityManager>('em').fork()
       const option = await requireOption(em, parsed.optionId)
       const product = option.product as CatalogProduct | string
@@ -392,6 +480,14 @@ const createOptionValueCommand: CommandHandler<OptionValueCreateInput, { optionV
       })
       em.persist(record)
       await em.flush()
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_option_value,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: custom,
+      })
       return { optionValueId: record.id }
     },
     captureAfter: async (_input, result, ctx) => {
@@ -428,6 +524,17 @@ const createOptionValueCommand: CommandHandler<OptionValueCreateInput, { optionV
       await em.nativeDelete(CatalogVariantOptionValue, { optionValue: after.id })
       em.remove(record)
       await em.flush()
+      const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+      if (Object.keys(resetValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product_option_value,
+          recordId: after.id,
+          organizationId: after.organizationId,
+          tenantId: after.tenantId,
+          values: resetValues,
+        })
+      }
     },
   }
 
@@ -445,7 +552,7 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
       return snapshot ? { before: snapshot } : {}
     },
     async execute(rawInput, ctx) {
-      const parsed = optionValueUpdateSchema.parse(rawInput)
+      const { parsed, custom } = parseWithCustomFields(optionValueUpdateSchema, rawInput)
       const em = ctx.container.resolve<EntityManager>('em').fork()
       const record = await em.findOne(CatalogProductOptionValue, { id: parsed.id })
       if (!record) throw new CrudHttpError(404, { error: 'Option value not found' })
@@ -466,6 +573,16 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
         record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
       }
       await em.flush()
+      if (custom && Object.keys(custom).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product_option_value,
+          recordId: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+          values: custom,
+        })
+      }
       return { optionValueId: record.id }
     },
     captureAfter: async (_input, result, ctx) => {
@@ -498,6 +615,7 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
       const payload = extractUndoPayload<OptionValueUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
+      const after = payload?.after
       const em = ctx.container.resolve<EntityManager>('em').fork()
       let record = await em.findOne(CatalogProductOptionValue, { id: before.id })
       if (!record) {
@@ -514,6 +632,20 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
       ensureOrganizationScope(ctx, before.organizationId)
       applyOptionValueSnapshot(record, before)
       await em.flush()
+      const resetValues = buildCustomFieldResetMap(
+        before.custom ?? undefined,
+        after?.custom ?? undefined
+      )
+      if (Object.keys(resetValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product_option_value,
+          recordId: before.id,
+          organizationId: before.organizationId,
+          tenantId: before.tenantId,
+          values: resetValues,
+        })
+      }
     },
   }
 
@@ -546,6 +678,9 @@ const deleteOptionValueCommand: CommandHandler<
     ensureTenantScope(ctx, productEntity.tenantId)
     ensureOrganizationScope(ctx, productEntity.organizationId)
 
+    const baseEm = ctx.container.resolve<EntityManager>('em')
+    const snapshot = await loadOptionValueSnapshot(baseEm, id)
+
     const usageCount = await em.count(CatalogVariantOptionValue, { optionValue: record })
     if (usageCount > 0) {
       throw new CrudHttpError(400, {
@@ -554,6 +689,19 @@ const deleteOptionValueCommand: CommandHandler<
     }
     em.remove(record)
     await em.flush()
+    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      if (Object.keys(resetValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product_option_value,
+          recordId: id,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: resetValues,
+        })
+      }
+    }
     return { optionValueId: id }
   },
   buildLog: async ({ snapshots }) => {
@@ -578,6 +726,7 @@ const deleteOptionValueCommand: CommandHandler<
     const payload = extractUndoPayload<OptionValueUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
     const em = ctx.container.resolve<EntityManager>('em').fork()
     let record = await em.findOne(CatalogProductOptionValue, { id: before.id })
     if (!record) {
@@ -594,6 +743,20 @@ const deleteOptionValueCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyOptionValueSnapshot(record, before)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(
+      before.custom ?? undefined,
+      after?.custom ?? undefined
+    )
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_option_value,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 

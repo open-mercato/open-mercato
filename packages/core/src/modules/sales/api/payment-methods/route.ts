@@ -3,7 +3,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesPaymentMethod } from '../../data/entities'
 import { paymentMethodCreateSchema, paymentMethodUpdateSchema } from '../../data/validators'
-import { resolveCrudRecordId, withScopedPayload } from '../utils'
+import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/sales_payment_method'
 
@@ -80,20 +80,28 @@ const crud = makeCrudRoute({
       updatedAt: F.updated_at,
     },
     buildFilters: async (query) => buildFilters(query),
-    transformItem: (item: any) => ({
-      id: item.id,
-      name: item.name,
-      code: item.code,
-      description: item.description ?? null,
-      providerKey: item.provider_key ?? null,
-      terms: item.terms ?? null,
-      isActive: item.is_active ?? false,
-      metadata: item.metadata ?? null,
-      organizationId: item.organization_id ?? null,
-      tenantId: item.tenant_id ?? null,
-      createdAt: item.created_at,
-      updatedAt: item.updated_at,
-    }),
+    decorateCustomFields: { entityIds: [E.sales.sales_payment_method] },
+    transformItem: (item: any) => {
+      const base = {
+        id: item.id,
+        name: item.name,
+        code: item.code,
+        description: item.description ?? null,
+        providerKey: item.provider_key ?? null,
+        terms: item.terms ?? null,
+        isActive: item.is_active ?? false,
+        metadata: item.metadata ?? null,
+        organizationId: item.organization_id ?? null,
+        tenantId: item.tenant_id ?? null,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+      }
+      const custom: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(item ?? {})) {
+        if (key.startsWith('cf:')) custom[key.slice(3)] = value
+      }
+      return Object.keys(custom).length ? { ...base, customFields: custom } : base
+    },
   },
   actions: {
     create: {
@@ -101,7 +109,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return paymentMethodCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return parseScopedCommandInput(paymentMethodCreateSchema, raw ?? {}, ctx, translate)
       },
       response: ({ result }) => ({ id: result?.paymentMethodId ?? result?.id ?? null }),
       status: 201,
@@ -111,7 +119,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return paymentMethodUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return parseScopedCommandInput(paymentMethodUpdateSchema, raw ?? {}, ctx, translate)
       },
       response: () => ({ ok: true }),
     },

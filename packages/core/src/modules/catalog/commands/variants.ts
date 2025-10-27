@@ -1,9 +1,11 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   CatalogProduct,
   CatalogProductOption,
@@ -46,6 +48,7 @@ type VariantSnapshot = {
   dimensions: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
   optionValueIds: string[]
+  custom: Record<string, unknown> | null
 }
 
 type VariantUndoPayload = {
@@ -67,6 +70,12 @@ async function loadVariantSnapshot(
 ): Promise<VariantSnapshot | null> {
   const record = await em.findOne(CatalogProductVariant, { id, deletedAt: null })
   if (!record) return null
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.catalog.catalog_product_variant,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
   const variantOptionValues = await em.find(
     CatalogVariantOptionValue,
     { variant: record },
@@ -92,6 +101,7 @@ async function loadVariantSnapshot(
     dimensions: record.dimensions ? cloneJson(record.dimensions) : null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     optionValueIds,
+    custom: Object.keys(custom).length ? custom : null,
   }
 }
 
@@ -203,7 +213,7 @@ async function restoreVariantOptionValues(
 const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: string }> = {
   id: 'catalog.variants.create',
   async execute(rawInput, ctx) {
-    const parsed = variantCreateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(variantCreateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const product = await requireProduct(em, parsed.productId)
     ensureTenantScope(ctx, product.tenantId)
@@ -228,6 +238,14 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     await em.flush()
     await syncVariantOptionValues(em, record, parsed.optionConfiguration)
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.catalog.catalog_product_variant,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: custom,
+    })
     return { variantId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -264,6 +282,17 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     await em.nativeDelete(CatalogVariantOptionValue, { variant: record.id })
     em.remove(record)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_variant,
+        recordId: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -280,7 +309,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = variantUpdateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(variantUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(CatalogProductVariant, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
@@ -312,6 +341,16 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     }
 
     await em.flush()
+    if (custom && Object.keys(custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_variant,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: custom,
+      })
+    }
     return { variantId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -344,6 +383,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     const payload = extractUndoPayload<VariantUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
     const em = ctx.container.resolve<EntityManager>('em').fork()
     let record = await em.findOne(CatalogProductVariant, { id: before.id })
     if (!record) {
@@ -361,6 +401,20 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     applyVariantSnapshot(record, before)
     await restoreVariantOptionValues(em, record, before.optionValueIds)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(
+      before.custom ?? undefined,
+      after?.custom ?? undefined
+    )
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_variant,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -390,6 +444,9 @@ const deleteVariantCommand: CommandHandler<
     ensureTenantScope(ctx, productEntity.tenantId)
     ensureOrganizationScope(ctx, productEntity.organizationId)
 
+    const baseEm = ctx.container.resolve<EntityManager>('em')
+    const snapshot = await loadVariantSnapshot(baseEm, id)
+
     const priceCount = await em.count(CatalogProductPrice, { variant: record })
     if (priceCount > 0) {
       throw new CrudHttpError(400, { error: 'Remove variant prices before deleting the variant.' })
@@ -397,6 +454,19 @@ const deleteVariantCommand: CommandHandler<
     await em.nativeDelete(CatalogVariantOptionValue, { variant: record.id })
     em.remove(record)
     await em.flush()
+    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      if (Object.keys(resetValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product_variant,
+          recordId: id,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: resetValues,
+        })
+      }
+    }
     return { variantId: id }
   },
   buildLog: async ({ snapshots }) => {
@@ -438,6 +508,16 @@ const deleteVariantCommand: CommandHandler<
     applyVariantSnapshot(record, before)
     await restoreVariantOptionValues(em, record, before.optionValueIds)
     await em.flush()
+    if (before.custom && Object.keys(before.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_variant,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: before.custom,
+      })
+    }
   },
 }
 

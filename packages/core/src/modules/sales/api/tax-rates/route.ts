@@ -3,7 +3,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesTaxRate } from '../../data/entities'
 import { taxRateCreateSchema, taxRateUpdateSchema } from '../../data/validators'
-import { resolveCrudRecordId, withScopedPayload } from '../utils'
+import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/sales_tax_rate'
 
@@ -104,28 +104,36 @@ const crud = makeCrudRoute({
       updatedAt: F.updated_at,
     },
     buildFilters: async (query) => buildFilters(query),
-    transformItem: (item: any) => ({
-      id: item.id,
-      name: item.name,
-      code: item.code,
-      rate: item.rate,
-      countryCode: item.country_code ?? null,
-      regionCode: item.region_code ?? null,
-      postalCode: item.postal_code ?? null,
-      city: item.city ?? null,
-      customerGroupId: item.customer_group_id ?? null,
-      productCategoryId: item.product_category_id ?? null,
-      channelId: item.channel_id ?? null,
-      priority: item.priority ?? 0,
-      isCompound: item.is_compound ?? false,
-      metadata: item.metadata ?? null,
-      startsAt: item.starts_at ?? null,
-      endsAt: item.ends_at ?? null,
-      organizationId: item.organization_id ?? null,
-      tenantId: item.tenant_id ?? null,
-      createdAt: item.created_at,
-      updatedAt: item.updated_at,
-    }),
+    decorateCustomFields: { entityIds: [E.sales.sales_tax_rate] },
+    transformItem: (item: any) => {
+      const base = {
+        id: item.id,
+        name: item.name,
+        code: item.code,
+        rate: item.rate,
+        countryCode: item.country_code ?? null,
+        regionCode: item.region_code ?? null,
+        postalCode: item.postal_code ?? null,
+        city: item.city ?? null,
+        customerGroupId: item.customer_group_id ?? null,
+        productCategoryId: item.product_category_id ?? null,
+        channelId: item.channel_id ?? null,
+        priority: item.priority ?? 0,
+        isCompound: item.is_compound ?? false,
+        metadata: item.metadata ?? null,
+        startsAt: item.starts_at ?? null,
+        endsAt: item.ends_at ?? null,
+        organizationId: item.organization_id ?? null,
+        tenantId: item.tenant_id ?? null,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+      }
+      const custom: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(item ?? {})) {
+        if (key.startsWith('cf:')) custom[key.slice(3)] = value
+      }
+      return Object.keys(custom).length ? { ...base, customFields: custom } : base
+    },
   },
   actions: {
     create: {
@@ -133,7 +141,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return taxRateCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return parseScopedCommandInput(taxRateCreateSchema, raw ?? {}, ctx, translate)
       },
       response: ({ result }) => ({ id: result?.taxRateId ?? result?.id ?? null }),
       status: 201,
@@ -143,7 +151,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return taxRateUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return parseScopedCommandInput(taxRateUpdateSchema, raw ?? {}, ctx, translate)
       },
       response: () => ({ ok: true }),
     },

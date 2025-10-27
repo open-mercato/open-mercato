@@ -3,7 +3,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesShippingMethod } from '../../data/entities'
 import { shippingMethodCreateSchema, shippingMethodUpdateSchema } from '../../data/validators'
-import { resolveCrudRecordId, withScopedPayload } from '../utils'
+import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/sales_shipping_method'
 
@@ -89,24 +89,32 @@ const crud = makeCrudRoute({
       updatedAt: F.updated_at,
     },
     buildFilters: async (query) => buildFilters(query),
-    transformItem: (item: any) => ({
-      id: item.id,
-      name: item.name,
-      code: item.code,
-      description: item.description ?? null,
-      carrierCode: item.carrier_code ?? null,
-      serviceLevel: item.service_level ?? null,
-      estimatedTransitDays: item.estimated_transit_days ?? null,
-      baseRateNet: item.base_rate_net ?? '0',
-      baseRateGross: item.base_rate_gross ?? '0',
-      currencyCode: item.currency_code ?? null,
-      isActive: item.is_active ?? false,
-      metadata: item.metadata ?? null,
-      organizationId: item.organization_id ?? null,
-      tenantId: item.tenant_id ?? null,
-      createdAt: item.created_at,
-      updatedAt: item.updated_at,
-    }),
+    decorateCustomFields: { entityIds: [E.sales.sales_shipping_method] },
+    transformItem: (item: any) => {
+      const base = {
+        id: item.id,
+        name: item.name,
+        code: item.code,
+        description: item.description ?? null,
+        carrierCode: item.carrier_code ?? null,
+        serviceLevel: item.service_level ?? null,
+        estimatedTransitDays: item.estimated_transit_days ?? null,
+        baseRateNet: item.base_rate_net ?? '0',
+        baseRateGross: item.base_rate_gross ?? '0',
+        currencyCode: item.currency_code ?? null,
+        isActive: item.is_active ?? false,
+        metadata: item.metadata ?? null,
+        organizationId: item.organization_id ?? null,
+        tenantId: item.tenant_id ?? null,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+      }
+      const custom: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(item ?? {})) {
+        if (key.startsWith('cf:')) custom[key.slice(3)] = value
+      }
+      return Object.keys(custom).length ? { ...base, customFields: custom } : base
+    },
   },
   actions: {
     create: {
@@ -114,7 +122,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return shippingMethodCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return parseScopedCommandInput(shippingMethodCreateSchema, raw ?? {}, ctx, translate)
       },
       response: ({ result }) => ({ id: result?.shippingMethodId ?? result?.id ?? null }),
       status: 201,
@@ -124,7 +132,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return shippingMethodUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return parseScopedCommandInput(shippingMethodUpdateSchema, raw ?? {}, ctx, translate)
       },
       response: () => ({ ok: true }),
     },

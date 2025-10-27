@@ -2,6 +2,7 @@ import type { EntityData, EntityName, FilterQuery } from '@mikro-orm/core'
 import type { EntityManager, EntityRepository } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { validateCustomFieldValuesServer } from '@open-mercato/core/modules/entities/lib/validation'
 import type { EventBus } from '@open-mercato/events/types'
 import type {
   CrudEventAction,
@@ -9,6 +10,7 @@ import type {
   CrudIndexerConfig,
   CrudEntityIdentifiers,
 } from '../crud/types'
+import { CrudHttpError } from '../crud/errors'
 
 type CustomEntityValues = Record<string, unknown>
 
@@ -83,6 +85,7 @@ export class DefaultDataEngine implements DataEngine {
 
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {
     const { entityId, recordId, organizationId = null, tenantId = null, values } = opts
+    await this.validateCustomFieldValues(entityId, organizationId, tenantId, values as Record<string, unknown>)
     await setRecordCustomFields(this.em, {
       entityId,
       recordId,
@@ -139,9 +142,44 @@ export class DefaultDataEngine implements DataEngine {
     }
   }
 
+  private normalizeValuesForValidation(values: Record<string, unknown> | undefined | null): Record<string, unknown> {
+    if (!values) return {}
+    const out: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(values)) {
+      if (value === undefined) continue
+      if (key.startsWith('cf_') || key.startsWith('cf:')) {
+        const normalized = key.slice(3)
+        if (normalized) out[normalized] = value
+        continue
+      }
+      out[key] = value
+    }
+    return out
+  }
+
+  private async validateCustomFieldValues(
+    entityId: string,
+    organizationId: string | null,
+    tenantId: string | null,
+    values: Record<string, unknown> | undefined | null,
+  ): Promise<void> {
+    const prepared = this.normalizeValuesForValidation(values)
+    if (!entityId || Object.keys(prepared).length === 0) return
+    const result = await validateCustomFieldValuesServer(this.em, {
+      entityId,
+      organizationId,
+      tenantId,
+      values: prepared,
+    })
+    if (!result.ok) {
+      throw new CrudHttpError(400, { error: 'Validation failed', fields: result.fieldErrors })
+    }
+  }
+
   async createCustomEntityRecord(opts: Parameters<DataEngine['createCustomEntityRecord']>[0]): Promise<{ id: string }> {
     const knex = this.em.getConnection().getKnex()
     await this.ensureStorageTableExists()
+    await this.validateCustomFieldValues(opts.entityId, opts.organizationId ?? null, opts.tenantId ?? null, opts.values)
     const rawId = String(opts.recordId ?? '').trim()
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId)
     const sentinel = rawId.toLowerCase()
@@ -212,6 +250,7 @@ export class DefaultDataEngine implements DataEngine {
 
   async updateCustomEntityRecord(opts: Parameters<DataEngine['updateCustomEntityRecord']>[0]): Promise<void> {
     const knex = this.em.getConnection().getKnex()
+    await this.validateCustomFieldValues(opts.entityId, opts.organizationId ?? null, opts.tenantId ?? null, opts.values)
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null

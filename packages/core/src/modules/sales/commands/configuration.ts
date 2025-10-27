@@ -1,9 +1,8 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -143,17 +142,6 @@ type UndoPayload<T> = {
   before?: T | null
   after?: T | null
 }
-
-type ChannelCreateCommandInput = ChannelCreateInput & { customFields?: Record<string, unknown> }
-type ChannelUpdateCommandInput = ChannelUpdateInput & { customFields?: Record<string, unknown> }
-type DeliveryWindowCreateCommandInput = DeliveryWindowCreateInput & { customFields?: Record<string, unknown> }
-type DeliveryWindowUpdateCommandInput = DeliveryWindowUpdateInput & { customFields?: Record<string, unknown> }
-type ShippingMethodCreateCommandInput = ShippingMethodCreateInput & { customFields?: Record<string, unknown> }
-type ShippingMethodUpdateCommandInput = ShippingMethodUpdateInput & { customFields?: Record<string, unknown> }
-type PaymentMethodCreateCommandInput = PaymentMethodCreateInput & { customFields?: Record<string, unknown> }
-type PaymentMethodUpdateCommandInput = PaymentMethodUpdateInput & { customFields?: Record<string, unknown> }
-type TaxRateCreateCommandInput = TaxRateCreateInput & { customFields?: Record<string, unknown> }
-type TaxRateUpdateCommandInput = TaxRateUpdateInput & { customFields?: Record<string, unknown> }
 
 async function loadChannelSnapshot(em: EntityManager, id: string): Promise<ChannelSnapshot | null> {
   const channel = await em.findOne(SalesChannel, { id, deletedAt: null })
@@ -412,10 +400,10 @@ function resolveScopeFromUpdate<T extends { organizationId: string; tenantId: st
   return { organizationId, tenantId }
 }
 
-const createChannelCommand: CommandHandler<ChannelCreateCommandInput, { channelId: string }> = {
+const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: string }> = {
   id: 'sales.channels.create',
   async execute(rawInput, ctx) {
-    const parsed = channelCreateSchema.parse(rawInput) as ChannelCreateCommandInput
+    const { parsed, custom } = parseWithCustomFields(channelCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -448,7 +436,7 @@ const createChannelCommand: CommandHandler<ChannelCreateCommandInput, { channelI
       recordId: record.id,
       organizationId: record.organizationId,
       tenantId: record.tenantId,
-      values: parsed.customFields ?? {},
+      values: custom,
     })
     return { channelId: record.id }
   },
@@ -499,7 +487,7 @@ const createChannelCommand: CommandHandler<ChannelCreateCommandInput, { channelI
   },
 }
 
-const updateChannelCommand: CommandHandler<ChannelUpdateCommandInput, { channelId: string }> = {
+const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: string }> = {
   id: 'sales.channels.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Channel id is required')
@@ -512,7 +500,7 @@ const updateChannelCommand: CommandHandler<ChannelUpdateCommandInput, { channelI
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = channelUpdateSchema.parse(rawInput) as ChannelUpdateCommandInput
+    const { parsed, custom } = parseWithCustomFields(channelUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(SalesChannel, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Channel not found' })
@@ -544,14 +532,14 @@ const updateChannelCommand: CommandHandler<ChannelUpdateCommandInput, { channelI
     record.organizationId = scope.organizationId
     record.tenantId = scope.tenantId
     await em.flush()
-    if (parsed.customFields) {
+    if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
         entityId: E.sales.sales_channel,
         recordId: record.id,
         organizationId: record.organizationId,
         tenantId: record.tenantId,
-        values: parsed.customFields,
+        values: custom,
       })
     }
     return { channelId: record.id }
@@ -683,12 +671,12 @@ const deleteChannelCommand: CommandHandler<
 }
 
 const createDeliveryWindowCommand: CommandHandler<
-  DeliveryWindowCreateCommandInput,
+  DeliveryWindowCreateInput,
   { deliveryWindowId: string }
 > = {
   id: 'sales.delivery-windows.create',
   async execute(rawInput, ctx) {
-    const parsed = deliveryWindowCreateSchema.parse(rawInput) as DeliveryWindowCreateCommandInput
+    const { parsed, custom } = parseWithCustomFields(deliveryWindowCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -712,7 +700,7 @@ const createDeliveryWindowCommand: CommandHandler<
       recordId: record.id,
       organizationId: record.organizationId,
       tenantId: record.tenantId,
-      values: parsed.customFields ?? {},
+      values: custom,
     })
     return { deliveryWindowId: record.id }
   },
@@ -764,7 +752,7 @@ const createDeliveryWindowCommand: CommandHandler<
 }
 
 const updateDeliveryWindowCommand: CommandHandler<
-  DeliveryWindowUpdateCommandInput,
+  DeliveryWindowUpdateInput,
   { deliveryWindowId: string }
 > = {
   id: 'sales.delivery-windows.update',
@@ -779,7 +767,7 @@ const updateDeliveryWindowCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = deliveryWindowUpdateSchema.parse(rawInput) as DeliveryWindowUpdateCommandInput
+    const { parsed, custom } = parseWithCustomFields(deliveryWindowUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(SalesDeliveryWindow, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Delivery window not found' })
@@ -797,14 +785,14 @@ const updateDeliveryWindowCommand: CommandHandler<
     }
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     await em.flush()
-    if (parsed.customFields) {
+    if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
         entityId: E.sales.sales_delivery_window,
         recordId: record.id,
         organizationId: record.organizationId,
         tenantId: record.tenantId,
-        values: parsed.customFields,
+        values: custom,
       })
     }
     return { deliveryWindowId: record.id }
@@ -935,12 +923,12 @@ const deleteDeliveryWindowCommand: CommandHandler<
 }
 
 const createShippingMethodCommand: CommandHandler<
-  ShippingMethodCreateCommandInput,
+  ShippingMethodCreateInput,
   { shippingMethodId: string }
 > = {
   id: 'sales.shipping-methods.create',
   async execute(rawInput, ctx) {
-    const parsed = shippingMethodCreateSchema.parse(rawInput) as ShippingMethodCreateCommandInput
+    const { parsed, custom } = parseWithCustomFields(shippingMethodCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -967,7 +955,7 @@ const createShippingMethodCommand: CommandHandler<
       recordId: record.id,
       organizationId: record.organizationId,
       tenantId: record.tenantId,
-      values: parsed.customFields ?? {},
+      values: custom,
     })
     return { shippingMethodId: record.id }
   },
@@ -1019,7 +1007,7 @@ const createShippingMethodCommand: CommandHandler<
 }
 
 const updateShippingMethodCommand: CommandHandler<
-  ShippingMethodUpdateCommandInput,
+  ShippingMethodUpdateInput,
   { shippingMethodId: string }
 > = {
   id: 'sales.shipping-methods.update',
@@ -1034,7 +1022,7 @@ const updateShippingMethodCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = shippingMethodUpdateSchema.parse(rawInput) as ShippingMethodUpdateCommandInput
+    const { parsed, custom } = parseWithCustomFields(shippingMethodUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(SalesShippingMethod, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Shipping method not found' })
@@ -1061,14 +1049,14 @@ const updateShippingMethodCommand: CommandHandler<
     }
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     await em.flush()
-    if (parsed.customFields) {
+    if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
         entityId: E.sales.sales_shipping_method,
         recordId: record.id,
         organizationId: record.organizationId,
         tenantId: record.tenantId,
-        values: parsed.customFields,
+        values: custom,
       })
     }
     return { shippingMethodId: record.id }
@@ -1204,7 +1192,7 @@ const createPaymentMethodCommand: CommandHandler<
 > = {
   id: 'sales.payment-methods.create',
   async execute(rawInput, ctx) {
-    const parsed = paymentMethodCreateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(paymentMethodCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -1221,6 +1209,14 @@ const createPaymentMethodCommand: CommandHandler<
     })
     em.persist(record)
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.sales.sales_payment_method,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: custom,
+    })
     return { paymentMethodId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1256,6 +1252,17 @@ const createPaymentMethodCommand: CommandHandler<
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_payment_method,
+        recordId: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -1275,7 +1282,7 @@ const updatePaymentMethodCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = paymentMethodUpdateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(paymentMethodUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(SalesPaymentMethod, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Payment method not found' })
@@ -1292,6 +1299,16 @@ const updatePaymentMethodCommand: CommandHandler<
     }
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     await em.flush()
+    if (custom && Object.keys(custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_payment_method,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: custom,
+      })
+    }
     return { paymentMethodId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1334,6 +1351,17 @@ const updatePaymentMethodCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyPaymentMethodSnapshot(record, before)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_payment_method,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -1395,13 +1423,23 @@ const deletePaymentMethodCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyPaymentMethodSnapshot(record, before)
     await em.flush()
+    if (before.custom && Object.keys(before.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_payment_method,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: before.custom,
+      })
+    }
   },
 }
 
 const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: string }> = {
   id: 'sales.tax-rates.create',
   async execute(rawInput, ctx) {
-    const parsed = taxRateCreateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(taxRateCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -1431,6 +1469,14 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
     })
     em.persist(record)
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.sales.sales_tax_rate,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: custom,
+    })
     return { taxRateId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1466,6 +1512,17 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_tax_rate,
+        recordId: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -1482,7 +1539,7 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = taxRateUpdateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(taxRateUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(SalesTaxRate, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Tax rate not found' })
@@ -1523,6 +1580,16 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
       record.endsAt = parsed.endsAt ?? null
     }
     await em.flush()
+    if (custom && Object.keys(custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_tax_rate,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: custom,
+      })
+    }
     return { taxRateId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1565,6 +1632,17 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
     ensureOrganizationScope(ctx, before.organizationId)
     applyTaxRateSnapshot(record, before)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_tax_rate,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -1590,8 +1668,22 @@ const deleteTaxRateCommand: CommandHandler<
     if (!record) throw new CrudHttpError(404, { error: 'Tax rate not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    const snapshot = await loadTaxRateSnapshot(ctx.container.resolve<EntityManager>('em'), id)
     em.remove(record)
     await em.flush()
+    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      if (Object.keys(resetValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.sales.sales_tax_rate,
+          recordId: id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+          values: resetValues,
+        })
+      }
+    }
     return { taxRateId: id }
   },
   buildLog: async ({ snapshots }) => {
@@ -1626,6 +1718,16 @@ const deleteTaxRateCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyTaxRateSnapshot(record, before)
     await em.flush()
+    if (before.custom && Object.keys(before.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.sales.sales_tax_rate,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: before.custom,
+      })
+    }
   },
 }
 

@@ -1,10 +1,12 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogProductPrice, CatalogProductVariant } from '../data/entities'
+import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   priceCreateSchema,
   priceUpdateSchema,
@@ -36,6 +38,7 @@ type PriceSnapshot = {
   metadata: Record<string, unknown> | null
   startsAt: string | null
   endsAt: string | null
+  custom: Record<string, unknown> | null
 }
 
 type PriceUndoPayload = {
@@ -48,6 +51,12 @@ async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSn
   if (!record) return null
   const variantId =
     typeof record.variant === 'string' ? record.variant : record.variant.id
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.catalog.catalog_product_price,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
   return {
     id: record.id,
     variantId,
@@ -63,6 +72,7 @@ async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSn
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     startsAt: record.startsAt ? record.startsAt.toISOString() : null,
     endsAt: record.endsAt ? record.endsAt.toISOString() : null,
+    custom: Object.keys(custom).length ? custom : null,
   }
 }
 
@@ -84,7 +94,7 @@ function applyPriceSnapshot(record: CatalogProductPrice, snapshot: PriceSnapshot
 const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> = {
   id: 'catalog.prices.create',
   async execute(rawInput, ctx) {
-    const parsed = priceCreateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(priceCreateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const variant = await requireVariant(em, parsed.variantId)
     const product =
@@ -111,6 +121,14 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     })
     em.persist(record)
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.catalog.catalog_product_price,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: custom,
+    })
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -146,6 +164,17 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_price,
+        recordId: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -162,7 +191,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = priceUpdateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(priceUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(CatalogProductPrice, { id: parsed.id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
@@ -199,6 +228,16 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       record.endsAt = parsed.endsAt ?? null
     }
     await em.flush()
+    if (custom && Object.keys(custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_price,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: custom,
+      })
+    }
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -231,6 +270,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     const payload = extractUndoPayload<PriceUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
     const em = ctx.container.resolve<EntityManager>('em').fork()
     let record = await em.findOne(CatalogProductPrice, { id: before.id })
     if (!record) {
@@ -247,6 +287,20 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     ensureOrganizationScope(ctx, before.organizationId)
     applyPriceSnapshot(record, before)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(
+      before.custom ?? undefined,
+      after?.custom ?? undefined
+    )
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_price,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -279,8 +333,25 @@ const deletePriceCommand: CommandHandler<
         : variantEntity.product
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
+
+    const baseEm = ctx.container.resolve<EntityManager>('em')
+    const snapshot = await loadPriceSnapshot(baseEm, id)
+
     em.remove(record)
     await em.flush()
+    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      if (Object.keys(resetValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product_price,
+          recordId: id,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: resetValues,
+        })
+      }
+    }
     return { priceId: id }
   },
   buildLog: async ({ snapshots }) => {
@@ -321,6 +392,16 @@ const deletePriceCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyPriceSnapshot(record, before)
     await em.flush()
+    if (before.custom && Object.keys(before.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_price,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: before.custom,
+      })
+    }
   },
 }
 

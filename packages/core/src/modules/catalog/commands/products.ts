@@ -1,9 +1,11 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   CatalogProduct,
   CatalogProductOption,
@@ -37,6 +39,7 @@ type ProductSnapshot = {
   metadata: Record<string, unknown> | null
   isConfigurable: boolean
   isActive: boolean
+  custom: Record<string, unknown> | null
 }
 
 type ProductUndoPayload = {
@@ -55,6 +58,12 @@ async function loadProductSnapshot(
 ): Promise<ProductSnapshot | null> {
   const record = await em.findOne(CatalogProduct, { id, deletedAt: null })
   if (!record) return null
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.catalog.catalog_product,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -69,6 +78,7 @@ async function loadProductSnapshot(
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     isConfigurable: record.isConfigurable,
     isActive: record.isActive,
+    custom: Object.keys(custom).length ? custom : null,
   }
 }
 
@@ -90,7 +100,7 @@ function applyProductSnapshot(record: CatalogProduct, snapshot: ProductSnapshot)
 const createProductCommand: CommandHandler<ProductCreateInput, { productId: string }> = {
   id: 'catalog.products.create',
   async execute(rawInput, ctx) {
-    const parsed = productCreateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(productCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -110,6 +120,14 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     })
     em.persist(record)
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.catalog.catalog_product,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: custom,
+    })
     return { productId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -145,6 +163,17 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product,
+        recordId: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -161,7 +190,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = productUpdateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(productUpdateSchema, rawInput)
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(CatalogProduct, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog product not found' })
@@ -190,6 +219,16 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     if (parsed.isConfigurable !== undefined) record.isConfigurable = parsed.isConfigurable
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     await em.flush()
+    if (custom && Object.keys(custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: custom,
+      })
+    }
     return { productId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -232,6 +271,17 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     ensureOrganizationScope(ctx, before.organizationId)
     applyProductSnapshot(record, before)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -255,6 +305,8 @@ const deleteProductCommand: CommandHandler<
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const record = await em.findOne(CatalogProduct, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog product not found' })
+    const baseEm = ctx.container.resolve<EntityManager>('em')
+    const snapshot = await loadProductSnapshot(baseEm, id)
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const variantCount = await em.count(CatalogProductVariant, { product: record })
@@ -267,6 +319,19 @@ const deleteProductCommand: CommandHandler<
     }
     em.remove(record)
     await em.flush()
+    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      if (Object.keys(resetValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product,
+          recordId: id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+          values: resetValues,
+        })
+      }
+    }
     return { productId: id }
   },
   buildLog: async ({ snapshots }) => {
@@ -301,6 +366,16 @@ const deleteProductCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyProductSnapshot(record, before)
     await em.flush()
+    if (before.custom && Object.keys(before.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: before.custom,
+      })
+    }
   },
 }
 
