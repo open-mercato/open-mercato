@@ -19,6 +19,7 @@ export type DictionarySummary = {
   isActive?: boolean
   organizationId: string
   isInherited: boolean
+  managerVisibility: 'default' | 'hidden'
 }
 
 type DialogState = {
@@ -56,11 +57,14 @@ export function DictionariesManager() {
             isActive: item.isActive !== false,
             organizationId: typeof item.organizationId === 'string' ? item.organizationId : '',
             isInherited: item.isInherited === true,
+            managerVisibility:
+              item.managerVisibility === 'hidden' ? 'hidden' : 'default',
           }))
         : []
-      setItems(list)
-      if (!list.find((dict) => dict.id === selectedId)) {
-        setSelectedId(list.length ? list[0].id : null)
+      const filtered = list.filter((dictionary) => dictionary.managerVisibility !== 'hidden')
+      setItems(filtered)
+      if (!filtered.find((dict) => dict.id === selectedId)) {
+        setSelectedId(filtered.length ? filtered[0].id : null)
       }
     } catch (err) {
       console.error('Failed to load dictionaries', err)

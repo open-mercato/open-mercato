@@ -14,6 +14,7 @@ export type FilterBarProps = {
   onClear?: () => void
   className?: string
   leadingItems?: React.ReactNode
+  layout?: 'stacked' | 'inline'
 }
 
 export function FilterBar({
@@ -27,6 +28,7 @@ export function FilterBar({
   onClear,
   className,
   leadingItems,
+  layout = 'stacked',
 }: FilterBarProps) {
   const [open, setOpen] = React.useState(false)
   const activeCount = React.useMemo(() => {
@@ -40,8 +42,10 @@ export function FilterBar({
     return Object.values(values).filter(isActive).length
   }, [values])
 
+  const containerClass = `flex flex-col ${layout === 'inline' ? 'gap-1 sm:gap-2' : 'gap-2'} w-full`
+
   return (
-    <div className={`flex flex-col gap-2 w-full ${className ?? ''}`}>
+    <div className={`${containerClass} ${className ?? ''}`}>
       <div className="flex flex-wrap items-center gap-2 w-full">
         {filters.length > 0 && (
           <Button variant="outline" className="h-9" onClick={() => setOpen(true)}>

@@ -53,3 +53,10 @@ export async function getEm() {
   const orm = await getOrm()
   return orm.em.fork({ clear: true })
 }
+
+export async function closeOrm() {
+  if (ormInstance) {
+    await ormInstance.close(true)
+    ormInstance = null
+  }
+}

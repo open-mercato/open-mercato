@@ -53,6 +53,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
       description: dictionary.description,
       isSystem: dictionary.isSystem,
       isActive: dictionary.isActive,
+      managerVisibility: dictionary.managerVisibility,
       organizationId: dictionary.organizationId,
       isInherited: dictionary.organizationId !== context.organizationId,
       createdAt: dictionary.createdAt,
@@ -124,6 +125,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
       description: dictionary.description,
       isSystem: dictionary.isSystem,
       isActive: dictionary.isActive,
+      managerVisibility: dictionary.managerVisibility,
       createdAt: dictionary.createdAt,
       updatedAt: dictionary.updatedAt,
     })

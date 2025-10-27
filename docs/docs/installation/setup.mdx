@@ -18,15 +18,22 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```bash
    yarn mercato init
    ```
-   This script prepares module registries, generates/apply migrations, seeds default roles, and provisions an admin user.
+   This script prepares module registries, generates/apply migrations, seeds default roles, provisions an admin user, and loads demo CRM data (companies, people, deals, activities, todos). Add `--no-examples` if you prefer to skip the demo content while keeping core identities.
 4. **Launch the app**
    ```bash
    yarn dev
    ```
    Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn mercato init`.
+   If you plan to use the email-enabled onboarding flow, opt-in by setting the following environment variables in your `.env` (the toggle defaults to `false`):
+    ```env
+    RESEND_API_KEY=your_resend_api_key
+    APP_URL=http://localhost:3000
+    EMAIL_FROM=no-reply@your-domain.com
+    SELF_SERVICE_ONBOARDING_ENABLED=true
+    ```
 
 ![Open Mercato admin home](/screenshots/open-mercato-homepage.png)
 
-> 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything.
+> 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything. Prefer `yarn mercato init --no-examples` if you just want an empty CRM without resetting the database.
 
 For advanced/manual flows (custom migration control, selective seeding, etc.) see the CLI reference in the repository README.

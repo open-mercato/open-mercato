@@ -1,0 +1,132 @@
+{
+  "sales": {
+    "module": {
+      "title": "Gestión de ventas",
+      "description": "Cotizaciones, pedidos, cumplimiento, facturación y pagos conectados al catálogo de productos."
+    },
+    "navigation": {
+      "quotes": "Cotizaciones",
+      "orders": "Pedidos",
+      "taxRates": "Tasas de impuestos",
+      "shippingMethods": "Métodos de envío",
+      "paymentMethods": "Métodos de pago",
+      "channels": "Canales de venta"
+    },
+    "orders": {
+      "list": {
+        "title": "Pedidos"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Líneas",
+        "shipments": "Envíos",
+        "invoices": "Facturas",
+        "payments": "Pagos",
+        "notes": "Notas"
+      }
+    },
+    "quotes": {
+      "list": {
+        "title": "Cotizaciones"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Líneas",
+        "notes": "Notas"
+      }
+    },
+    "settings": {
+      "taxRates": {
+        "title": "Tasas de impuestos"
+      },
+      "shippingMethods": {
+        "title": "Métodos de envío"
+      },
+      "paymentMethods": {
+        "title": "Métodos de pago"
+      },
+      "deliveryWindows": {
+        "title": "Plazos de entrega"
+      },
+      "channels": {
+        "title": "Canales de venta"
+      }
+    },
+    "configuration": {
+      "errors": {
+        "tenant_required": "Se requiere el contexto del tenant.",
+        "organization_required": "Se requiere el contexto de la organización.",
+        "id_required": "Se requiere el identificador del registro.",
+        "load_failed": "No se pudieron cargar los registros.",
+        "save_failed": "No se pudo guardar el registro.",
+        "delete_failed": "No se pudo eliminar el registro."
+      },
+      "form": {
+        "createTitle": "Crear registro",
+        "editTitle": "Editar registro",
+        "submitCreate": "Crear",
+        "submitUpdate": "Guardar cambios"
+      },
+      "table": {
+        "search": "Buscar registros",
+        "refresh": "Actualizar"
+      }
+    },
+    "config": {
+      "statuses": {
+        "orders": {
+          "title": "Estados de pedidos",
+          "description": "Configura los estados disponibles para los pedidos de ventas."
+        },
+        "lines": {
+          "title": "Estados de líneas",
+          "description": "Configura los estados disponibles para las líneas de pedido."
+        },
+        "columns": {
+          "value": "Valor",
+          "label": "Etiqueta",
+          "appearance": "Apariencia"
+        },
+        "actions": {
+          "add": "Agregar estado",
+          "edit": "Editar",
+          "delete": "Eliminar",
+          "refresh": "Actualizar"
+        },
+        "empty": "Todavía no hay estados.",
+        "search": "Buscar estados…",
+        "dialog": {
+          "addTitle": "Agregar estado",
+          "editTitle": "Editar estado",
+          "valueLabel": "Valor",
+          "labelLabel": "Etiqueta",
+          "colorLabel": "Color",
+          "colorHelp": "Elige un color destacado para este estado.",
+          "colorClear": "Quitar color",
+          "iconLabel": "Icono",
+          "iconPlaceholder": "Escribe un emoji o elige una sugerencia.",
+          "iconBrowse": "Explorar iconos y emojis",
+          "iconSearchPlaceholder": "Buscar iconos o emojis…",
+          "iconSearchEmpty": "No se encontraron iconos coincidentes.",
+          "iconSuggestions": "Sugerencias",
+          "iconClear": "Quitar icono",
+          "save": "Guardar",
+          "cancel": "Cancelar"
+        },
+        "appearance": {
+          "empty": "Ninguno"
+        },
+        "deleteConfirm": "¿Eliminar el estado \"{{value}}\"?",
+        "error": {
+          "load": "No se pudieron cargar los estados.",
+          "save": "No se pudo guardar el estado.",
+          "delete": "No se pudo eliminar el estado."
+        },
+        "success": {
+          "save": "Estado guardado.",
+          "delete": "Estado eliminado."
+        }
+      }
+    }
+  }
+}

@@ -75,6 +75,7 @@
   "customers.config.dictionaries.actions.edit": "Bearbeiten",
   "customers.config.dictionaries.actions.delete": "Löschen",
   "customers.config.dictionaries.actions.refresh": "Aktualisieren",
+  "customers.config.dictionaries.searchPlaceholder": "Einträge durchsuchen…",
   "customers.config.dictionaries.dialog.addTitle": "Eintrag hinzufügen",
   "customers.config.dictionaries.dialog.editTitle": "Eintrag bearbeiten",
   "customers.config.dictionaries.dialog.valueLabel": "Wert",

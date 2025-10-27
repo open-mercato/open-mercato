@@ -1,0 +1,132 @@
+{
+  "sales": {
+    "module": {
+      "title": "Sprzedaż",
+      "description": "Oferty, zamówienia, realizacja, fakturowanie i płatności powiązane z katalogiem produktów."
+    },
+    "navigation": {
+      "quotes": "Oferty",
+      "orders": "Zamówienia",
+      "taxRates": "Stawki podatku",
+      "shippingMethods": "Metody wysyłki",
+      "paymentMethods": "Metody płatności",
+      "channels": "Kanały sprzedaży"
+    },
+    "orders": {
+      "list": {
+        "title": "Zamówienia"
+      },
+      "form": {
+        "general": "Ogólne",
+        "lines": "Pozycje",
+        "shipments": "Wysyłki",
+        "invoices": "Faktury",
+        "payments": "Płatności",
+        "notes": "Notatki"
+      }
+    },
+    "quotes": {
+      "list": {
+        "title": "Oferty"
+      },
+      "form": {
+        "general": "Ogólne",
+        "lines": "Pozycje",
+        "notes": "Notatki"
+      }
+    },
+    "settings": {
+      "taxRates": {
+        "title": "Stawki podatkowe"
+      },
+      "shippingMethods": {
+        "title": "Metody wysyłki"
+      },
+      "paymentMethods": {
+        "title": "Metody płatności"
+      },
+      "deliveryWindows": {
+        "title": "Terminy dostaw"
+      },
+      "channels": {
+        "title": "Kanały sprzedaży"
+      }
+    },
+    "configuration": {
+      "errors": {
+        "tenant_required": "Wymagany jest kontekst tenant.",
+        "organization_required": "Wymagany jest kontekst organizacji.",
+        "id_required": "Wymagany jest identyfikator rekordu.",
+        "load_failed": "Nie udało się wczytać rekordów.",
+        "save_failed": "Nie udało się zapisać rekordu.",
+        "delete_failed": "Nie udało się usunąć rekordu."
+      },
+      "form": {
+        "createTitle": "Utwórz rekord",
+        "editTitle": "Edytuj rekord",
+        "submitCreate": "Utwórz",
+        "submitUpdate": "Zapisz zmiany"
+      },
+      "table": {
+        "search": "Szukaj rekordów",
+        "refresh": "Odśwież"
+      }
+    },
+    "config": {
+      "statuses": {
+        "orders": {
+          "title": "Statusy zamówień",
+          "description": "Skonfiguruj dostępne statusy dla zamówień sprzedaży."
+        },
+        "lines": {
+          "title": "Statusy pozycji",
+          "description": "Skonfiguruj dostępne statusy dla pozycji zamówień."
+        },
+        "columns": {
+          "value": "Wartość",
+          "label": "Etykieta",
+          "appearance": "Wygląd"
+        },
+        "actions": {
+          "add": "Dodaj status",
+          "edit": "Edytuj",
+          "delete": "Usuń",
+          "refresh": "Odśwież"
+        },
+        "empty": "Brak statusów.",
+        "search": "Szukaj statusów…",
+        "dialog": {
+          "addTitle": "Dodaj status",
+          "editTitle": "Edytuj status",
+          "valueLabel": "Wartość",
+          "labelLabel": "Etykieta",
+          "colorLabel": "Kolor",
+          "colorHelp": "Wybierz kolor wyróżnienia dla tego statusu.",
+          "colorClear": "Usuń kolor",
+          "iconLabel": "Ikona",
+          "iconPlaceholder": "Wpisz emoji lub wybierz sugestię.",
+          "iconBrowse": "Przeglądaj ikony i emoji",
+          "iconSearchPlaceholder": "Szukaj ikon lub emoji…",
+          "iconSearchEmpty": "Brak pasujących ikon.",
+          "iconSuggestions": "Sugestie",
+          "iconClear": "Usuń ikonę",
+          "save": "Zapisz",
+          "cancel": "Anuluj"
+        },
+        "appearance": {
+          "empty": "Brak"
+        },
+        "deleteConfirm": "Usunąć status \"{{value}}\"?",
+        "error": {
+          "load": "Nie udało się wczytać statusów.",
+          "save": "Nie udało się zapisać statusu.",
+          "delete": "Nie udało się usunąć statusu."
+        },
+        "success": {
+          "save": "Status zapisany.",
+          "delete": "Status usunięty."
+        }
+      }
+    }
+  }
+}

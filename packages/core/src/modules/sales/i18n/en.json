@@ -1,0 +1,132 @@
+{
+  "sales": {
+    "module": {
+      "title": "Sales Management",
+      "description": "Quotes, orders, fulfillment, invoicing, and payments connected to the product catalog."
+    },
+    "navigation": {
+      "quotes": "Quotes",
+      "orders": "Orders",
+      "taxRates": "Tax Rates",
+      "shippingMethods": "Shipping Methods",
+      "paymentMethods": "Payment Methods",
+      "channels": "Channels"
+    },
+    "orders": {
+      "list": {
+        "title": "Orders"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Line Items",
+        "shipments": "Shipments",
+        "invoices": "Invoices",
+        "payments": "Payments",
+        "notes": "Notes"
+      }
+    },
+    "quotes": {
+      "list": {
+        "title": "Quotes"
+      },
+      "form": {
+        "general": "General",
+        "lines": "Line Items",
+        "notes": "Notes"
+      }
+    },
+    "settings": {
+      "taxRates": {
+        "title": "Tax Rates"
+      },
+      "shippingMethods": {
+        "title": "Shipping Methods"
+      },
+      "paymentMethods": {
+        "title": "Payment Methods"
+      },
+      "deliveryWindows": {
+        "title": "Delivery Windows"
+      },
+      "channels": {
+        "title": "Sales Channels"
+      }
+    },
+    "configuration": {
+      "errors": {
+        "tenant_required": "Tenant context is required.",
+        "organization_required": "Organization context is required.",
+        "id_required": "Record identifier is required.",
+        "load_failed": "Failed to load records.",
+        "save_failed": "Failed to save record.",
+        "delete_failed": "Failed to delete record."
+      },
+      "form": {
+        "createTitle": "Create record",
+        "editTitle": "Edit record",
+        "submitCreate": "Create",
+        "submitUpdate": "Save changes"
+      },
+      "table": {
+        "search": "Search records",
+        "refresh": "Refresh"
+      }
+    },
+    "config": {
+      "statuses": {
+        "orders": {
+          "title": "Order statuses",
+          "description": "Configure the status values available for sales orders."
+        },
+        "lines": {
+          "title": "Order line statuses",
+          "description": "Configure the status values available for order lines."
+        },
+        "columns": {
+          "value": "Value",
+          "label": "Label",
+          "appearance": "Appearance"
+        },
+        "actions": {
+          "add": "Add status",
+          "edit": "Edit",
+          "delete": "Delete",
+          "refresh": "Refresh"
+        },
+        "empty": "No statuses yet.",
+        "search": "Search statuses…",
+        "dialog": {
+          "addTitle": "Add status",
+          "editTitle": "Edit status",
+          "valueLabel": "Value",
+          "labelLabel": "Label",
+          "colorLabel": "Color",
+          "colorHelp": "Pick a highlight color for this status.",
+          "colorClear": "Remove color",
+          "iconLabel": "Icon",
+          "iconPlaceholder": "Type an emoji or pick one of the suggestions.",
+          "iconBrowse": "Browse icons and emojis",
+          "iconSearchPlaceholder": "Search icons or emojis…",
+          "iconSearchEmpty": "No icons match your search.",
+          "iconSuggestions": "Suggestions",
+          "iconClear": "Remove icon",
+          "save": "Save",
+          "cancel": "Cancel"
+        },
+        "appearance": {
+          "empty": "None"
+        },
+        "deleteConfirm": "Delete status \"{{value}}\"?",
+        "error": {
+          "load": "Failed to load status entries.",
+          "save": "Failed to save status.",
+          "delete": "Failed to delete status."
+        },
+        "success": {
+          "save": "Status saved.",
+          "delete": "Status deleted."
+        }
+      }
+    }
+  }
+}

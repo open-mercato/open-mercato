@@ -34,6 +34,7 @@ export async function GET(req: Request) {
         description: dictionary.description,
         isSystem: dictionary.isSystem,
         isActive: dictionary.isActive,
+        managerVisibility: dictionary.managerVisibility,
         organizationId: dictionary.organizationId,
         isInherited: dictionary.organizationId !== context.organizationId,
         createdAt: dictionary.createdAt,
@@ -73,6 +74,7 @@ export async function POST(req: Request) {
       tenantId: context.tenantId,
       isSystem: payload.isSystem ?? false,
       isActive: payload.isActive ?? true,
+      managerVisibility: 'default',
     })
     context.em.persist(dictionary)
     await context.em.flush()

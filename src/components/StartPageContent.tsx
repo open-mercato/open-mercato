@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Shield, Users, Briefcase, Info } from 'lucide-react'
+import { Shield, Users, Briefcase, Info, Rocket, ArrowRight } from 'lucide-react'
 
 interface RoleTileProps {
   icon: React.ReactNode
@@ -52,9 +52,10 @@ function RoleTile({ icon, title, description, features, loginUrl, variant = 'def
 
 interface StartPageContentProps {
   showStartPage: boolean
+  showOnboardingCta?: boolean
 }
 
-export function StartPageContent({ showStartPage: initialShowStartPage }: StartPageContentProps) {
+export function StartPageContent({ showStartPage: initialShowStartPage, showOnboardingCta = false }: StartPageContentProps) {
   const [showStartPage, setShowStartPage] = useState(initialShowStartPage)
 
   const handleCheckboxChange = (checked: boolean) => {
@@ -72,6 +73,36 @@ export function StartPageContent({ showStartPage: initialShowStartPage }: StartP
           Choose your role below to get started and explore the features available to you.
         </p>
       </section>
+
+      {showOnboardingCta ? (
+        <section className="rounded-lg border border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/20 p-6 md:p-8 flex flex-col md:flex-row md:items-center gap-6 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="rounded-full bg-emerald-600 text-white p-3">
+              <Rocket className="size-6" />
+            </div>
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-lg font-semibold text-emerald-900 dark:text-emerald-100">Launch your own workspace</h3>
+                <p className="text-sm text-emerald-800/80 dark:text-emerald-200/90">
+                  Create a tenant, organization, and administrator account in minutes. We&apos;ll verify your email and deliver a pre-seeded environment so you can explore Open Mercato with real data.
+                </p>
+              </div>
+              <ul className="text-sm text-emerald-900/80 dark:text-emerald-200/90 space-y-1 list-disc pl-5 marker:text-emerald-600 dark:marker:text-emerald-400">
+                <li>Automatic tenant and sample data provisioning</li>
+                <li>Ready-to-use superadmin credentials after verification</li>
+              </ul>
+            </div>
+          </div>
+          <div className="md:ml-auto">
+            <Button asChild className="bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-600 px-6 py-5 text-base font-semibold text-white shadow-md">
+              <a href="/onboarding">
+                Start onboarding
+                <ArrowRight className="size-4" aria-hidden />
+              </a>
+            </Button>
+          </div>
+        </section>
+      ) : null}
 
       <section className="rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900 p-4">
         <div className="flex items-start gap-3">
@@ -151,4 +182,3 @@ export function StartPageContent({ showStartPage: initialShowStartPage }: StartP
     </>
   )
 }
-

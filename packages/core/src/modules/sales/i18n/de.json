@@ -1,0 +1,132 @@
+{
+  "sales": {
+    "module": {
+      "title": "Vertriebsmanagement",
+      "description": "Angebote, Aufträge, Fulfillment, Rechnungsstellung und Zahlungen verbunden mit dem Produktkatalog."
+    },
+    "navigation": {
+      "quotes": "Angebote",
+      "orders": "Aufträge",
+      "taxRates": "Steuersätze",
+      "shippingMethods": "Versandarten",
+      "paymentMethods": "Zahlungsarten",
+      "channels": "Vertriebskanäle"
+    },
+    "orders": {
+      "list": {
+        "title": "Aufträge"
+      },
+      "form": {
+        "general": "Allgemein",
+        "lines": "Positionen",
+        "shipments": "Sendungen",
+        "invoices": "Rechnungen",
+        "payments": "Zahlungen",
+        "notes": "Notizen"
+      }
+    },
+    "quotes": {
+      "list": {
+        "title": "Angebote"
+      },
+      "form": {
+        "general": "Allgemein",
+        "lines": "Positionen",
+        "notes": "Notizen"
+      }
+    },
+    "settings": {
+      "taxRates": {
+        "title": "Steuersätze"
+      },
+      "shippingMethods": {
+        "title": "Versandarten"
+      },
+      "paymentMethods": {
+        "title": "Zahlungsarten"
+      },
+      "deliveryWindows": {
+        "title": "Lieferfenster"
+      },
+      "channels": {
+        "title": "Vertriebskanäle"
+      }
+    },
+    "configuration": {
+      "errors": {
+        "tenant_required": "Mandantenkontext ist erforderlich.",
+        "organization_required": "Organisationskontext ist erforderlich.",
+        "id_required": "Ein Datensatzkennzeichen ist erforderlich.",
+        "load_failed": "Datensätze konnten nicht geladen werden.",
+        "save_failed": "Datensatz konnte nicht gespeichert werden.",
+        "delete_failed": "Datensatz konnte nicht gelöscht werden."
+      },
+      "form": {
+        "createTitle": "Datensatz erstellen",
+        "editTitle": "Datensatz bearbeiten",
+        "submitCreate": "Erstellen",
+        "submitUpdate": "Änderungen speichern"
+      },
+      "table": {
+        "search": "Datensätze durchsuchen",
+        "refresh": "Aktualisieren"
+      }
+    },
+    "config": {
+      "statuses": {
+        "orders": {
+          "title": "Bestellstatus",
+          "description": "Verwalten Sie die verfügbaren Statuswerte für Verkaufsaufträge."
+        },
+        "lines": {
+          "title": "Positionsstatus",
+          "description": "Verwalten Sie die verfügbaren Statuswerte für Bestellpositionen."
+        },
+        "columns": {
+          "value": "Wert",
+          "label": "Bezeichnung",
+          "appearance": "Darstellung"
+        },
+        "actions": {
+          "add": "Status hinzufügen",
+          "edit": "Bearbeiten",
+          "delete": "Löschen",
+          "refresh": "Aktualisieren"
+        },
+        "empty": "Noch keine Statuswerte.",
+        "search": "Status durchsuchen…",
+        "dialog": {
+          "addTitle": "Status hinzufügen",
+          "editTitle": "Status bearbeiten",
+          "valueLabel": "Wert",
+          "labelLabel": "Bezeichnung",
+          "colorLabel": "Farbe",
+          "colorHelp": "Wählen Sie eine Hervorhebungsfarbe für diesen Status.",
+          "colorClear": "Farbe entfernen",
+          "iconLabel": "Icon",
+          "iconPlaceholder": "Geben Sie ein Emoji ein oder wählen Sie einen Vorschlag.",
+          "iconBrowse": "Icons und Emojis durchsuchen",
+          "iconSearchPlaceholder": "Icons oder Emojis suchen…",
+          "iconSearchEmpty": "Keine passenden Icons gefunden.",
+          "iconSuggestions": "Vorschläge",
+          "iconClear": "Icon entfernen",
+          "save": "Speichern",
+          "cancel": "Abbrechen"
+        },
+        "appearance": {
+          "empty": "Keins"
+        },
+        "deleteConfirm": "Status \"{{value}}\" löschen?",
+        "error": {
+          "load": "Status konnten nicht geladen werden.",
+          "save": "Status konnte nicht gespeichert werden.",
+          "delete": "Status konnte nicht gelöscht werden."
+        },
+        "success": {
+          "save": "Status gespeichert.",
+          "delete": "Status gelöscht."
+        }
+      }
+    }
+  }
+}

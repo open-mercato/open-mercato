@@ -35,6 +35,11 @@ export default async function Home() {
     dbStatus = `Error: ${e?.message ?? 'no connection'}`
   }
 
+  const onboardingAvailable =
+    process.env.SELF_SERVICE_ONBOARDING_ENABLED === 'true' &&
+    Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim()) &&
+    Boolean(process.env.APP_URL && process.env.APP_URL.trim())
+
   return (
     <main className="min-h-svh w-full p-8 flex flex-col gap-8">
       <header className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
@@ -52,7 +57,7 @@ export default async function Home() {
         </div>
       </header>
 
-      <StartPageContent showStartPage={showStartPage} />
+      <StartPageContent showStartPage={showStartPage} showOnboardingCta={onboardingAvailable} />
 
       <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="rounded-lg border bg-card p-4">
