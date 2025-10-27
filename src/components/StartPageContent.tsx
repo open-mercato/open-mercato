@@ -1,20 +1,33 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Shield, Users, Briefcase, Info, Rocket, ArrowRight } from 'lucide-react'
 
 interface RoleTileProps {
-  icon: React.ReactNode
+  icon: ReactNode
   title: string
   description: string
   features: string[]
   loginUrl: string
   variant?: 'default' | 'secondary' | 'outline'
+  disabled?: boolean
+  disabledCtaLabel?: string
+  disabledMessage?: ReactNode
 }
 
-function RoleTile({ icon, title, description, features, loginUrl, variant = 'default' }: RoleTileProps) {
+function RoleTile({
+  icon,
+  title,
+  description,
+  features,
+  loginUrl,
+  variant = 'default',
+  disabled = false,
+  disabledCtaLabel = 'Login unavailable',
+  disabledMessage,
+}: RoleTileProps) {
   return (
     <div className="rounded-lg border bg-card p-6 flex flex-col gap-4 transition-all hover:shadow-md">
       <div className="flex items-start gap-4">
@@ -39,13 +52,22 @@ function RoleTile({ icon, title, description, features, loginUrl, variant = 'def
         </ul>
       </div>
 
-      <Button 
-        asChild 
-        variant={variant}
-        className="w-full"
-      >
-        <a href={loginUrl}>Login as {title}</a>
-      </Button>
+      {disabled ? (
+        <>
+          <Button variant="outline" className="w-full cursor-not-allowed opacity-80" disabled>
+            {disabledCtaLabel}
+          </Button>
+          {disabledMessage ? (
+            <p className="text-xs text-muted-foreground text-center leading-relaxed">
+              {disabledMessage}
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <Button asChild variant={variant} className="w-full">
+          <a href={loginUrl}>Login as {title}</a>
+        </Button>
+      )}
     </div>
   )
 }
@@ -57,6 +79,8 @@ interface StartPageContentProps {
 
 export function StartPageContent({ showStartPage: initialShowStartPage, showOnboardingCta = false }: StartPageContentProps) {
   const [showStartPage, setShowStartPage] = useState(initialShowStartPage)
+
+  const superAdminDisabled = showOnboardingCta
 
   const handleCheckboxChange = (checked: boolean) => {
     setShowStartPage(checked)
@@ -132,6 +156,24 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
               'Access to all modules and features'
             ]}
             loginUrl="/login?role=superadmin"
+            disabled={superAdminDisabled}
+            disabledCtaLabel="Superadmin login disabled"
+            disabledMessage={
+              <>
+                Superadmin demo access is not enabled on this instance.{' '}
+                <span className="whitespace-nowrap">Install Open Mercato locally for full access via&nbsp;
+                  <a
+                    href="https://github.com/open-mercato"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-primary transition-colors"
+                  >
+                    github.com/open-mercato
+                  </a>
+                  .
+                </span>
+              </>
+            }
           />
           
           <RoleTile

@@ -18,5 +18,6 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'example', from: '@open-mercato/example' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
+  { id: 'content', from: '@open-mercato/content' },
   { id: 'onboarding', from: '@open-mercato/onboarding' }
 ]
