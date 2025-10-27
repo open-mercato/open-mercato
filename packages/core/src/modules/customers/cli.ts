@@ -1103,6 +1103,7 @@ type ProgressCallback = (info: ProgressInfo) => void
 type StressTestOptions = {
   count: number
   onProgress?: ProgressCallback
+  includeExtras?: boolean
 }
 
 function createProgressBar(label: string, total: number) {
@@ -1795,6 +1796,8 @@ async function seedCustomerStressTest(
   const requested = Math.max(0, Math.floor(options.count ?? 0))
   if (requested <= 0) return { created: 0, existing: 0 }
 
+  const includeExtras = options.includeExtras !== false
+
   const existingPersons = await em.count(CustomerEntity, {
     tenantId,
     organizationId,
@@ -1818,33 +1821,39 @@ async function seedCustomerStressTest(
   await seedCustomerDictionaries(em, { tenantId, organizationId })
 
   let cache: CacheStrategy | null = null
-  if (typeof (container as any).hasRegistration === 'function' && container.hasRegistration('cache')) {
+  if (includeExtras) {
+    if (typeof (container as any).hasRegistration === 'function' && container.hasRegistration('cache')) {
+      try {
+        cache = container.resolve<CacheStrategy>('cache')
+      } catch {
+        cache = null
+      }
+    }
     try {
-      cache = container.resolve<CacheStrategy>('cache')
-    } catch {
-      cache = null
+      await installCustomEntitiesFromModules(em, cache, {
+        tenantIds: [tenantId],
+        includeGlobal: false,
+        dryRun: false,
+        logger: () => {},
+      })
+    } catch (err) {
+      console.warn('[customers.cli] Failed to install custom entities before stress-test seeding', err)
+    }
+    try {
+      await ensureCustomFieldDefinitions(em, CUSTOMER_CUSTOM_FIELD_SETS, { organizationId: null, tenantId })
+    } catch (err) {
+      console.warn('[customers.cli] Failed to ensure custom field definitions for stress-test seeding', err)
     }
   }
-  try {
-    await installCustomEntitiesFromModules(em, cache, {
-      tenantIds: [tenantId],
-      includeGlobal: false,
-      dryRun: false,
-      logger: () => {},
-    })
-  } catch (err) {
-    console.warn('[customers.cli] Failed to install custom entities before stress-test seeding', err)
-  }
-  try {
-    await ensureCustomFieldDefinitions(em, CUSTOMER_CUSTOM_FIELD_SETS, { organizationId: null, tenantId })
-  } catch (err) {
-    console.warn('[customers.cli] Failed to ensure custom field definitions for stress-test seeding', err)
-  }
 
-  const dataEngine = new DefaultDataEngine(em, container)
+  const dataEngine = includeExtras ? new DefaultDataEngine(em, container) : null
   const pendingAssignments: Array<() => Promise<void>> = []
   const assignmentFlushThreshold = 100
   const flushAssignments = async (force = false) => {
+    if (!includeExtras) {
+      if (force) await em.flush()
+      return
+    }
     if (!force && pendingAssignments.length < assignmentFlushThreshold) return
     await em.flush()
     const tasks = pendingAssignments.splice(0)
@@ -1894,26 +1903,28 @@ async function seedCustomerStressTest(
       annualRevenue: null,
     })
     em.persist(companyEntity)
-    em.persist(companyProfile)
+   em.persist(companyProfile)
     companies.push({ entity: companyEntity, profile: companyProfile })
 
-    const companyFieldValues: Record<string, unknown> = {
-      relationship_health: randomChoice(STRESS_TEST_RELATIONSHIP_HEALTH),
-      renewal_quarter: randomChoice(STRESS_TEST_RENEWAL_QUARTERS),
-      customer_marketing_case: Math.random() < 0.35,
+    if (includeExtras) {
+      const companyFieldValues: Record<string, unknown> = {
+        relationship_health: randomChoice(STRESS_TEST_RELATIONSHIP_HEALTH),
+        renewal_quarter: randomChoice(STRESS_TEST_RENEWAL_QUARTERS),
+        customer_marketing_case: Math.random() < 0.35,
+      }
+      if (Math.random() < 0.4) {
+        companyFieldValues.executive_notes = randomChoice(STRESS_TEST_NOTE_SNIPPETS)
+      }
+      pendingAssignments.push(async () =>
+        dataEngine!.setCustomFields({
+          entityId: CoreEntities.customers.customer_company_profile,
+          recordId: companyProfile.id,
+          organizationId,
+          tenantId,
+          values: companyFieldValues,
+        })
+      )
     }
-    if (Math.random() < 0.4) {
-      companyFieldValues.executive_notes = randomChoice(STRESS_TEST_NOTE_SNIPPETS)
-    }
-    pendingAssignments.push(async () =>
-      dataEngine.setCustomFields({
-        entityId: CoreEntities.customers.customer_company_profile,
-        recordId: companyProfile.id,
-        organizationId,
-        tenantId,
-        values: companyFieldValues,
-      })
-    )
   }
 
   let created = 0
@@ -1967,119 +1978,121 @@ async function seedCustomerStressTest(
     em.persist(entity)
     em.persist(profile)
 
-    const personFieldValues: Record<string, unknown> = {
-      buying_role: randomChoice(STRESS_TEST_BUYING_ROLES),
-      preferred_pronouns: randomChoice(STRESS_TEST_PRONOUNS),
-      newsletter_opt_in: Math.random() < 0.5,
-    }
-    pendingAssignments.push(async () =>
-      dataEngine.setCustomFields({
-        entityId: CoreEntities.customers.customer_person_profile,
-        recordId: profile.id,
+    if (includeExtras) {
+      const personFieldValues: Record<string, unknown> = {
+        buying_role: randomChoice(STRESS_TEST_BUYING_ROLES),
+        preferred_pronouns: randomChoice(STRESS_TEST_PRONOUNS),
+        newsletter_opt_in: Math.random() < 0.5,
+      }
+      pendingAssignments.push(async () =>
+        dataEngine!.setCustomFields({
+          entityId: CoreEntities.customers.customer_person_profile,
+          recordId: profile.id,
+          organizationId,
+          tenantId,
+          values: personFieldValues,
+        })
+      )
+
+      const monetaryBase = randomInt(5, 220) * 1000
+      const pipelineStage = randomChoice(STRESS_TEST_DEAL_PIPELINE)
+      const dealStatus = randomChoice(STRESS_TEST_DEAL_STATUSES)
+      const deal = em.create(CustomerDeal, {
         organizationId,
         tenantId,
-        values: personFieldValues,
+        title: `${company.entity.displayName} Opportunity ${sequence}`,
+        description: `Stress test deal generated for contact #${sequence}`,
+        status: dealStatus,
+        pipelineStage,
+        valueAmount: toAmount(monetaryBase + randomInt(0, 7500)),
+        valueCurrency: Math.random() < 0.6 ? 'USD' : 'EUR',
+        probability: randomInt(25, 95),
+        expectedCloseAt:
+          dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'loose'
+            ? randomPastDate(120)
+            : randomFutureDate(120),
+        ownerUserId: null,
+        source: company.entity.source ?? STRESS_TEST_SOURCE,
       })
-    )
-
-    const monetaryBase = randomInt(5, 220) * 1000
-    const pipelineStage = randomChoice(STRESS_TEST_DEAL_PIPELINE)
-    const dealStatus = randomChoice(STRESS_TEST_DEAL_STATUSES)
-    const deal = em.create(CustomerDeal, {
-      organizationId,
-      tenantId,
-      title: `${company.entity.displayName} Opportunity ${sequence}`,
-      description: `Stress test deal generated for contact #${sequence}`,
-      status: dealStatus,
-      pipelineStage,
-      valueAmount: toAmount(monetaryBase + randomInt(0, 7500)),
-      valueCurrency: Math.random() < 0.6 ? 'USD' : 'EUR',
-      probability: randomInt(25, 95),
-      expectedCloseAt:
-        dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'loose'
-          ? randomPastDate(120)
-          : randomFutureDate(120),
-      ownerUserId: null,
-      source: company.entity.source ?? STRESS_TEST_SOURCE,
-    })
-    em.persist(deal)
-
-    pendingAssignments.push(async () =>
-      dataEngine.setCustomFields({
-        entityId: CoreEntities.customers.customer_deal,
-        recordId: deal.id,
-        organizationId,
-        tenantId,
-        values: {
-          competitive_risk: randomChoice(STRESS_TEST_DEAL_RISK),
-          implementation_complexity: randomChoice(STRESS_TEST_IMPLEMENTATION),
-          estimated_seats: randomInt(5, 250),
-          requires_legal_review: Math.random() < 0.3,
-        },
-      })
-    )
-
-    const companyLink = em.create(CustomerDealCompanyLink, {
-      deal,
-      company: company.entity,
-    })
-    const personLink = em.create(CustomerDealPersonLink, {
-      deal,
-      person: entity,
-      role: randomChoice(STRESS_TEST_DEAL_CUSTOMER_ROLES),
-    })
-    em.persist(companyLink)
-    em.persist(personLink)
-
-    const activityCount = randomInt(2, 5)
-    for (let idx = 0; idx < activityCount; idx += 1) {
-      const activityType = randomChoice(STRESS_TEST_DEAL_ACTIVITY_TYPES)
-      const activity = em.create(CustomerActivity, {
-        organizationId,
-        tenantId,
-        entity,
-        deal,
-        activityType,
-        subject: randomChoice(STRESS_TEST_ACTIVITY_SUBJECTS),
-        body: randomChoice(STRESS_TEST_ACTIVITY_BODIES),
-        occurredAt: randomPastDate(200),
-        appearanceIcon: randomChoice(STRESS_TEST_ACTIVITY_ICONS),
-        appearanceColor: randomChoice(['#2563eb', '#22c55e', '#f97316', '#a855f7', '#6366f1']),
-        authorUserId: null,
-      })
-      em.persist(activity)
+      em.persist(deal)
 
       pendingAssignments.push(async () =>
-        dataEngine.setCustomFields({
-          entityId: CoreEntities.customers.customer_activity,
-          recordId: activity.id,
+        dataEngine!.setCustomFields({
+          entityId: CoreEntities.customers.customer_deal,
+          recordId: deal.id,
           organizationId,
           tenantId,
           values: {
-            engagement_sentiment: randomChoice(STRESS_TEST_ACTIVITY_SENTIMENT),
-            shared_with_leadership: Math.random() < 0.4,
-            follow_up_owner: randomChoice(STRESS_TEST_ACTIVITY_OWNERS),
+            competitive_risk: randomChoice(STRESS_TEST_DEAL_RISK),
+            implementation_complexity: randomChoice(STRESS_TEST_IMPLEMENTATION),
+            estimated_seats: randomInt(5, 250),
+            requires_legal_review: Math.random() < 0.3,
           },
         })
       )
-    }
 
-    const noteCount = randomInt(2, 5)
-    for (let idx = 0; idx < noteCount; idx += 1) {
-      const noteTimestamp = randomPastDate(120)
-      const comment = em.create(CustomerComment, {
-        organizationId,
-        tenantId,
-        entity,
+      const companyLink = em.create(CustomerDealCompanyLink, {
         deal,
-        body: randomChoice(STRESS_TEST_NOTE_SNIPPETS),
-        authorUserId: null,
-        appearanceIcon: 'lucide:sticky-note',
-        appearanceColor: randomChoice(['#2563eb', '#22c55e', '#f97316', '#a855f7', '#6366f1']),
-        createdAt: noteTimestamp,
-        updatedAt: noteTimestamp,
+        company: company.entity,
       })
-      em.persist(comment)
+      const personLink = em.create(CustomerDealPersonLink, {
+        deal,
+        person: entity,
+        role: randomChoice(STRESS_TEST_DEAL_CUSTOMER_ROLES),
+      })
+      em.persist(companyLink)
+      em.persist(personLink)
+
+      const activityCount = randomInt(2, 5)
+      for (let idx = 0; idx < activityCount; idx += 1) {
+        const activityType = randomChoice(STRESS_TEST_DEAL_ACTIVITY_TYPES)
+        const activity = em.create(CustomerActivity, {
+          organizationId,
+          tenantId,
+          entity,
+          deal,
+          activityType,
+          subject: randomChoice(STRESS_TEST_ACTIVITY_SUBJECTS),
+          body: randomChoice(STRESS_TEST_ACTIVITY_BODIES),
+          occurredAt: randomPastDate(200),
+          appearanceIcon: randomChoice(STRESS_TEST_ACTIVITY_ICONS),
+          appearanceColor: randomChoice(['#2563eb', '#22c55e', '#f97316', '#a855f7', '#6366f1']),
+          authorUserId: null,
+        })
+        em.persist(activity)
+
+        pendingAssignments.push(async () =>
+          dataEngine!.setCustomFields({
+            entityId: CoreEntities.customers.customer_activity,
+            recordId: activity.id,
+            organizationId,
+            tenantId,
+            values: {
+              engagement_sentiment: randomChoice(STRESS_TEST_ACTIVITY_SENTIMENT),
+              shared_with_leadership: Math.random() < 0.4,
+              follow_up_owner: randomChoice(STRESS_TEST_ACTIVITY_OWNERS),
+            },
+          })
+        )
+      }
+
+      const noteCount = randomInt(2, 5)
+      for (let idx = 0; idx < noteCount; idx += 1) {
+        const noteTimestamp = randomPastDate(120)
+        const comment = em.create(CustomerComment, {
+          organizationId,
+          tenantId,
+          entity,
+          deal,
+          body: randomChoice(STRESS_TEST_NOTE_SNIPPETS),
+          authorUserId: null,
+          appearanceIcon: 'lucide:sticky-note',
+          appearanceColor: randomChoice(['#2563eb', '#22c55e', '#f97316', '#a855f7', '#6366f1']),
+          createdAt: noteTimestamp,
+          updatedAt: noteTimestamp,
+        })
+        em.persist(comment)
+      }
     }
 
     created += 1
@@ -2158,6 +2171,12 @@ const seedStressTest: ModuleCli = {
       args.count ?? args.total ?? args.number ?? args.customers ?? String(defaultCount)
     const parsedCount = Number.parseInt(countRaw, 10)
     const count = Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : defaultCount
+    const liteMode =
+      args.lite === 'true' ||
+      args.lite === '' ||
+      args.mode === 'lite' ||
+      args.payload === 'lite' ||
+      args.variant === 'lite'
 
     const container = await createRequestContainer()
     const em = container.resolve<EntityManager>('em')
@@ -2168,10 +2187,12 @@ const seedStressTest: ModuleCli = {
       { tenantId, organizationId },
       {
         count,
+        includeExtras: !liteMode,
         onProgress: ({ completed, total }) => {
           if (total <= 0) return
           if (!bar) {
-            bar = createProgressBar('Generating stress-test customers', total)
+            const label = liteMode ? 'Generating stress-test customers (lite)' : 'Generating stress-test customers'
+            bar = createProgressBar(label, total)
           }
           bar.update(completed)
         },

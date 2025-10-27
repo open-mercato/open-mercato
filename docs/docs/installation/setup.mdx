@@ -18,7 +18,7 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```bash
    yarn mercato init
    ```
-   This script prepares module registries, generates/applies migrations, seeds default roles, provisions an admin user, and loads demo CRM data (companies, people, deals, activities, todos). Add `--no-examples` if you prefer to skip the demo content while keeping core identities, or `--stresstest` (optionally with `-n <count>`) to preload thousands of synthetic contacts, companies, deals, activities, and notes for performance testing.
+   This script prepares module registries, generates/applies migrations, seeds default roles, provisions an admin user, and loads demo CRM data (companies, people, deals, activities, todos). Add `--no-examples` if you prefer to skip the demo content while keeping core identities, `--stresstest` (optionally with `-n <count>`) to preload thousands of synthetic contacts, companies, deals, activities, and notes, or combine `--stresstest --lite` for high-volume contacts without the heavier extras when you need raw throughput.
 4. **Launch the app**
    ```bash
    yarn dev

@@ -9,7 +9,7 @@ The `yarn init` script wraps the Open Mercato CLI `mercato init` command and del
 ## Usage
 
 ```bash
-yarn init [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--no-examples] [--stresstest] [-n <count>] [--count=<count>] [--reinstall|-r]
+yarn init [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--no-examples] [--stresstest] [--lite] [-n <count>] [--count=<count>] [--reinstall|-r]
 ```
 
 Ensure `DATABASE_URL` points to the Postgres instance you want to initialize before running the command.
@@ -24,6 +24,7 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 | `--roles` | Comma-separated list of roles ensured before user creation. | `superadmin,admin,employee` |
 | `--no-examples` | Skip demo CRM seeders (companies, people, deals, activities, todos). Alias: `--no-exampls`. | off |
 | `--stresstest` | Generate a high-volume synthetic CRM dataset (contacts, companies, deals, activities, notes) in addition to the curated examples. | off |
+| `--lite` | When paired with `--stresstest`, skips deals, activities, notes, and custom fields for faster high-volume contact generation. | off |
 | `-n`, `--count`, `--stress-count`, `--stresstest-count` | Number of synthetic contacts to create when `--stresstest` is enabled. | `6000` |
 | `--reinstall`, `-r` | Drops every table in the target database before bootstrapping. Requires a valid `DATABASE_URL`. | off |
 
@@ -37,7 +38,7 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 6. If organization and tenant IDs are detected:
    - Seeds customer dictionaries (`mercato customers seed-dictionaries`).
    - Unless `--no-examples` is present, seeds demo CRM data (`mercato customers seed-examples`) and example Todos (`mercato example seed-todos`).
-   - When `--stresstest` is present, seeds synthetic contacts, companies, deals, activities, and notes with custom fields (and a progress bar) via `mercato customers seed-stresstest`.
+   - When `--stresstest` is present, seeds synthetic contacts, companies, deals, activities, and notes with custom fields (and a progress bar) via `mercato customers seed-stresstest`. Add `--lite` to focus on raw contacts without the heavier extras.
    - Enables default dashboard widgets (`mercato dashboards seed-defaults`).
 
 On success, the command prints a boxed summary with created accounts and their passwords.

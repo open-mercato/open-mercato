@@ -19,6 +19,10 @@ export async function run(argv = process.argv) {
       const skipExamples = initArgs.includes('--no-examples') || initArgs.includes('--no-exampls')
       const stressTestEnabled =
         initArgs.includes('--stresstest') || initArgs.includes('--stress-test')
+      const stressTestLite =
+        initArgs.includes('--lite') ||
+        initArgs.includes('--stress-lite') ||
+        initArgs.some((arg) => arg.startsWith('--payload=lite') || arg.startsWith('--mode=lite'))
       let stressTestCount = 6000
       for (let i = 0; i < initArgs.length; i += 1) {
         const arg = initArgs[i]
@@ -55,7 +59,9 @@ export async function run(argv = process.argv) {
       console.log(`🎨 Example content: ${skipExamples ? 'skipped (--no-examples)' : 'enabled'}`)
       console.log(
         `🏋️ Stress test dataset: ${
-          stressTestEnabled ? `enabled (target ${stressTestCount} contacts)` : 'disabled'
+          stressTestEnabled
+            ? `enabled (target ${stressTestCount} contacts${stressTestLite ? ', lite payload' : ''})`
+            : 'disabled'
         }`
       )
 
@@ -170,9 +176,13 @@ export async function run(argv = process.argv) {
         }
 
         if (stressTestEnabled) {
-          console.log('🏋️  Seeding stress test customers...')
+          console.log(
+            `🏋️  Seeding stress test customers${stressTestLite ? ' (lite payload)' : ''}...`
+          )
           execSync(
-            `yarn mercato customers seed-stresstest --tenant ${tenantId} --org ${orgId} --count ${stressTestCount}`,
+            `yarn mercato customers seed-stresstest --tenant ${tenantId} --org ${orgId} --count ${stressTestCount}${
+              stressTestLite ? ' --lite' : ''
+            }`,
             { stdio: 'inherit' }
           )
           console.log(`✅ Stress test customers seeded (requested ${stressTestCount})\n`)
