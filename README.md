@@ -112,6 +112,7 @@ Follow these steps after the prerequisites are in place:
    APP_URL=http://localhost:3000
    EMAIL_FROM=no-reply@your-domain.com
    SELF_SERVICE_ONBOARDING_ENABLED=true
+   ADMIN_EMAIL=ops@your-domain.com
    ```
 
 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything. Prefer `yarn mercato init --no-examples` if you simply want to skip demo CRM data while keeping core roles and users.

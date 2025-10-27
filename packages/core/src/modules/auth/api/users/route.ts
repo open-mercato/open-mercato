@@ -5,6 +5,7 @@ import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/fact
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'

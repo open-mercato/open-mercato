@@ -1,56 +1,50 @@
 ---
 title: Self-service onboarding
-description: Allow external users to create their own tenant, organization, and administrator account.
+description: Optional flow that lets visitors create their own tenant and administrator account.
 ---
 
-> ⚠️ **Default: disabled.** We ship self-service onboarding as an optional demo workflow. Leave it off in production unless you have a clear approval process and email verification configured.
+> ⚠️ **Default: disabled.** Keep this flow off in most production environments. Enable it only for demos, sandboxes, or tightly controlled programs.
 
-![Self-service onboarding form](/screenshots/self-service-onboarding.svg)
+![Self-service onboarding illustration](/screenshots/self-service-onboarding.svg)
 
-## What the flow does
+## What happens when it is enabled
 
-When enabled, the public `/onboarding` page lets a visitor:
+1. Visitors open `/onboarding` and submit their name, email, and organization.
+2. They confirm the terms of service and receive a verification email.
+3. After confirming, Open Mercato provisions a tenant + organization, seeds demo CRM data, and creates an **admin** user for the submitted email.
+4. Administrators receive an email notification with the details so they can monitor new sign-ups.
 
-1. Submit their email, name, and organization.
-2. Confirm terms of service.
-3. Receive a verification email with a one-click link.
-4. After verifying, Open Mercato provisions a new tenant + organization, seeds demo data, and creates a superadmin account for that email.
+## Environment variables
 
-The onboarding API seeds the same sample CRM entities that ship with `yarn mercato init`, so the new tenant is immediately usable.
-
-## Requirements
-
-Self-service onboarding only unlocks when all of the following environment variables are present:
+Self-service onboarding activates only when all of these values are present:
 
 ```env
 SELF_SERVICE_ONBOARDING_ENABLED=true
 RESEND_API_KEY=your_resend_api_key
 EMAIL_FROM=no-reply@your-domain.com
 APP_URL=https://your-domain.com
+ADMIN_EMAIL=ops@your-domain.com
 ```
 
-- `SELF_SERVICE_ONBOARDING_ENABLED` — explicit opt-in toggle (defaults to `false`).
-- `RESEND_API_KEY` — used to send the verification email via Resend.
-- `EMAIL_FROM` — the sender address shown in the verification message.
-- `APP_URL` — the public base URL used to build the verification link (e.g., `https://app.mycompany.com`).
+- `SELF_SERVICE_ONBOARDING_ENABLED` – explicit opt-in toggle (defaults to `false`).
+- `RESEND_API_KEY` – used to send verification emails via Resend.
+- `EMAIL_FROM` – sender address visible to the recipient.
+- `APP_URL` – public base URL used to build verification links.
+- `ADMIN_EMAIL` – receives a notification each time someone submits the form.
 
-Restart the dev server (or redeploy) after changing environment variables.
+Restart the app after changing environment variables.
 
-## How to enable
+## User experience FAQs
 
-1. Set the environment variables above.
-2. Restart the app (`yarn dev` locally).
-3. Visit the home page — a green “Start onboarding” card appears when the config is valid.
-4. Share `/onboarding` with the users you want to self-provision.
+- **Duplicate email** – If the email already exists in Open Mercato, the flow ends with a message prompting the user to sign in or reset the password.
+- **Spam protection** – If a pending request exists from the last 10 minutes, the requester is asked to wait before trying again.
+- **Roles** – The verified user receives the `admin` role. Superadmin privileges are not granted automatically.
 
-Once complete, the verified user is created as a superadmin in their new tenant. They can then invite more users or assign additional roles in the admin UI.
+## Enabling and disabling
 
-## How to disable
+- Enable by setting the variables above and restarting the app. A green “Start onboarding” card appears on the home page when configuration is valid.
+- Disable by setting `SELF_SERVICE_ONBOARDING_ENABLED=false`. The `/onboarding` endpoint rejects submissions (HTTP 404) and the home-page CTA disappears. Active verification links continue to work so in-flight signups can finish.
 
-- Remove or set `SELF_SERVICE_ONBOARDING_ENABLED=false` (the default).
-- The `/onboarding` page will reject submissions and the home-page CTA disappears.
-- Existing verification links sent before disabling continue to work so that in-flight signups are not blocked.
+## When to use it
 
-## Recommended usage
-
-Self-service onboarding is best suited for demo environments, sandbox tenants, or tightly controlled beta programs. For production setups where you must vet each customer, keep the flag disabled and onboard organizations manually through the directory module instead.
+Use self-service onboarding for demos or sandbox environments where automated tenant creation is helpful. For production systems where each customer must be vetted, keep the flag disabled and onboard organizations manually through the directory module.
