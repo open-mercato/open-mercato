@@ -2,7 +2,9 @@
 
 import dynamic from 'next/dynamic'
 import type { FC } from 'react'
-import '@uiw/react-markdown-preview/markdown.css'
+if (typeof window !== 'undefined') {
+  void import('@uiw/react-markdown-preview/markdown.css')
+}
 
 const MarkdownPreview = dynamic(() => import('@uiw/react-markdown-preview'), { ssr: false })
 

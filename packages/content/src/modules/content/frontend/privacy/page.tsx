@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { ContentLayout } from '../components/ContentLayout'
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -7,10 +8,14 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <article className="prose prose-slate dark:prose-invert max-w-3xl mx-auto px-6 py-12">
-      <h1>Privacy Policy</h1>
-      <p className="text-sm text-muted-foreground">Last updated: January 1, 2025</p>
-
+    <ContentLayout
+      title="Privacy Policy"
+      intro="Last updated: January 1, 2025"
+      breadcrumb={[
+        { label: 'Home', href: '/' },
+        { label: 'Privacy Policy' },
+      ]}
+    >
       <p>
         This Privacy Policy explains how data is handled within the Open Mercato demo environment (the &ldquo;Service&rdquo;).
         Because the Service is intended solely for evaluation, information may be deleted without notice.
@@ -50,11 +55,8 @@ export default function PrivacyPage() {
       <h2>6. Contact</h2>
       <p>
         For privacy-related questions, email{' '}
-        <a className="underline" href="mailto:privacy@open-mercato.com">
-          privacy@open-mercato.com
-        </a>
-        .
+        <a href="mailto:privacy@open-mercato.com">privacy@open-mercato.com</a>.
       </p>
-    </article>
+    </ContentLayout>
   )
 }

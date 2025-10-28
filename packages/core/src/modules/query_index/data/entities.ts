@@ -2,6 +2,14 @@ import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
 
 // Generic JSONB-backed index rows for any entity ('<module>:<entity>')
 @Entity({ tableName: 'entity_indexes' })
+@Index({
+  name: 'idx_ei_cust_entity',
+  expression: `(entity_id, organization_id, tenant_id) include ("doc") where deleted_at is null and entity_type = 'customers:customer_entity'`,
+})
+@Index({
+  name: 'idx_ei_person_profile',
+  expression: `(entity_id, organization_id, tenant_id) include ("doc") where deleted_at is null and entity_type = 'customers:customer_person_profile'`,
+})
 export class EntityIndexRow {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -71,4 +79,3 @@ export class EntityIndexJob {
   @Property({ name: 'finished_at', type: Date, nullable: true })
   finishedAt?: Date | null
 }
-

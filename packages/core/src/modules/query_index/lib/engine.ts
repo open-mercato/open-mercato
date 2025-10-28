@@ -214,7 +214,7 @@ export class HybridQueryEngine implements QueryEngine {
       const { sql, bindings } = countBuilder.clone().toSQL()
       this.debug('query:sql:count', { entity, sql, bindings })
     }
-    const countRow = await countBuilder.first()
+    const countRow = await this.captureSqlTiming('query:sql:count', entity, () => countBuilder.first())
     const total = this.parseCount(countRow)
 
     const dataBuilder = builder.clone().limit(pageSize).offset((page - 1) * pageSize)
@@ -222,7 +222,7 @@ export class HybridQueryEngine implements QueryEngine {
       const { sql, bindings } = dataBuilder.clone().toSQL()
       this.debug('query:sql:data', { entity, sql, bindings, page, pageSize })
     }
-    const items = await dataBuilder
+    const items = await this.captureSqlTiming('query:sql:data', entity, () => dataBuilder, { page, pageSize })
     if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(items) ? items.length : 0 })
 
     return { items, page, pageSize, total }
@@ -833,6 +833,29 @@ export class HybridQueryEngine implements QueryEngine {
     const raw = (process.env.QUERY_ENGINE_DEBUG_SQL ?? '').toLowerCase()
     this.sqlDebugEnabled = raw === '1' || raw === 'true' || raw === 'yes'
     return this.sqlDebugEnabled
+  }
+
+  private async captureSqlTiming<TResult>(
+    label: string,
+    entity: EntityId,
+    execute: () => Promise<TResult> | TResult,
+    extra?: Record<string, unknown>
+  ): Promise<TResult> {
+    if (!this.isSqlDebugEnabled() || !this.isDebugVerbosity()) {
+      return Promise.resolve(execute())
+    }
+    const startedAt = process.hrtime.bigint()
+    try {
+      return await Promise.resolve(execute())
+    } finally {
+      const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000
+      const context: Record<string, unknown> = {
+        entity,
+        durationMs: Math.round(elapsedMs * 1000) / 1000,
+      }
+      if (extra) Object.assign(context, extra)
+      this.debug(`${label}:timing`, context)
+    }
   }
 
   private debug(message: string, context?: Record<string, unknown>): void {

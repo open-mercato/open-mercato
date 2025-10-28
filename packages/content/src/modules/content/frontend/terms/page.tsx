@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { ContentLayout } from '../components/ContentLayout'
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
@@ -7,10 +8,14 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <article className="prose prose-slate dark:prose-invert max-w-3xl mx-auto px-6 py-12">
-      <h1>Terms of Service</h1>
-      <p className="text-sm text-muted-foreground">Last updated: January 1, 2025</p>
-
+    <ContentLayout
+      title="Terms of Service"
+      intro="Last updated: January 1, 2025"
+      breadcrumb={[
+        { label: 'Home', href: '/' },
+        { label: 'Terms of Service' },
+      ]}
+    >
       <p>
         These Terms of Service (&ldquo;Terms&rdquo;) govern your access to and use of this Open Mercato demo environment
         (the &ldquo;Service&rdquo;). By using the Service you agree to be bound by these Terms.
@@ -57,11 +62,8 @@ export default function TermsPage() {
       <h2>7. Contact</h2>
       <p>
         Questions about these Terms may be directed to{' '}
-        <a className="underline" href="mailto:hello@open-mercato.com">
-          hello@open-mercato.com
-        </a>
-        .
+        <a href="mailto:hello@open-mercato.com">hello@open-mercato.com</a>.
       </p>
-    </article>
+    </ContentLayout>
   )
 }

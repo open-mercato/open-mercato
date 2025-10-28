@@ -15,6 +15,16 @@ export type CustomerAddressFormat = 'line_first' | 'street_first'
 
 @Entity({ tableName: 'customer_entities' })
 @Index({ name: 'customer_entities_org_tenant_kind_idx', properties: ['organizationId', 'tenantId', 'kind'] })
+@Index({
+  name: 'idx_ce_tenant_org_person_id',
+  properties: ['tenantId', 'organizationId', 'id'],
+  where: "deleted_at is null and kind = 'person'",
+})
+@Index({
+  name: 'idx_ce_tenant_org_company_id',
+  properties: ['tenantId', 'organizationId', 'id'],
+  where: "deleted_at is null and kind = 'company'",
+})
 export class CustomerEntity {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -112,6 +122,7 @@ export class CustomerEntity {
 
 @Entity({ tableName: 'customer_people' })
 @Index({ name: 'customer_people_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'idx_customer_people_entity_id', properties: ['entity'] })
 export class CustomerPersonProfile {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
