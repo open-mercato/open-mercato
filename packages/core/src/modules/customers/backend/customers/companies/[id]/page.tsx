@@ -122,6 +122,11 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
+  const companyId = data?.company?.id ?? null
+  const companyName =
+    data?.company?.displayName && data.company.displayName.trim().length
+      ? data.company.displayName
+      : t('customers.companies.list.deleteFallbackName', 'this company')
   const translateCompanyDetail = React.useCallback(
     (key: string, fallback?: string, params?: Record<string, string | number>) => {
       const mappedKey = key.startsWith('customers.people.detail.')
@@ -417,9 +422,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   )
 
   const handleDelete = React.useCallback(async () => {
-    const companyId = data?.company?.id ?? null
     if (!companyId) return
-    const companyName = data?.company?.displayName ?? t('customers.companies.list.deleteFallbackName', 'this company')
     const confirmed =
       typeof window === 'undefined'
         ? true
@@ -445,7 +448,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     } finally {
       setIsDeleting(false)
     }
-  }, [data?.company?.displayName, data?.company?.id, router, t])
+  }, [companyId, companyName, router, t])
 
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
@@ -482,7 +485,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     setSectionPending((prev) => ({ ...prev, tasks: loading }))
   }, [])
 
-  const companyId = data?.company?.id ?? null
   const dealsScope = React.useMemo(
     () => (companyId ? ({ kind: 'company', entityId: companyId } as const) : null),
     [companyId],

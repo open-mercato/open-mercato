@@ -114,6 +114,28 @@ function unwrap(schema?: ZodTypeAny): {
       current = (current as any)._def.schema
       continue
     }
+    if (typeName === ZodFirstPartyTypeKind.ZodPipeline) {
+      current = (current as any)._def.out
+      continue
+    }
+    if (typeName === ZodFirstPartyTypeKind.ZodLazy) {
+      const getter = (current as any)._def.getter
+      current = typeof getter === 'function' ? getter() : current
+      if (current === schema) break
+      continue
+    }
+    if (typeName === ZodFirstPartyTypeKind.ZodPromise) {
+      current = (current as any)._def.type
+      continue
+    }
+    if (typeName === ZodFirstPartyTypeKind.ZodCatch) {
+      current = (current as any)._def.innerType
+      continue
+    }
+    if (typeName === ZodFirstPartyTypeKind.ZodReadonly) {
+      current = (current as any)._def.innerType
+      continue
+    }
     if (typeName === ZodFirstPartyTypeKind.ZodBranded) {
       current = (current as any)._def.type
       continue
@@ -191,6 +213,27 @@ function zodToJsonSchema(schema?: ZodTypeAny): JsonSchema | undefined {
     }
     case ZodFirstPartyTypeKind.ZodIntersection: {
       result = { allOf: [zodToJsonSchema(def.left), zodToJsonSchema(def.right)] }
+      break
+    }
+    case ZodFirstPartyTypeKind.ZodPipeline: {
+      result = zodToJsonSchema(def.out) ?? {}
+      break
+    }
+    case ZodFirstPartyTypeKind.ZodLazy: {
+      const next = typeof def.getter === 'function' ? def.getter() : undefined
+      result = zodToJsonSchema(next) ?? {}
+      break
+    }
+    case ZodFirstPartyTypeKind.ZodPromise: {
+      result = zodToJsonSchema(def.type) ?? {}
+      break
+    }
+    case ZodFirstPartyTypeKind.ZodCatch: {
+      result = zodToJsonSchema(def.innerType) ?? {}
+      break
+    }
+    case ZodFirstPartyTypeKind.ZodReadonly: {
+      result = zodToJsonSchema(def.innerType) ?? {}
       break
     }
     case ZodFirstPartyTypeKind.ZodArray: {
@@ -278,6 +321,12 @@ function zodToJsonSchema(schema?: ZodTypeAny): JsonSchema | undefined {
 function generateExample(schema?: ZodTypeAny): unknown {
   if (!schema) return undefined
   const { schema: inner, optional, nullable, defaultValue } = unwrap(schema)
+  if (!inner) {
+    if (defaultValue !== undefined) return defaultValue
+    if (nullable) return null
+    if (optional) return undefined
+    return undefined
+  }
   const typeName = (inner as any)._def?.typeName as ZodFirstPartyTypeKind | undefined
   if (defaultValue !== undefined) return defaultValue
 
@@ -339,6 +388,18 @@ function generateExample(schema?: ZodTypeAny): unknown {
       const options = (inner as any)._def?.options || []
       return options.length ? generateExample(options[0]) : undefined
     }
+    case ZodFirstPartyTypeKind.ZodPipeline:
+      return generateExample((inner as any)._def?.out)
+    case ZodFirstPartyTypeKind.ZodLazy: {
+      const next = typeof (inner as any)._def?.getter === 'function' ? (inner as any)._def.getter() : undefined
+      return next ? generateExample(next) : undefined
+    }
+    case ZodFirstPartyTypeKind.ZodPromise:
+      return generateExample((inner as any)._def?.type)
+    case ZodFirstPartyTypeKind.ZodCatch:
+      return generateExample((inner as any)._def?.innerType)
+    case ZodFirstPartyTypeKind.ZodReadonly:
+      return generateExample((inner as any)._def?.innerType)
     case ZodFirstPartyTypeKind.ZodIntersection: {
       const left = generateExample((inner as any)._def?.left)
       const right = generateExample((inner as any)._def?.right)
@@ -382,11 +443,13 @@ function buildParameters(
   if (!schema) return params
 
   const { schema: unwrapped } = unwrap(schema)
+  if (!unwrapped) return params
   const typeName = (unwrapped as any)._def?.typeName as ZodFirstPartyTypeKind | undefined
   if (typeName === ZodFirstPartyTypeKind.ZodObject) {
     const shape = (unwrapped as any)._def?.shape?.() || {}
     for (const [key, raw] of Object.entries(shape)) {
       const details = unwrap(raw as ZodTypeAny)
+      if (!details.schema) continue
       const jsonSchema = zodToJsonSchema(details.schema)
       const example = generateExample(details.schema)
       params.push({
@@ -417,7 +480,7 @@ function mergePathParamSchemas(schema: ZodTypeAny | undefined, params: PathParam
   const map: Record<string, ZodTypeAny> = {}
   if (schema) {
     const { schema: unwrapped } = unwrap(schema)
-    if ((unwrapped as any)._def?.typeName === ZodFirstPartyTypeKind.ZodObject) {
+    if (unwrapped && (unwrapped as any)._def?.typeName === ZodFirstPartyTypeKind.ZodObject) {
       const shape = (unwrapped as any)._def?.shape?.() || {}
       for (const [key, value] of Object.entries(shape)) {
         map[key] = value as ZodTypeAny
@@ -847,12 +910,18 @@ export function generateMarkdownFromOpenApi(doc: OpenApiDocument): string {
         const content = op.requestBody.content?.['application/json']
         const example = content?.example ?? content?.examples?.default?.value
         const formatted = formatJsonExample(example)
+        const schemaFormatted = content?.schema ? formatJsonExample(content.schema) : null
         lines.push('')
         lines.push('### Request Body')
         if (formatted) {
           lines.push('')
           lines.push('```json')
           lines.push(formatted)
+          lines.push('```')
+        } else if (schemaFormatted) {
+          lines.push('')
+          lines.push('```json')
+          lines.push(schemaFormatted)
           lines.push('```')
         } else {
           lines.push('')
@@ -872,10 +941,16 @@ export function generateMarkdownFromOpenApi(doc: OpenApiDocument): string {
           const content = response.content?.['application/json']
           const example = content?.example ?? content?.examples?.default?.value
           const formatted = formatJsonExample(example)
+          const schemaFormatted = content?.schema ? formatJsonExample(content.schema) : null
           if (formatted) {
             lines.push('')
             lines.push('```json')
             lines.push(formatted)
+            lines.push('```')
+          } else if (schemaFormatted) {
+            lines.push('')
+            lines.push('```json')
+            lines.push(schemaFormatted)
             lines.push('```')
           }
         }
