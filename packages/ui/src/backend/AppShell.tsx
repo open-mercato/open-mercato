@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation'
 import { apiFetch } from './utils/api'
 import { LanguageSwitcher } from '../frontend/LanguageSwitcher'
 import { LastOperationBanner } from './operations/LastOperationBanner'
+import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 
@@ -935,10 +936,19 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         </header>
         <main className="flex-1 p-4 lg:p-6">
           <FlashMessages />
+          <PartialIndexBanner />
           <LastOperationBanner />
           {children}
         </main>
-        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex justify-end">
+        <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
+          <nav className="flex items-center gap-3 text-xs text-muted-foreground">
+            <Link href="/terms" className="transition hover:text-foreground">
+              {t('common.terms')}
+            </Link>
+            <Link href="/privacy" className="transition hover:text-foreground">
+              {t('common.privacy')}
+            </Link>
+          </nav>
           <LanguageSwitcher />
         </footer>
       </div>

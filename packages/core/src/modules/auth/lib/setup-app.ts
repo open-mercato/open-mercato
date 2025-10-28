@@ -5,6 +5,7 @@ import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 
 const DEFAULT_ROLE_NAMES = ['employee', 'admin', 'superadmin'] as const
+const DEMO_SUPERADMIN_EMAIL = 'superadmin@acme.com'
 
 export type EnsureRolesOptions = {
   roleNames?: string[]
@@ -38,6 +39,7 @@ export type SetupInitialTenantOptions = {
   includeDerivedUsers?: boolean
   failIfUserExists?: boolean
   primaryUserRoles?: string[]
+  includeSuperadminRole?: boolean
 }
 
 export type SetupInitialTenantResult = {
@@ -56,9 +58,20 @@ export async function setupInitialTenant(
     includeDerivedUsers = true,
     failIfUserExists = false,
     primaryUserRoles,
+    includeSuperadminRole = true,
   } = options
-  const primaryRoles = primaryUserRoles && primaryUserRoles.length ? primaryUserRoles : ['superadmin']
-  const roleNames = Array.from(new Set([...(options.roleNames ?? [...DEFAULT_ROLE_NAMES]), ...primaryRoles]))
+  const primaryRolesInput = primaryUserRoles && primaryUserRoles.length ? primaryUserRoles : ['superadmin']
+  const primaryRoles = includeSuperadminRole
+    ? primaryRolesInput
+    : primaryRolesInput.filter((role) => role !== 'superadmin')
+  if (primaryRoles.length === 0) {
+    throw new Error('PRIMARY_ROLES_REQUIRED')
+  }
+  const defaultRoleNames = options.roleNames ?? [...DEFAULT_ROLE_NAMES]
+  const resolvedRoleNames = includeSuperadminRole
+    ? defaultRoleNames
+    : defaultRoleNames.filter((role) => role !== 'superadmin')
+  const roleNames = Array.from(new Set([...resolvedRoleNames, ...primaryRoles]))
   await ensureRoles(em, { roleNames })
 
   const mainEmail = primaryUser.email
@@ -158,7 +171,8 @@ export async function setupInitialTenant(
     await rebuildHierarchyForTenant(em, tenantId)
   }
 
-  await ensureDefaultRoleAcls(em, tenantId)
+  await ensureDefaultRoleAcls(em, tenantId, { includeSuperadminRole })
+  await deactivateDemoSuperAdminIfSelfOnboardingEnabled(em)
 
   return {
     tenantId,
@@ -181,12 +195,17 @@ async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | nu
   return null
 }
 
-async function ensureDefaultRoleAcls(em: EntityManager, tenantId: string) {
-  const superadminRole = await em.findOne(Role, { name: 'superadmin' })
+async function ensureDefaultRoleAcls(
+  em: EntityManager,
+  tenantId: string,
+  options: { includeSuperadminRole?: boolean } = {},
+) {
+  const includeSuperadminRole = options.includeSuperadminRole ?? true
+  const superadminRole = includeSuperadminRole ? await em.findOne(Role, { name: 'superadmin' }) : null
   const adminRole = await em.findOne(Role, { name: 'admin' })
   const employeeRole = await em.findOne(Role, { name: 'employee' })
 
-  if (superadminRole) {
+  if (includeSuperadminRole && superadminRole) {
     await ensureRoleAclFor(em, superadminRole, tenantId, ['directory.tenants.*'], { isSuperAdmin: true })
   }
   if (adminRole) {
@@ -197,7 +216,7 @@ async function ensureDefaultRoleAcls(em: EntityManager, tenantId: string) {
       'query_index.*',
       'catalog.*',
       'sales.*',
-      'audit_logs.undo_self',
+      'audit_logs.*',
       'directory.organizations.view',
       'directory.organizations.manage',
       'customers.*',
@@ -281,5 +300,27 @@ async function ensureRoleAclFor(
   }
   if (changed || options.isSuperAdmin) {
     await em.persistAndFlush(existing)
+  }
+}
+
+async function deactivateDemoSuperAdminIfSelfOnboardingEnabled(em: EntityManager) {
+  if (process.env.SELF_SERVICE_ONBOARDING_ENABLED !== 'true') return
+  try {
+    const user = await em.findOne(User, { email: DEMO_SUPERADMIN_EMAIL })
+    if (!user) return
+    let dirty = false
+    if (user.passwordHash) {
+      user.passwordHash = null
+      dirty = true
+    }
+    if (user.isConfirmed !== false) {
+      user.isConfirmed = false
+      dirty = true
+    }
+    if (dirty) {
+      await em.persistAndFlush(user)
+    }
+  } catch (error) {
+    console.error('[auth.setup] failed to deactivate demo superadmin user', error)
   }
 }

@@ -17,6 +17,16 @@ function calculateChecksum(content: string): string {
 
 function toVar(s: string) { return s.replace(/[^a-zA-Z0-9_]/g, '_') }
 
+function moduleHasExport(filePath: string, exportName: string) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require(filePath)
+    return mod != null && Object.prototype.hasOwnProperty.call(mod, exportName)
+  } catch {
+    return false
+  }
+}
+
 function scan() {
   const enabled = loadEnabledModules()
   const imports: string[] = []
@@ -336,8 +346,10 @@ function scan() {
         const apiSegPath = segs.join('/')
         const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api${apiSegPath ? `/${apiSegPath}` : ''}/route`
         const routePath = '/' + reqSegs.filter(Boolean).join('/')
+        const sourceFile = fromApp ? appFile : path.join(apiPkg, ...segs, 'route.ts')
+        const docsPart = moduleHasExport(sourceFile, 'openApi') ? `, docs: ${importName}.openApi` : ''
         imports.push(`import * as ${importName} from '${importPath}'`)
-        apis.push(`{ path: '${routePath}', metadata: ${importName}.metadata, handlers: ${importName} }`)
+        apis.push(`{ path: '${routePath}', metadata: ${importName}.metadata, handlers: ${importName}${docsPart} }`)
       }
 
       // Single files
@@ -369,8 +381,11 @@ function scan() {
         const fromApp = fs.existsSync(appFile)
         const plainSegPath = fullSegs.join('/')
         const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api${plainSegPath ? `/${plainSegPath}` : ''}`
+        const pkgFile = path.join(apiPkg, ...fullSegs) + '.ts'
+        const sourceFile = fromApp ? appFile : pkgFile
+        const docsPart = moduleHasExport(sourceFile, 'openApi') ? `, docs: ${importName}.openApi` : ''
         imports.push(`import * as ${importName} from '${importPath}'`)
-        apis.push(`{ path: '${routePath}', metadata: ${importName}.metadata, handlers: ${importName} }`)
+        apis.push(`{ path: '${routePath}', metadata: ${importName}.metadata, handlers: ${importName}${docsPart} }`)
       }
       // Legacy per-method
       const methods: HttpMethod[] = ['GET','POST','PUT','PATCH','DELETE']
@@ -404,8 +419,10 @@ function scan() {
           const fromApp = methodDir === appMethodDir
           const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
           const metaName = `RM${importId++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
+          const sourceFile = path.join(methodDir, ...segs, file)
+          const docsPart = moduleHasExport(sourceFile, 'openApi') ? `, docs: ${metaName}.openApi` : ''
           imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
-          apis.push(`{ method: '${method}', path: '${routePath}', handler: ${importName}, metadata: ${metaName}.metadata }`)
+          apis.push(`{ method: '${method}', path: '${routePath}', handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
         }
       }
     }

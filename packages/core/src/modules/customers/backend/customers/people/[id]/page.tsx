@@ -42,6 +42,7 @@ import type {
   SectionAction,
 } from '../../../../components/detail/types'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 type PersonOverview = {
   person: {
@@ -102,6 +103,7 @@ function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) 
 export default function CustomerPersonDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialTab = React.useMemo(() => {
@@ -733,7 +735,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                     actionLabel: t('customers.people.detail.emptyState.notes.action'),
                   }}
                   onActionChange={handleSectionActionChange}
-                  translator={t}
+                  translator={detailTranslator}
                   onLoadingChange={handleNotesLoadingChange}
                 />
               )}
@@ -762,7 +764,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                   }}
                   onActionChange={handleSectionActionChange}
                   onLoadingChange={handleDealsLoadingChange}
-                  translator={t}
+                  translator={detailTranslator}
                 />
               )}
               {activeTab === 'addresses' && (
@@ -776,7 +778,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                   }}
                   onActionChange={handleSectionActionChange}
                   onLoadingChange={handleAddressesLoadingChange}
-                  translator={t}
+                  translator={detailTranslator}
                 />
               )}
               {activeTab === 'tasks' && (
@@ -791,7 +793,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                   }}
                   onActionChange={handleSectionActionChange}
                   onLoadingChange={handleTasksLoadingChange}
-                  translator={t}
+                  translator={detailTranslator}
                   entityName={personName}
                   dialogContextKey="customers.people.detail.tasks.dialog.context"
                   dialogContextFallback="This task will be linked to {{name}}"

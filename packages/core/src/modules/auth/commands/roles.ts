@@ -197,6 +197,18 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
+    const em = ctx.container.resolve<EntityManager>('em')
+    if (parsed.name !== undefined) {
+      const current = await em.findOne(Role, { id: parsed.id, deletedAt: null })
+      if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
+      const nextName = parsed.name
+      if (nextName !== current.name) {
+        const assignments = await em.count(UserRole, { role: current, deletedAt: null })
+        if (assignments > 0) {
+          throw new CrudHttpError(400, { error: 'Role name cannot be changed while users are assigned' })
+        }
+      }
+    }
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     const role = await de.updateOrmEntity({
       entity: Role,

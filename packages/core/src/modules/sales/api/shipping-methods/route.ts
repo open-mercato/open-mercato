@@ -6,6 +6,11 @@ import { shippingMethodCreateSchema, shippingMethodUpdateSchema } from '../../da
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/sales_shipping_method'
+import {
+  createPagedListResponseSchema,
+  createSalesCrudOpenApi,
+  defaultDeleteRequestSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -30,6 +35,28 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
+
+const shippingMethodItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  code: z.string(),
+  description: z.string().nullable(),
+  carrierCode: z.string().nullable(),
+  serviceLevel: z.string().nullable(),
+  estimatedTransitDays: z.number().nullable(),
+  baseRateNet: z.string(),
+  baseRateGross: z.string(),
+  currencyCode: z.string().nullable(),
+  isActive: z.boolean(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  organizationId: z.string().uuid().nullable(),
+  tenantId: z.string().uuid().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
+})
+
+const shippingMethodListResponseSchema = createPagedListResponseSchema(shippingMethodItemSchema)
 
 function buildFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
   const filters: Record<string, unknown> = {}
@@ -147,6 +174,17 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
   },
+})
+
+export const openApi = createSalesCrudOpenApi({
+  resourceName: 'Shipping method',
+  pluralName: 'Shipping methods',
+  description: 'Maintain shipping services, carrier mappings, and pricing defaults for order fulfillment.',
+  querySchema: listSchema,
+  listResponseSchema: shippingMethodListResponseSchema,
+  create: { schema: shippingMethodCreateSchema },
+  update: { schema: shippingMethodUpdateSchema },
+  del: { schema: defaultDeleteRequestSchema },
 })
 
 export const GET = crud.GET

@@ -44,3 +44,31 @@ export default handler;
 - Use the [API data fetching tutorial](../../tutorials/api-data-fetching) for an end-to-end walkthrough.
 
 Most CRUD operations can rely on the [CRUD factory](./crud-factory), but understanding the routing layer ensures you can always drop down to custom implementations when necessary.
+
+## Documentation
+
+- Run `npm run modules:prepare` (or the wider build scripts) to refresh `modules.generated.ts`; the OpenAPI document is derived from this registry.
+- The generated spec is exposed at:
+  - `GET /api/docs/openapi` – OpenAPI 3.1 JSON (consumable by Swagger UI, Postman, etc.).
+  - `GET /api/docs/markdown` – Markdown-flavoured documentation suited for quick sharing and LLM ingestion.
+- `/backend` – Dashboard card with quick links to the official docs and downloadable OpenAPI exports.
+- `/backend/api-docs` – Back-office page listing the same resources without feature gating.
+- Each API route may export `openApi` metadata to enrich the spec. For file-based routes (`route.ts`), export an `openApi` object with Zod schemas describing query params, bodies, responses, and custom cURL examples:
+
+```ts
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { z } from 'zod'
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Sales',
+  methods: {
+    POST: {
+      summary: 'Create tax rate',
+      requestBody: { schema: z.object({ name: z.string(), rate: z.number() }) },
+      responses: [{ status: 201, schema: z.object({ id: z.string().uuid() }) }],
+    },
+  },
+}
+```
+
+Leaving `openApi` undefined still emits an operation, but providing schemas unlocks typed examples, Markdown tables, and better client generation.

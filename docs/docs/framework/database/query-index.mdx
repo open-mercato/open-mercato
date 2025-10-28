@@ -49,10 +49,14 @@ Query routing
   - Paging and multi-tenant scoping (`organization_id`, `tenant_id`) and soft-delete exclusion by default.
 
 Backfill
-- CLI: `mercato query_index rebuild` reindexes existing rows.
+- CLI: `mercato query_index rebuild --entity <module:entity>` reindexes existing rows with a live progress bar.
   - All orgs/tenants: `mercato query_index rebuild --entity example:todo --global`
   - Scoped: `mercato query_index rebuild --entity example:todo --org <orgId> --tenant <tenantId>`
-  - Options: `--withDeleted` `--limit <n>` `--offset <n>`
+  - Single record: `mercato query_index rebuild --entity example:todo --record <entityId>`
+  - Options: `--withDeleted` `--limit <n>` `--offset <n>` `--batch <size>`
+- CLI: `mercato query_index rebuild-all` walks every registered entity index using the same flags as `rebuild`, making it easy to refresh the entire corpus in one go.
+- Scheduling via events remains available: `mercato query_index reindex [--entity <module:entity>] [--tenant <tenantId>] [--force]` and `mercato query_index purge [...]` enqueue background jobs when you don’t need immediate writes.
+- Bulk imports: build and insert index payloads alongside your ETL transaction with the `buildIndexDocument` helper (`packages/core/src/modules/query_index/lib/document.ts`) so large seeders can skip the post-import reindex sweep. The CRM stress-test seeder now follows this pattern.
 
 Performance tips
 - Start with `gin(doc jsonb_path_ops)`.
@@ -64,6 +68,7 @@ Limitations and notes
 - The index row appears after create/update events or backfill. Queries still work via fallback when the index is missing.
 - Cross-module relations remain by foreign key id only; no cross-module joins.
 - When the hybrid engine falls back because of partial index coverage it emits a warning and, by default, schedules an asynchronous reindex for the affected entity/tenant scope. Toggle this with `QUERY_INDEX_AUTO_REINDEX` (defaults to `true`) if you prefer to manage reindex jobs manually.
+- Keep the indexed path even when gaps are detected by setting `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES=true` (enabled by default). When active, list responses include an `x-om-partial-index` response header (with `entity`, `baseCount`, `indexedCount`, and `scope`) so the admin UI can surface a banner prompting the user to reindex via `/backend/query-indexes`.
 
 ## Debugging SQL output
 

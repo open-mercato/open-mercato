@@ -9,6 +9,11 @@ import * as F from '@open-mercato/core/generated/entities/dictionary_entry'
 import { statusDictionaryCreateSchema, statusDictionaryUpdateSchema } from '../../data/validators'
 import { getSalesDictionaryDefinition, ensureSalesDictionary, type SalesDictionaryKind } from '../../lib/dictionaries'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import {
+  createPagedListResponseSchema,
+  createSalesCrudOpenApi,
+  defaultDeleteRequestSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -31,6 +36,20 @@ export const metadata = {
   PUT: { requireAuth: true, requireFeatures: ['sales.settings.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['sales.settings.manage'] },
 }
+
+const dictionaryItemSchema = z.object({
+  id: z.string().uuid(),
+  value: z.string(),
+  label: z.string().nullable(),
+  color: z.string().nullable(),
+  icon: z.string().nullable(),
+  organizationId: z.string().uuid().nullable(),
+  tenantId: z.string().uuid().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
+const dictionaryListResponseSchema = createPagedListResponseSchema(dictionaryItemSchema)
 
 async function resolveDictionaryId(ctx: any): Promise<string> {
   if (!ctx.auth || !ctx.auth.tenantId) {
@@ -137,6 +156,17 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
   },
+})
+
+export const openApi = createSalesCrudOpenApi({
+  resourceName: 'Order line status',
+  pluralName: 'Order line statuses',
+  description: 'Manage custom order line statuses available for sales documents.',
+  querySchema: listSchema,
+  listResponseSchema: dictionaryListResponseSchema,
+  create: { schema: statusDictionaryCreateSchema },
+  update: { schema: statusDictionaryUpdateSchema },
+  del: { schema: defaultDeleteRequestSchema },
 })
 
 export const GET = crud.GET

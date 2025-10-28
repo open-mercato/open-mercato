@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
+import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { RoleAcl, Role } from '@open-mercato/core/modules/auth/data/entities'
 
 const getSchema = z.object({ roleId: z.string().uuid() })
@@ -57,16 +58,43 @@ export async function PUT(req: Request) {
   const body = await req.json().catch(() => ({}))
   const parsed = putSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const rbacService = resolve('rbacService') as any
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as any
+  const rbacService = container.resolve('rbacService') as any
   const role = await em.findOne(Role, { id: parsed.data.roleId })
   if (!role) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const actorAcl = auth.sub
+    ? await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+    : null
+  const actorIsSuperAdmin = !!actorAcl?.isSuperAdmin
+
+  const requestedFeatures = normalizeFeatureList(parsed.data.features)
   let acl = await em.findOne(RoleAcl, { role: role as any, tenantId: auth.tenantId as any })
   if (!acl) { acl = em.create(RoleAcl, { role: role as any, tenantId: auth.tenantId as any }) }
-  if (parsed.data.isSuperAdmin !== undefined) (acl as any).isSuperAdmin = !!parsed.data.isSuperAdmin
-  if (parsed.data.features !== undefined) (acl as any).featuresJson = parsed.data.features
+
+  const existingIsSuperAdmin = !!acl.isSuperAdmin
+  const requestedIsSuperAdmin = parsed.data.isSuperAdmin ?? existingIsSuperAdmin
+  let effectiveIsSuperAdmin = requestedIsSuperAdmin
+
+  if (!actorIsSuperAdmin) {
+    if (requestedIsSuperAdmin && !existingIsSuperAdmin) {
+      throw forbidden('Only super administrators can mark a role as super admin.')
+    }
+    if (existingIsSuperAdmin && requestedIsSuperAdmin === false) {
+      effectiveIsSuperAdmin = false
+    } else {
+      effectiveIsSuperAdmin = existingIsSuperAdmin
+    }
+  }
+
+  const effectiveFeatures = actorIsSuperAdmin
+    ? requestedFeatures
+    : sanitizeTenantFeatures(requestedFeatures)
+
   if (parsed.data.organizations !== undefined) (acl as any).organizationsJson = parsed.data.organizations
+  ;(acl as any).isSuperAdmin = effectiveIsSuperAdmin
+  ;(acl as any).featuresJson = effectiveFeatures
   await em.persistAndFlush(acl)
   
   // Invalidate cache for all users in this tenant since role ACL changed
@@ -74,12 +102,35 @@ export async function PUT(req: Request) {
     await rbacService.invalidateTenantCache(auth.tenantId)
     // Sidebar nav caches depend on RBAC; invalidate tenant scope nav caches
     try {
-      const { resolve } = await createRequestContainer()
-      const cache = resolve('cache') as any
+      const cache = container.resolve('cache') as any
       if (cache) await cache.deleteByTags([`rbac:tenant:${auth.tenantId}`])
     } catch {}
   }
   
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({
+    ok: true,
+    sanitized: !actorIsSuperAdmin && (effectiveFeatures.length !== requestedFeatures.length || effectiveIsSuperAdmin !== requestedIsSuperAdmin),
+  })
 }
 
+function normalizeFeatureList(features: unknown): string[] {
+  if (!Array.isArray(features)) return []
+  const dedup = new Set<string>()
+  for (const value of features) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (!trimmed) continue
+    dedup.add(trimmed)
+  }
+  return Array.from(dedup)
+}
+
+function sanitizeTenantFeatures(features: string[]): string[] {
+  return features.filter((feature) => !isTenantRestrictedFeature(feature))
+}
+
+function isTenantRestrictedFeature(feature: string): boolean {
+  if (feature === '*' || feature === 'directory.*') return true
+  if (feature.startsWith('directory.tenants')) return true
+  return false
+}

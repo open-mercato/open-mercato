@@ -114,6 +114,7 @@ export default function CustomersPeoplePage() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
   const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>({
     statuses: {},
     sources: {},
@@ -360,22 +361,28 @@ export default function CustomersPeoplePage() {
     let cancelled = false
     async function load() {
       setIsLoading(true)
+      setCacheStatus(null)
       try {
         const res = await apiFetch(`/api/customers/people?${queryParams}`)
+        const rawCacheStatus = res.headers.get('x-om-cache')
+        const normalizedCacheStatus = rawCacheStatus === 'hit' || rawCacheStatus === 'miss' ? rawCacheStatus : null
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
           const message = typeof data?.error === 'string' ? data.error : t('customers.people.list.error.load')
           flash(message, 'error')
+          if (!cancelled) setCacheStatus(null)
           return
         }
         const payload: PeopleResponse = await res.json().catch(() => ({}))
         if (cancelled) return
+        setCacheStatus(normalizedCacheStatus)
         const items = Array.isArray(payload.items) ? payload.items : []
         setRows(items.map((item) => mapApiItem(item as Record<string, unknown>)).filter((row): row is PersonRow => !!row))
         setTotal(typeof payload.total === 'number' ? payload.total : items.length)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
       } catch (err) {
         if (!cancelled) {
+          setCacheStatus(null)
           const message = err instanceof Error ? err.message : t('customers.people.list.error.load')
           flash(message, 'error')
         }
@@ -596,7 +603,7 @@ export default function CustomersPeoplePage() {
               ]}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, cacheStatus }}
           isLoading={isLoading}
         />
       </PageBody>

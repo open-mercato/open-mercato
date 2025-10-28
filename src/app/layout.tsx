@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { I18nProvider } from '@/lib/i18n/context'
 import { ThemeProvider, FrontendLayout, QueryProvider, AuthFooter } from '@open-mercato/ui'
+import { GlobalNoticeBars } from '@/components/GlobalNoticeBars'
 import { detectLocale, loadDictionary } from '@/lib/i18n/server'
 
 const geistSans = Geist({
@@ -27,6 +28,7 @@ export default async function RootLayout({
 }>) {
   const locale = await detectLocale()
   const dict = await loadDictionary(locale)
+  const demoModeEnabled = process.env.DEMO_MODE !== 'false'
   return (
     <html lang={locale}>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
@@ -34,6 +36,7 @@ export default async function RootLayout({
           <ThemeProvider>
             <QueryProvider>
               <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
+              <GlobalNoticeBars demoModeEnabled={demoModeEnabled} />
             </QueryProvider>
           </ThemeProvider>
         </I18nProvider>

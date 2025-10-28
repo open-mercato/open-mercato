@@ -94,11 +94,23 @@ export type QueryOptions = {
   joins?: QueryJoinEdge[]
 }
 
+export type PartialIndexWarning = {
+  entity: EntityId
+  baseCount?: number | null
+  indexedCount?: number | null
+  scope?: 'scoped' | 'global'
+}
+
+export type QueryResultMeta = {
+  partialIndexWarning?: PartialIndexWarning
+}
+
 export type QueryResult<T = any> = {
   items: T[]
   page: number
   pageSize: number
   total: number
+  meta?: QueryResultMeta
 }
 
 export interface QueryEngine {

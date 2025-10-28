@@ -2,9 +2,11 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
@@ -243,13 +245,16 @@ export const DELETE = crud.DELETE
 
 async function assertCanAssignRoles(req: Request, roles: unknown) {
   if (!Array.isArray(roles)) return
-  if (!roles.includes('superadmin')) return
+  const normalized = roles
+    .map((role) => (typeof role === 'string' ? role.trim().toLowerCase() : null))
+    .filter((role): role is string => !!role)
+  if (!normalized.includes('superadmin')) return
   const auth = await getAuthFromRequest(req)
   if (!auth) throw new Error('Unauthorized')
   const container = await createRequestContainer()
   const rbac = container.resolve('rbacService') as RbacService
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
   if (!acl?.isSuperAdmin) {
-    throw new Error('Only superadmin users may assign the superadmin role')
+    throw forbidden('Only super administrators can assign the superadmin role.')
   }
 }

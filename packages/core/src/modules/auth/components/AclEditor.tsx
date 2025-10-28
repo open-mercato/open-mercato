@@ -9,6 +9,24 @@ function toTitleCase(value: string): string {
   return value.replace(/[-_.]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
+function normalizeFeatureArray(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  const dedup = new Set<string>()
+  for (const value of input) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (!trimmed) continue
+    dedup.add(trimmed)
+  }
+  return Array.from(dedup)
+}
+
+function isTenantRestrictedFeature(feature: string): boolean {
+  if (feature === '*' || feature === 'directory.*') return true
+  if (feature.startsWith('directory.tenants')) return true
+  return false
+}
+
 function formatWildcardLabel(moduleId: string, wildcard: string): string {
   if (!wildcard.endsWith('.*')) return wildcard
   const prefix = `${moduleId}.`
@@ -35,6 +53,7 @@ export function AclEditor({
   value,
   onChange,
   userRoles,
+  currentUserIsSuperAdmin,
 }: {
   kind: 'user' | 'role'
   targetId: string
@@ -42,17 +61,38 @@ export function AclEditor({
   value?: AclData
   onChange?: (data: AclData) => void
   userRoles?: string[]
+  currentUserIsSuperAdmin?: boolean
 }) {
+  const actorIsSuperAdmin = !!currentUserIsSuperAdmin
   const [loading, setLoading] = React.useState(true)
   const [features, setFeatures] = React.useState<Feature[]>([])
   const [modules, setModules] = React.useState<ModuleInfo[]>([])
-  const [granted, setGranted] = React.useState<string[]>(value?.features || [])
+  const [granted, setGranted] = React.useState<string[]>(() => {
+    const normalized = normalizeFeatureArray(value?.features)
+    return actorIsSuperAdmin ? normalized : normalized.filter((feature) => !isTenantRestrictedFeature(feature))
+  })
   const [isSuperAdmin, setIsSuperAdmin] = React.useState(value?.isSuperAdmin || false)
   const [organizations, setOrganizations] = React.useState<string[] | null>(value?.organizations ?? null)
   const [orgOptions, setOrgOptions] = React.useState<{ id: string; name: string }[]>([])
   const [hasCustomAcl, setHasCustomAcl] = React.useState(true)
   const [overrideEnabled, setOverrideEnabled] = React.useState(false)
   const [roleDetails, setRoleDetails] = React.useState<Array<{ id: string; name: string }>>([])
+
+  const actorSanitizeFeatures = React.useCallback(
+    (list: unknown): string[] => {
+      const normalized = normalizeFeatureArray(list)
+      if (actorIsSuperAdmin) return normalized
+      return normalized.filter((feature) => !isTenantRestrictedFeature(feature))
+    },
+    [actorIsSuperAdmin],
+  )
+
+  const updateGranted = React.useCallback(
+    (updater: (prev: string[]) => string[]) => {
+      setGranted((prev) => actorSanitizeFeatures(updater(prev)))
+    },
+    [actorSanitizeFeatures],
+  )
 
   React.useEffect(() => {
     let cancelled = false
@@ -73,7 +113,7 @@ export function AclEditor({
           setHasCustomAcl(customAclExists)
           setOverrideEnabled(customAclExists)
           setIsSuperAdmin(!!aclJson.isSuperAdmin)
-          setGranted(Array.isArray(aclJson.features) ? aclJson.features : [])
+          setGranted(actorSanitizeFeatures(aclJson.features))
           setOrganizations(aclJson.organizations == null ? null : Array.isArray(aclJson.organizations) ? aclJson.organizations : [])
         }
       } catch {}
@@ -106,7 +146,7 @@ export function AclEditor({
     }
     load()
     return () => { cancelled = true }
-  }, [kind, targetId, canEditOrganizations, userRoles])
+  }, [kind, targetId, canEditOrganizations, userRoles, actorSanitizeFeatures])
 
   // Notify parent of changes
   React.useEffect(() => {
@@ -141,14 +181,15 @@ export function AclEditor({
 
   
   const toggleWildcard = React.useCallback((wildcard: string, enable: boolean) => {
-    setGranted((prev) => {
+    if (!actorIsSuperAdmin && enable && isTenantRestrictedFeature(wildcard)) return
+    updateGranted((prev) => {
       if (enable) {
         if (prev.includes(wildcard)) return prev
         return [...prev, wildcard]
       }
       return prev.filter((feature) => feature !== wildcard)
     })
-  }, [])
+  }, [actorIsSuperAdmin, updateGranted])
 
   const toggleModuleWildcard = React.useCallback((moduleId: string, enable: boolean) => {
     toggleWildcard(`${moduleId}.*`, enable)
@@ -210,9 +251,19 @@ export function AclEditor({
       {(kind === 'role' || overrideEnabled) && (
         <>
           <div className="flex items-center gap-2">
-            <input id="isSuperAdmin" type="checkbox" className="h-4 w-4" checked={isSuperAdmin} onChange={(e) => setIsSuperAdmin(!!e.target.checked)} />
+            <input
+              id="isSuperAdmin"
+              type="checkbox"
+              className="h-4 w-4"
+              checked={isSuperAdmin}
+              disabled={!actorIsSuperAdmin}
+              onChange={(e) => setIsSuperAdmin(!!e.target.checked)}
+            />
             <label htmlFor="isSuperAdmin" className="text-sm">Super Admin (all features)</label>
           </div>
+          {!actorIsSuperAdmin && (
+            <p className="text-xs text-muted-foreground">Only super administrators can change this option.</p>
+          )}
       {!isSuperAdmin && (
         <>
           {hasGlobalWildcard && (
@@ -223,7 +274,7 @@ export function AclEditor({
                 variant="outline" 
                 size="sm" 
                 className="mt-2"
-                onClick={() => setGranted((prev) => prev.filter((x) => x !== '*'))}
+                onClick={() => updateGranted((prev) => prev.filter((x) => x !== '*'))}
               >
                 Remove global wildcard
               </Button>
@@ -253,6 +304,8 @@ export function AclEditor({
               for (const entry of nestedWildcards) {
                 for (const feature of entry.features) nestedCoveredIds.add(feature.id)
               }
+              const moduleRestricted = !actorIsSuperAdmin && isTenantRestrictedFeature(`${group.moduleId}.*`)
+              const moduleCheckboxDisabled = hasGlobalWildcard || moduleRestricted
               return (
                 <div key={group.moduleId} className="rounded border p-3">
                   <div className="flex items-center justify-between mb-3 pb-2 border-b">
@@ -263,19 +316,21 @@ export function AclEditor({
                         type="checkbox" 
                         className="h-4 w-4" 
                         checked={moduleWildcard || hasGlobalWildcard} 
-                        disabled={hasGlobalWildcard}
+                        disabled={moduleCheckboxDisabled}
                         onChange={(e) => toggleModuleWildcard(group.moduleId, e.target.checked)} 
                       />
                       <label htmlFor={`module-${group.moduleId}`} className="text-sm text-muted-foreground">
                         All {moduleWildcard && !hasGlobalWildcard ? <span className="font-medium text-blue-600">({group.moduleId}.*)</span> : ''}
+                        {moduleRestricted ? <span className="ml-2 text-xs font-medium text-muted-foreground">(manage via super admin)</span> : null}
                       </label>
                     </div>
                   </div>
-                  {nestedWildcards.length > 0 && (
-                    <div className="space-y-3 mb-3">
-                      {nestedWildcards.map(({ wildcard, features: wildcardFeatures }) => {
+                {nestedWildcards.length > 0 && (
+                  <div className="space-y-3 mb-3">
+                    {nestedWildcards.map(({ wildcard, features: wildcardFeatures }) => {
                         const checked = granted.includes(wildcard) || hasGlobalWildcard || moduleWildcard
-                        const disabled = hasGlobalWildcard || moduleWildcard
+                        const wildcardRestricted = !actorIsSuperAdmin && isTenantRestrictedFeature(wildcard)
+                        const disabled = hasGlobalWildcard || moduleWildcard || wildcardRestricted
                         return (
                           <div key={wildcard} className="space-y-2">
                             <div className="flex items-center gap-2">
@@ -293,6 +348,7 @@ export function AclEditor({
                               >
                                 {formatWildcardLabel(group.moduleId, wildcard)}{' '}
                                 <span className="text-muted-foreground text-xs font-mono">({wildcard})</span>
+                                {wildcardRestricted ? <span className="ml-2 text-xs font-medium text-muted-foreground">Restricted</span> : null}
                               </label>
                             </div>
                             {wildcardFeatures.length > 0 && (
@@ -318,6 +374,8 @@ export function AclEditor({
                       if (nestedCoveredIds.has(f.id)) return null
                       const checked = isFeatureChecked(f.id)
                       const isWildcardCovered = isFeatureCoveredByWildcard(f.id)
+                      const restricted = !actorIsSuperAdmin && isTenantRestrictedFeature(f.id)
+                      const disabled = isWildcardCovered || restricted
                       return (
                         <div key={f.id} className="flex items-center gap-2">
                           <input
@@ -325,17 +383,21 @@ export function AclEditor({
                             type="checkbox"
                             className="h-4 w-4"
                             checked={checked}
-                            disabled={isWildcardCovered}
+                            disabled={disabled}
                             onChange={(e) => {
                               const on = !!e.target.checked
-                              setGranted((prev) => on ? Array.from(new Set([...prev, f.id])) : prev.filter((x) => x !== f.id))
+                              updateGranted((prev) => {
+                                if (on) return [...prev, f.id]
+                                return prev.filter((x) => x !== f.id)
+                              })
                             }}
                           />
                           <label
                             htmlFor={`f-${f.id}`}
-                            className={`text-sm ${isWildcardCovered ? 'text-muted-foreground' : ''}`}
+                            className={`text-sm ${disabled ? 'text-muted-foreground' : ''}`}
                           >
                             {f.title} <span className="text-muted-foreground text-xs">({f.id})</span>
+                            {restricted ? <span className="ml-2 text-xs font-medium text-muted-foreground">Restricted</span> : null}
                           </label>
                         </div>
                       )

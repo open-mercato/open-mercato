@@ -115,6 +115,16 @@ This exports `metadata` and HTTP handlers, which the modules registry auto-disco
 - resolveIdentifiers(entity, action): override how `{ id, organizationId, tenantId }` are derived before emitting events/indexer notifications
 - hooks: lifecycle hooks (`beforeList`, `afterList`, `beforeCreate`, `afterCreate`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete`)
 
+## Response caching
+
+- Opt-in per environment with `ENABLE_CRUD_API_CACHE=true`. When disabled (default), the factory behaves as before.
+- Only `GET` list handlers are cached. Keys incorporate the request path, tenant + selected organization scope, and a canonical serialization of the query string so each filter/sort/page combination is isolated.
+- Cached payloads are tagged with both the record ids that appear on the page and broader collection tags (`crud/<module.entity>/tenant/<id>/org/<id>/collection`) so follow-up mutations can evict the exact variations that might be stale.
+- Any mutation that flows through the CRUD factory or the command bus (including CLI calls, admin APIs, and the audit-log undo/redo flows) invalidates the relevant tags automatically. Command metadata (`resourceKind`, `resourceId`, tenant/org ids) drives the tag selection so undoing a change clears the same cached pages that the original write touched.
+- Any mutation that flows through the CRUD factory or the command bus (including CLI calls, admin APIs, and the audit-log undo/redo flows) invalidates the relevant tags automatically. Command metadata (`resourceKind`, `resourceId`, tenant/org ids, plus `context.cacheAliases`) drives the tag selection so undoing a change clears the same cached pages that the original write touched. If you override command metadata, merge the provided context to keep cache invalidation intact.
+- When caching is active, list responses include an `x-om-cache` header set to either `hit` or `miss`. Backoffice tables read this header to surface the green/amber footer indicator, and you can log or trace the value in custom clients to understand whether a page came from cache.
+- When `QUERY_ENGINE_DEBUG_SQL=true`, extra debug logs surface cache hits/misses with timings, cache stores with tag lists, and invalidation events with tag counts. This mirrors the hybrid query engine’s SQL debug mode for easier troubleshooting.
+
 ## Event Naming
 
 The factory emits Medusa-style module events on CRUD:

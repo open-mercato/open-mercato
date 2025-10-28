@@ -31,6 +31,27 @@ export function FilterBar({
   layout = 'stacked',
 }: FilterBarProps) {
   const [open, setOpen] = React.useState(false)
+  const [searchDraft, setSearchDraft] = React.useState(searchValue ?? '')
+  const lastAppliedSearchRef = React.useRef(searchValue ?? '')
+
+  React.useEffect(() => {
+    const next = searchValue ?? ''
+    lastAppliedSearchRef.current = next
+    setSearchDraft((prev) => (prev === next ? prev : next))
+  }, [searchValue])
+
+  React.useEffect(() => {
+    if (!onSearchChange) return
+    const handle = window.setTimeout(() => {
+      if (lastAppliedSearchRef.current === searchDraft) return
+      lastAppliedSearchRef.current = searchDraft
+      onSearchChange(searchDraft)
+    }, 1000)
+    return () => {
+      window.clearTimeout(handle)
+    }
+  }, [searchDraft, onSearchChange])
+
   const activeCount = React.useMemo(() => {
     const isActive = (v: any) => {
       if (v == null) return false
@@ -57,8 +78,8 @@ export function FilterBar({
         {onSearchChange && (
           <div className={`relative w-full sm:w-[240px] ${searchAlign === 'right' ? 'ml-auto' : ''}`}>
             <input
-              value={searchValue ?? ''}
-              onChange={(e) => onSearchChange(e.target.value)}
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
               placeholder={searchPlaceholder}
               className="h-9 w-full rounded border pl-8 pr-2 text-sm"
               suppressHydrationWarning

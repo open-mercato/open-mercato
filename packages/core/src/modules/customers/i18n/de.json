@@ -142,6 +142,8 @@
   "customers.people.list.columns.nextInteraction": "Nächste Interaktion",
   "customers.people.list.columns.source": "Quelle",
   "customers.people.list.noValue": "Nicht gesetzt",
+  "customers.people.list.booleanYes": "Ja",
+  "customers.people.list.booleanNo": "Nein",
   "customers.people.list.actions.refresh": "Aktualisieren",
   "customers.people.list.actions.new": "Neue Person",
   "customers.people.list.actions.view": "Details anzeigen",

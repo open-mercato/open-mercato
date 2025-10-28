@@ -8,6 +8,7 @@ import { sendEmail } from '@/lib/email/send'
 import { onboardingStartSchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import VerificationEmail from '@open-mercato/onboarding/modules/onboarding/emails/VerificationEmail'
+import AdminNotificationEmail from '@open-mercato/onboarding/modules/onboarding/emails/AdminNotificationEmail'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 
 export const metadata = {
@@ -85,7 +86,23 @@ export async function POST(req: Request) {
     }
 
     const service = new OnboardingService(em)
-    const { request, token } = await service.createOrUpdateRequest(parsed.data)
+    let request, token
+    try {
+      const result = await service.createOrUpdateRequest(parsed.data)
+      request = result.request
+      token = result.token
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('PENDING_REQUEST:')) {
+        const minutes = Number(err.message.split(':')[1] || '10')
+        const message = translate('onboarding.errors.pendingRequest', 'We already have a pending verification. Please try again in about {minutes} minutes or contact the administrator.', { minutes })
+        return NextResponse.json({
+          ok: false,
+          error: message,
+          fieldErrors: { email: message },
+        }, { status: 409 })
+      }
+      throw err
+    }
 
     const url = new URL(req.url)
     const baseUrl = process.env.APP_URL || `${url.protocol}//${url.host}`
@@ -111,6 +128,25 @@ export async function POST(req: Request) {
     }
     const emailReact = VerificationEmail({ verifyUrl, copy: emailCopy })
     await sendEmail({ to: request.email, subject, react: emailReact })
+
+    const adminEmail = process.env.ADMIN_EMAIL || 'piotr@catchthetornado.com'
+    const adminSubject = translate('onboarding.email.adminSubject', 'New self-service onboarding request')
+    const adminCopy = {
+      preview: translate('onboarding.email.adminPreview', 'New onboarding request submitted'),
+      heading: translate('onboarding.email.adminHeading', 'New onboarding request'),
+      body: translate('onboarding.email.adminBody', '{firstName} {lastName} ({email}) submitted an onboarding request for {organizationName}.', {
+        firstName: request.firstName,
+        lastName: request.lastName,
+        email: request.email,
+        organizationName: request.organizationName,
+      }),
+      footer: translate('onboarding.email.adminFooter', 'You can review the tenant after verification is complete.'),
+    }
+    await sendEmail({
+      to: adminEmail,
+      subject: adminSubject,
+      react: AdminNotificationEmail({ copy: adminCopy }),
+    })
 
     return NextResponse.json({ ok: true, email: request.email })
   } catch (error) {

@@ -1,4 +1,4 @@
-import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -24,6 +24,7 @@ export class HybridQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
   private debugVerbosity: boolean | null = null
   private sqlDebugEnabled: boolean | null = null
+  private forcePartialIndexEnabled: boolean | null = null
   private autoReindexEnabled: boolean | null = null
   private pendingAutoReindexKeys = new Set<string>()
 
@@ -69,47 +70,79 @@ export class HybridQueryEngine implements QueryEngine {
       })
     }
 
+    let partialIndexWarning: PartialIndexWarning | null = null
+
     if (wantsCf) {
       const hasIndexRows = await this.indexAnyRows(entity)
       if (!hasIndexRows) {
         if (debugEnabled) this.debug('query:fallback:no-index', { entity })
         return this.fallback.query(entity, opts)
       }
-      const coverageOk = await this.indexCoverageComplete(entity, baseTable, opts)
-      if (!coverageOk) {
-        let stats: { baseCount: number; indexedCount: number } | undefined
-        try {
-          stats = await this.indexCoverageStats(entity, baseTable, opts)
-          console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount: stats.baseCount, indexedCount: stats.indexedCount })
-          if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount: stats.baseCount, indexedCount: stats.indexedCount })
-        } catch {
-          console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
-          if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
+      const gap = await this.resolveCoverageGap(entity, baseTable, opts)
+      if (gap) {
+        this.scheduleAutoReindex(entity, opts, gap.stats)
+        const force = this.isForcePartialIndexEnabled()
+        if (!force) {
+          if (gap.stats) {
+            console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+            if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+          } else {
+            console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
+            if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
+          }
+          return this.fallback.query(entity, opts)
         }
-        this.scheduleAutoReindex(entity, opts, stats)
-        return this.fallback.query(entity, opts)
+        if (gap.stats) {
+          console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+          if (debugEnabled) this.debug('query:partial-coverage:forced', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+        } else {
+          console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity })
+          if (debugEnabled) this.debug('query:partial-coverage:forced', { entity })
+        }
+        partialIndexWarning = {
+          entity,
+          baseCount: gap.stats?.baseCount ?? null,
+          indexedCount: gap.stats?.indexedCount ?? null,
+          scope: gap.stats ? gap.scope : undefined,
+        }
       }
     }
 
     const qualify = (col: string) => `b.${col}`
     let builder: ResultBuilder = knex({ b: baseTable })
+    const canOptimizeCount = !normalizedFilters.some((filter) => filter.field.startsWith('cf:')) && (!Array.isArray(opts.customFieldSources) || opts.customFieldSources.length === 0)
+    let optimizedCountBuilder: ResultBuilder | null = canOptimizeCount ? knex({ b: baseTable }) : null
 
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
-    if (orgScope && (await this.columnExists(baseTable, 'organization_id'))) {
+
+    const hasOrganizationColumn = await this.columnExists(baseTable, 'organization_id')
+    const hasTenantColumn = await this.columnExists(baseTable, 'tenant_id')
+    const hasDeletedColumn = await this.columnExists(baseTable, 'deleted_at')
+
+    if (orgScope && hasOrganizationColumn) {
       builder = this.applyOrganizationScope(builder, qualify('organization_id'), orgScope)
+      if (optimizedCountBuilder) optimizedCountBuilder = this.applyOrganizationScope(optimizedCountBuilder, qualify('organization_id'), orgScope)
     }
-    if (await this.columnExists(baseTable, 'tenant_id')) {
+    if (hasTenantColumn) {
       builder = builder.where(qualify('tenant_id'), opts.tenantId)
+      if (optimizedCountBuilder) optimizedCountBuilder = optimizedCountBuilder.where(qualify('tenant_id'), opts.tenantId)
     }
-    if (!opts.withDeleted && (await this.columnExists(baseTable, 'deleted_at'))) {
+    if (!opts.withDeleted && hasDeletedColumn) {
       builder = builder.whereNull(qualify('deleted_at'))
+      if (optimizedCountBuilder) optimizedCountBuilder = optimizedCountBuilder.whereNull(qualify('deleted_at'))
     }
 
     const baseJoinParts: string[] = []
     baseJoinParts.push(`ei.entity_type = ${knex.raw('?', [entity]).toString()}`)
     baseJoinParts.push(`ei.entity_id = (${qualify('id')}::text)`)
-    if (await this.columnExists(baseTable, 'organization_id')) baseJoinParts.push(`(ei.organization_id is not distinct from ${qualify('organization_id')})`)
-    if (await this.columnExists(baseTable, 'tenant_id')) baseJoinParts.push(`(ei.tenant_id is not distinct from ${qualify('tenant_id')})`)
+    if (hasOrganizationColumn) {
+      baseJoinParts.push(`ei.organization_id = ${qualify('organization_id')}`)
+      baseJoinParts.push('ei.organization_id is not null')
+    }
+    if (hasTenantColumn) {
+      baseJoinParts.push(`ei.tenant_id = ${qualify('tenant_id')}`)
+      baseJoinParts.push('ei.tenant_id is not null')
+    }
     if (!opts.withDeleted) baseJoinParts.push(`ei.deleted_at is null`)
     builder = builder.leftJoin({ ei: 'entity_indexes' }, knex.raw(baseJoinParts.join(' AND ')))
 
@@ -126,11 +159,17 @@ export class HybridQueryEngine implements QueryEngine {
         const orgExpr = source.organizationField
           ? knex.raw('??', [`${source.alias}.${source.organizationField}`]).toString()
           : (columns.has('organization_id') ? qualify('organization_id') : null)
-        if (orgExpr) fragments.push(`(${source.indexAlias}.organization_id is not distinct from ${orgExpr})`)
+        if (orgExpr) {
+          fragments.push(`${source.indexAlias}.organization_id = ${orgExpr}`)
+          fragments.push(`${source.indexAlias}.organization_id is not null`)
+        }
         const tenantExpr = source.tenantField
           ? knex.raw('??', [`${source.alias}.${source.tenantField}`]).toString()
           : (columns.has('tenant_id') ? qualify('tenant_id') : null)
-        if (tenantExpr) fragments.push(`(${source.indexAlias}.tenant_id is not distinct from ${tenantExpr})`)
+        if (tenantExpr) {
+          fragments.push(`${source.indexAlias}.tenant_id = ${tenantExpr}`)
+          fragments.push(`${source.indexAlias}.tenant_id is not null`)
+        }
         if (!opts.withDeleted) fragments.push(`${source.indexAlias}.deleted_at is null`)
         builder = builder.leftJoin({ [source.indexAlias]: 'entity_indexes' }, knex.raw(fragments.join(' AND ')))
         indexSources.push({ alias: source.indexAlias, entityId: source.entityId })
@@ -142,6 +181,34 @@ export class HybridQueryEngine implements QueryEngine {
         entity,
         sources: indexSources.map((src) => ({ alias: src.alias, entity: src.entityId })),
       })
+    }
+
+    if (!partialIndexWarning && Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0 && this.isForcePartialIndexEnabled()) {
+      const seen = new Set<string>([entity])
+      for (const source of opts.customFieldSources) {
+        const targetEntity = source?.entityId ? String(source.entityId) : null
+        if (!targetEntity || seen.has(targetEntity)) continue
+        seen.add(targetEntity)
+        const sourceTable = source.table ?? resolveEntityTableName(this.em, targetEntity)
+        try {
+          const gap = await this.resolveCoverageGap(targetEntity, sourceTable, opts)
+          if (!gap) continue
+          this.scheduleAutoReindex(targetEntity, opts, gap.stats)
+          partialIndexWarning = {
+            entity: targetEntity,
+            baseCount: gap.stats?.baseCount ?? null,
+            indexedCount: gap.stats?.indexedCount ?? null,
+            scope: gap.stats ? gap.scope : undefined,
+          }
+          if (debugEnabled) {
+            if (gap.stats) this.debug('query:partial-coverage:forced', { entity: targetEntity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+            else this.debug('query:partial-coverage:forced', { entity: targetEntity })
+          }
+          break
+        } catch (err) {
+          if (debugEnabled) this.debug('query:partial-coverage:check-failed', { entity: targetEntity, error: err instanceof Error ? err.message : err })
+        }
+      }
     }
 
     const resolveBaseColumn = (field: string): string | null => {
@@ -159,6 +226,7 @@ export class HybridQueryEngine implements QueryEngine {
       if (!baseField) continue
       const column = qualify(baseField)
       builder = this.applyColumnFilter(builder, column, filter)
+      if (optimizedCountBuilder) optimizedCountBuilder = this.applyColumnFilter(optimizedCountBuilder, column, filter)
     }
 
     const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : ['id'])
@@ -208,24 +276,41 @@ export class HybridQueryEngine implements QueryEngine {
     const page = opts.page?.page ?? 1
     const pageSize = opts.page?.pageSize ?? 20
 
-    const countBuilder = builder.clone().clearSelect().clearOrder().countDistinct(`${qualify('id')} as count`)
     const sqlDebugEnabled = this.isSqlDebugEnabled()
-    if (debugEnabled && sqlDebugEnabled) {
-      const { sql, bindings } = countBuilder.clone().toSQL()
-      this.debug('query:sql:count', { entity, sql, bindings })
+    let total: number
+
+    if (optimizedCountBuilder) {
+      const countSource = optimizedCountBuilder.clone().clearSelect().clearOrder().select(knex.raw(`${qualify('id')} as id`)).groupBy(qualify('id'))
+      const countQuery = knex.from(countSource.as('sq')).count({ count: knex.raw('*') })
+      if (debugEnabled && sqlDebugEnabled) {
+        const { sql, bindings } = countQuery.clone().toSQL()
+        this.debug('query:sql:count', { entity, sql, bindings })
+      }
+      const countRow = await this.captureSqlTiming('query:sql:count', entity, () => countQuery.first())
+      total = this.parseCount(countRow)
+    } else {
+      const countBuilder = builder.clone().clearSelect().clearOrder().countDistinct(`${qualify('id')} as count`)
+      if (debugEnabled && sqlDebugEnabled) {
+        const { sql, bindings } = countBuilder.clone().toSQL()
+        this.debug('query:sql:count', { entity, sql, bindings })
+      }
+      const countRow = await this.captureSqlTiming('query:sql:count', entity, () => countBuilder.first())
+      total = this.parseCount(countRow)
     }
-    const countRow = await countBuilder.first()
-    const total = this.parseCount(countRow)
 
     const dataBuilder = builder.clone().limit(pageSize).offset((page - 1) * pageSize)
     if (debugEnabled && sqlDebugEnabled) {
       const { sql, bindings } = dataBuilder.clone().toSQL()
       this.debug('query:sql:data', { entity, sql, bindings, page, pageSize })
     }
-    const items = await dataBuilder
+    const items = await this.captureSqlTiming('query:sql:data', entity, () => dataBuilder, { page, pageSize })
     if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(items) ? items.length : 0 })
 
-    return { items, page, pageSize, total }
+    const result: QueryResult<T> = { items, page, pageSize, total }
+    if (partialIndexWarning) {
+      result.meta = { partialIndexWarning }
+    }
+    return result
   }
 
   private getKnex(): Knex {
@@ -566,8 +651,8 @@ export class HybridQueryEngine implements QueryEngine {
 
   private async indexCoverageComplete(entity: string, baseTable: string, opts: QueryOptions): Promise<boolean> {
     const { baseCount, indexedCount } = await this.indexCoverageStats(entity, baseTable, opts)
-    if (baseCount === 0) return true
-    return indexedCount >= baseCount
+    if (baseCount === 0) return indexedCount === 0
+    return indexedCount === baseCount
   }
 
   private async indexCoverageStats(entity: string, baseTable: string, opts: QueryOptions): Promise<{ baseCount: number; indexedCount: number }> {
@@ -833,6 +918,73 @@ export class HybridQueryEngine implements QueryEngine {
     const raw = (process.env.QUERY_ENGINE_DEBUG_SQL ?? '').toLowerCase()
     this.sqlDebugEnabled = raw === '1' || raw === 'true' || raw === 'yes'
     return this.sqlDebugEnabled
+  }
+
+  private isForcePartialIndexEnabled(): boolean {
+    if (this.forcePartialIndexEnabled != null) return this.forcePartialIndexEnabled
+    const raw = (process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES ?? 'true').toLowerCase()
+    this.forcePartialIndexEnabled = raw === '1' || raw === 'true' || raw === 'yes'
+    return this.forcePartialIndexEnabled
+  }
+
+  private async resolveCoverageGap(
+    entity: string,
+    baseTable: string,
+    opts: QueryOptions
+  ): Promise<{ stats?: { baseCount: number; indexedCount: number }; scope: 'scoped' | 'global' } | null> {
+    let stats: { baseCount: number; indexedCount: number } | undefined
+    let scope: 'scoped' | 'global' = 'scoped'
+    let coverageOk = await this.indexCoverageComplete(entity, baseTable, opts)
+    if (coverageOk && this.isForcePartialIndexEnabled()) {
+      try {
+        const globalStats = await this.indexCoverageStats(entity, baseTable, {
+          ...opts,
+          organizationId: undefined,
+          organizationIds: undefined,
+        })
+        if (globalStats.baseCount > 0 && globalStats.indexedCount < globalStats.baseCount) {
+          coverageOk = false
+          stats = globalStats
+          scope = 'global'
+        }
+      } catch {
+        // ignore global stats failure
+      }
+    }
+    if (!coverageOk) {
+      if (!stats) {
+        try {
+          stats = await this.indexCoverageStats(entity, baseTable, opts)
+        } catch {
+          stats = undefined
+        }
+      }
+      return { stats, scope: stats ? scope : 'scoped' }
+    }
+    return null
+  }
+
+  private async captureSqlTiming<TResult>(
+    label: string,
+    entity: EntityId,
+    execute: () => Promise<TResult> | TResult,
+    extra?: Record<string, unknown>
+  ): Promise<TResult> {
+    if (!this.isSqlDebugEnabled() || !this.isDebugVerbosity()) {
+      return Promise.resolve(execute())
+    }
+    const startedAt = process.hrtime.bigint()
+    try {
+      return await Promise.resolve(execute())
+    } finally {
+      const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000
+      const context: Record<string, unknown> = {
+        entity,
+        durationMs: Math.round(elapsedMs * 1000) / 1000,
+      }
+      if (extra) Object.assign(context, extra)
+      this.debug(`${label}:timing`, context)
+    }
   }
 
   private debug(message: string, context?: Record<string, unknown>): void {

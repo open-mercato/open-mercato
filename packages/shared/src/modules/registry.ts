@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@/lib/openapi/types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
 
 // Context passed to dynamic metadata guards
@@ -59,6 +60,7 @@ export type ModuleApiLegacy = {
   method: HttpMethod
   path: string
   handler: ApiHandler
+  docs?: OpenApiMethodDoc
 }
 
 export type ModuleApiRouteFile = {
@@ -69,6 +71,7 @@ export type ModuleApiRouteFile = {
   // Optional fine-grained feature requirements for the entire route file
   // Note: per-method feature requirements should be expressed inside metadata
   requireFeatures?: string[]
+  docs?: OpenApiRouteDoc
 }
 
 export type ModuleApi = ModuleApiLegacy | ModuleApiRouteFile

@@ -19,6 +19,12 @@ export class OnboardingService {
 
     const existing = await this.em.findOne(OnboardingRequest, { email: input.email })
     if (existing) {
+      const lastSentAt = existing.lastEmailSentAt ?? existing.updatedAt ?? existing.createdAt
+      if (existing.status === 'pending' && lastSentAt && lastSentAt.getTime() > Date.now() - 10 * 60 * 1000) {
+        const remainingMs = 10 * 60 * 1000 - (Date.now() - lastSentAt.getTime())
+        const waitMinutes = Math.max(1, Math.ceil(remainingMs / (60 * 1000)))
+        throw new Error(`PENDING_REQUEST:${waitMinutes}`)
+      }
       existing.tokenHash = tokenHash
       existing.status = 'pending'
       existing.firstName = input.firstName

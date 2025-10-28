@@ -6,6 +6,11 @@ import { channelCreateSchema, channelUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/sales_channel'
+import {
+  createPagedListResponseSchema,
+  createSalesCrudOpenApi,
+  defaultDeleteRequestSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -29,6 +34,22 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
+
+const salesChannelItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  code: z.string().nullable(),
+  description: z.string().nullable(),
+  statusEntryId: z.string().uuid().nullable(),
+  isActive: z.boolean(),
+  organizationId: z.string().uuid().nullable(),
+  tenantId: z.string().uuid().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
+})
+
+const salesChannelListResponseSchema = createPagedListResponseSchema(salesChannelItemSchema)
 
 function buildSearchFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
   const filters: Record<string, unknown> = {}
@@ -129,6 +150,17 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
   },
+})
+
+export const openApi = createSalesCrudOpenApi({
+  resourceName: 'Sales channel',
+  pluralName: 'Sales channels',
+  description: 'Manage sales channels to segment orders and pricing across marketplaces or stores.',
+  querySchema: listSchema,
+  listResponseSchema: salesChannelListResponseSchema,
+  create: { schema: channelCreateSchema },
+  update: { schema: channelUpdateSchema },
+  del: { schema: defaultDeleteRequestSchema },
 })
 
 export const GET = crud.GET

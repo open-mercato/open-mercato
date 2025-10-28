@@ -538,6 +538,30 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "idx_ce_tenant_org_company_id",
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "idx_ce_tenant_org_person_id",
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "customer_entities_org_tenant_kind_idx",
           "columnNames": [
             "organization_id",
@@ -617,6 +641,16 @@
       "name": "customer_deal_people",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "customer_deal_people_person_idx",
+          "columnNames": [
+            "person_entity_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "customer_deal_people_deal_idx",
           "columnNames": [
@@ -724,6 +758,16 @@
       "name": "customer_deal_companies",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "customer_deal_companies_company_idx",
+          "columnNames": [
+            "company_entity_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "customer_deal_companies_deal_idx",
           "columnNames": [
@@ -926,6 +970,15 @@
           "unique": true
         },
         {
+          "keyName": "idx_customer_companies_entity_id",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"idx_customer_companies_entity_id\" on \"customer_companies\" (\"entity_id\")"
+        },
+        {
           "keyName": "customer_companies_org_tenant_idx",
           "columnNames": [
             "organization_id",
@@ -1083,6 +1136,17 @@
       "name": "customer_comments",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "customer_comments_entity_created_idx",
+          "columnNames": [
+            "entity_id",
+            "created_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "customer_comments_entity_idx",
           "columnNames": [
@@ -1493,6 +1557,18 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "customer_activities_entity_occurred_created_idx",
+          "columnNames": [
+            "entity_id",
+            "occurred_at",
+            "created_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "customer_activities_entity_idx",
           "columnNames": [
             "entity_id"
@@ -1718,6 +1794,15 @@
           "constraint": true,
           "primary": false,
           "unique": true
+        },
+        {
+          "keyName": "idx_customer_people_entity_id",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"idx_customer_people_entity_id\" on \"customer_people\" (\"entity_id\")"
         },
         {
           "keyName": "customer_people_org_tenant_idx",
@@ -2197,6 +2282,17 @@
       "name": "customer_todo_links",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "customer_todo_links_entity_created_idx",
+          "columnNames": [
+            "entity_id",
+            "created_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "customer_todo_links_entity_idx",
           "columnNames": [

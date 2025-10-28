@@ -10,6 +10,7 @@ module.exports = {
     '^@/modules/registry$': '<rootDir>/packages/shared/src/modules/registry.ts',
     '^@open-mercato/core/(.*)$': '<rootDir>/packages/core/src/$1',
     '^@open-mercato/example/(.*)$': '<rootDir>/packages/example/src/$1',
+    '^@open-mercato/content/(.*)$': '<rootDir>/packages/content/src/$1',
     '^@open-mercato/cli/(.*)$': '<rootDir>/packages/cli/src/$1',
     '^@open-mercato/events/(.*)$': '<rootDir>/packages/events/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/packages/shared/src/$1',

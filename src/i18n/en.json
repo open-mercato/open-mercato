@@ -9,6 +9,8 @@
   "common.close": "Close",
   "common.delete": "Delete",
   "common.language": "Language",
+  "common.terms": "Terms",
+  "common.privacy": "Privacy",
   "ui.actions.refresh": "Refresh",
   "ui.actions.delete": "Delete",
   "ui.actions.deleting": "Deleting…",

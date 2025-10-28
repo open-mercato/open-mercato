@@ -30,6 +30,7 @@ import { DetailFieldsSection, type DetailFieldConfig } from '../../../../compone
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights'
 import { formatTemplate } from '../../../../components/detail/utils'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
   CompanyPeopleSection,
   type CompanyPersonSummary,
@@ -97,6 +98,7 @@ function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) 
 export default function CustomerCompanyDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialTab = React.useMemo(() => {
@@ -120,6 +122,11 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
+  const companyId = data?.company?.id ?? null
+  const companyName =
+    data?.company?.displayName && data.company.displayName.trim().length
+      ? data.company.displayName
+      : t('customers.companies.list.deleteFallbackName', 'this company')
   const translateCompanyDetail = React.useCallback(
     (key: string, fallback?: string, params?: Record<string, string | number>) => {
       const mappedKey = key.startsWith('customers.people.detail.')
@@ -415,9 +422,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   )
 
   const handleDelete = React.useCallback(async () => {
-    const companyId = data?.company?.id ?? null
     if (!companyId) return
-    const companyName = data?.company?.displayName ?? t('customers.companies.list.deleteFallbackName', 'this company')
     const confirmed =
       typeof window === 'undefined'
         ? true
@@ -443,7 +448,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     } finally {
       setIsDeleting(false)
     }
-  }, [data?.company?.displayName, data?.company?.id, router, t])
+  }, [companyId, companyName, router, t])
 
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
@@ -480,7 +485,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     setSectionPending((prev) => ({ ...prev, tasks: loading }))
   }, [])
 
-  const companyId = data?.company?.id ?? null
   const dealsScope = React.useMemo(
     () => (companyId ? ({ kind: 'company', entityId: companyId } as const) : null),
     [companyId],
@@ -740,7 +744,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                 }}
                 onActionChange={handleSectionActionChange}
                 onLoadingChange={handleDealsLoadingChange}
-                translator={t}
+                translator={detailTranslator}
               />
             )}
             {activeTab === 'people' && (
@@ -755,7 +759,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                 }}
                 onActionChange={handleSectionActionChange}
                 onLoadingChange={handlePeopleLoadingChange}
-                translator={t}
+                translator={detailTranslator}
                 onPeopleChange={(next) => {
                   setData((prev) => (prev ? { ...prev, people: next } : prev))
                 }}
@@ -772,7 +776,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                 }}
                 onActionChange={handleSectionActionChange}
                 onLoadingChange={handleAddressesLoadingChange}
-                translator={t}
+                translator={detailTranslator}
               />
             )}
             {activeTab === 'tasks' && (

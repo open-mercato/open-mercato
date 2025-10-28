@@ -1,20 +1,34 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Shield, Users, Briefcase, Info, Rocket, ArrowRight } from 'lucide-react'
+import { Shield, Users, Briefcase, Info, Rocket, ArrowRight, BookOpen } from 'lucide-react'
+import { getApiDocsResources, resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 
 interface RoleTileProps {
-  icon: React.ReactNode
+  icon: ReactNode
   title: string
   description: string
   features: string[]
   loginUrl: string
   variant?: 'default' | 'secondary' | 'outline'
+  disabled?: boolean
+  disabledCtaLabel?: string
+  disabledMessage?: ReactNode
 }
 
-function RoleTile({ icon, title, description, features, loginUrl, variant = 'default' }: RoleTileProps) {
+function RoleTile({
+  icon,
+  title,
+  description,
+  features,
+  loginUrl,
+  variant = 'default',
+  disabled = false,
+  disabledCtaLabel = 'Login unavailable',
+  disabledMessage,
+}: RoleTileProps) {
   return (
     <div className="rounded-lg border bg-card p-6 flex flex-col gap-4 transition-all hover:shadow-md">
       <div className="flex items-start gap-4">
@@ -39,13 +53,22 @@ function RoleTile({ icon, title, description, features, loginUrl, variant = 'def
         </ul>
       </div>
 
-      <Button 
-        asChild 
-        variant={variant}
-        className="w-full"
-      >
-        <a href={loginUrl}>Login as {title}</a>
-      </Button>
+      {disabled ? (
+        <>
+          <Button variant="outline" className="w-full cursor-not-allowed opacity-80" disabled>
+            {disabledCtaLabel}
+          </Button>
+          {disabledMessage ? (
+            <p className="text-xs text-muted-foreground text-center leading-relaxed">
+              {disabledMessage}
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <Button asChild variant={variant} className="w-full">
+          <a href={loginUrl}>Login as {title}</a>
+        </Button>
+      )}
     </div>
   )
 }
@@ -57,6 +80,10 @@ interface StartPageContentProps {
 
 export function StartPageContent({ showStartPage: initialShowStartPage, showOnboardingCta = false }: StartPageContentProps) {
   const [showStartPage, setShowStartPage] = useState(initialShowStartPage)
+
+  const superAdminDisabled = showOnboardingCta
+  const apiDocs = getApiDocsResources()
+  const baseUrl = resolveApiDocsBaseUrl()
 
   const handleCheckboxChange = (checked: boolean) => {
     setShowStartPage(checked)
@@ -132,6 +159,23 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
               'Access to all modules and features'
             ]}
             loginUrl="/login?role=superadmin"
+            disabled={superAdminDisabled}
+            disabledCtaLabel="Superadmin login disabled"
+            disabledMessage={
+              <>
+                Superadmin demo access is not enabled on this instance.{' '}
+                Install Open Mercato locally for full access via{' '}
+                <a
+                  href="https://github.com/open-mercato"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline hover:text-primary transition-colors"
+                >
+                  github.com/open-mercato
+                </a>
+                .
+              </>
+            }
           />
           
           <RoleTile
@@ -164,6 +208,41 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
             variant="outline"
           />
         </div>
+      </section>
+
+      <section className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="rounded-full bg-primary/10 p-2 text-primary">
+              <BookOpen className="size-5" />
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold">API resources</h2>
+              <p className="text-sm text-muted-foreground">
+                Explore the official documentation and download the generated OpenAPI exports for this installation.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          {apiDocs.map((resource) => (
+            <a
+              key={resource.href}
+              href={resource.href}
+              target={resource.external ? '_blank' : undefined}
+              rel={resource.external ? 'noreferrer' : undefined}
+              className="rounded border bg-background p-4 text-sm transition hover:border-primary"
+            >
+              <div className="font-medium text-foreground">{resource.label}</div>
+              <p className="mt-1 text-xs text-muted-foreground">{resource.description}</p>
+              <span className="mt-3 inline-flex text-xs font-medium text-primary">{resource.actionLabel ?? 'Open link'}</span>
+            </a>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Current API base URL:{' '}
+          <code className="rounded bg-muted px-2 py-0.5 text-[10px] text-foreground">{baseUrl}</code>
+        </p>
       </section>
 
       <section className="rounded-lg border p-4 flex items-center justify-center gap-3">

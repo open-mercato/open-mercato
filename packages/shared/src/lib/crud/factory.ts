@@ -25,6 +25,19 @@ import { CrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  buildCollectionTags,
+  buildRecordTag,
+  debugCrudCache,
+  deriveResourceFromCommandId,
+  expandResourceAliases,
+  invalidateCrudCache,
+  isCrudCacheDebugEnabled,
+  isCrudCacheEnabled,
+  normalizeIdentifierValue,
+  normalizeTagSegment,
+  resolveCrudCache,
+} from './cache'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -316,6 +329,51 @@ export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
   }
 }
 
+function deriveResourceFromActions(actions: CrudFactoryOptions<any, any, any>['actions']): string | null {
+  if (!actions) return null
+  const ids: Array<string | null | undefined> = [actions.create?.commandId, actions.update?.commandId, actions.delete?.commandId]
+  for (const id of ids) {
+    const resolved = deriveResourceFromCommandId(id)
+    if (resolved) return resolved
+  }
+  return null
+}
+
+function resolveResourceAliasesList(
+  opts: CrudFactoryOptions<any, any, any>,
+  ormEntityName: string | undefined
+): { primary: string; aliases: string[] } {
+  const aliases: string[] = []
+  const eventsResource = opts.events?.module && opts.events?.entity
+    ? `${opts.events.module}.${opts.events.entity}`
+    : null
+  if (eventsResource) aliases.push(eventsResource)
+
+  const commandResource = deriveResourceFromActions(opts.actions)
+  if (commandResource && !aliases.includes(commandResource)) aliases.push(commandResource)
+
+  if (ormEntityName && !aliases.includes(ormEntityName)) aliases.push(ormEntityName)
+
+  if (!aliases.length) aliases.push('resource')
+
+  return { primary: aliases[0], aliases }
+}
+
+function mergeCommandMetadata(base: CommandLogMetadata, override: CommandLogMetadata | null | undefined): CommandLogMetadata {
+  if (!override) return base
+  const mergedContext = {
+    ...(base.context ?? {}),
+    ...(override.context ?? {}),
+  }
+  const merged: CommandLogMetadata = {
+    ...base,
+    ...override,
+  }
+  if (Object.keys(mergedContext).length > 0) merged.context = mergedContext
+  else if ('context' in merged) delete merged.context
+  return merged
+}
+
 function json(data: any, init?: ResponseInit) {
   return new Response(JSON.stringify(data), {
     ...(init || {}),
@@ -371,17 +429,6 @@ function handleError(err: unknown): Response {
 
 function isUuid(v: any): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
-}
-
-function normalizeIdentifierValue(value: any): string | null {
-  if (value === null || value === undefined) return null
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'bigint') return String(value)
-  if (typeof value === 'object') {
-    if (value instanceof Date) return value.toISOString()
-    if (value && typeof (value as any).id !== 'undefined') return normalizeIdentifierValue((value as any).id)
-  }
-  return String(value)
 }
 
 type AccessLogServiceLike = { log: (input: any) => Promise<unknown> | unknown }
@@ -498,6 +545,76 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
   if (tasks.length > 0) await Promise.all(tasks)
 }
 
+type CrudCacheStoredValue = {
+  payload: any
+  generatedAt: number
+}
+
+function safeClone<T>(value: T): T {
+  try {
+    const structuredCloneFn = (globalThis as any).structuredClone
+    if (typeof structuredCloneFn === 'function') {
+      return structuredCloneFn(value)
+    }
+  } catch {}
+  try {
+    return JSON.parse(JSON.stringify(value)) as T
+  } catch {
+    return value
+  }
+}
+
+function collectScopeOrganizationIds(ctx: CrudCtx): Array<string | null> {
+  if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
+    return Array.from(new Set(ctx.organizationIds))
+  }
+  const fallback = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  return [fallback]
+}
+
+function serializeSearchParams(params: URLSearchParams): string {
+  if (!params || params.keys().next().done) return ''
+  const grouped = new Map<string, string[]>()
+  params.forEach((value, key) => {
+    const existing = grouped.get(key) ?? []
+    existing.push(value)
+    grouped.set(key, existing)
+  })
+  const normalized: Array<[string, string[]]> = Array.from(grouped.entries()).map(([key, values]) => [key, values.sort()])
+  normalized.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return JSON.stringify(normalized)
+}
+
+function buildCrudCacheKey(resource: string, request: Request, ctx: CrudCtx): string {
+  const url = new URL(request.url)
+  const scopeIds = collectScopeOrganizationIds(ctx)
+  const scopeSegment = scopeIds.length
+    ? scopeIds.map((id) => normalizeTagSegment(id)).sort().join(',')
+    : 'none'
+  return [
+    'crud',
+    normalizeTagSegment(resource),
+    'GET',
+    url.pathname,
+    `tenant:${normalizeTagSegment(ctx.auth?.tenantId ?? null)}`,
+    `selectedOrg:${normalizeTagSegment(ctx.selectedOrganizationId ?? null)}`,
+    `scope:${scopeSegment}`,
+    `query:${serializeSearchParams(url.searchParams)}`,
+  ].join('|')
+}
+
+function extractRecordIds(items: any[], idField: string): string[] {
+  if (!Array.isArray(items) || !items.length) return []
+  const ids = new Set<string>()
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const rawId = (item as any)[idField]
+    const id = normalizeIdentifierValue(rawId)
+    if (id) ids.add(id)
+  }
+  return Array.from(ids)
+}
+
 export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: CrudFactoryOptions<TCreate, TUpdate, TList>) {
   const metadata = opts.metadata || {}
   const ormCfg = {
@@ -507,6 +624,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     tenantField: opts.orm.tenantField === null ? null : opts.orm.tenantField ?? 'tenantId',
     softDeleteField: opts.orm.softDeleteField === null ? null : opts.orm.softDeleteField ?? 'deletedAt',
   }
+  const entityName = typeof ormCfg.entity?.name === 'string' && ormCfg.entity.name.length > 0 ? ormCfg.entity.name : undefined
+  const resourceInfo = resolveResourceAliasesList(opts, entityName)
+  const resourceKind = resourceInfo.primary
+  const resourceAliases = resourceInfo.aliases
+  const resourceTargets = expandResourceAliases(resourceKind, resourceAliases)
   const defaultIdentifierResolver: CrudIdentifierResolver = (entity, _action) => {
     const id = normalizeIdentifierValue((entity as any)[ormCfg.idField!])
     const orgId = ormCfg.orgField ? normalizeIdentifierValue((entity as any)[ormCfg.orgField]) : null
@@ -530,10 +652,6 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
       }
     : defaultIdentifierResolver
-
-  const resourceKind = opts.events
-    ? [opts.events.module, opts.events.entity].filter(Boolean).join('.')
-    : (typeof ormCfg.entity?.name === 'string' && ormCfg.entity.name.length > 0 ? ormCfg.entity.name : 'resource')
 
   const listCustomFieldDecorator = opts.list?.decorateCustomFields
 
@@ -664,6 +782,111 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const exportScope = typeof exportScopeParam === 'string' ? exportScopeParam.toLowerCase() : null
       const exportFullRequested = exportRequested && (exportScope === 'full' || String((queryParams as any).full || 'false').toLowerCase() === 'true')
 
+      const cacheEnabled = isCrudCacheEnabled() && !exportRequested
+      const cacheTimerStart = cacheEnabled && isCrudCacheDebugEnabled()
+        ? process.hrtime.bigint()
+        : null
+      const cache = cacheEnabled ? resolveCrudCache(ctx.container) : null
+      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx) : null
+      let cacheStatus: 'hit' | 'miss' = 'miss'
+      let cachedValue: CrudCacheStoredValue | null = null
+
+      if (cacheEnabled && cache && cacheKey) {
+        const rawCached = await cache.get(cacheKey)
+        if (rawCached !== null && rawCached !== undefined) {
+          if (typeof rawCached === 'object' && 'payload' in (rawCached as any)) {
+            cachedValue = rawCached as CrudCacheStoredValue
+          } else {
+            cachedValue = { payload: rawCached, generatedAt: Date.now() }
+          }
+        }
+      }
+
+      const tenantForScope = ctx.auth?.tenantId ?? null
+      const maybeStoreCrudCache = async (payload: any) => {
+        if (!cacheEnabled || !cache || !cacheKey) return
+        if (!payload || typeof payload !== 'object') return
+        const items = Array.isArray((payload as any).items) ? (payload as any).items : []
+        const tags = new Set<string>()
+        const scopeOrgIds = collectScopeOrganizationIds(ctx)
+        for (const target of resourceTargets) {
+          for (const tag of buildCollectionTags(target, tenantForScope, scopeOrgIds)) {
+            tags.add(tag)
+          }
+        }
+        const recordIds = extractRecordIds(items, ormCfg.idField!)
+        for (const recordId of recordIds) {
+          for (const target of resourceTargets) {
+            tags.add(buildRecordTag(target, tenantForScope, recordId))
+          }
+        }
+        if (!tags.size) return
+        try {
+          await cache.set(cacheKey, { payload: safeClone(payload), generatedAt: Date.now() }, { tags: Array.from(tags) })
+          debugCrudCache('store', {
+            resource: resourceKind,
+            key: cacheKey,
+            tags: Array.from(tags),
+            itemCount: items.length,
+          })
+        } catch (err) {
+          debugCrudCache('store', {
+            resource: resourceKind,
+            key: cacheKey,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
+
+      const logCacheOutcome = (event: 'hit' | 'miss', itemCount: number) => {
+        if (!cacheTimerStart) return
+        const elapsedMs = Number(process.hrtime.bigint() - cacheTimerStart) / 1_000_000
+        debugCrudCache(event, {
+          resource: resourceKind,
+          key: cacheKey,
+          durationMs: Math.round(elapsedMs * 1000) / 1000,
+          itemCount,
+        })
+      }
+
+      const respondWithPayload = (payload: any, extraHeaders?: Record<string, string>) => {
+        const headers: Record<string, string> = extraHeaders ? { ...extraHeaders } : {}
+        const warning = payload && typeof payload === 'object' && payload.meta?.partialIndexWarning
+        if (warning) {
+          headers['x-om-partial-index'] = JSON.stringify({
+            type: 'partial_index',
+            entity: warning.entity,
+            baseCount: warning.baseCount ?? null,
+            indexedCount: warning.indexedCount ?? null,
+            scope: warning.scope ?? 'scoped',
+          })
+        }
+        if (cacheEnabled) {
+          headers['x-om-cache'] = cacheStatus
+        }
+        return json(payload, Object.keys(headers).length ? { headers } : undefined)
+      }
+
+      if (cachedValue) {
+        cacheStatus = 'hit'
+        const payload = safeClone(cachedValue.payload)
+        const items = Array.isArray((payload as any)?.items) ? (payload as any).items : []
+        await logCrudAccess({
+          container: ctx.container,
+          auth: ctx.auth,
+          request,
+          items,
+          idField: ormCfg.idField!,
+          resourceKind,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          tenantId: ctx.auth.tenantId ?? null,
+          query: validated,
+        })
+        await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
+        logCacheOutcome('hit', items.length)
+        return respondWithPayload(payload)
+      }
+
       // Prefer query engine when configured
       if (opts.list.entityId && opts.list.fields) {
         const qe = ctx.container.resolve<QueryEngine>('queryEngine')
@@ -689,7 +912,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           })
           const emptyPayload = { items: [], total: 0, page: page.page, pageSize: page.pageSize, totalPages: 0 }
           await opts.hooks?.afterList?.(emptyPayload, { ...ctx, query: validated as any })
-          return json(emptyPayload)
+          await maybeStoreCrudCache(emptyPayload)
+          logCacheOutcome(cacheStatus, emptyPayload.items.length)
+          return respondWithPayload(emptyPayload)
         }
         const queryOpts: any = {
           fields: opts.list.fields!,
@@ -761,13 +986,27 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
           const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
           const serialized = serializeExport(prepared, requestedExport)
-          await opts.hooks?.afterList?.({ items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
-          return new Response(serialized.body, {
+          const exportPayload = { items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1, ...(res.meta ? { meta: res.meta } : {}) }
+          await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
+          const response = new Response(serialized.body, {
             headers: {
               'content-type': serialized.contentType,
               'content-disposition': `attachment; filename="${filename}"`,
             },
           })
+          if (res.meta?.partialIndexWarning) {
+            response.headers.set(
+              'x-om-partial-index',
+              JSON.stringify({
+                type: 'partial_index',
+                entity: res.meta.partialIndexWarning.entity,
+                baseCount: res.meta.partialIndexWarning.baseCount ?? null,
+                indexedCount: res.meta.partialIndexWarning.indexedCount ?? null,
+                scope: res.meta.partialIndexWarning.scope ?? 'scoped',
+              }),
+            )
+          }
+          return response
         }
 
         const payload = {
@@ -776,9 +1015,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           page: page.page || requestedPage,
           pageSize: page.pageSize || requestedPageSize,
           totalPages: Math.ceil(res.total / (Number(page.pageSize) || 1)),
+          ...(res.meta ? { meta: res.meta } : {}),
         }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
-        return json(payload)
+        await maybeStoreCrudCache(payload)
+        logCacheOutcome(cacheStatus, payload.items.length)
+        return respondWithPayload(payload)
       }
 
       // Fallback: plain ORM list
@@ -793,8 +1035,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           tenantId: ctx.auth?.tenantId ?? null,
           organizationIds: ctx.organizationIds,
         })
-        await opts.hooks?.afterList?.({ items: [], total: 0 }, { ...ctx, query: validated as any })
-        return json({ items: [], total: 0 })
+        const emptyPayload = { items: [], total: 0 }
+        await opts.hooks?.afterList?.(emptyPayload, { ...ctx, query: validated as any })
+        await maybeStoreCrudCache(emptyPayload)
+        logCacheOutcome(cacheStatus, emptyPayload.items.length)
+        return respondWithPayload(emptyPayload)
       }
       const where: any = buildScopedWhere(
         {},
@@ -836,8 +1081,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           },
         })
       }
-      await opts.hooks?.afterList?.({ items: list, total: list.length }, { ...ctx, query: validated as any })
-      return json({ items: list, total: list.length })
+      const payload = { items: list, total: list.length }
+      await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
+      await maybeStoreCrudCache(payload)
+      logCacheOutcome(cacheStatus, payload.items.length)
+      return respondWithPayload(payload)
     } catch (e) {
       return handleError(e)
     }
@@ -867,8 +1115,15 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const action = opts.actions!.create!
         const parsed = action.schema ? action.schema.parse(body) : body
         const input = action.mapInput ? await action.mapInput({ parsed, raw: body, ctx }) : parsed
-        const metadata = action.metadata ? await action.metadata({ input, parsed, raw: body, ctx }) : null
-        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata })
+        const userMetadata = action.metadata ? await action.metadata({ input, parsed, raw: body, ctx }) : null
+        const baseMetadata: CommandLogMetadata = {
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          resourceKind,
+          context: { cacheAliases: resourceTargets },
+        }
+        const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
+        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         const resolvedPayload = await Promise.resolve(payload)
         const status = action.status ?? 201
@@ -922,6 +1177,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         events: opts.events as CrudEventsConfig | undefined,
         indexer: opts.indexer as CrudIndexerConfig | undefined,
       })
+      await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'created', resourceTargets)
 
       const payload = opts.create.response ? opts.create.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
       return json(payload, { status: 201 })
@@ -954,8 +1210,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const action = opts.actions!.update!
         const parsed = action.schema ? action.schema.parse(body) : body
         const input = action.mapInput ? await action.mapInput({ parsed, raw: body, ctx }) : parsed
-        const metadata = action.metadata ? await action.metadata({ input, parsed, raw: body, ctx }) : null
-        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata })
+        const userMetadata = action.metadata ? await action.metadata({ input, parsed, raw: body, ctx }) : null
+        const candidateId = normalizeIdentifierValue((input as Record<string, unknown> | null | undefined)?.id)
+        const baseMetadata: CommandLogMetadata = {
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          resourceKind,
+          context: { cacheAliases: resourceTargets },
+        }
+        if (candidateId) baseMetadata.resourceId = candidateId
+        const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
+        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         const resolvedPayload = await Promise.resolve(payload)
         const status = action.status ?? 200
@@ -1016,6 +1281,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         events: opts.events as CrudEventsConfig | undefined,
         indexer: opts.indexer as CrudIndexerConfig | undefined,
       })
+      await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'updated', resourceTargets)
       const payload = opts.update.response ? opts.update.response(entity) : { success: true }
       return json(payload)
     } catch (e) {
@@ -1047,9 +1313,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const raw = { body, query: Object.fromEntries(url.searchParams.entries()) }
         const parsed = action.schema ? action.schema.parse(raw) : raw
         const input = action.mapInput ? await action.mapInput({ parsed, raw, ctx }) : parsed
-        const metadata = action.metadata ? await action.metadata({ input, parsed, raw, ctx }) : null
+        const userMetadata = action.metadata ? await action.metadata({ input, parsed, raw, ctx }) : null
         const commandBus = ctx.container.resolve<CommandBus>('commandBus')
-        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata })
+        const candidateId = normalizeIdentifierValue(
+          (input as Record<string, unknown> | null | undefined)?.id
+            ?? (raw.query as Record<string, unknown> | null | undefined)?.id
+            ?? (raw.body as Record<string, unknown> | null | undefined)?.id
+        )
+        const baseMetadata: CommandLogMetadata = {
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          resourceKind,
+          context: { cacheAliases: resourceTargets },
+        }
+        if (candidateId) baseMetadata.resourceId = candidateId
+        const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
+        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         const resolvedPayload = await Promise.resolve(payload)
         const status = action.status ?? 200
@@ -1092,6 +1371,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           events: opts.events as CrudEventsConfig | undefined,
           indexer: opts.indexer as CrudIndexerConfig | undefined,
         })
+        await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'deleted', resourceTargets)
       }
       const payload = opts.del?.response ? opts.del.response(id) : { success: true }
       return json(payload)

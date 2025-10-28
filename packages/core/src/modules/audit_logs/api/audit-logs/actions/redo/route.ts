@@ -71,6 +71,13 @@ export async function POST(req: Request) {
 
   try {
     const ctx = await createRuntimeContext(container, auth, req)
+    const contextRecord = log.contextJson && typeof log.contextJson === 'object' ? (log.contextJson as Record<string, unknown>) : null
+    const cacheAliasesRaw = Array.isArray(contextRecord?.cacheAliases as unknown[])
+      ? (contextRecord!.cacheAliases as unknown[])
+      : []
+    const cacheAliases = cacheAliasesRaw
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim())
     const metadata: CommandLogMetadata = {
       tenantId: log.tenantId,
       organizationId: log.organizationId,
@@ -78,6 +85,7 @@ export async function POST(req: Request) {
       actionLabel: log.actionLabel,
       resourceKind: log.resourceKind,
       resourceId: log.resourceId,
+      context: cacheAliases.length ? { cacheAliases } : undefined,
     }
     const resolvedInput = resolveRedoInput(log.commandPayload, log)
     if (!resolvedInput) {

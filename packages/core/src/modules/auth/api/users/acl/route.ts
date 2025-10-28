@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
+import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 
 const getSchema = z.object({ userId: z.string().uuid() })
@@ -58,45 +59,104 @@ export async function PUT(req: Request) {
   const body = await req.json().catch(() => ({}))
   const parsed = putSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  const rbacService = resolve('rbacService') as any
-  
-  const isSuperAdmin = parsed.data.isSuperAdmin ?? false
-  const features = parsed.data.features ?? []
-  const organizations = parsed.data.organizations ?? null
-  
-  // If there's no custom ACL data (not super admin and no features), delete the UserAcl record
-  const hasCustomAcl = isSuperAdmin || (features.length > 0)
-  
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as any
+  const rbacService = container.resolve('rbacService') as any
+
+  const actorAcl = auth.sub
+    ? await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+    : null
+  const actorIsSuperAdmin = !!actorAcl?.isSuperAdmin
+
+  const requestedFeatures = normalizeFeatureList(parsed.data.features)
+  const organizations = Array.isArray(parsed.data.organizations) ? parsed.data.organizations : null
+
   let acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
-  
-  if (!hasCustomAcl) {
-    // No custom ACL - delete the record if it exists so user relies on role-based ACL
-    if (acl) {
-      await em.removeAndFlush(acl)
+  const existingIsSuperAdmin = acl ? !!acl.isSuperAdmin : false
+  const existingFeatures = acl && Array.isArray(acl.featuresJson) ? normalizeFeatureList(acl.featuresJson) : []
+
+  const effectiveFeatures = actorIsSuperAdmin
+    ? requestedFeatures
+    : sanitizeTenantFeatures(requestedFeatures)
+
+  const requestedIsSuperAdmin = parsed.data.isSuperAdmin ?? false
+  let effectiveIsSuperAdmin = requestedIsSuperAdmin
+
+  if (!actorIsSuperAdmin) {
+    if (requestedIsSuperAdmin && !existingIsSuperAdmin) {
+      throw forbidden('Only super administrators can grant super admin access.')
     }
+    if (existingIsSuperAdmin && requestedIsSuperAdmin === false) {
+      effectiveIsSuperAdmin = false
+    } else {
+      effectiveIsSuperAdmin = existingIsSuperAdmin
+    }
+  }
+
+  const hasCustomAcl = effectiveIsSuperAdmin || effectiveFeatures.length > 0
+
+  if (!hasCustomAcl) {
+    if (acl) await em.removeAndFlush(acl)
   } else {
-    // Has custom ACL - create or update the record
-    if (!acl) { 
-      acl = em.create(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any }) 
+    if (!acl) {
+      acl = em.create(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
     }
     const aclRecord = acl as any
-    aclRecord.isSuperAdmin = isSuperAdmin
-    aclRecord.featuresJson = features
+    aclRecord.isSuperAdmin = effectiveIsSuperAdmin
+    aclRecord.featuresJson = effectiveFeatures
     aclRecord.organizationsJson = organizations
     await em.persistAndFlush(acl)
   }
-  
+
   // Invalidate cache for this user
   await rbacService.invalidateUserCache(parsed.data.userId)
-  // Sidebar nav is cached per user; invalidate by rbac user tag
   try {
-    const { resolve } = await createRequestContainer()
-    const cache = resolve('cache') as any
+    const cache = container.resolve('cache') as any
     if (cache) await cache.deleteByTags([`rbac:user:${parsed.data.userId}`])
   } catch {}
-  
-  return NextResponse.json({ ok: true })
+
+  return NextResponse.json({
+    ok: true,
+    sanitized: !actorIsSuperAdmin && (hasRestrictedChanges(requestedFeatures, effectiveFeatures, existingFeatures) || requestedIsSuperAdmin !== effectiveIsSuperAdmin),
+  })
 }
 
+function normalizeFeatureList(features: unknown): string[] {
+  if (!Array.isArray(features)) return []
+  const dedup = new Set<string>()
+  for (const value of features) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (!trimmed) continue
+    dedup.add(trimmed)
+  }
+  return Array.from(dedup)
+}
+
+function sanitizeTenantFeatures(features: string[]): string[] {
+  return features.filter((feature) => !isTenantRestrictedFeature(feature))
+}
+
+function isTenantRestrictedFeature(feature: string): boolean {
+  if (feature === '*' || feature === 'directory.*') return true
+  if (feature.startsWith('directory.tenants')) return true
+  return false
+}
+
+function hasRestrictedChanges(requested: string[], effective: string[], existing: string[]): boolean {
+  if (requested.length === effective.length) return false
+  const effectiveSet = new Set(effective)
+  const existingSet = new Set(existing)
+  // If the effective set matches existing, we only trimmed restricted duplicates and should not report
+  if (effectiveSet.size === existingSet.size) {
+    let identical = true
+    for (const value of effectiveSet) {
+      if (!existingSet.has(value)) {
+        identical = false
+        break
+      }
+    }
+    if (identical) return false
+  }
+  return true
+}
