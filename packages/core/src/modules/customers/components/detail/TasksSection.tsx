@@ -9,7 +9,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { cn } from '@/lib/utils'
 import { useT } from '@/lib/i18n/context'
 import type { SectionAction, TabEmptyState, TodoLinkSummary, Translator } from './types'
-import { formatDate, formatDateTime, formatTemplate, resolveTodoHref } from './utils'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { formatDate, formatDateTime, resolveTodoHref } from './utils'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { TaskDialog } from './TaskDialog'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
@@ -61,17 +62,8 @@ export function TasksSection({
   dialogContextFallback,
 }: TasksSectionProps) {
   const tHook = useT()
-  const t: Translator = React.useMemo(
-    () =>
-      translator ??
-      ((key, fallback, params) => {
-        const value = tHook(key, params)
-        if (value !== key) return value
-        if (!fallback) return key
-        return formatTemplate(fallback, params)
-      }),
-    [translator, tHook],
-  )
+  const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
+  const t: Translator = React.useMemo(() => translator ?? fallbackTranslator, [translator, fallbackTranslator])
 
   const {
     tasks,

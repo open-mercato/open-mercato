@@ -36,6 +36,8 @@
       "@open-mercato/example/datamodel/entities": ["./packages/example/generated/entities.ids.generated.ts"],
       "@open-mercato/example/datamodel/entities/*": ["./packages/example/generated/entities/*"],
       "@open-mercato/example/generated/*": ["./packages/example/generated/*"],
+      "@open-mercato/content/*": ["./packages/content/src/*"],
+      "@open-mercato/content/generated/*": ["./packages/content/generated/*"],
       "@open-mercato/onboarding/*": ["./packages/onboarding/src/*"],
       "@open-mercato/onboarding/generated/*": ["./packages/onboarding/generated/*"],
       "@open-mercato/cli/*": ["./packages/cli/src/*"],

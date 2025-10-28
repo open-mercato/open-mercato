@@ -11,7 +11,8 @@ import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { DealCustomFieldEntry, DealSummary, SectionAction, TabEmptyState, Translator } from './types'
-import { formatDate, formatTemplate } from './utils'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { formatDate } from './utils'
 import { DealDialog } from './DealDialog'
 import type { DealFormBaseValues, DealFormSubmitPayload } from './DealForm'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
@@ -301,17 +302,8 @@ export function DealsSection({
   translator,
 }: DealsSectionProps) {
   const tHook = useT()
-  const t: Translator = React.useMemo(
-    () =>
-      translator ??
-      ((key, fallback, params) => {
-        const value = tHook(key, params)
-        if (value !== key) return value
-        if (!fallback) return key
-        return formatTemplate(fallback, params)
-      }),
-    [translator, tHook],
-  )
+  const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
+  const t: Translator = React.useMemo(() => translator ?? fallbackTranslator, [translator, fallbackTranslator])
   useCurrencyDictionary()
   const scopeVersion = useOrganizationScopeVersion()
   const statusDictionaryQuery = useCustomerDictionary('deal-statuses', scopeVersion)

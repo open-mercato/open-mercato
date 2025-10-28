@@ -23,6 +23,7 @@ export type CrudFieldBase = {
   description?: string // inline field-level help
   required?: boolean
   layout?: 'full' | 'half' | 'third'
+  disabled?: boolean
 }
 
 export type CrudFieldOption = { value: string; label: string }
@@ -312,7 +313,7 @@ export function CrudForm<TValues extends Record<string, any>>({
         for (const group of list) {
           const resolved = resolveGroupFields(group)
           for (const field of resolved) {
-            if (field?.id) return field.id
+            if (field?.id && !(field as any).disabled) return field.id
           }
         }
         return null as string | null
@@ -324,7 +325,10 @@ export function CrudForm<TValues extends Record<string, any>>({
       if (fromCol2) return fromCol2
     }
 
-    return allFields.length ? allFields[0]?.id ?? null : null
+    for (const field of allFields) {
+      if (field?.id && !(field as any).disabled) return field.id
+    }
+    return null
   }, [allFields, groups, resolveGroupFields])
 
   const requestSubmit = React.useCallback(() => {
@@ -431,6 +435,7 @@ export function CrudForm<TValues extends Record<string, any>>({
     const requiredErrors: Record<string, string> = {}
     for (const f of allFields) {
       if (!('required' in f) || !f.required) continue
+      if ((f as any).disabled) continue
       const v = values[f.id]
       const isArray = Array.isArray(v)
       const isString = typeof v === 'string'
@@ -857,6 +862,8 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     // Memoize the setValue callback for this specific field to prevent unnecessary re-renders
     const fieldSetValue = React.useCallback((v: any) => setValue(f.id, v), [setValue, f.id])
     const hasLoader = typeof (f as any).loadOptions === 'function'
+    const disabled = (f as any).disabled === true
+    const autoFocusField = autoFocus && !disabled
 
     React.useEffect(() => {
       if (!hasLoader) return
@@ -874,7 +881,14 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
           </label>
         ) : null}
         {f.type === 'text' && (
-          <TextInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={fieldSetValue} autoFocus={autoFocus} onSubmit={onSubmitRequest} />
+          <TextInput
+            value={value ?? ''}
+            placeholder={(f as any).placeholder}
+            onChange={fieldSetValue}
+            autoFocus={autoFocusField}
+            onSubmit={onSubmitRequest}
+            disabled={disabled}
+          />
         )}
         {f.type === 'number' && (
           <NumberInput value={value} placeholder={(f as any).placeholder} onChange={fieldSetValue} autoFocus={autoFocus} onSubmit={onSubmitRequest} />
@@ -1379,7 +1393,14 @@ function RelationSelect({
   )
 }
 // Local-buffer text input to avoid focus loss when parent re-renders
-function TextInput({ value, onChange, placeholder, autoFocus, onSubmit }: { value: any; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void }) {
+function TextInput({
+  value,
+  onChange,
+  placeholder,
+  autoFocus,
+  onSubmit,
+  disabled,
+}: { value: any; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; disabled?: boolean }) {
   const [local, setLocal] = React.useState<string>(value ?? '')
   const isFocusedRef = React.useRef(false)
   const userTypingRef = React.useRef(false)
@@ -1392,19 +1413,21 @@ function TextInput({ value, onChange, placeholder, autoFocus, onSubmit }: { valu
   }, [value])
   
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (disabled) return
     const next = e.target.value
     userTypingRef.current = true
     setLocal(next)
     onChange(next)
-  }, [onChange])
+  }, [disabled, onChange])
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (disabled) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       onChange(local)
       onSubmit?.()
     }
-  }, [local, onChange, onSubmit])
+  }, [disabled, local, onChange, onSubmit])
   
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
@@ -1429,6 +1452,7 @@ function TextInput({ value, onChange, placeholder, autoFocus, onSubmit }: { valu
       spellCheck={false}
       autoFocus={autoFocus}
       data-crud-focus-target=""
+      disabled={disabled}
     />
   )
 }

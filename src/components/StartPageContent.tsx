@@ -161,17 +161,16 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
             disabledMessage={
               <>
                 Superadmin demo access is not enabled on this instance.{' '}
-                <span className="whitespace-nowrap">Install Open Mercato locally for full access via&nbsp;
-                  <a
-                    href="https://github.com/open-mercato"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline hover:text-primary transition-colors"
-                  >
-                    github.com/open-mercato
-                  </a>
-                  .
-                </span>
+                Install Open Mercato locally for full access via{' '}
+                <a
+                  href="https://github.com/open-mercato"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline hover:text-primary transition-colors"
+                >
+                  github.com/open-mercato
+                </a>
+                .
               </>
             }
           />

@@ -4,11 +4,11 @@ import { z } from 'zod'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { roleCrudEvents, roleCrudIndexer } from '@open-mercato/core/modules/auth/commands/roles'
 
 const querySchema = z.object({
@@ -85,17 +85,45 @@ export async function GET(req: Request) {
   } catch (err) {
     console.error('roles: failed to resolve rbac', err)
   }
-  const { id, page, pageSize, search } = parsed.data
-  const where: any = { deletedAt: null }
-  if (id) {
-    where.id = id
+  const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
+  if (!isSuperAdmin && !actorTenantId) {
+    return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
   }
-  if (search) where.name = { $ilike: `%${search}%` } as any
+  let superAdminRoleIds: Set<string> | null = null
+  if (!isSuperAdmin && actorTenantId) {
+    const superAdminAcls = await em.find(RoleAcl, { tenantId: actorTenantId, isSuperAdmin: true })
+    if (superAdminAcls.length) {
+      superAdminRoleIds = new Set(
+        superAdminAcls
+          .map((acl) => {
+            const roleRef = acl.role
+            const idValue = roleRef?.id
+            return idValue ? String(idValue) : null
+          })
+          .filter((id): id is string => !!id),
+      )
+    } else {
+      superAdminRoleIds = new Set()
+    }
+  }
+  const { id, page, pageSize, search } = parsed.data
+  const filters: any[] = [{ deletedAt: null }]
+  if (id) filters.push({ id })
+  if (search) filters.push({ name: { $ilike: `%${search}%` } })
+  if (!isSuperAdmin && actorTenantId) {
+    filters.push({ $or: [{ tenantId: actorTenantId }, { tenantId: null }] })
+    filters.push({ name: { $ne: 'superadmin' } })
+    if (superAdminRoleIds && superAdminRoleIds.size) {
+      filters.push({ id: { $nin: Array.from(superAdminRoleIds) } })
+    }
+  }
+  const where = filters.length > 1 ? { $and: filters } : filters[0]
   const [rows, count] = await em.findAndCount(Role, where, { limit: pageSize, offset: (page - 1) * pageSize })
-  const roleIds = rows.map((r: any) => r.id)
+  const roleIds = rows.map((r: any) => String(r.id))
   const counts: Record<string, number> = {}
   if (roleIds.length) {
-    const links = await em.find(UserRole, { role: { $in: roleIds as any } } as any)
+    const userRoleFilter: FilterQuery<UserRole> = { role: { $in: roleIds }, deletedAt: null }
+    const links = await em.find(UserRole, userRoleFilter)
     for (const l of links) {
       const rid = String((l as any).role?.id || (l as any).role)
       counts[rid] = (counts[rid] || 0) + 1
@@ -130,7 +158,7 @@ export async function GET(req: Request) {
     ? await loadCustomFieldValues({
         em,
         entityId: E.auth.role,
-        recordIds: roleIds.map((id: any) => String(id)),
+        recordIds: roleIds,
         tenantIdByRecord: tenantByRole,
         tenantFallbacks,
       })

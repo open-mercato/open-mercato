@@ -39,6 +39,7 @@ export type SetupInitialTenantOptions = {
   includeDerivedUsers?: boolean
   failIfUserExists?: boolean
   primaryUserRoles?: string[]
+  includeSuperadminRole?: boolean
 }
 
 export type SetupInitialTenantResult = {
@@ -57,9 +58,20 @@ export async function setupInitialTenant(
     includeDerivedUsers = true,
     failIfUserExists = false,
     primaryUserRoles,
+    includeSuperadminRole = true,
   } = options
-  const primaryRoles = primaryUserRoles && primaryUserRoles.length ? primaryUserRoles : ['superadmin']
-  const roleNames = Array.from(new Set([...(options.roleNames ?? [...DEFAULT_ROLE_NAMES]), ...primaryRoles]))
+  const primaryRolesInput = primaryUserRoles && primaryUserRoles.length ? primaryUserRoles : ['superadmin']
+  const primaryRoles = includeSuperadminRole
+    ? primaryRolesInput
+    : primaryRolesInput.filter((role) => role !== 'superadmin')
+  if (primaryRoles.length === 0) {
+    throw new Error('PRIMARY_ROLES_REQUIRED')
+  }
+  const defaultRoleNames = options.roleNames ?? [...DEFAULT_ROLE_NAMES]
+  const resolvedRoleNames = includeSuperadminRole
+    ? defaultRoleNames
+    : defaultRoleNames.filter((role) => role !== 'superadmin')
+  const roleNames = Array.from(new Set([...resolvedRoleNames, ...primaryRoles]))
   await ensureRoles(em, { roleNames })
 
   const mainEmail = primaryUser.email
@@ -159,7 +171,7 @@ export async function setupInitialTenant(
     await rebuildHierarchyForTenant(em, tenantId)
   }
 
-  await ensureDefaultRoleAcls(em, tenantId)
+  await ensureDefaultRoleAcls(em, tenantId, { includeSuperadminRole })
   await deactivateDemoSuperAdminIfSelfOnboardingEnabled(em)
 
   return {
@@ -183,12 +195,17 @@ async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | nu
   return null
 }
 
-async function ensureDefaultRoleAcls(em: EntityManager, tenantId: string) {
-  const superadminRole = await em.findOne(Role, { name: 'superadmin' })
+async function ensureDefaultRoleAcls(
+  em: EntityManager,
+  tenantId: string,
+  options: { includeSuperadminRole?: boolean } = {},
+) {
+  const includeSuperadminRole = options.includeSuperadminRole ?? true
+  const superadminRole = includeSuperadminRole ? await em.findOne(Role, { name: 'superadmin' }) : null
   const adminRole = await em.findOne(Role, { name: 'admin' })
   const employeeRole = await em.findOne(Role, { name: 'employee' })
 
-  if (superadminRole) {
+  if (includeSuperadminRole && superadminRole) {
     await ensureRoleAclFor(em, superadminRole, tenantId, ['directory.tenants.*'], { isSuperAdmin: true })
   }
   if (adminRole) {
@@ -217,6 +234,7 @@ async function ensureDefaultRoleAcls(em: EntityManager, tenantId: string) {
       'api_keys.*',
       'perspectives.use',
       'perspectives.role_defaults',
+      'api_docs.view',
     ]
     await ensureRoleAclFor(em, adminRole, tenantId, adminFeatures, { remove: ['directory.organizations.*', 'directory.tenants.*'] })
   }

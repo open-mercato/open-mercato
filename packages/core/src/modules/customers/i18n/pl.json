@@ -142,6 +142,8 @@
   "customers.people.list.columns.nextInteraction": "Następna interakcja",
   "customers.people.list.columns.source": "Źródło",
   "customers.people.list.noValue": "Brak",
+  "customers.people.list.booleanYes": "Tak",
+  "customers.people.list.booleanNo": "Nie",
   "customers.people.list.actions.refresh": "Odśwież",
   "customers.people.list.actions.new": "Nowa osoba",
   "customers.people.list.actions.view": "Zobacz szczegóły",

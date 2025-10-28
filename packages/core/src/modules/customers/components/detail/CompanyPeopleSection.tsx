@@ -9,7 +9,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import type { SectionAction, TabEmptyState, Translator } from './types'
 import { useT } from '@/lib/i18n/context'
-import { formatDate, formatTemplate } from './utils'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { formatDate } from './utils'
 
 export type CompanyPersonSummary = {
   id: string
@@ -49,17 +50,8 @@ export function CompanyPeopleSection({
 }: CompanyPeopleSectionProps) {
   const router = useRouter()
   const tHook = useT()
-  const translate = React.useMemo<Translator>(
-    () =>
-      translator ??
-      ((key, fallback, params) => {
-        const value = tHook(key, params)
-        if (value !== key) return value
-        if (!fallback) return key
-        return formatTemplate(fallback, params)
-      }),
-    [translator, tHook],
-  )
+  const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
+  const translate: Translator = translator ?? fallbackTranslator
   const [people, setPeople] = React.useState<CompanyPersonSummary[]>(initialPeople)
   const [removingId, setRemovingId] = React.useState<string | null>(null)
 

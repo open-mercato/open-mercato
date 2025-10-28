@@ -10,7 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { formatDateTime, formatTemplate } from './utils'
+import { formatDateTime } from './utils'
 import type { CommentSummary, Translator, SectionAction, TabEmptyState } from './types'
 import { ICON_SUGGESTIONS } from '../../lib/dictionaries'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
@@ -20,6 +20,7 @@ import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailH
 import { LoadingMessage } from './LoadingMessage'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { AppearanceDialog } from './AppearanceDialog'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 type UiMarkdownEditorProps = {
   value?: string
@@ -151,15 +152,7 @@ export function NotesSection({
   entityOptions,
 }: NotesSectionProps) {
   const tHook = useT()
-  const fallbackTranslator = React.useMemo<Translator>(
-    () => (key, fallback, params) => {
-      const value = tHook(key, params)
-      if (value !== key) return value
-      if (!fallback) return key
-      return formatTemplate(fallback, params)
-    },
-    [tHook],
-  )
+  const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t = translator ?? fallbackTranslator
 
   const normalizedDealOptions = React.useMemo(() => {

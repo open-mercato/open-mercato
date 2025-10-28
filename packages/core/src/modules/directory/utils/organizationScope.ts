@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
-import { ALL_ORGANIZATIONS_COOKIE_VALUE, isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
+import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 
@@ -41,7 +41,13 @@ export function getSelectedOrganizationFromRequest(req: Request | { cookies?: { 
 
 async function collectWithDescendants(em: EntityManager, tenantId: string, ids: string[]): Promise<Set<string>> {
   if (!ids.length) return new Set()
-  const unique = Array.from(new Set(ids.filter(Boolean)))
+  const unique = Array.from(new Set(
+    ids.filter((value): value is string => {
+      if (!value) return false
+      if (isAllOrganizationsSelection(value)) return false
+      return true
+    })
+  ))
   if (!unique.length) return new Set()
   const orgs: Organization[] = await em.find(Organization, { tenant: tenantId as any, id: { $in: unique }, deletedAt: null } as any)
   const set = new Set<string>()
@@ -69,9 +75,14 @@ export async function resolveOrganizationScope({
   if (!auth || !auth.tenantId || !auth.sub) {
     return { selectedId: null, filterIds: null, allowedIds: null }
   }
+  const normalizedSelectedId = typeof selectedId === 'string' && isAllOrganizationsSelection(selectedId) ? null : (selectedId ?? null)
   const tenantId = auth.tenantId
   const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId: auth.orgId ?? null })
-  const accessibleList = Array.isArray(acl.organizations) ? acl.organizations.filter(Boolean) : null
+  const rawAccessible = Array.isArray(acl.organizations) ? acl.organizations.filter(Boolean) : null
+  const accessibleList =
+    rawAccessible && rawAccessible.some((value) => typeof value === 'string' && isAllOrganizationsSelection(value))
+      ? null
+      : rawAccessible?.filter((value): value is string => typeof value === 'string' && !isAllOrganizationsSelection(value)) ?? null
 
   const fallbackOrgId = auth.orgId ?? null
   let fallbackSet: Set<string> | null = null
@@ -99,7 +110,7 @@ export async function resolveOrganizationScope({
     }
   }
 
-  const initialSelected = selectedId ?? auth.orgId ?? null
+  const initialSelected = normalizedSelectedId ?? auth.orgId ?? null
   let effectiveSelected: string | null = null
   if (initialSelected) {
     if (allowedSet === null || allowedSet.has(initialSelected)) {
@@ -161,7 +172,8 @@ export async function resolveOrganizationScopeForRequest({
     }
   }
 
-  const reqSelected = selectedId ?? (request ? getSelectedOrganizationFromRequest(request as any) : null)
+  const rawSelected = selectedId !== undefined ? selectedId : (request ? getSelectedOrganizationFromRequest(request as any) : null)
+  const reqSelected = typeof rawSelected === 'string' && isAllOrganizationsSelection(rawSelected) ? null : rawSelected
   return resolveOrganizationScope({ em, rbac, auth, selectedId: reqSelected })
 }
 

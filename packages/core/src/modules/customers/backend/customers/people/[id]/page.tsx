@@ -42,7 +42,7 @@ import type {
   SectionAction,
 } from '../../../../components/detail/types'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
-import { createTranslatorWithFallback } from '../../../../components/detail/utils'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 type PersonOverview = {
   person: {

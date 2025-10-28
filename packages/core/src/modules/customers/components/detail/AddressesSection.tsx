@@ -6,8 +6,8 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../AddressTiles'
 import type { AddressSummary, SectionAction, TabEmptyState, Translator } from './types'
-import { formatTemplate } from './utils'
 import { useT } from '@/lib/i18n/context'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 export type AddressesSectionProps = {
   entityId: string | null
@@ -85,15 +85,7 @@ export function AddressesSection({
   onLoadingChange,
 }: AddressesSectionProps) {
   const tHook = useT()
-  const fallbackTranslator = React.useMemo<Translator>(
-    () => (key, fallback, params) => {
-      const value = tHook(key, params)
-      if (value !== key) return value
-      if (!fallback) return key
-      return formatTemplate(fallback, params)
-    },
-    [tHook],
-  )
+  const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t = translator ?? fallbackTranslator
 
   const [addresses, setAddresses] = React.useState<AddressSummary[]>([])

@@ -18,7 +18,7 @@ import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import type { SectionAction } from '../../../../components/detail/types'
 import { useCustomerDictionary } from '../../../../components/detail/hooks/useCustomerDictionary'
 import type { CustomerDictionaryMap } from '../../../../lib/dictionaries'
-import { createTranslatorWithFallback } from '../../../../components/detail/utils'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 type DealAssociation = {
   id: string

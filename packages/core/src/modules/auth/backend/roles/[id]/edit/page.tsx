@@ -34,9 +34,15 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
     return () => { cancelled = true }
   }, [id])
 
-  const fields: CrudField[] = [
-    { id: 'name', label: 'Name', type: 'text', required: true },
-  ]
+  const fields = React.useMemo<CrudField[]>(() => ([
+    {
+      id: 'name',
+      label: 'Name',
+      type: 'text',
+      required: true,
+      disabled: !!(initial && typeof initial.usersCount === 'number' && initial.usersCount > 0),
+    },
+  ]), [initial])
   const groups: CrudFormGroup[] = [
     { id: 'details', title: 'Details', column: 1, fields: ['name'] },
     { id: 'customFields', title: 'Custom Fields', column: 2, kind: 'customFields' },

@@ -6,6 +6,11 @@ import { deliveryWindowCreateSchema, deliveryWindowUpdateSchema } from '../../da
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/sales_delivery_window'
+import {
+  createPagedListResponseSchema,
+  createSalesCrudOpenApi,
+  defaultDeleteRequestSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -29,6 +34,25 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
+
+const deliveryWindowItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  code: z.string().nullable(),
+  description: z.string().nullable(),
+  leadTimeDays: z.number().nullable(),
+  cutoffTime: z.string().nullable(),
+  timezone: z.string().nullable(),
+  isActive: z.boolean(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  organizationId: z.string().uuid().nullable(),
+  tenantId: z.string().uuid().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
+})
+
+const deliveryWindowListResponseSchema = createPagedListResponseSchema(deliveryWindowItemSchema)
 
 function buildFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
   const filters: Record<string, unknown> = {}
@@ -135,6 +159,17 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
   },
+})
+
+export const openApi = createSalesCrudOpenApi({
+  resourceName: 'Delivery window',
+  pluralName: 'Delivery windows',
+  description: 'Define delivery windows to communicate lead times and cut-off rules for sales orders.',
+  querySchema: listSchema,
+  listResponseSchema: deliveryWindowListResponseSchema,
+  create: { schema: deliveryWindowCreateSchema },
+  update: { schema: deliveryWindowUpdateSchema },
+  del: { schema: defaultDeleteRequestSchema },
 })
 
 export const GET = crud.GET

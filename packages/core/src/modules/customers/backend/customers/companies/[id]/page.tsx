@@ -29,7 +29,8 @@ import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights'
-import { createTranslatorWithFallback, formatTemplate } from '../../../../components/detail/utils'
+import { formatTemplate } from '../../../../components/detail/utils'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
   CompanyPeopleSection,
   type CompanyPersonSummary,
