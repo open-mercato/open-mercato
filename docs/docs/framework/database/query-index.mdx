@@ -49,10 +49,13 @@ Query routing
   - Paging and multi-tenant scoping (`organization_id`, `tenant_id`) and soft-delete exclusion by default.
 
 Backfill
-- CLI: `mercato query_index rebuild` reindexes existing rows.
+- CLI: `mercato query_index rebuild --entity <module:entity>` reindexes existing rows with a live progress bar.
   - All orgs/tenants: `mercato query_index rebuild --entity example:todo --global`
   - Scoped: `mercato query_index rebuild --entity example:todo --org <orgId> --tenant <tenantId>`
-  - Options: `--withDeleted` `--limit <n>` `--offset <n>`
+  - Single record: `mercato query_index rebuild --entity example:todo --record <entityId>`
+  - Options: `--withDeleted` `--limit <n>` `--offset <n>` `--batch <size>`
+- CLI: `mercato query_index rebuild-all` walks every registered entity index using the same flags as `rebuild`, making it easy to refresh the entire corpus in one go.
+- Scheduling via events remains available: `mercato query_index reindex [--entity <module:entity>] [--tenant <tenantId>] [--force]` and `mercato query_index purge [...]` enqueue background jobs when you don’t need immediate writes.
 
 Performance tips
 - Start with `gin(doc jsonb_path_ops)`.

@@ -1,6 +1,7 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer, type AppContainer } from '@/lib/di/container'
 import { cf } from '@/modules/dsl'
+import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
@@ -10,6 +11,7 @@ import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { E as CoreEntities } from '@open-mercato/core/generated/entities.ids.generated'
 import { E as ExampleEntities } from '@open-mercato/example/generated/entities.ids.generated'
+import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import {
   CustomerEntity,
   CustomerCompanyProfile,
@@ -1106,54 +1108,6 @@ type StressTestOptions = {
   includeExtras?: boolean
 }
 
-function createProgressBar(label: string, total: number) {
-  const width = 28
-  let lastPercent = -1
-  let lastCompleted = -1
-  let finished = false
-  let startedAt = Date.now()
-  const minPercentStep =
-    total >= 1_000_000 ? 0.01 : total >= 100_000 ? 0.05 : total >= 10_000 ? 0.1 : 0.5
-  const minCompletedStep = Math.max(1, Math.floor(total / 1000))
-  const render = (completed: number) => {
-    if (total <= 0 || finished) return
-    const ratio = Math.min(1, Math.max(0, completed / total))
-    const percentRaw = ratio * 100
-    if (
-      completed < total &&
-      percentRaw - lastPercent < minPercentStep &&
-      completed - lastCompleted < minCompletedStep
-    ) {
-      return
-    }
-    lastPercent = percentRaw
-    lastCompleted = completed
-    const filled = Math.round(ratio * width)
-    const bar = '#'.repeat(filled).padEnd(width, '-')
-    const percentLabel = (percentRaw >= 10 ? percentRaw.toFixed(1) : percentRaw.toFixed(2)).padStart(6, ' ')
-    const countsLabel = `${completed.toLocaleString()}/${total.toLocaleString()}`
-    const elapsedMs = Math.max(1, Date.now() - startedAt)
-    const recordsPerSecond = completed > 0 ? (completed / elapsedMs) * 1000 : 0
-    const rateLabel = `${recordsPerSecond.toFixed(1)} r/s`
-    process.stdout.write(`\r${label} [${bar}] ${percentLabel}% (${countsLabel}) ${rateLabel}`)
-    if (completed >= total) {
-      finished = true
-      process.stdout.write('\n')
-    }
-  }
-  return {
-    update: render,
-    complete() {
-      if (!finished && total > 0) {
-        render(total)
-      } else if (!finished) {
-        finished = true
-        process.stdout.write('\n')
-      }
-    },
-  }
-}
-
 function parseArgs(rest: string[]): Record<string, string> {
   const args: Record<string, string> = {}
   for (let i = 0; i < rest.length; i += 1) {
@@ -1975,9 +1929,193 @@ async function seedCustomerStressTest(
     await flushCustomFieldRows(force)
   }
 
-  const companies: Array<{ entity: CustomerEntity; profile: CustomerCompanyProfile }> = []
+  // bulk insert data structures and generation implemented below
+
+  type CustomerEntityRow = {
+    id: string
+    organization_id: string
+    tenant_id: string
+    kind: 'company' | 'person'
+    display_name: string
+    description: string | null
+    owner_user_id: string | null
+    primary_email: string | null
+    primary_phone: string | null
+    status: string | null
+    lifecycle_stage: string | null
+    source: string | null
+    next_interaction_at: Date | null
+    next_interaction_name: string | null
+    next_interaction_ref_id: string | null
+    next_interaction_icon: string | null
+    next_interaction_color: string | null
+    is_active: boolean
+    created_at: Date
+    updated_at: Date
+    deleted_at: Date | null
+  }
+
+  type CustomerCompanyProfileRow = {
+    id: string
+    organization_id: string
+    tenant_id: string
+    entity_id: string
+    legal_name: string | null
+    brand_name: string | null
+    domain: string | null
+    website_url: string | null
+    industry: string | null
+    size_bucket: string | null
+    annual_revenue: string | null
+    created_at: Date
+    updated_at: Date
+  }
+
+  type CustomerPersonProfileRow = {
+    id: string
+    organization_id: string
+    tenant_id: string
+    entity_id: string
+    company_entity_id: string | null
+    first_name: string | null
+    last_name: string | null
+    preferred_name: string | null
+    job_title: string | null
+    department: string | null
+    seniority: string | null
+    timezone: string | null
+    linked_in_url: string | null
+    twitter_url: string | null
+    created_at: Date
+    updated_at: Date
+  }
+
+  type CustomerDealRow = {
+    id: string
+    organization_id: string
+    tenant_id: string
+    title: string
+    description: string | null
+    status: string
+    pipeline_stage: string | null
+    value_amount: string | null
+    value_currency: string | null
+    probability: number | null
+    expected_close_at: Date | null
+    owner_user_id: string | null
+    source: string | null
+    created_at: Date
+    updated_at: Date
+    deleted_at: Date | null
+  }
+
+  type CustomerDealCompanyRow = {
+    id: string
+    deal_id: string
+    company_entity_id: string
+    created_at: Date
+  }
+
+  type CustomerDealPersonRow = {
+    id: string
+    deal_id: string
+    person_entity_id: string
+    role: string | null
+    created_at: Date
+  }
+
+  type CustomerActivityRow = {
+    id: string
+    organization_id: string
+    tenant_id: string
+    entity_id: string
+    deal_id: string | null
+    activity_type: string
+    subject: string | null
+    body: string | null
+    occurred_at: Date | null
+    author_user_id: string | null
+    appearance_icon: string | null
+    appearance_color: string | null
+    created_at: Date
+    updated_at: Date
+  }
+
+  type CustomerCommentRow = {
+    id: string
+    organization_id: string
+    tenant_id: string
+    entity_id: string
+    deal_id: string | null
+    body: string
+    author_user_id: string | null
+    appearance_icon: string | null
+    appearance_color: string | null
+    created_at: Date
+    updated_at: Date
+    deleted_at: Date | null
+  }
+
+  type CompanyRecord = {
+    entityId: string
+    companyProfileId: string
+    status: string | null
+    lifecycleStage: string | null
+    source: string | null
+    displayName: string
+  }
+
+  const customerEntityRows: CustomerEntityRow[] = []
+  const companyProfileRows: CustomerCompanyProfileRow[] = []
+  const personProfileRows: CustomerPersonProfileRow[] = []
+  const dealRows: CustomerDealRow[] = []
+  const dealCompanyRows: CustomerDealCompanyRow[] = []
+  const dealPersonRows: CustomerDealPersonRow[] = []
+  const activityRows: CustomerActivityRow[] = []
+  const commentRows: CustomerCommentRow[] = []
+  const companies: CompanyRecord[] = []
+  const entityInsertBatchSize = 1000
   const contactsPerCompany = Math.max(1, Math.ceil(toCreate / companyCount))
-  const createCompany = () => {
+
+  await warnIfStressTestSchemaChanged(knex)
+
+  const insertRows = async (trx: any, table: string, rows: unknown[]) => {
+    if (!rows.length) return
+    await trx.batchInsert(table, rows, entityInsertBatchSize)
+    rows.length = 0
+  }
+
+  const flushEntityRows = async (force = false) => {
+    if (!force) return
+    const pendingCount =
+      customerEntityRows.length +
+      companyProfileRows.length +
+      personProfileRows.length +
+      dealRows.length +
+      dealCompanyRows.length +
+      dealPersonRows.length +
+      activityRows.length +
+      commentRows.length
+    if (pendingCount === 0) return
+    await knex.transaction(async (trx) => {
+      await insertRows(trx, 'customer_entities', customerEntityRows)
+      await insertRows(trx, 'customer_companies', companyProfileRows)
+      await insertRows(trx, 'customer_people', personProfileRows)
+      if (includeExtras) {
+        await insertRows(trx, 'customer_deals', dealRows)
+        await insertRows(trx, 'customer_deal_companies', dealCompanyRows)
+        await insertRows(trx, 'customer_deal_people', dealPersonRows)
+        await insertRows(trx, 'customer_activities', activityRows)
+        await insertRows(trx, 'customer_comments', commentRows)
+      }
+    })
+  }
+
+  const createCompanyRecord = (): CompanyRecord => {
+    const companyId = randomUUID()
+    const profileId = randomUUID()
+    const status = randomChoice(statusOptions)
+    const lifecycleStage = randomChoice(lifecycleOptions)
     const prefix = randomChoice(STRESS_TEST_COMPANY_PREFIX)
     const suffix = randomChoice(STRESS_TEST_COMPANY_SUFFIX)
     const baseName = `${prefix} ${suffix}`
@@ -1986,104 +2124,134 @@ async function seedCustomerStressTest(
     const domainBase = slugifyValue(`${prefix}-${suffix}-${sequence}`) || `company-${sequence}`
     const domain = `${domainBase}.${STRESS_TEST_EMAIL_DOMAIN}`
     const websiteUrl = `https://www.${domain}`
-    const companyEntity = em.create(CustomerEntity, {
-      organizationId,
-      tenantId,
+    const primaryEmail = `hello@${domain}`
+    const primaryPhone = buildPhone(sequence)
+    const timestamp = new Date()
+    customerEntityRows.push({
+      id: companyId,
+      organization_id: organizationId,
+      tenant_id: tenantId,
       kind: 'company',
-      displayName,
+      display_name: displayName,
       description: `Stress test company #${sequence}`,
-      primaryEmail: `hello@${domain}`,
-      primaryPhone: buildPhone(sequence),
-      status: randomChoice(statusOptions),
-      lifecycleStage: randomChoice(lifecycleOptions),
+      owner_user_id: null,
+      primary_email: primaryEmail,
+      primary_phone: primaryPhone,
+      status,
+      lifecycle_stage: lifecycleStage,
       source: STRESS_TEST_SOURCE,
-      isActive: true,
+      next_interaction_at: null,
+      next_interaction_name: null,
+      next_interaction_ref_id: null,
+      next_interaction_icon: null,
+      next_interaction_color: null,
+      is_active: true,
+      created_at: timestamp,
+      updated_at: timestamp,
+      deleted_at: null,
     })
-    const companyProfile = em.create(CustomerCompanyProfile, {
-      organizationId,
-      tenantId,
-      entity: companyEntity,
-      legalName: `${displayName} LLC`,
-      brandName: baseName,
+    companyProfileRows.push({
+      id: profileId,
+      organization_id: organizationId,
+      tenant_id: tenantId,
+      entity_id: companyId,
+      legal_name: `${displayName} LLC`,
+      brand_name: baseName,
       domain,
-      websiteUrl,
+      website_url: websiteUrl,
       industry: randomChoice(STRESS_TEST_INDUSTRIES),
-      sizeBucket: randomChoice(STRESS_TEST_SIZE_BUCKETS),
-      annualRevenue: null,
+      size_bucket: randomChoice(STRESS_TEST_SIZE_BUCKETS),
+      annual_revenue: null,
+      created_at: timestamp,
+      updated_at: timestamp,
     })
-    em.persist(companyEntity)
-    em.persist(companyProfile)
-    companies.push({ entity: companyEntity, profile: companyProfile })
-
+    const record: CompanyRecord = {
+      entityId: companyId,
+      companyProfileId: profileId,
+      status,
+      lifecycleStage,
+      source: STRESS_TEST_SOURCE,
+      displayName,
+    }
     if (includeExtras) {
       const companyFieldValues: Record<string, Primitive | Primitive[]> = {
         relationship_health: randomChoice(STRESS_TEST_RELATIONSHIP_HEALTH),
         renewal_quarter: randomChoice(STRESS_TEST_RENEWAL_QUARTERS),
         customer_marketing_case: Math.random() < 0.35,
       }
-      if (Math.random() < 0.4) {
-        companyFieldValues.executive_notes = randomChoice(STRESS_TEST_NOTE_SNIPPETS)
-      }
+      if (Math.random() < 0.4) companyFieldValues.executive_notes = randomChoice(STRESS_TEST_NOTE_SNIPPETS)
       queueCustomFieldAssignment({
         entityId: CoreEntities.customers.customer_company_profile,
         organizationId,
         tenantId,
         values: companyFieldValues,
-        getRecordId: () => companyProfile.id,
+        getRecordId: () => profileId,
       })
     }
+    companies.push(record)
+    return record
   }
 
   let created = 0
   for (let i = 0; i < toCreate; i += 1) {
     const desiredCompanyIndex = Math.floor(i / contactsPerCompany)
     while (companies.length <= desiredCompanyIndex && companies.length < companyCount) {
-      createCompany()
-      if (companies.length % 50 === 0) {
-        await flushAssignments(true)
-      }
+      createCompanyRecord()
     }
-    const company =
-      companies[Math.min(desiredCompanyIndex, companies.length - 1)] ??
-      (createCompany(), companies[companies.length - 1])
+    const companyRecord =
+      companies[Math.min(desiredCompanyIndex, companies.length - 1)] ?? createCompanyRecord()
 
     const sequence = existingPersons + i + 1
+    const timestamp = new Date()
     const firstName = randomChoice(STRESS_TEST_FIRST_NAMES)
     const lastName = randomChoice(STRESS_TEST_LAST_NAMES)
     const displayName = `${firstName} ${lastName}`
     const emailHandle = slugifyValue(`${firstName}.${lastName}`) || `contact-${sequence}`
     const email = `${emailHandle}.${sequence}@${STRESS_TEST_EMAIL_DOMAIN}`
     const timezone = randomChoice(STRESS_TEST_TIMEZONES)
-    const entity = em.create(CustomerEntity, {
-      organizationId,
-      tenantId,
+    const personEntityId = randomUUID()
+    customerEntityRows.push({
+      id: personEntityId,
+      organization_id: organizationId,
+      tenant_id: tenantId,
       kind: 'person',
-      displayName,
+      display_name: displayName,
       description: `Stress test contact #${sequence}`,
-      primaryEmail: email,
-      primaryPhone: buildPhone(sequence),
-      status: randomChoice(statusOptions),
-      lifecycleStage: randomChoice(lifecycleOptions),
-      source: STRESS_TEST_SOURCE,
-      isActive: true,
+      owner_user_id: null,
+      primary_email: email,
+      primary_phone: buildPhone(sequence),
+      status: companyRecord.status,
+      lifecycle_stage: companyRecord.lifecycleStage,
+      source: companyRecord.source,
+      next_interaction_at: null,
+      next_interaction_name: null,
+      next_interaction_ref_id: null,
+      next_interaction_icon: null,
+      next_interaction_color: null,
+      is_active: true,
+      created_at: timestamp,
+      updated_at: timestamp,
+      deleted_at: null,
     })
-    const profile = em.create(CustomerPersonProfile, {
-      organizationId,
-      tenantId,
-      entity,
-      company: company.entity,
-      firstName,
-      lastName,
-      preferredName: firstName,
-      jobTitle: randomChoice(STRESS_TEST_JOB_TITLES),
+    const personProfileId = randomUUID()
+    personProfileRows.push({
+      id: personProfileId,
+      organization_id: organizationId,
+      tenant_id: tenantId,
+      entity_id: personEntityId,
+      company_entity_id: companyRecord.entityId,
+      first_name: firstName,
+      last_name: lastName,
+      preferred_name: firstName,
+      job_title: randomChoice(STRESS_TEST_JOB_TITLES),
       department: randomChoice(STRESS_TEST_DEPARTMENTS),
       seniority: randomChoice(STRESS_TEST_SENIORITY),
       timezone,
-      linkedInUrl: `https://www.linkedin.com/in/${emailHandle}${sequence}`,
-      twitterUrl: `https://twitter.com/${emailHandle}${sequence}`,
+      linked_in_url: `https://www.linkedin.com/in/${emailHandle}${sequence}`,
+      twitter_url: `https://twitter.com/${emailHandle}${sequence}`,
+      created_at: timestamp,
+      updated_at: timestamp,
     })
-    em.persist(entity)
-    em.persist(profile)
 
     if (includeExtras) {
       const personFieldValues: Record<string, Primitive | Primitive[]> = {
@@ -2096,30 +2264,49 @@ async function seedCustomerStressTest(
         organizationId,
         tenantId,
         values: personFieldValues,
-        getRecordId: () => profile.id,
+        getRecordId: () => personProfileId,
       })
 
       const monetaryBase = randomInt(5, 220) * 1000
       const pipelineStage = randomChoice(STRESS_TEST_DEAL_PIPELINE)
       const dealStatus = randomChoice(STRESS_TEST_DEAL_STATUSES)
-      const deal = em.create(CustomerDeal, {
-        organizationId,
-        tenantId,
-        title: `${company.entity.displayName} Opportunity ${sequence}`,
+      const dealId = randomUUID()
+      const valueAmount = toAmount(monetaryBase + randomInt(0, 7500))
+      const expectedCloseAt =
+        dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'loose'
+          ? randomPastDate(120)
+          : randomFutureDate(120)
+      dealRows.push({
+        id: dealId,
+        organization_id: organizationId,
+        tenant_id: tenantId,
+        title: `${companyRecord.displayName} Opportunity ${sequence}`,
         description: `Stress test deal generated for contact #${sequence}`,
         status: dealStatus,
-        pipelineStage,
-        valueAmount: toAmount(monetaryBase + randomInt(0, 7500)),
-        valueCurrency: Math.random() < 0.6 ? 'USD' : 'EUR',
+        pipeline_stage: pipelineStage ?? null,
+        value_amount: valueAmount,
+        value_currency: Math.random() < 0.6 ? 'USD' : 'EUR',
         probability: randomInt(25, 95),
-        expectedCloseAt:
-          dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'loose'
-            ? randomPastDate(120)
-            : randomFutureDate(120),
-        ownerUserId: null,
-        source: company.entity.source ?? STRESS_TEST_SOURCE,
+        expected_close_at: expectedCloseAt,
+        owner_user_id: null,
+        source: companyRecord.source,
+        created_at: timestamp,
+        updated_at: timestamp,
+        deleted_at: null,
       })
-      em.persist(deal)
+      dealCompanyRows.push({
+        id: randomUUID(),
+        deal_id: dealId,
+        company_entity_id: companyRecord.entityId,
+        created_at: timestamp,
+      })
+      dealPersonRows.push({
+        id: randomUUID(),
+        deal_id: dealId,
+        person_entity_id: personEntityId,
+        role: randomChoice(STRESS_TEST_DEAL_CUSTOMER_ROLES),
+        created_at: timestamp,
+      })
 
       queueCustomFieldAssignment({
         entityId: CoreEntities.customers.customer_deal,
@@ -2131,38 +2318,31 @@ async function seedCustomerStressTest(
           estimated_seats: randomInt(5, 250),
           requires_legal_review: Math.random() < 0.3,
         },
-        getRecordId: () => deal.id,
+        getRecordId: () => dealId,
       })
-
-      const companyLink = em.create(CustomerDealCompanyLink, {
-        deal,
-        company: company.entity,
-      })
-      const personLink = em.create(CustomerDealPersonLink, {
-        deal,
-        person: entity,
-        role: randomChoice(STRESS_TEST_DEAL_CUSTOMER_ROLES),
-      })
-      em.persist(companyLink)
-      em.persist(personLink)
 
       const activityCount = randomInt(2, 5)
       for (let idx = 0; idx < activityCount; idx += 1) {
         const activityType = randomChoice(STRESS_TEST_DEAL_ACTIVITY_TYPES)
-        const activity = em.create(CustomerActivity, {
-          organizationId,
-          tenantId,
-          entity,
-          deal,
-          activityType,
+        const activityId = randomUUID()
+        const targetEntityId = activityType === 'person' ? personEntityId : companyRecord.entityId
+        const occurredAt = randomPastDate(200)
+        activityRows.push({
+          id: activityId,
+          organization_id: organizationId,
+          tenant_id: tenantId,
+          entity_id: targetEntityId,
+          deal_id: dealId,
+          activity_type: activityType,
           subject: randomChoice(STRESS_TEST_ACTIVITY_SUBJECTS),
           body: randomChoice(STRESS_TEST_ACTIVITY_BODIES),
-          occurredAt: randomPastDate(200),
-          appearanceIcon: randomChoice(STRESS_TEST_ACTIVITY_ICONS),
-          appearanceColor: randomChoice(['#2563eb', '#22c55e', '#f97316', '#a855f7', '#6366f1']),
-          authorUserId: null,
+          occurred_at: occurredAt,
+          author_user_id: null,
+          appearance_icon: randomChoice(STRESS_TEST_ACTIVITY_ICONS),
+          appearance_color: randomChoice(['#2563eb', '#22c55e', '#f97316', '#a855f7', '#6366f1']),
+          created_at: timestamp,
+          updated_at: timestamp,
         })
-        em.persist(activity)
 
         queueCustomFieldAssignment({
           entityId: CoreEntities.customers.customer_activity,
@@ -2173,39 +2353,39 @@ async function seedCustomerStressTest(
             shared_with_leadership: Math.random() < 0.4,
             follow_up_owner: randomChoice(STRESS_TEST_ACTIVITY_OWNERS),
           },
-          getRecordId: () => activity.id,
+          getRecordId: () => activityId,
         })
       }
 
       const noteCount = randomInt(2, 5)
       for (let idx = 0; idx < noteCount; idx += 1) {
         const noteTimestamp = randomPastDate(120)
-        const comment = em.create(CustomerComment, {
-          organizationId,
-          tenantId,
-          entity,
-          deal,
+        commentRows.push({
+          id: randomUUID(),
+          organization_id: organizationId,
+          tenant_id: tenantId,
+          entity_id: personEntityId,
+          deal_id: dealId,
           body: randomChoice(STRESS_TEST_NOTE_SNIPPETS),
-          authorUserId: null,
-          appearanceIcon: 'lucide:sticky-note',
-          appearanceColor: randomChoice(['#2563eb', '#22c55e', '#f97316', '#a855f7', '#6366f1']),
-          createdAt: noteTimestamp,
-          updatedAt: noteTimestamp,
+          author_user_id: null,
+          appearance_icon: 'lucide:sticky-note',
+          appearance_color: randomChoice(['#2563eb', '#22c55e', '#f97316', '#a855f7', '#6366f1']),
+          created_at: noteTimestamp,
+          updated_at: noteTimestamp,
+          deleted_at: null,
         })
-        em.persist(comment)
       }
     }
 
     created += 1
+    const shouldFlush = created % flushInterval === 0
+    if (shouldFlush) await flushEntityRows(true)
     options.onProgress?.({ completed: created, total })
-
-    if (created % flushInterval === 0) {
-      await flushAssignments(true)
-    } else {
-      await flushAssignments()
-    }
+    if (shouldFlush) await flushAssignments(true)
+    else await flushAssignments()
   }
 
+  await flushEntityRows(true)
   await flushAssignments(true)
   options.onProgress?.({ completed: total, total })
   const elapsedMs = Math.max(1, Date.now() - startedAt)
@@ -2219,6 +2399,149 @@ async function seedCustomerStressTest(
   return { created: toCreate, existing: existingPersons }
 }
 
+
+const STRESS_TEST_REQUIRED_COLUMNS: Record<string, readonly string[]> = {
+  customer_entities: [
+    'id',
+    'organization_id',
+    'tenant_id',
+    'kind',
+    'display_name',
+    'description',
+    'owner_user_id',
+    'primary_email',
+    'primary_phone',
+    'status',
+    'lifecycle_stage',
+    'source',
+    'next_interaction_at',
+    'next_interaction_name',
+    'next_interaction_ref_id',
+    'next_interaction_icon',
+    'next_interaction_color',
+    'is_active',
+    'created_at',
+    'updated_at',
+    'deleted_at',
+  ],
+  customer_companies: [
+    'id',
+    'organization_id',
+    'tenant_id',
+    'entity_id',
+    'legal_name',
+    'brand_name',
+    'domain',
+    'website_url',
+    'industry',
+    'size_bucket',
+    'annual_revenue',
+    'created_at',
+    'updated_at',
+  ],
+  customer_people: [
+    'id',
+    'organization_id',
+    'tenant_id',
+    'first_name',
+    'last_name',
+    'preferred_name',
+    'job_title',
+    'department',
+    'seniority',
+    'timezone',
+    'linked_in_url',
+    'twitter_url',
+    'created_at',
+    'updated_at',
+    'entity_id',
+    'company_entity_id',
+  ],
+  customer_deals: [
+    'id',
+    'organization_id',
+    'tenant_id',
+    'title',
+    'description',
+    'status',
+    'pipeline_stage',
+    'value_amount',
+    'value_currency',
+    'probability',
+    'expected_close_at',
+    'owner_user_id',
+    'source',
+    'created_at',
+    'updated_at',
+    'deleted_at',
+  ],
+  customer_deal_companies: ['id', 'deal_id', 'company_entity_id', 'created_at'],
+  customer_deal_people: ['id', 'deal_id', 'person_entity_id', 'role', 'created_at'],
+  customer_activities: [
+    'id',
+    'organization_id',
+    'tenant_id',
+    'entity_id',
+    'deal_id',
+    'activity_type',
+    'subject',
+    'body',
+    'occurred_at',
+    'author_user_id',
+    'appearance_icon',
+    'appearance_color',
+    'created_at',
+    'updated_at',
+  ],
+  customer_comments: [
+    'id',
+    'organization_id',
+    'tenant_id',
+    'entity_id',
+    'deal_id',
+    'body',
+    'author_user_id',
+    'appearance_icon',
+    'appearance_color',
+    'created_at',
+    'updated_at',
+    'deleted_at',
+  ],
+  custom_field_values: [
+    'entity_id',
+    'record_id',
+    'organization_id',
+    'tenant_id',
+    'field_key',
+    'value_text',
+    'value_multiline',
+    'value_int',
+    'value_float',
+    'value_bool',
+    'created_at',
+    'deleted_at',
+  ],
+}
+
+async function warnIfStressTestSchemaChanged(knex: any) {
+  try {
+    const warnings: string[] = []
+    for (const [table, requiredColumns] of Object.entries(STRESS_TEST_REQUIRED_COLUMNS)) {
+      const rows = await knex('information_schema.columns')
+        .select('column_name')
+        .where({ table_schema: 'public', table_name: table })
+      const existing = new Set(rows.map((row: { column_name: string }) => row.column_name))
+      const missing = requiredColumns.filter((column) => !existing.has(column))
+      if (missing.length) warnings.push(`${table}: missing ${missing.join(', ')}`)
+    }
+    if (warnings.length) {
+      console.warn('[customers.cli] Warning: stress-test bulk seeder detected schema differences. Bulk insert path may need updates:')
+      warnings.forEach((warning) => console.warn(`  - ${warning}`))
+    }
+  } catch (err) {
+    console.warn('[customers.cli] Warning: unable to verify schema for stress-test bulk seeder', err)
+  }
+}
 
 const seedDictionaries: ModuleCli = {
   command: 'seed-dictionaries',
