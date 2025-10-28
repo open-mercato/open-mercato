@@ -73,14 +73,27 @@ function normalizePath(path: string): { path: string; params: PathParamInfo[] } 
   return { path: '/' + normalized, params }
 }
 
-function unwrap(schema: ZodTypeAny): { schema: ZodTypeAny; optional: boolean; nullable: boolean; defaultValue?: unknown } {
+function unwrap(schema?: ZodTypeAny): {
+  schema: ZodTypeAny | undefined
+  optional: boolean
+  nullable: boolean
+  defaultValue?: unknown
+} {
+  if (!schema) {
+    return { schema: undefined, optional: true, nullable: false }
+  }
+
   let current: ZodTypeAny = schema
   let optional = false
   let nullable = false
   let defaultValue: unknown
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const typeName = (current as any)._def?.typeName
+    const def = (current as any)?._def
+    if (!def) {
+      return { schema: current, optional, nullable, defaultValue }
+    }
+    const typeName = def.typeName
     if (typeName === ZodFirstPartyTypeKind.ZodOptional) {
       optional = true
       current = (current as any)._def.innerType

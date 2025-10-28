@@ -73,6 +73,28 @@ type PersonCommentSnapshot = {
   appearanceColor: string | null
 }
 
+type PersonActivitySnapshot = {
+  id: string
+  activityType: string
+  subject: string | null
+  body: string | null
+  occurredAt: Date | null
+  authorUserId: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
+  dealId: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+type PersonTodoSnapshot = {
+  id: string
+  todoId: string
+  todoSource: string
+  createdAt: Date
+  createdByUserId: string | null
+}
+
 type PersonSnapshot = {
   entity: {
     id: string
@@ -116,6 +138,8 @@ type PersonSnapshot = {
     role: string | null
     createdAt: Date
   }>
+  activities: PersonActivitySnapshot[]
+  todos: PersonTodoSnapshot[]
 }
 
 type PersonUndoPayload = {
@@ -147,6 +171,8 @@ function serializePersonSnapshot(
   addresses: CustomerAddress[],
   comments: CustomerComment[],
   deals: CustomerDealPersonLink[],
+  activities: CustomerActivity[],
+  todoLinks: CustomerTodoLink[],
   custom?: Record<string, unknown>
 ): PersonSnapshot {
   return {
@@ -224,6 +250,30 @@ function serializePersonSnapshot(
         role: link.role ?? null,
         createdAt: link.createdAt,
       })),
+    activities: activities.map((activity) => ({
+      id: activity.id,
+      activityType: activity.activityType,
+      subject: activity.subject ?? null,
+      body: activity.body ?? null,
+      occurredAt: activity.occurredAt ?? null,
+      authorUserId: activity.authorUserId ?? null,
+      appearanceIcon: activity.appearanceIcon ?? null,
+      appearanceColor: activity.appearanceColor ?? null,
+      dealId: activity.deal
+        ? typeof activity.deal === 'string'
+          ? activity.deal
+          : activity.deal.id
+        : null,
+      createdAt: activity.createdAt,
+      updatedAt: activity.updatedAt,
+    })),
+    todos: todoLinks.map((todo) => ({
+      id: todo.id,
+      todoId: todo.todoId,
+      todoSource: todo.todoSource,
+      createdAt: todo.createdAt,
+      createdByUserId: todo.createdByUserId ?? null,
+    })),
     custom,
   }
 }
@@ -241,6 +291,12 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
     { person: entity },
     { orderBy: { createdAt: 'asc' }, populate: ['deal'] }
   )
+  const activities = await em.find(
+    CustomerActivity,
+    { entity },
+    { orderBy: { createdAt: 'asc' }, populate: ['deal'] }
+  )
+  const todoLinks = await em.find(CustomerTodoLink, { entity }, { orderBy: { createdAt: 'asc' } })
   const entityCustom = await loadCustomFieldSnapshot(em, {
     entityId: CUSTOMER_ENTITY_ID,
     recordId: entity.id,
@@ -260,7 +316,7 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
     if (target === CUSTOMER_ENTITY_ID && Object.prototype.hasOwnProperty.call(custom, key)) continue
     custom[key] = value
   }
-  return serializePersonSnapshot(entity, profile, tagIds, addresses, comments, deals, custom)
+  return serializePersonSnapshot(entity, profile, tagIds, addresses, comments, deals, activities, todoLinks, custom)
 }
 
 async function resolveCompanyReference(
@@ -902,29 +958,63 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       await syncEntityTags(em, entity, before.tagIds)
       await em.flush()
 
-      await em.nativeDelete(CustomerDealPersonLink, { person: entity })
-      if (before.deals.length) {
-        const dealIds = before.deals.map((deal) => deal.dealId)
+      const beforeActivities = (before as { activities?: PersonActivitySnapshot[] }).activities ?? []
+      const beforeTodos = (before as { todos?: PersonTodoSnapshot[] }).todos ?? []
+
+      const relatedDealIds = new Set<string>()
+      for (const link of before.deals) relatedDealIds.add(link.dealId)
+      for (const activity of beforeActivities) {
+        if (activity.dealId) relatedDealIds.add(activity.dealId)
+      }
+      for (const comment of before.comments) {
+        if (comment.dealId) relatedDealIds.add(comment.dealId)
+      }
+      let dealMap = new Map<string, CustomerDeal>()
+      if (relatedDealIds.size) {
         const deals = await em.find(CustomerDeal, {
-          id: { $in: dealIds },
+          id: { $in: Array.from(relatedDealIds) },
           organizationId: entity.organizationId,
           tenantId: entity.tenantId,
         })
-        const dealMap = new Map(deals.map((deal) => [deal.id, deal]))
-        for (const link of before.deals) {
-          const deal = dealMap.get(link.dealId)
-          if (!deal) continue
-          const restoredLink = em.create(CustomerDealPersonLink, {
-            id: link.id,
-            deal,
-            person: entity,
-            role: link.role,
-            createdAt: link.createdAt,
-          })
-          em.persist(restoredLink)
-        }
-        await em.flush()
+        dealMap = new Map(deals.map((deal) => [deal.id, deal]))
       }
+
+      await em.nativeDelete(CustomerDealPersonLink, { person: entity })
+      for (const link of before.deals) {
+        const deal = dealMap.get(link.dealId)
+        if (!deal) continue
+        const restoredLink = em.create(CustomerDealPersonLink, {
+          id: link.id,
+          deal,
+          person: entity,
+          role: link.role,
+          createdAt: link.createdAt,
+        })
+        em.persist(restoredLink)
+      }
+      await em.flush()
+
+      await em.nativeDelete(CustomerActivity, { entity })
+      for (const activity of beforeActivities) {
+        const restoredActivity = em.create(CustomerActivity, {
+          id: activity.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          entity,
+          activityType: activity.activityType,
+          subject: activity.subject,
+          body: activity.body,
+          occurredAt: activity.occurredAt,
+          authorUserId: activity.authorUserId,
+          appearanceIcon: activity.appearanceIcon,
+          appearanceColor: activity.appearanceColor,
+          deal: activity.dealId ? dealMap.get(activity.dealId) ?? null : null,
+          createdAt: activity.createdAt,
+          updatedAt: activity.updatedAt,
+        })
+        em.persist(restoredActivity)
+      }
+      await em.flush()
 
       await em.nativeDelete(CustomerComment, { entity })
       for (const comment of before.comments) {
@@ -935,7 +1025,9 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           entity,
           body: comment.body,
           authorUserId: comment.authorUserId,
-          deal: comment.dealId ?? null,
+          appearanceIcon: comment.appearanceIcon,
+          appearanceColor: comment.appearanceColor,
+          deal: comment.dealId ? dealMap.get(comment.dealId) ?? null : null,
           createdAt: comment.createdAt,
           updatedAt: comment.updatedAt,
           deletedAt: comment.deletedAt,
@@ -964,6 +1056,22 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           isPrimary: address.isPrimary,
         })
         em.persist(restoredAddress)
+      }
+      await em.flush()
+
+      await em.nativeDelete(CustomerTodoLink, { entity })
+      for (const todo of beforeTodos) {
+        const restoredTodo = em.create(CustomerTodoLink, {
+          id: todo.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          entity,
+          todoId: todo.todoId,
+          todoSource: todo.todoSource,
+          createdAt: todo.createdAt,
+          createdByUserId: todo.createdByUserId,
+        })
+        em.persist(restoredTodo)
       }
       await em.flush()
 

@@ -47,6 +47,55 @@ import {
 
 const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
 
+type CompanyAddressSnapshot = {
+  id: string
+  name: string | null
+  purpose: string | null
+  addressLine1: string
+  addressLine2: string | null
+  city: string | null
+  region: string | null
+  postalCode: string | null
+  country: string | null
+  latitude: number | null
+  longitude: number | null
+  isPrimary: boolean
+}
+
+type CompanyCommentSnapshot = {
+  id: string
+  body: string
+  authorUserId: string | null
+  dealId: string | null
+  createdAt: Date
+  updatedAt: Date
+  deletedAt: Date | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
+}
+
+type CompanyActivitySnapshot = {
+  id: string
+  activityType: string
+  subject: string | null
+  body: string | null
+  occurredAt: Date | null
+  authorUserId: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
+  dealId: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+type CompanyTodoSnapshot = {
+  id: string
+  todoId: string
+  todoSource: string
+  createdAt: Date
+  createdByUserId: string | null
+}
+
 type CompanySnapshot = {
   entity: {
     id: string
@@ -88,6 +137,10 @@ type CompanySnapshot = {
     profileId: string
     personEntityId: string
   }>
+  addresses: CompanyAddressSnapshot[]
+  comments: CompanyCommentSnapshot[]
+  activities: CompanyActivitySnapshot[]
+  todos: CompanyTodoSnapshot[]
 }
 
 type CompanyUndoPayload = {
@@ -111,6 +164,14 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
     { company: entity },
     { orderBy: { createdAt: 'asc' }, populate: ['entity'] }
   )
+  const addresses = await em.find(CustomerAddress, { entity }, { orderBy: { createdAt: 'asc' } })
+  const comments = await em.find(CustomerComment, { entity }, { orderBy: { createdAt: 'asc' }, populate: ['deal'] })
+  const activities = await em.find(
+    CustomerActivity,
+    { entity },
+    { orderBy: { createdAt: 'asc' }, populate: ['deal'] }
+  )
+  const todoLinks = await em.find(CustomerTodoLink, { entity }, { orderBy: { createdAt: 'asc' } })
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: COMPANY_ENTITY_ID,
     recordId: profile.id,
@@ -162,6 +223,59 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
         profileId: member.id,
         personEntityId: typeof member.entity === 'string' ? member.entity : member.entity.id,
       })),
+    addresses: addresses.map((address) => ({
+      id: address.id,
+      name: address.name ?? null,
+      purpose: address.purpose ?? null,
+      addressLine1: address.addressLine1,
+      addressLine2: address.addressLine2 ?? null,
+      city: address.city ?? null,
+      region: address.region ?? null,
+      postalCode: address.postalCode ?? null,
+      country: address.country ?? null,
+      latitude: address.latitude ?? null,
+      longitude: address.longitude ?? null,
+      isPrimary: address.isPrimary,
+    })),
+    comments: comments.map((comment) => ({
+      id: comment.id,
+      body: comment.body,
+      authorUserId: comment.authorUserId ?? null,
+      dealId: comment.deal
+        ? typeof comment.deal === 'string'
+          ? comment.deal
+          : comment.deal.id
+        : null,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+      deletedAt: comment.deletedAt ?? null,
+      appearanceIcon: comment.appearanceIcon ?? null,
+      appearanceColor: comment.appearanceColor ?? null,
+    })),
+    activities: activities.map((activity) => ({
+      id: activity.id,
+      activityType: activity.activityType,
+      subject: activity.subject ?? null,
+      body: activity.body ?? null,
+      occurredAt: activity.occurredAt ?? null,
+      authorUserId: activity.authorUserId ?? null,
+      appearanceIcon: activity.appearanceIcon ?? null,
+      appearanceColor: activity.appearanceColor ?? null,
+      dealId: activity.deal
+        ? typeof activity.deal === 'string'
+          ? activity.deal
+          : activity.deal.id
+        : null,
+      createdAt: activity.createdAt,
+      updatedAt: activity.updatedAt,
+    })),
+    todos: todoLinks.map((todo) => ({
+      id: todo.id,
+      todoId: todo.todoId,
+      todoSource: todo.todoSource,
+      createdAt: todo.createdAt,
+      createdByUserId: todo.createdByUserId ?? null,
+    })),
   }
 }
 
@@ -682,6 +796,142 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
 
       await em.flush()
       await syncEntityTags(em, entity, before.tagIds)
+      await em.flush()
+
+      const beforeDeals = before.deals ?? []
+      const beforeMembers = before.members ?? []
+      const beforeActivities = (before as { activities?: CompanyActivitySnapshot[] }).activities ?? []
+      const beforeComments = (before as { comments?: CompanyCommentSnapshot[] }).comments ?? []
+      const beforeAddresses = (before as { addresses?: CompanyAddressSnapshot[] }).addresses ?? []
+      const beforeTodos = (before as { todos?: CompanyTodoSnapshot[] }).todos ?? []
+
+      const relatedDealIds = new Set<string>()
+      for (const link of beforeDeals) relatedDealIds.add(link.dealId)
+      for (const activity of beforeActivities) {
+        if (activity.dealId) relatedDealIds.add(activity.dealId)
+      }
+      for (const comment of beforeComments) {
+        if (comment.dealId) relatedDealIds.add(comment.dealId)
+      }
+      let dealMap = new Map<string, CustomerDeal>()
+      if (relatedDealIds.size) {
+        const deals = await em.find(CustomerDeal, {
+          id: { $in: Array.from(relatedDealIds) },
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+        })
+        dealMap = new Map(deals.map((deal) => [deal.id, deal]))
+      }
+
+      await em.nativeDelete(CustomerDealCompanyLink, { company: entity })
+      for (const link of beforeDeals) {
+        const deal = dealMap.get(link.dealId)
+        if (!deal) continue
+        const restoredLink = em.create(CustomerDealCompanyLink, {
+          id: link.id,
+          deal,
+          company: entity,
+          createdAt: link.createdAt,
+        })
+        em.persist(restoredLink)
+      }
+      await em.flush()
+
+      if (beforeMembers.length) {
+        const memberIds = beforeMembers.map((member) => member.profileId)
+        const profiles = await em.find(CustomerPersonProfile, {
+          id: { $in: memberIds },
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+        })
+        const profileMap = new Map(profiles.map((profile) => [profile.id, profile]))
+        for (const member of beforeMembers) {
+          const memberProfile = profileMap.get(member.profileId)
+          if (!memberProfile) continue
+          memberProfile.company = entity
+        }
+        await em.flush()
+      }
+
+      await em.nativeDelete(CustomerActivity, { entity })
+      for (const activity of beforeActivities) {
+        const restoredActivity = em.create(CustomerActivity, {
+          id: activity.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          entity,
+          activityType: activity.activityType,
+          subject: activity.subject,
+          body: activity.body,
+          occurredAt: activity.occurredAt,
+          authorUserId: activity.authorUserId,
+          appearanceIcon: activity.appearanceIcon,
+          appearanceColor: activity.appearanceColor,
+          deal: activity.dealId ? dealMap.get(activity.dealId) ?? null : null,
+          createdAt: activity.createdAt,
+          updatedAt: activity.updatedAt,
+        })
+        em.persist(restoredActivity)
+      }
+      await em.flush()
+
+      await em.nativeDelete(CustomerComment, { entity })
+      for (const comment of beforeComments) {
+        const restoredComment = em.create(CustomerComment, {
+          id: comment.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          entity,
+          body: comment.body,
+          authorUserId: comment.authorUserId,
+          appearanceIcon: comment.appearanceIcon,
+          appearanceColor: comment.appearanceColor,
+          deal: comment.dealId ? dealMap.get(comment.dealId) ?? null : null,
+          createdAt: comment.createdAt,
+          updatedAt: comment.updatedAt,
+          deletedAt: comment.deletedAt,
+        })
+        em.persist(restoredComment)
+      }
+      await em.flush()
+
+      await em.nativeDelete(CustomerAddress, { entity })
+      for (const address of beforeAddresses) {
+        const restoredAddress = em.create(CustomerAddress, {
+          id: address.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          entity,
+          name: address.name,
+          purpose: address.purpose,
+          addressLine1: address.addressLine1,
+          addressLine2: address.addressLine2,
+          city: address.city,
+          region: address.region,
+          postalCode: address.postalCode,
+          country: address.country,
+          latitude: address.latitude,
+          longitude: address.longitude,
+          isPrimary: address.isPrimary,
+        })
+        em.persist(restoredAddress)
+      }
+      await em.flush()
+
+      await em.nativeDelete(CustomerTodoLink, { entity })
+      for (const todo of beforeTodos) {
+        const restoredTodo = em.create(CustomerTodoLink, {
+          id: todo.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          entity,
+          todoId: todo.todoId,
+          todoSource: todo.todoSource,
+          createdAt: todo.createdAt,
+          createdByUserId: todo.createdByUserId,
+        })
+        em.persist(restoredTodo)
+      }
       await em.flush()
 
       const de = ctx.container.resolve<DataEngine>('dataEngine')
