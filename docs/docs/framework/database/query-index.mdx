@@ -68,6 +68,7 @@ Limitations and notes
 - The index row appears after create/update events or backfill. Queries still work via fallback when the index is missing.
 - Cross-module relations remain by foreign key id only; no cross-module joins.
 - When the hybrid engine falls back because of partial index coverage it emits a warning and, by default, schedules an asynchronous reindex for the affected entity/tenant scope. Toggle this with `QUERY_INDEX_AUTO_REINDEX` (defaults to `true`) if you prefer to manage reindex jobs manually.
+- Keep the indexed path even when gaps are detected by setting `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES=true` (enabled by default). When active, list responses include an `x-om-partial-index` response header (with `entity`, `baseCount`, `indexedCount`, and `scope`) so the admin UI can surface a banner prompting the user to reindex via `/backend/query-indexes`.
 
 ## Debugging SQL output
 

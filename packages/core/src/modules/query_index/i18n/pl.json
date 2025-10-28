@@ -1,3 +1,9 @@
 {
-  "query_index.nav.queryIndexes": "Indeksy zapytań"
+  "query_index.nav.queryIndexes": "Indeksy zapytań",
+  "query_index.banner.partial_title": "Wyniki mogą być niepełne",
+  "query_index.banner.partial_description": "Wykryliśmy niepełne pokrycie indeksu zapytań. Przeprowadź ponowną indeksację, aby odświeżyć wszystkie rekordy.",
+  "query_index.banner.partial_counts": "{{indexed}} z {{total}} rekordów zostało zindeksowanych.",
+  "query_index.banner.partial_global_note": "Część rekordów w innych organizacjach nadal brakuje w indeksie.",
+  "query_index.banner.manage_indexes": "Zarządzaj indeksami",
+  "query_index.banner.dismiss": "Zamknij"
 }

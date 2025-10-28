@@ -4,6 +4,7 @@
 import { flash } from '../FlashMessages'
 import { deserializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { pushOperation } from '../operations/store'
+import { pushPartialIndexWarning } from '../indexes/store'
 export class UnauthorizedError extends Error {
   readonly status = 401
   constructor(message = 'Unauthorized') {
@@ -120,6 +121,23 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     const header = res.headers.get('x-om-operation')
     const metadata = deserializeOperationMetadata(header)
     if (metadata) pushOperation(metadata)
+  } catch {
+    // ignore malformed headers
+  }
+  try {
+    const warningRaw = res.headers.get('x-om-partial-index')
+    if (warningRaw) {
+      const parsed = JSON.parse(warningRaw) as Record<string, unknown>
+      if (parsed && typeof parsed === 'object' && parsed.type === 'partial_index') {
+        const entity = typeof parsed.entity === 'string' ? parsed.entity : String(parsed.entity ?? '')
+        if (entity) {
+          const baseCount = typeof parsed.baseCount === 'number' ? parsed.baseCount : null
+          const indexedCount = typeof parsed.indexedCount === 'number' ? parsed.indexedCount : null
+          const scope = parsed.scope === 'global' ? 'global' : 'scoped'
+          pushPartialIndexWarning({ entity, baseCount, indexedCount, scope })
+        }
+      }
+    }
   } catch {
     // ignore malformed headers
   }

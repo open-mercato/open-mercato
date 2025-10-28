@@ -11,6 +11,12 @@ import type {
 } from './types'
 import { defaultUndoToken } from './types'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import {
+  deriveResourceFromCommandId,
+  invalidateCrudCache,
+  pickFirstIdentifier,
+  isCrudCacheDebugEnabled,
+} from '@open-mercato/shared/lib/crud/cache'
 
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
   'audit_logs.access',
@@ -19,6 +25,21 @@ const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
   'dashboards.user_widgets',
   'dashboards.role_widgets',
 ])
+
+function asRecord(input: unknown): Record<string, unknown> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  return input as Record<string, unknown>
+}
+
+function extractAliasList(source: unknown): string[] {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return []
+  const record = source as Record<string, unknown>
+  const raw = record.cacheAliases
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.trim())
+}
 
 export class CommandBus {
   async execute<TInput = unknown, TResult = unknown>(
@@ -52,6 +73,7 @@ export class CommandBus {
       }
     }
     const logEntry = await this.persistLog(commandId, options, mergedMeta)
+    await this.invalidateCacheAfterExecute(commandId, options, result, mergedMeta)
     return { result, logEntry }
   }
 
@@ -69,6 +91,7 @@ export class CommandBus {
       logEntry: log,
     })
     await service.markUndone(log.id)
+    await this.invalidateCacheAfterUndo(log, ctx)
   }
 
   private resolveHandler<TInput, TResult>(commandId: string): CommandHandler<TInput, TResult> {
@@ -182,6 +205,109 @@ export class CommandBus {
 
   private isUndoable(handler: CommandHandler<unknown, unknown>): boolean {
     return handler.isUndoable !== false && typeof handler.undo === 'function'
+  }
+
+  private async invalidateCacheAfterExecute<TResult>(
+    commandId: string,
+    options: CommandExecutionOptions<unknown>,
+    result: TResult,
+    metadata: CommandLogMetadata | null
+  ): Promise<void> {
+    const resource = typeof metadata?.resourceKind === 'string' ? metadata.resourceKind : null
+    if (!resource) return
+    try {
+      const ctx = options.ctx
+      const resultRecord = asRecord(result)
+      const resultEntity = asRecord(resultRecord?.entity)
+      const inputRecord = asRecord(options.input)
+      const inputEntity = asRecord(inputRecord?.entity)
+
+      const recordId = pickFirstIdentifier(
+        metadata?.resourceId,
+        resultRecord?.entityId,
+        resultRecord?.id,
+        resultRecord?.recordId,
+        resultEntity?.id,
+        inputRecord?.id,
+        inputRecord?.entityId,
+        inputRecord?.recordId,
+        inputEntity?.id
+      )
+
+      const organizationId = pickFirstIdentifier(
+        metadata?.organizationId,
+        resultRecord?.organizationId,
+        resultEntity?.organizationId,
+        inputRecord?.organizationId,
+        inputEntity?.organizationId,
+        ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+      )
+
+      const tenantId = pickFirstIdentifier(
+        metadata?.tenantId,
+        resultRecord?.tenantId,
+        resultEntity?.tenantId,
+        inputRecord?.tenantId,
+        inputEntity?.tenantId,
+        ctx.auth?.tenantId ?? null
+      )
+
+      const fallbackTenant = pickFirstIdentifier(metadata?.tenantId, ctx.auth?.tenantId ?? null)
+
+      const aliasSet = new Set<string>()
+      for (const alias of extractAliasList(metadata?.context ?? null)) {
+        aliasSet.add(alias)
+      }
+      const derived = deriveResourceFromCommandId(commandId)
+      if (derived) aliasSet.add(derived)
+      const aliasExtras = Array.from(aliasSet)
+      await invalidateCrudCache(
+        ctx.container,
+        resource,
+        { id: recordId, organizationId, tenantId },
+        fallbackTenant,
+        `command:${commandId}:execute`,
+        aliasExtras
+      )
+    } catch (err) {
+      if (isCrudCacheDebugEnabled()) {
+        try {
+          console.debug('[crud][cache] execute-invalidation failed', { commandId, err })
+        } catch {}
+      }
+    }
+  }
+
+  private async invalidateCacheAfterUndo(log: ActionLog, ctx: CommandRuntimeContext): Promise<void> {
+    const resource = typeof log.resourceKind === 'string' ? log.resourceKind : null
+    if (!resource) return
+    try {
+      const recordId = pickFirstIdentifier(log.resourceId)
+      const organizationId = pickFirstIdentifier(log.organizationId, ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null)
+      const tenantId = pickFirstIdentifier(log.tenantId, ctx.auth?.tenantId ?? null)
+      const fallbackTenant = pickFirstIdentifier(log.tenantId, ctx.auth?.tenantId ?? null)
+      const aliasSet = new Set<string>()
+      for (const alias of extractAliasList(log.contextJson ?? null)) {
+        aliasSet.add(alias)
+      }
+      const derived = deriveResourceFromCommandId(log.commandId)
+      if (derived) aliasSet.add(derived)
+      const aliasExtras = Array.from(aliasSet)
+      await invalidateCrudCache(
+        ctx.container,
+        resource,
+        { id: recordId, organizationId, tenantId },
+        fallbackTenant,
+        `command:${log.commandId}:undo`,
+        aliasExtras
+      )
+    } catch (err) {
+      if (isCrudCacheDebugEnabled()) {
+        try {
+          console.debug('[crud][cache] undo-invalidation failed', { commandId: log.commandId, err })
+        } catch {}
+      }
+    }
   }
 }
 

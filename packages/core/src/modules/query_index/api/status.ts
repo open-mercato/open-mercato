@@ -127,5 +127,19 @@ export async function GET(req: Request) {
     items.push({ entityId: eid, label, baseCount, indexCount, ok: baseCount === indexCount, job })
   }
 
-  return NextResponse.json({ items })
+  const response = NextResponse.json({ items })
+  const partial = items.find((item) => item.baseCount !== item.indexCount)
+  if (partial) {
+    response.headers.set(
+      'x-om-partial-index',
+      JSON.stringify({
+        type: 'partial_index',
+        entity: partial.entityId,
+        baseCount: partial.baseCount,
+        indexedCount: partial.indexCount,
+        scope: 'global',
+      })
+    )
+  }
+  return response
 }

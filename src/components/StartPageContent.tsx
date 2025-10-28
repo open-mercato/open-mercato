@@ -3,7 +3,8 @@
 import { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Shield, Users, Briefcase, Info, Rocket, ArrowRight } from 'lucide-react'
+import { Shield, Users, Briefcase, Info, Rocket, ArrowRight, BookOpen } from 'lucide-react'
+import { getApiDocsResources, resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 
 interface RoleTileProps {
   icon: ReactNode
@@ -81,6 +82,8 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
   const [showStartPage, setShowStartPage] = useState(initialShowStartPage)
 
   const superAdminDisabled = showOnboardingCta
+  const apiDocs = getApiDocsResources()
+  const baseUrl = resolveApiDocsBaseUrl()
 
   const handleCheckboxChange = (checked: boolean) => {
     setShowStartPage(checked)
@@ -205,6 +208,41 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
             variant="outline"
           />
         </div>
+      </section>
+
+      <section className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="rounded-full bg-primary/10 p-2 text-primary">
+              <BookOpen className="size-5" />
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold">API resources</h2>
+              <p className="text-sm text-muted-foreground">
+                Explore the official documentation and download the generated OpenAPI exports for this installation.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          {apiDocs.map((resource) => (
+            <a
+              key={resource.href}
+              href={resource.href}
+              target={resource.external ? '_blank' : undefined}
+              rel={resource.external ? 'noreferrer' : undefined}
+              className="rounded border bg-background p-4 text-sm transition hover:border-primary"
+            >
+              <div className="font-medium text-foreground">{resource.label}</div>
+              <p className="mt-1 text-xs text-muted-foreground">{resource.description}</p>
+              <span className="mt-3 inline-flex text-xs font-medium text-primary">{resource.actionLabel ?? 'Open link'}</span>
+            </a>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Current API base URL:{' '}
+          <code className="rounded bg-muted px-2 py-0.5 text-[10px] text-foreground">{baseUrl}</code>
+        </p>
       </section>
 
       <section className="rounded-lg border p-4 flex items-center justify-center gap-3">

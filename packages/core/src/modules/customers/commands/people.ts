@@ -14,8 +14,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerAddress,
   CustomerComment,
+  CustomerActivity,
   CustomerDeal,
   CustomerDealPersonLink,
+  CustomerTodoLink,
   CustomerEntity,
   CustomerPersonProfile,
   CustomerTagAssignment,
@@ -773,6 +775,8 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       if (profile) em.remove(profile)
       await em.nativeDelete(CustomerAddress, { entity: record })
       await em.nativeDelete(CustomerComment, { entity: record })
+      await em.nativeDelete(CustomerActivity, { entity: record })
+      await em.nativeDelete(CustomerTodoLink, { entity: record })
       await em.nativeDelete(CustomerTagAssignment, { entity: record })
       await em.nativeDelete(CustomerDealPersonLink, { person: record })
       em.remove(record)

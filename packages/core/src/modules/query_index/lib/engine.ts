@@ -1,4 +1,4 @@
-import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -24,6 +24,7 @@ export class HybridQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
   private debugVerbosity: boolean | null = null
   private sqlDebugEnabled: boolean | null = null
+  private forcePartialIndexEnabled: boolean | null = null
   private autoReindexEnabled: boolean | null = null
   private pendingAutoReindexKeys = new Set<string>()
 
@@ -69,25 +70,41 @@ export class HybridQueryEngine implements QueryEngine {
       })
     }
 
+    let partialIndexWarning: PartialIndexWarning | null = null
+
     if (wantsCf) {
       const hasIndexRows = await this.indexAnyRows(entity)
       if (!hasIndexRows) {
         if (debugEnabled) this.debug('query:fallback:no-index', { entity })
         return this.fallback.query(entity, opts)
       }
-      const coverageOk = await this.indexCoverageComplete(entity, baseTable, opts)
-      if (!coverageOk) {
-        let stats: { baseCount: number; indexedCount: number } | undefined
-        try {
-          stats = await this.indexCoverageStats(entity, baseTable, opts)
-          console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount: stats.baseCount, indexedCount: stats.indexedCount })
-          if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount: stats.baseCount, indexedCount: stats.indexedCount })
-        } catch {
-          console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
-          if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
+      const gap = await this.resolveCoverageGap(entity, baseTable, opts)
+      if (gap) {
+        this.scheduleAutoReindex(entity, opts, gap.stats)
+        const force = this.isForcePartialIndexEnabled()
+        if (!force) {
+          if (gap.stats) {
+            console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+            if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+          } else {
+            console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
+            if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
+          }
+          return this.fallback.query(entity, opts)
         }
-        this.scheduleAutoReindex(entity, opts, stats)
-        return this.fallback.query(entity, opts)
+        if (gap.stats) {
+          console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+          if (debugEnabled) this.debug('query:partial-coverage:forced', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+        } else {
+          console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity })
+          if (debugEnabled) this.debug('query:partial-coverage:forced', { entity })
+        }
+        partialIndexWarning = {
+          entity,
+          baseCount: gap.stats?.baseCount ?? null,
+          indexedCount: gap.stats?.indexedCount ?? null,
+          scope: gap.stats ? gap.scope : undefined,
+        }
       }
     }
 
@@ -164,6 +181,34 @@ export class HybridQueryEngine implements QueryEngine {
         entity,
         sources: indexSources.map((src) => ({ alias: src.alias, entity: src.entityId })),
       })
+    }
+
+    if (!partialIndexWarning && Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0 && this.isForcePartialIndexEnabled()) {
+      const seen = new Set<string>([entity])
+      for (const source of opts.customFieldSources) {
+        const targetEntity = source?.entityId ? String(source.entityId) : null
+        if (!targetEntity || seen.has(targetEntity)) continue
+        seen.add(targetEntity)
+        const sourceTable = source.table ?? resolveEntityTableName(this.em, targetEntity)
+        try {
+          const gap = await this.resolveCoverageGap(targetEntity, sourceTable, opts)
+          if (!gap) continue
+          this.scheduleAutoReindex(targetEntity, opts, gap.stats)
+          partialIndexWarning = {
+            entity: targetEntity,
+            baseCount: gap.stats?.baseCount ?? null,
+            indexedCount: gap.stats?.indexedCount ?? null,
+            scope: gap.stats ? gap.scope : undefined,
+          }
+          if (debugEnabled) {
+            if (gap.stats) this.debug('query:partial-coverage:forced', { entity: targetEntity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+            else this.debug('query:partial-coverage:forced', { entity: targetEntity })
+          }
+          break
+        } catch (err) {
+          if (debugEnabled) this.debug('query:partial-coverage:check-failed', { entity: targetEntity, error: err instanceof Error ? err.message : err })
+        }
+      }
     }
 
     const resolveBaseColumn = (field: string): string | null => {
@@ -261,7 +306,11 @@ export class HybridQueryEngine implements QueryEngine {
     const items = await this.captureSqlTiming('query:sql:data', entity, () => dataBuilder, { page, pageSize })
     if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(items) ? items.length : 0 })
 
-    return { items, page, pageSize, total }
+    const result: QueryResult<T> = { items, page, pageSize, total }
+    if (partialIndexWarning) {
+      result.meta = { partialIndexWarning }
+    }
+    return result
   }
 
   private getKnex(): Knex {
@@ -602,8 +651,8 @@ export class HybridQueryEngine implements QueryEngine {
 
   private async indexCoverageComplete(entity: string, baseTable: string, opts: QueryOptions): Promise<boolean> {
     const { baseCount, indexedCount } = await this.indexCoverageStats(entity, baseTable, opts)
-    if (baseCount === 0) return true
-    return indexedCount >= baseCount
+    if (baseCount === 0) return indexedCount === 0
+    return indexedCount === baseCount
   }
 
   private async indexCoverageStats(entity: string, baseTable: string, opts: QueryOptions): Promise<{ baseCount: number; indexedCount: number }> {
@@ -869,6 +918,50 @@ export class HybridQueryEngine implements QueryEngine {
     const raw = (process.env.QUERY_ENGINE_DEBUG_SQL ?? '').toLowerCase()
     this.sqlDebugEnabled = raw === '1' || raw === 'true' || raw === 'yes'
     return this.sqlDebugEnabled
+  }
+
+  private isForcePartialIndexEnabled(): boolean {
+    if (this.forcePartialIndexEnabled != null) return this.forcePartialIndexEnabled
+    const raw = (process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES ?? 'true').toLowerCase()
+    this.forcePartialIndexEnabled = raw === '1' || raw === 'true' || raw === 'yes'
+    return this.forcePartialIndexEnabled
+  }
+
+  private async resolveCoverageGap(
+    entity: string,
+    baseTable: string,
+    opts: QueryOptions
+  ): Promise<{ stats?: { baseCount: number; indexedCount: number }; scope: 'scoped' | 'global' } | null> {
+    let stats: { baseCount: number; indexedCount: number } | undefined
+    let scope: 'scoped' | 'global' = 'scoped'
+    let coverageOk = await this.indexCoverageComplete(entity, baseTable, opts)
+    if (coverageOk && this.isForcePartialIndexEnabled()) {
+      try {
+        const globalStats = await this.indexCoverageStats(entity, baseTable, {
+          ...opts,
+          organizationId: undefined,
+          organizationIds: undefined,
+        })
+        if (globalStats.baseCount > 0 && globalStats.indexedCount < globalStats.baseCount) {
+          coverageOk = false
+          stats = globalStats
+          scope = 'global'
+        }
+      } catch {
+        // ignore global stats failure
+      }
+    }
+    if (!coverageOk) {
+      if (!stats) {
+        try {
+          stats = await this.indexCoverageStats(entity, baseTable, opts)
+        } catch {
+          stats = undefined
+        }
+      }
+      return { stats, scope: stats ? scope : 'scoped' }
+    }
+    return null
   }
 
   private async captureSqlTiming<TResult>(

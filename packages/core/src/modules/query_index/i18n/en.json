@@ -1,3 +1,9 @@
 {
-  "query_index.nav.queryIndexes": "Query Indexes"
+  "query_index.nav.queryIndexes": "Query Indexes",
+  "query_index.banner.partial_title": "Results may be incomplete",
+  "query_index.banner.partial_description": "We detected partial coverage in the query index. Reindex to refresh all records.",
+  "query_index.banner.partial_counts": "{{indexed}} of {{total}} records are indexed.",
+  "query_index.banner.partial_global_note": "Some records in other organizations are still missing from the index.",
+  "query_index.banner.manage_indexes": "Manage indexes",
+  "query_index.banner.dismiss": "Dismiss"
 }

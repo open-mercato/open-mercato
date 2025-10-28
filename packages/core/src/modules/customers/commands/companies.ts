@@ -12,7 +12,18 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerCompanyProfile, CustomerEntity, CustomerTagAssignment } from '../data/entities'
+import {
+  CustomerAddress,
+  CustomerComment,
+  CustomerCompanyProfile,
+  CustomerDeal,
+  CustomerDealCompanyLink,
+  CustomerActivity,
+  CustomerTodoLink,
+  CustomerEntity,
+  CustomerPersonProfile,
+  CustomerTagAssignment,
+} from '../data/entities'
 import {
   companyCreateSchema,
   companyUpdateSchema,
@@ -68,6 +79,15 @@ type CompanySnapshot = {
   }
   tagIds: string[]
   custom?: Record<string, unknown>
+  deals: Array<{
+    id: string
+    dealId: string
+    createdAt: Date
+  }>
+  members: Array<{
+    profileId: string
+    personEntityId: string
+  }>
 }
 
 type CompanyUndoPayload = {
@@ -81,6 +101,16 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
   const profile = await em.findOne(CustomerCompanyProfile, { entity })
   if (!profile) return null
   const tagIds = await loadEntityTagIds(em, entity)
+  const deals = await em.find(
+    CustomerDealCompanyLink,
+    { company: entity },
+    { orderBy: { createdAt: 'asc' }, populate: ['deal'] }
+  )
+  const members = await em.find(
+    CustomerPersonProfile,
+    { company: entity },
+    { orderBy: { createdAt: 'asc' }, populate: ['entity'] }
+  )
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: COMPANY_ENTITY_ID,
     recordId: profile.id,
@@ -119,6 +149,19 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
     },
     tagIds,
     custom,
+    deals: deals
+      .filter((link) => link.deal)
+      .map((link) => ({
+        id: link.id,
+        dealId: link.deal.id,
+        createdAt: link.createdAt,
+      })),
+    members: members
+      .filter((member) => member.entity)
+      .map((member) => ({
+        profileId: member.id,
+        personEntityId: typeof member.entity === 'string' ? member.entity : member.entity.id,
+      })),
   }
 }
 
@@ -450,6 +493,45 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     await syncEntityTags(em, entity, before.tagIds)
     await em.flush()
 
+    await em.nativeDelete(CustomerDealCompanyLink, { company: entity })
+    if (before.deals.length) {
+      const dealIds = before.deals.map((link) => link.dealId)
+      const deals = await em.find(CustomerDeal, {
+        id: { $in: dealIds },
+        organizationId: entity.organizationId,
+        tenantId: entity.tenantId,
+      })
+      const dealMap = new Map(deals.map((deal) => [deal.id, deal]))
+      for (const link of before.deals) {
+        const deal = dealMap.get(link.dealId)
+        if (!deal) continue
+        const restoredLink = em.create(CustomerDealCompanyLink, {
+          id: link.id,
+          deal,
+          company: entity,
+          createdAt: link.createdAt,
+        })
+        em.persist(restoredLink)
+      }
+      await em.flush()
+    }
+
+    if (before.members.length) {
+      const memberIds = before.members.map((member) => member.profileId)
+      const profiles = await em.find(CustomerPersonProfile, {
+        id: { $in: memberIds },
+        organizationId: entity.organizationId,
+        tenantId: entity.tenantId,
+      })
+      const profileMap = new Map(profiles.map((profile) => [profile.id, profile]))
+      for (const member of before.members) {
+        const profile = profileMap.get(member.profileId)
+        if (!profile) continue
+        profile.company = entity
+      }
+      await em.flush()
+    }
+
     const de = ctx.container.resolve<DataEngine>('dataEngine')
     await emitCrudUndoSideEffects({
       dataEngine: de,
@@ -485,7 +567,13 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const record = assertRecordFound(entity, 'Company not found')
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
+      await em.nativeUpdate(CustomerPersonProfile, { company: record }, { company: null })
+      await em.nativeDelete(CustomerDealCompanyLink, { company: record })
+      await em.nativeDelete(CustomerActivity, { entity: record })
+      await em.nativeDelete(CustomerTodoLink, { entity: record })
       await em.nativeDelete(CustomerCompanyProfile, { entity: record })
+      await em.nativeDelete(CustomerAddress, { entity: record })
+      await em.nativeDelete(CustomerComment, { entity: record })
       await em.nativeDelete(CustomerTagAssignment, { entity: record })
       em.remove(record)
       await em.flush()

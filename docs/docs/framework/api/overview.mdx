@@ -51,7 +51,8 @@ Most CRUD operations can rely on the [CRUD factory](./crud-factory), but underst
 - The generated spec is exposed at:
   - `GET /api/docs/openapi` – OpenAPI 3.1 JSON (consumable by Swagger UI, Postman, etc.).
   - `GET /api/docs/markdown` – Markdown-flavoured documentation suited for quick sharing and LLM ingestion.
-  - `/backend/api-docs` – Back-office page rendering the Markdown version for authenticated users with the `api_docs.view` feature.
+- `/backend` – Dashboard card with quick links to the official docs and downloadable OpenAPI exports.
+- `/backend/api-docs` – Back-office page listing the same resources without feature gating.
 - Each API route may export `openApi` metadata to enrich the spec. For file-based routes (`route.ts`), export an `openApi` object with Zod schemas describing query params, bodies, responses, and custom cURL examples:
 
 ```ts

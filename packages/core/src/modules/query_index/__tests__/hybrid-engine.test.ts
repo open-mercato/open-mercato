@@ -68,14 +68,18 @@ function createFakeKnex(config: {
 
 describe('HybridQueryEngine', () => {
   const originalAutoReindex = process.env.QUERY_INDEX_AUTO_REINDEX
+  const originalForcePartial = process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES
 
   beforeEach(() => {
     delete process.env.QUERY_INDEX_AUTO_REINDEX
+    delete process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES
   })
 
   afterEach(() => {
     if (originalAutoReindex === undefined) delete process.env.QUERY_INDEX_AUTO_REINDEX
     else process.env.QUERY_INDEX_AUTO_REINDEX = originalAutoReindex
+    if (originalForcePartial === undefined) delete process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES
+    else process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = originalForcePartial
     jest.clearAllMocks()
   })
 
@@ -92,6 +96,7 @@ describe('HybridQueryEngine', () => {
   })
 
   test('falls back and warns on partial coverage', async () => {
+    process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'false'
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
@@ -105,6 +110,98 @@ describe('HybridQueryEngine', () => {
     const msg = (warnSpy.mock.calls[0] || [])[0] as string
     expect(msg).toContain('Partial index coverage')
     expect(emitEvent).toHaveBeenCalledWith('query_index.reindex', { entityType: 'example:todo', tenantId: 't1', force: false }, { persistent: true })
+    warnSpy.mockRestore()
+  })
+
+  test('emits partial coverage metadata when forcing query index usage', async () => {
+    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 4 })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(result.meta?.partialIndexWarning).toEqual(expect.objectContaining({ entity: 'example:todo' }))
+    expect(warnSpy).toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  test('emits partial coverage metadata when global scope is out of sync', async () => {
+    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 5, indexCount: 5 })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    const statsSpy = jest
+      .spyOn(engine as any, 'indexCoverageStats')
+      .mockImplementationOnce(async () => ({ baseCount: 5, indexedCount: 5 })) // scoped ok
+      .mockImplementationOnce(async () => ({ baseCount: 10, indexedCount: 7 })) // global mismatch
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(result.meta?.partialIndexWarning).toEqual(expect.objectContaining({ entity: 'example:todo', scope: 'global' }))
+    expect(warnSpy).toHaveBeenCalled()
+
+    statsSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
+  test('propagates partial coverage metadata from custom field sources', async () => {
+    const fakeKnex = createFakeKnex({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    const originalResolve = (engine as any).resolveCoverageGap.bind(engine)
+    const gapSpy = jest
+      .spyOn(engine as any, 'resolveCoverageGap')
+      .mockImplementationOnce(originalResolve)
+      .mockImplementationOnce(async () => ({ stats: { baseCount: 8, indexedCount: 6 }, scope: 'scoped' }))
+      .mockImplementation(originalResolve)
+
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'cf:birthday'],
+      includeCustomFields: ['birthday'],
+      customFieldSources: [
+        {
+          entityId: 'customers:customer_person_profile',
+          table: 'customer_people',
+          alias: 'person_profile',
+          recordIdColumn: 'id',
+          join: { fromField: 'id', toField: 'entity_id' },
+        },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(result.meta?.partialIndexWarning).toEqual(expect.objectContaining({ entity: 'customers:customer_person_profile' }))
+    expect(gapSpy).toHaveBeenCalled()
+    gapSpy.mockRestore()
+  })
+
+  test('detects mismatch when index count exceeds base count', async () => {
+    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 12 })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(result.meta?.partialIndexWarning).toEqual(expect.objectContaining({ entity: 'example:todo' }))
+    expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
   })
 

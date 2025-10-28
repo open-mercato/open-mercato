@@ -279,6 +279,7 @@ export default function CustomersDealsPage() {
   const [reloadToken, setReloadToken] = React.useState(0)
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
 
   const initialPersonIds = React.useMemo(
     () => extractIdsFromParams(searchParams, 'personId'),
@@ -607,8 +608,11 @@ export default function CustomersDealsPage() {
     let cancelled = false
     async function load() {
       setIsLoading(true)
+      setCacheStatus(null)
       try {
         const res = await apiFetch(`/api/customers/deals?${queryParams}`)
+        const rawCacheStatus = res.headers.get('x-om-cache')
+        const normalizedCacheStatus = rawCacheStatus === 'hit' || rawCacheStatus === 'miss' ? rawCacheStatus : null
         if (!res.ok) {
           const details = await res.json().catch(() => ({}))
           const message =
@@ -616,10 +620,12 @@ export default function CustomersDealsPage() {
               ? details.error
               : t('customers.deals.list.error.load')
           flash(message, 'error')
+          if (!cancelled) setCacheStatus(null)
           return
         }
         const payload: DealsResponse = await res.json().catch(() => ({}))
         if (cancelled) return
+        setCacheStatus(normalizedCacheStatus)
         const items = Array.isArray(payload.items) ? payload.items : []
         const mapped = items
           .map((item) => mapDeal(item as Record<string, unknown>))
@@ -629,6 +635,7 @@ export default function CustomersDealsPage() {
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
       } catch (err) {
         if (!cancelled) {
+          setCacheStatus(null)
           const message = err instanceof Error ? err.message : t('customers.deals.list.error.load')
           flash(message, 'error')
         }
@@ -928,6 +935,7 @@ export default function CustomersDealsPage() {
             total,
             totalPages,
             onPageChange: (nextPage) => setPage(nextPage),
+            cacheStatus,
           }}
           isLoading={isLoading}
           refreshButton={{

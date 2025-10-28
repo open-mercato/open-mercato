@@ -1,3 +1,3 @@
-export const features = ['api_docs.view']
+export const features: string[] = []
 
 export default features

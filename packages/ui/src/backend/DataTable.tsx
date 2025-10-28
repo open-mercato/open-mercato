@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
@@ -42,6 +42,8 @@ export type PaginationProps = {
   total: number
   totalPages: number
   onPageChange: (page: number) => void
+  durationMs?: number | null
+  cacheStatus?: 'hit' | 'miss' | null
 }
 
 export type DataTableRefreshButton = {
@@ -201,6 +203,17 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
 
 const PERSPECTIVE_COOKIE_PREFIX = 'om_table_perspective'
 const PERSPECTIVE_STORAGE_PREFIX = 'om_table_perspective_snapshot'
+
+function formatDurationLabel(durationMs?: number | null): string {
+  if (durationMs == null) return ''
+  if (!Number.isFinite(durationMs)) return ''
+  if (durationMs < 0) return ''
+  if (durationMs < 1000) return `${Math.round(durationMs)}ms`
+  if (durationMs < 10_000) return `${(durationMs / 1000).toFixed(1)}s`
+  if (durationMs < 60_000) return `${Math.round(durationMs / 1000)}s`
+  if (durationMs < 3_600_000) return `${(durationMs / 60_000).toFixed(durationMs < 600_000 ? 1 : 0)}m`
+  return `${(durationMs / 3_600_000).toFixed(durationMs < 7_200_000 ? 1 : 0)}h`
+}
 
 type PerspectiveSnapshot = {
   perspectiveId: string | null
@@ -1026,6 +1039,29 @@ export function DataTable<T>({
     ? 'Perspectives API is not available yet. Run `npm run modules:prepare` to regenerate module routes, then restart the server.'
     : null
 
+  const loadStartRef = React.useRef<number | null>(null)
+  const [measuredDurationMs, setMeasuredDurationMs] = React.useState<number | null>(null)
+
+  React.useEffect(() => {
+    if (typeof isLoading !== 'boolean') return
+    if (isLoading) {
+      if (loadStartRef.current === null) {
+        const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now()
+        loadStartRef.current = now
+      }
+      return
+    }
+    if (loadStartRef.current !== null) {
+      const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now()
+      setMeasuredDurationMs(now - loadStartRef.current)
+      loadStartRef.current = null
+    }
+  }, [isLoading])
+
   React.useLayoutEffect(() => {
     if (!canUsePerspectives) return
     if (!perspectiveTableId) return
@@ -1064,14 +1100,35 @@ export function DataTable<T>({
   const renderPagination = () => {
     if (!pagination) return null
 
-    const { page, totalPages, onPageChange } = pagination
+    const { page, totalPages, onPageChange, durationMs, cacheStatus } = pagination
     const startItem = (page - 1) * pagination.pageSize + 1
     const endItem = Math.min(page * pagination.pageSize, pagination.total)
+    const effectiveDuration = (typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0)
+      ? durationMs
+      : measuredDurationMs ?? undefined
+    const durationLabel = formatDurationLabel(effectiveDuration)
+    const normalizedCacheStatus = cacheStatus === 'hit' || cacheStatus === 'miss' ? cacheStatus : null
+    const cacheBadge = normalizedCacheStatus ? (
+      <span
+        className="inline-flex items-center justify-center"
+        aria-label={`Cache ${normalizedCacheStatus.toUpperCase()}`}
+        title={`Cache ${normalizedCacheStatus.toUpperCase()}`}
+      >
+        <Circle
+          className={`h-3.5 w-3.5 ${normalizedCacheStatus === 'hit' ? 'text-emerald-500' : 'text-amber-500'}`}
+          strokeWidth={3}
+        />
+        <span className="sr-only">{`Cache ${normalizedCacheStatus.toUpperCase()}`}</span>
+      </span>
+    ) : null
 
     return (
       <div className="flex items-center justify-between px-4 py-3 border-t">
-        <div className="text-sm text-muted-foreground">
-          Showing {startItem} to {endItem} of {pagination.total} results
+        <div className="text-sm text-muted-foreground flex items-center gap-2">
+          <span>
+            Showing {startItem} to {endItem} of {pagination.total} results{durationLabel ? ` in ${durationLabel}` : ''}
+          </span>
+          {cacheBadge}
         </div>
         <div className="flex items-center gap-2">
           <Button
