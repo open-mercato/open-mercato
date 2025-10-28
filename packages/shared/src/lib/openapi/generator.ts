@@ -126,6 +126,7 @@ function unwrap(schema?: ZodTypeAny): {
 function zodToJsonSchema(schema?: ZodTypeAny): JsonSchema | undefined {
   if (!schema) return undefined
   const { schema: inner, nullable } = unwrap(schema)
+  if (!inner) return undefined
   const def = (inner as any)._def
   if (!def) return undefined
   const typeName = def.typeName as ZodFirstPartyTypeKind

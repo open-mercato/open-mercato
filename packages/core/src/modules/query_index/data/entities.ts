@@ -3,14 +3,14 @@ import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
 // Generic JSONB-backed index rows for any entity ('<module>:<entity>')
 @Entity({ tableName: 'entity_indexes' })
 @Index({
-  name: 'idx_ei_cust_entity',
+  name: 'entity_indexes_customer_entity_doc_idx',
   expression:
-    `(entity_id, organization_id, tenant_id) include ("doc") where deleted_at is null and entity_type = 'customers:customer_entity' and organization_id is not null and tenant_id is not null`,
+    `create index "entity_indexes_customer_entity_doc_idx" on "entity_indexes" ("entity_id", "organization_id", "tenant_id") include ("doc") where deleted_at is null and entity_type = 'customers:customer_entity' and organization_id is not null and tenant_id is not null`,
 })
 @Index({
-  name: 'idx_ei_person_profile',
+  name: 'entity_indexes_customer_person_profile_doc_idx',
   expression:
-    `(entity_id, organization_id, tenant_id) include ("doc") where deleted_at is null and entity_type = 'customers:customer_person_profile' and organization_id is not null and tenant_id is not null`,
+    `create index "entity_indexes_customer_person_profile_doc_idx" on "entity_indexes" ("entity_id", "organization_id", "tenant_id") include ("doc") where deleted_at is null and entity_type = 'customers:customer_person_profile' and organization_id is not null and tenant_id is not null`,
 })
 export class EntityIndexRow {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })

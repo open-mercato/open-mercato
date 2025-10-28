@@ -122,7 +122,11 @@ export class CustomerEntity {
 
 @Entity({ tableName: 'customer_people' })
 @Index({ name: 'customer_people_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
-@Index({ name: 'idx_customer_people_entity_id', properties: ['entity'] })
+@Index({
+  name: 'idx_customer_people_entity_id',
+  expression:
+    `create index "idx_customer_people_entity_id" on "customer_people" ("entity_id")`,
+})
 export class CustomerPersonProfile {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -181,6 +185,11 @@ export class CustomerPersonProfile {
 
 @Entity({ tableName: 'customer_companies' })
 @Index({ name: 'customer_companies_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'idx_customer_companies_entity_id',
+  expression:
+    `create index "idx_customer_companies_entity_id" on "customer_companies" ("entity_id")`,
+})
 export class CustomerCompanyProfile {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -292,6 +301,7 @@ export class CustomerDeal {
 
 @Entity({ tableName: 'customer_deal_people' })
 @Index({ name: 'customer_deal_people_deal_idx', properties: ['deal'] })
+@Index({ name: 'customer_deal_people_person_idx', properties: ['person'] })
 @Unique({ name: 'customer_deal_people_unique', properties: ['deal', 'person'] })
 export class CustomerDealPersonLink {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -312,6 +322,7 @@ export class CustomerDealPersonLink {
 
 @Entity({ tableName: 'customer_deal_companies' })
 @Index({ name: 'customer_deal_companies_deal_idx', properties: ['deal'] })
+@Index({ name: 'customer_deal_companies_company_idx', properties: ['company'] })
 @Unique({ name: 'customer_deal_companies_unique', properties: ['deal', 'company'] })
 export class CustomerDealCompanyLink {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -330,6 +341,7 @@ export class CustomerDealCompanyLink {
 @Entity({ tableName: 'customer_activities' })
 @Index({ name: 'customer_activities_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'customer_activities_entity_idx', properties: ['entity'] })
+@Index({ name: 'customer_activities_entity_occurred_created_idx', properties: ['entity', 'occurredAt', 'createdAt'] })
 export class CustomerActivity {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -376,6 +388,7 @@ export class CustomerActivity {
 
 @Entity({ tableName: 'customer_comments' })
 @Index({ name: 'customer_comments_entity_idx', properties: ['entity'] })
+@Index({ name: 'customer_comments_entity_created_idx', properties: ['entity', 'createdAt'] })
 export class CustomerComment {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -595,6 +608,7 @@ export class CustomerDictionaryEntry {
 
 @Entity({ tableName: 'customer_todo_links' })
 @Index({ name: 'customer_todo_links_entity_idx', properties: ['entity'] })
+@Index({ name: 'customer_todo_links_entity_created_idx', properties: ['entity', 'createdAt'] })
 @Unique({ name: 'customer_todo_links_unique', properties: ['entity', 'todoId', 'todoSource'] })
 export class CustomerTodoLink {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
