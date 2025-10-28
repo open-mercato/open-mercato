@@ -25,6 +25,7 @@ import { CrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CacheStrategy } from '@open-mercato/cache'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -496,6 +497,168 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
       )
   }
   if (tasks.length > 0) await Promise.all(tasks)
+}
+
+type CrudCacheStoredValue = {
+  payload: any
+  generatedAt: number
+}
+
+let crudCacheEnabledFlag: boolean | null = null
+function isCrudCacheEnabled(): boolean {
+  if (crudCacheEnabledFlag !== null) return crudCacheEnabledFlag
+  const raw = (process.env.ENABLE_CRUD_API_CACHE ?? '').toLowerCase()
+  crudCacheEnabledFlag = raw === '1' || raw === 'true' || raw === 'yes'
+  return crudCacheEnabledFlag
+}
+
+let crudCacheDebugFlag: boolean | null = null
+function isCrudCacheDebugEnabled(): boolean {
+  if (crudCacheDebugFlag !== null) return crudCacheDebugFlag
+  const raw = (process.env.QUERY_ENGINE_DEBUG_SQL ?? '').toLowerCase()
+  crudCacheDebugFlag = raw === '1' || raw === 'true' || raw === 'yes'
+  return crudCacheDebugFlag
+}
+
+function debugCrudCache(event: 'hit' | 'miss' | 'store' | 'invalidate', context: Record<string, unknown>) {
+  if (!isCrudCacheDebugEnabled()) return
+  try {
+    console.debug('[crud][cache]', event, context)
+  } catch {}
+}
+
+function safeClone<T>(value: T): T {
+  try {
+    const structuredCloneFn = (globalThis as any).structuredClone
+    if (typeof structuredCloneFn === 'function') {
+      return structuredCloneFn(value)
+    }
+  } catch {}
+  try {
+    return JSON.parse(JSON.stringify(value)) as T
+  } catch {
+    return value
+  }
+}
+
+function normalizeTagSegment(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === '') return 'null'
+  return value.toString().trim().replace(/[^a-zA-Z0-9._-]/g, '-')
+}
+
+function buildRecordTag(resource: string, tenantId: string | null, recordId: string): string {
+  return [
+    'crud',
+    normalizeTagSegment(resource),
+    'tenant',
+    normalizeTagSegment(tenantId),
+    'record',
+    normalizeTagSegment(recordId),
+  ].join(':')
+}
+
+function buildCollectionTags(resource: string, tenantId: string | null, organizationIds: Array<string | null>): string[] {
+  const normalizedResource = normalizeTagSegment(resource)
+  const normalizedTenant = normalizeTagSegment(tenantId)
+  const tags = new Set<string>()
+  if (!organizationIds.length) {
+    tags.add(['crud', normalizedResource, 'tenant', normalizedTenant, 'org', 'null', 'collection'].join(':'))
+    return Array.from(tags)
+  }
+  for (const orgId of organizationIds) {
+    tags.add(['crud', normalizedResource, 'tenant', normalizedTenant, 'org', normalizeTagSegment(orgId), 'collection'].join(':'))
+  }
+  return Array.from(tags)
+}
+
+function collectScopeOrganizationIds(ctx: CrudCtx): Array<string | null> {
+  if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
+    return Array.from(new Set(ctx.organizationIds))
+  }
+  const fallback = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  return [fallback]
+}
+
+function resolveCrudCache(container: AwilixContainer): CacheStrategy | null {
+  try {
+    const cache = container.resolve<CacheStrategy>('cache')
+    if (cache && typeof cache.get === 'function' && typeof cache.set === 'function') {
+      return cache
+    }
+  } catch {}
+  return null
+}
+
+function serializeSearchParams(params: URLSearchParams): string {
+  if (!params || params.keys().next().done) return ''
+  const grouped = new Map<string, string[]>()
+  params.forEach((value, key) => {
+    const existing = grouped.get(key) ?? []
+    existing.push(value)
+    grouped.set(key, existing)
+  })
+  const normalized: Array<[string, string[]]> = Array.from(grouped.entries()).map(([key, values]) => [key, values.sort()])
+  normalized.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return JSON.stringify(normalized)
+}
+
+function buildCrudCacheKey(resource: string, request: Request, ctx: CrudCtx): string {
+  const url = new URL(request.url)
+  const scopeIds = collectScopeOrganizationIds(ctx)
+  const scopeSegment = scopeIds.length
+    ? scopeIds.map((id) => normalizeTagSegment(id)).sort().join(',')
+    : 'none'
+  return [
+    'crud',
+    normalizeTagSegment(resource),
+    'GET',
+    url.pathname,
+    `tenant:${normalizeTagSegment(ctx.auth?.tenantId ?? null)}`,
+    `selectedOrg:${normalizeTagSegment(ctx.selectedOrganizationId ?? null)}`,
+    `scope:${scopeSegment}`,
+    `query:${serializeSearchParams(url.searchParams)}`,
+  ].join('|')
+}
+
+function extractRecordIds(items: any[], idField: string): string[] {
+  if (!Array.isArray(items) || !items.length) return []
+  const ids = new Set<string>()
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const rawId = (item as any)[idField]
+    const id = normalizeIdentifierValue(rawId)
+    if (id) ids.add(id)
+  }
+  return Array.from(ids)
+}
+
+async function invalidateCrudCache(
+  container: AwilixContainer,
+  resource: string,
+  identifiers: { id?: string | null; organizationId?: string | null; tenantId?: string | null },
+  fallbackTenant: string | null,
+  reason: string
+) {
+  if (!isCrudCacheEnabled()) return
+  const cache = resolveCrudCache(container)
+  if (!cache || typeof cache.deleteByTags !== 'function') return
+  const tenantId = identifiers.tenantId ?? fallbackTenant ?? null
+  const recordId = normalizeIdentifierValue(identifiers.id)
+  const tags = new Set<string>()
+  if (recordId) {
+    tags.add(buildRecordTag(resource, tenantId, recordId))
+  }
+  const organizationIds: Array<string | null> = []
+  if (identifiers.organizationId !== undefined) {
+    organizationIds.push(identifiers.organizationId ?? null)
+  }
+  if (!organizationIds.length) organizationIds.push(null)
+  for (const tag of buildCollectionTags(resource, tenantId, organizationIds)) {
+    tags.add(tag)
+  }
+  if (!tags.size) return
+  await cache.deleteByTags(Array.from(tags))
+  debugCrudCache('invalidate', { resource, reason, tenantId: tenantId ?? 'null', tags: Array.from(tags) })
 }
 
 export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: CrudFactoryOptions<TCreate, TUpdate, TList>) {

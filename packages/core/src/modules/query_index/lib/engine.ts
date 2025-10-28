@@ -93,23 +93,39 @@ export class HybridQueryEngine implements QueryEngine {
 
     const qualify = (col: string) => `b.${col}`
     let builder: ResultBuilder = knex({ b: baseTable })
+    const canOptimizeCount = !normalizedFilters.some((filter) => filter.field.startsWith('cf:')) && (!Array.isArray(opts.customFieldSources) || opts.customFieldSources.length === 0)
+    let optimizedCountBuilder: ResultBuilder | null = canOptimizeCount ? knex({ b: baseTable }) : null
 
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
-    if (orgScope && (await this.columnExists(baseTable, 'organization_id'))) {
+
+    const hasOrganizationColumn = await this.columnExists(baseTable, 'organization_id')
+    const hasTenantColumn = await this.columnExists(baseTable, 'tenant_id')
+    const hasDeletedColumn = await this.columnExists(baseTable, 'deleted_at')
+
+    if (orgScope && hasOrganizationColumn) {
       builder = this.applyOrganizationScope(builder, qualify('organization_id'), orgScope)
+      if (optimizedCountBuilder) optimizedCountBuilder = this.applyOrganizationScope(optimizedCountBuilder, qualify('organization_id'), orgScope)
     }
-    if (await this.columnExists(baseTable, 'tenant_id')) {
+    if (hasTenantColumn) {
       builder = builder.where(qualify('tenant_id'), opts.tenantId)
+      if (optimizedCountBuilder) optimizedCountBuilder = optimizedCountBuilder.where(qualify('tenant_id'), opts.tenantId)
     }
-    if (!opts.withDeleted && (await this.columnExists(baseTable, 'deleted_at'))) {
+    if (!opts.withDeleted && hasDeletedColumn) {
       builder = builder.whereNull(qualify('deleted_at'))
+      if (optimizedCountBuilder) optimizedCountBuilder = optimizedCountBuilder.whereNull(qualify('deleted_at'))
     }
 
     const baseJoinParts: string[] = []
     baseJoinParts.push(`ei.entity_type = ${knex.raw('?', [entity]).toString()}`)
     baseJoinParts.push(`ei.entity_id = (${qualify('id')}::text)`)
-    if (await this.columnExists(baseTable, 'organization_id')) baseJoinParts.push(`(ei.organization_id is not distinct from ${qualify('organization_id')})`)
-    if (await this.columnExists(baseTable, 'tenant_id')) baseJoinParts.push(`(ei.tenant_id is not distinct from ${qualify('tenant_id')})`)
+    if (hasOrganizationColumn) {
+      baseJoinParts.push(`ei.organization_id = ${qualify('organization_id')}`)
+      baseJoinParts.push('ei.organization_id is not null')
+    }
+    if (hasTenantColumn) {
+      baseJoinParts.push(`ei.tenant_id = ${qualify('tenant_id')}`)
+      baseJoinParts.push('ei.tenant_id is not null')
+    }
     if (!opts.withDeleted) baseJoinParts.push(`ei.deleted_at is null`)
     builder = builder.leftJoin({ ei: 'entity_indexes' }, knex.raw(baseJoinParts.join(' AND ')))
 
@@ -126,11 +142,17 @@ export class HybridQueryEngine implements QueryEngine {
         const orgExpr = source.organizationField
           ? knex.raw('??', [`${source.alias}.${source.organizationField}`]).toString()
           : (columns.has('organization_id') ? qualify('organization_id') : null)
-        if (orgExpr) fragments.push(`(${source.indexAlias}.organization_id is not distinct from ${orgExpr})`)
+        if (orgExpr) {
+          fragments.push(`${source.indexAlias}.organization_id = ${orgExpr}`)
+          fragments.push(`${source.indexAlias}.organization_id is not null`)
+        }
         const tenantExpr = source.tenantField
           ? knex.raw('??', [`${source.alias}.${source.tenantField}`]).toString()
           : (columns.has('tenant_id') ? qualify('tenant_id') : null)
-        if (tenantExpr) fragments.push(`(${source.indexAlias}.tenant_id is not distinct from ${tenantExpr})`)
+        if (tenantExpr) {
+          fragments.push(`${source.indexAlias}.tenant_id = ${tenantExpr}`)
+          fragments.push(`${source.indexAlias}.tenant_id is not null`)
+        }
         if (!opts.withDeleted) fragments.push(`${source.indexAlias}.deleted_at is null`)
         builder = builder.leftJoin({ [source.indexAlias]: 'entity_indexes' }, knex.raw(fragments.join(' AND ')))
         indexSources.push({ alias: source.indexAlias, entityId: source.entityId })
@@ -159,6 +181,7 @@ export class HybridQueryEngine implements QueryEngine {
       if (!baseField) continue
       const column = qualify(baseField)
       builder = this.applyColumnFilter(builder, column, filter)
+      if (optimizedCountBuilder) optimizedCountBuilder = this.applyColumnFilter(optimizedCountBuilder, column, filter)
     }
 
     const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : ['id'])
@@ -208,14 +231,27 @@ export class HybridQueryEngine implements QueryEngine {
     const page = opts.page?.page ?? 1
     const pageSize = opts.page?.pageSize ?? 20
 
-    const countBuilder = builder.clone().clearSelect().clearOrder().countDistinct(`${qualify('id')} as count`)
     const sqlDebugEnabled = this.isSqlDebugEnabled()
-    if (debugEnabled && sqlDebugEnabled) {
-      const { sql, bindings } = countBuilder.clone().toSQL()
-      this.debug('query:sql:count', { entity, sql, bindings })
+    let total: number
+
+    if (optimizedCountBuilder) {
+      const countSource = optimizedCountBuilder.clone().clearSelect().clearOrder().select(knex.raw(`${qualify('id')} as id`)).groupBy(qualify('id'))
+      const countQuery = knex.from(countSource.as('sq')).count({ count: knex.raw('*') })
+      if (debugEnabled && sqlDebugEnabled) {
+        const { sql, bindings } = countQuery.clone().toSQL()
+        this.debug('query:sql:count', { entity, sql, bindings })
+      }
+      const countRow = await this.captureSqlTiming('query:sql:count', entity, () => countQuery.first())
+      total = this.parseCount(countRow)
+    } else {
+      const countBuilder = builder.clone().clearSelect().clearOrder().countDistinct(`${qualify('id')} as count`)
+      if (debugEnabled && sqlDebugEnabled) {
+        const { sql, bindings } = countBuilder.clone().toSQL()
+        this.debug('query:sql:count', { entity, sql, bindings })
+      }
+      const countRow = await this.captureSqlTiming('query:sql:count', entity, () => countBuilder.first())
+      total = this.parseCount(countRow)
     }
-    const countRow = await this.captureSqlTiming('query:sql:count', entity, () => countBuilder.first())
-    const total = this.parseCount(countRow)
 
     const dataBuilder = builder.clone().limit(pageSize).offset((page - 1) * pageSize)
     if (debugEnabled && sqlDebugEnabled) {

@@ -14,6 +14,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerAddress,
   CustomerComment,
+  CustomerDeal,
+  CustomerDealPersonLink,
   CustomerEntity,
   CustomerPersonProfile,
   CustomerTagAssignment,
@@ -106,6 +108,12 @@ type PersonSnapshot = {
   addresses: PersonAddressSnapshot[]
   comments: PersonCommentSnapshot[]
   custom?: Record<string, unknown>
+  deals: Array<{
+    id: string
+    dealId: string
+    role: string | null
+    createdAt: Date
+  }>
 }
 
 type PersonUndoPayload = {
@@ -136,6 +144,7 @@ function serializePersonSnapshot(
   tagIds: string[],
   addresses: CustomerAddress[],
   comments: CustomerComment[],
+  deals: CustomerDealPersonLink[],
   custom?: Record<string, unknown>
 ): PersonSnapshot {
   return {
@@ -205,6 +214,14 @@ function serializePersonSnapshot(
       appearanceIcon: comment.appearanceIcon ?? null,
       appearanceColor: comment.appearanceColor ?? null,
     })),
+    deals: deals
+      .filter((link) => link.deal)
+      .map((link) => ({
+        id: link.id,
+        dealId: link.deal.id,
+        role: link.role ?? null,
+        createdAt: link.createdAt,
+      })),
     custom,
   }
 }
@@ -217,6 +234,11 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
   const tagIds = await loadEntityTagIds(em, entity)
   const addresses = await em.find(CustomerAddress, { entity }, { orderBy: { createdAt: 'asc' } })
   const comments = await em.find(CustomerComment, { entity }, { orderBy: { createdAt: 'asc' }, populate: ['deal'] })
+  const deals = await em.find(
+    CustomerDealPersonLink,
+    { person: entity },
+    { orderBy: { createdAt: 'asc' }, populate: ['deal'] }
+  )
   const entityCustom = await loadCustomFieldSnapshot(em, {
     entityId: CUSTOMER_ENTITY_ID,
     recordId: entity.id,
@@ -236,7 +258,7 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
     if (target === CUSTOMER_ENTITY_ID && Object.prototype.hasOwnProperty.call(custom, key)) continue
     custom[key] = value
   }
-  return serializePersonSnapshot(entity, profile, tagIds, addresses, comments, custom)
+  return serializePersonSnapshot(entity, profile, tagIds, addresses, comments, deals, custom)
 }
 
 async function resolveCompanyReference(
@@ -752,6 +774,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       await em.nativeDelete(CustomerAddress, { entity: record })
       await em.nativeDelete(CustomerComment, { entity: record })
       await em.nativeDelete(CustomerTagAssignment, { entity: record })
+      await em.nativeDelete(CustomerDealPersonLink, { person: record })
       em.remove(record)
       await em.flush()
 
@@ -874,6 +897,30 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       await em.flush()
       await syncEntityTags(em, entity, before.tagIds)
       await em.flush()
+
+      await em.nativeDelete(CustomerDealPersonLink, { person: entity })
+      if (before.deals.length) {
+        const dealIds = before.deals.map((deal) => deal.dealId)
+        const deals = await em.find(CustomerDeal, {
+          id: { $in: dealIds },
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+        })
+        const dealMap = new Map(deals.map((deal) => [deal.id, deal]))
+        for (const link of before.deals) {
+          const deal = dealMap.get(link.dealId)
+          if (!deal) continue
+          const restoredLink = em.create(CustomerDealPersonLink, {
+            id: link.id,
+            deal,
+            person: entity,
+            role: link.role,
+            createdAt: link.createdAt,
+          })
+          em.persist(restoredLink)
+        }
+        await em.flush()
+      }
 
       await em.nativeDelete(CustomerComment, { entity })
       for (const comment of before.comments) {

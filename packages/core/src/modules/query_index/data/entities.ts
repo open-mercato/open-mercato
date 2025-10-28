@@ -4,11 +4,13 @@ import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
 @Entity({ tableName: 'entity_indexes' })
 @Index({
   name: 'idx_ei_cust_entity',
-  expression: `(entity_id, organization_id, tenant_id) include ("doc") where deleted_at is null and entity_type = 'customers:customer_entity'`,
+  expression:
+    `(entity_id, organization_id, tenant_id) include ("doc") where deleted_at is null and entity_type = 'customers:customer_entity' and organization_id is not null and tenant_id is not null`,
 })
 @Index({
   name: 'idx_ei_person_profile',
-  expression: `(entity_id, organization_id, tenant_id) include ("doc") where deleted_at is null and entity_type = 'customers:customer_person_profile'`,
+  expression:
+    `(entity_id, organization_id, tenant_id) include ("doc") where deleted_at is null and entity_type = 'customers:customer_person_profile' and organization_id is not null and tenant_id is not null`,
 })
 export class EntityIndexRow {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })

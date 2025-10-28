@@ -126,3 +126,5 @@ export function ContentLayout({ title, intro, breadcrumb, children }: ContentLay
     </div>
   )
 }
+
+export default ContentLayout
