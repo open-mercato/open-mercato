@@ -9,6 +9,12 @@ export type ApiDocResource = {
 export function getApiDocsResources(): ApiDocResource[] {
   return [
     {
+      label: 'OpenAPI Explorer',
+      description: 'Interactive HTML viewer with endpoint details, payload schemas, and sample requests.',
+      href: '/docs/api',
+      actionLabel: 'Open explorer',
+    },
+    {
       label: 'Official documentation',
       description: 'Guides and tutorials covering setup, modules, and customization.',
       href: 'https://docs.openmercato.com/',
