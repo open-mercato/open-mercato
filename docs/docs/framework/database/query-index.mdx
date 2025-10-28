@@ -56,6 +56,7 @@ Backfill
   - Options: `--withDeleted` `--limit <n>` `--offset <n>` `--batch <size>`
 - CLI: `mercato query_index rebuild-all` walks every registered entity index using the same flags as `rebuild`, making it easy to refresh the entire corpus in one go.
 - Scheduling via events remains available: `mercato query_index reindex [--entity <module:entity>] [--tenant <tenantId>] [--force]` and `mercato query_index purge [...]` enqueue background jobs when you don’t need immediate writes.
+- Bulk imports: build and insert index payloads alongside your ETL transaction with the `buildIndexDocument` helper (`packages/core/src/modules/query_index/lib/document.ts`) so large seeders can skip the post-import reindex sweep. The CRM stress-test seeder now follows this pattern.
 
 Performance tips
 - Start with `gin(doc jsonb_path_ops)`.

@@ -12,6 +12,7 @@ import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { E as CoreEntities } from '@open-mercato/core/generated/entities.ids.generated'
 import { E as ExampleEntities } from '@open-mercato/example/generated/entities.ids.generated'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
+import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
 import {
   CustomerEntity,
   CustomerCompanyProfile,
@@ -1813,6 +1814,7 @@ async function seedCustomerStressTest(
     tenantId: string | null
     values: Record<string, Primitive | Primitive[] | undefined>
     getRecordId: () => string | undefined
+    registeredForIndex?: boolean
   }
 
   type CustomFieldInsertRow = {
@@ -1834,9 +1836,193 @@ async function seedCustomerStressTest(
   const cfInsertBatchSize = 500
   const flushInterval = 100
   const knex = em.getConnection().getKnex()
+  const entityIndexesColumns = await knex('entity_indexes')
+    .columnInfo()
+    .catch(() => ({} as Record<string, unknown>))
+  const hasColumn = (name: string) =>
+    Object.keys(entityIndexesColumns).some((col) => col.toLowerCase() === name.toLowerCase())
+  const supportsOrgCoalesced = hasColumn('organization_id_coalesced')
+
+  type PendingIndexDoc = {
+    entityType: string
+    recordId: string
+    organizationId: string | null
+    tenantId: string | null
+    baseRow: Record<string, any>
+    customFields: IndexCustomFieldValue[]
+    createdAt: Date
+    updatedAt: Date
+  }
+
+  const pendingIndexDocs = new Map<string, Map<string, PendingIndexDoc>>()
+
+  const ensureIndexDoc = (
+    entityType: string,
+    recordId: string,
+    initializer: () => PendingIndexDoc,
+  ): PendingIndexDoc => {
+    let bucket = pendingIndexDocs.get(entityType)
+    if (!bucket) {
+      bucket = new Map<string, PendingIndexDoc>()
+      pendingIndexDocs.set(entityType, bucket)
+    }
+    let doc = bucket.get(recordId)
+    if (!doc) {
+      doc = initializer()
+      bucket.set(recordId, doc)
+    }
+    return doc
+  }
+
+  const registerIndexBaseRow = (entityType: string, row: Record<string, any>) => {
+    const recordId = String((row as any).id)
+    const createdAt = ((row as any).created_at as Date) ?? new Date()
+    const updatedAt = ((row as any).updated_at as Date) ?? createdAt
+    const organizationId = ((row as any).organization_id ?? null) as string | null
+    const tenantId = ((row as any).tenant_id ?? null) as string | null
+    const doc = ensureIndexDoc(entityType, recordId, () => ({
+      entityType,
+      recordId,
+      organizationId,
+      tenantId,
+      baseRow: { ...row },
+      customFields: [],
+      createdAt,
+      updatedAt,
+    }))
+    doc.entityType = entityType
+    doc.recordId = recordId
+    doc.organizationId = organizationId
+    doc.tenantId = tenantId
+    doc.baseRow = { ...row }
+    doc.createdAt = createdAt
+    doc.updatedAt = updatedAt
+  }
+
+  const appendIndexCustomFields = (
+    entityType: string,
+    recordId: string,
+    scope: { organizationId: string | null; tenantId: string | null },
+    values: Record<string, Primitive | Primitive[] | undefined>,
+  ) => {
+    const doc = ensureIndexDoc(entityType, recordId, () => ({
+      entityType,
+      recordId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      baseRow: {},
+      customFields: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }))
+    doc.organizationId = scope.organizationId
+    doc.tenantId = scope.tenantId
+    for (const [key, raw] of Object.entries(values)) {
+      if (raw === undefined) continue
+      const pushValue = (value: Primitive) => {
+        doc.customFields.push({
+          key,
+          value: value ?? null,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+        })
+      }
+      if (Array.isArray(raw)) {
+        for (const entry of raw as Primitive[]) pushValue(entry)
+      } else {
+        pushValue(raw as Primitive)
+      }
+    }
+  }
+
+  const flushIndexDocs = async (trx: any) => {
+    const rows: Array<{
+      entity_type: string
+      entity_id: string
+      organization_id: string | null
+      tenant_id: string | null
+      doc: Record<string, unknown>
+      index_version: number
+      created_at: Date
+      updated_at: Date
+      deleted_at: null
+    }> = []
+    for (const [entityType, bucket] of pendingIndexDocs.entries()) {
+      for (const entry of bucket.values()) {
+        if (!entry.baseRow || Object.keys(entry.baseRow).length === 0) continue
+        rows.push({
+          entity_type: entityType,
+          entity_id: entry.recordId,
+          organization_id: entry.organizationId,
+          tenant_id: entry.tenantId,
+          doc: buildIndexDocument(entry.baseRow, entry.customFields, {
+            organizationId: entry.organizationId,
+            tenantId: entry.tenantId,
+          }),
+          index_version: 1,
+          created_at: entry.createdAt,
+          updated_at: entry.updatedAt,
+          deleted_at: null,
+        })
+      }
+      bucket.clear()
+    }
+    if (!rows.length) {
+      pendingIndexDocs.clear()
+      return
+    }
+    if (supportsOrgCoalesced) {
+      await trx('entity_indexes')
+        .insert(rows)
+        .onConflict(['entity_type', 'entity_id', 'organization_id_coalesced'])
+        .merge({
+          doc: trx.raw('excluded.doc'),
+          index_version: trx.raw('excluded.index_version'),
+          organization_id: trx.raw('excluded.organization_id'),
+          tenant_id: trx.raw('excluded.tenant_id'),
+          deleted_at: trx.raw('excluded.deleted_at'),
+          updated_at: trx.raw('excluded.updated_at'),
+        })
+    } else {
+      for (const row of rows) {
+        const updatePayload = {
+          doc: row.doc,
+          index_version: row.index_version,
+          organization_id: row.organization_id,
+          tenant_id: row.tenant_id,
+          updated_at: row.updated_at,
+          deleted_at: null as null,
+        }
+        const updated = await trx('entity_indexes')
+          .where({
+            entity_type: row.entity_type,
+            entity_id: row.entity_id,
+            organization_id: row.organization_id,
+          })
+          .update(updatePayload)
+        if (updated) continue
+        try {
+          await trx('entity_indexes').insert(row)
+        } catch {
+          // ignored: row inserted concurrently
+        }
+      }
+    }
+    pendingIndexDocs.clear()
+  }
 
   const queueCustomFieldAssignment = (assignment: PendingCustomFieldAssignment) => {
     if (!includeExtras) return
+    const recordId = assignment.getRecordId()
+    if (recordId) {
+      appendIndexCustomFields(
+        assignment.entityId,
+        recordId,
+        { organizationId: assignment.organizationId ?? null, tenantId: assignment.tenantId ?? null },
+        assignment.values,
+      )
+      assignment.registeredForIndex = true
+    }
     pendingAssignments.push(assignment)
   }
 
@@ -1849,6 +2035,15 @@ async function seedCustomerStressTest(
     for (const assignment of pendingAssignments.splice(0)) {
       const recordId = assignment.getRecordId()
       if (!recordId) continue
+      if (!assignment.registeredForIndex) {
+        appendIndexCustomFields(
+          assignment.entityId,
+          recordId,
+          { organizationId: assignment.organizationId ?? null, tenantId: assignment.tenantId ?? null },
+          assignment.values,
+        )
+        assignment.registeredForIndex = true
+      }
       for (const [fieldKey, raw] of Object.entries(assignment.values)) {
         if (raw === undefined) continue
         if (Array.isArray(raw)) {
@@ -2108,6 +2303,7 @@ async function seedCustomerStressTest(
         await insertRows(trx, 'customer_activities', activityRows)
         await insertRows(trx, 'customer_comments', commentRows)
       }
+      await flushIndexDocs(trx)
     })
   }
 
@@ -2127,7 +2323,7 @@ async function seedCustomerStressTest(
     const primaryEmail = `hello@${domain}`
     const primaryPhone = buildPhone(sequence)
     const timestamp = new Date()
-    customerEntityRows.push({
+    const entityRow: CustomerEntityRow = {
       id: companyId,
       organization_id: organizationId,
       tenant_id: tenantId,
@@ -2149,8 +2345,10 @@ async function seedCustomerStressTest(
       created_at: timestamp,
       updated_at: timestamp,
       deleted_at: null,
-    })
-    companyProfileRows.push({
+    }
+    customerEntityRows.push(entityRow)
+    registerIndexBaseRow(CoreEntities.customers.customer_entity, entityRow)
+    const profileRow: CustomerCompanyProfileRow = {
       id: profileId,
       organization_id: organizationId,
       tenant_id: tenantId,
@@ -2164,7 +2362,9 @@ async function seedCustomerStressTest(
       annual_revenue: null,
       created_at: timestamp,
       updated_at: timestamp,
-    })
+    }
+    companyProfileRows.push(profileRow)
+    registerIndexBaseRow(CoreEntities.customers.customer_company_profile, profileRow)
     const record: CompanyRecord = {
       entityId: companyId,
       companyProfileId: profileId,
@@ -2210,7 +2410,7 @@ async function seedCustomerStressTest(
     const email = `${emailHandle}.${sequence}@${STRESS_TEST_EMAIL_DOMAIN}`
     const timezone = randomChoice(STRESS_TEST_TIMEZONES)
     const personEntityId = randomUUID()
-    customerEntityRows.push({
+    const personEntityRow: CustomerEntityRow = {
       id: personEntityId,
       organization_id: organizationId,
       tenant_id: tenantId,
@@ -2232,9 +2432,11 @@ async function seedCustomerStressTest(
       created_at: timestamp,
       updated_at: timestamp,
       deleted_at: null,
-    })
+    }
+    customerEntityRows.push(personEntityRow)
+    registerIndexBaseRow(CoreEntities.customers.customer_entity, personEntityRow)
     const personProfileId = randomUUID()
-    personProfileRows.push({
+    const personProfileRow: CustomerPersonProfileRow = {
       id: personProfileId,
       organization_id: organizationId,
       tenant_id: tenantId,
@@ -2251,7 +2453,9 @@ async function seedCustomerStressTest(
       twitter_url: `https://twitter.com/${emailHandle}${sequence}`,
       created_at: timestamp,
       updated_at: timestamp,
-    })
+    }
+    personProfileRows.push(personProfileRow)
+    registerIndexBaseRow(CoreEntities.customers.customer_person_profile, personProfileRow)
 
     if (includeExtras) {
       const personFieldValues: Record<string, Primitive | Primitive[]> = {
@@ -2276,7 +2480,7 @@ async function seedCustomerStressTest(
         dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'loose'
           ? randomPastDate(120)
           : randomFutureDate(120)
-      dealRows.push({
+      const dealRow: CustomerDealRow = {
         id: dealId,
         organization_id: organizationId,
         tenant_id: tenantId,
@@ -2293,7 +2497,9 @@ async function seedCustomerStressTest(
         created_at: timestamp,
         updated_at: timestamp,
         deleted_at: null,
-      })
+      }
+      dealRows.push(dealRow)
+      registerIndexBaseRow(CoreEntities.customers.customer_deal, dealRow)
       dealCompanyRows.push({
         id: randomUUID(),
         deal_id: dealId,
@@ -2327,7 +2533,7 @@ async function seedCustomerStressTest(
         const activityId = randomUUID()
         const targetEntityId = activityType === 'person' ? personEntityId : companyRecord.entityId
         const occurredAt = randomPastDate(200)
-        activityRows.push({
+        const activityRow: CustomerActivityRow = {
           id: activityId,
           organization_id: organizationId,
           tenant_id: tenantId,
@@ -2342,7 +2548,9 @@ async function seedCustomerStressTest(
           appearance_color: randomChoice(['#2563eb', '#22c55e', '#f97316', '#a855f7', '#6366f1']),
           created_at: timestamp,
           updated_at: timestamp,
-        })
+        }
+        activityRows.push(activityRow)
+        registerIndexBaseRow(CoreEntities.customers.customer_activity, activityRow)
 
         queueCustomFieldAssignment({
           entityId: CoreEntities.customers.customer_activity,

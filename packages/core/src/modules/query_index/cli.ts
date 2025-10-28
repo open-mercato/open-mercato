@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { buildIndexDocument, type IndexCustomFieldValue } from './lib/document'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -131,46 +132,6 @@ function normalizeScopedValue(value: unknown): string | null {
   return String(value)
 }
 
-function matchesScope(fieldRow: CustomFieldRow, scopeOrg: string | null, scopeTenant: string | null): boolean {
-  const cfOrg = normalizeScopedValue(fieldRow.organization_id)
-  const cfTenant = normalizeScopedValue(fieldRow.tenant_id)
-  const orgMatches = scopeOrg != null ? cfOrg === scopeOrg || cfOrg === null : cfOrg === null
-  const tenantMatches = scopeTenant != null ? cfTenant === scopeTenant || cfTenant === null : cfTenant === null
-  return orgMatches && tenantMatches
-}
-
-function buildDocument(
-  baseRow: AnyRow,
-  fieldRows: CustomFieldRow[],
-  scopeOrg: string | null,
-  scopeTenant: string | null,
-): Record<string, any> {
-  const doc: Record<string, any> = {}
-  for (const [key, value] of Object.entries(baseRow)) {
-    doc[key] = value
-  }
-  if (!fieldRows.length) return doc
-
-  const grouped: Record<string, any[]> = {}
-  for (const field of fieldRows) {
-    if (!matchesScope(field, scopeOrg, scopeTenant)) continue
-    const cfKey = `cf:${field.field_key}`
-    const value =
-      field.value_bool ??
-      field.value_int ??
-      field.value_float ??
-      field.value_text ??
-      field.value_multiline ??
-      null
-    if (!grouped[cfKey]) grouped[cfKey] = []
-    grouped[cfKey]!.push(value)
-  }
-  for (const [key, values] of Object.entries(grouped)) {
-    doc[key] = values.length <= 1 ? values[0] : values
-  }
-  return doc
-}
-
 async function upsertIndexBatch(knex: Knex, entityType: string, rows: AnyRow[], scope: ScopeOverrides): Promise<void> {
   if (!rows.length) return
   const recordIds = rows.map((row) => normalizeId(row.id))
@@ -203,7 +164,23 @@ async function upsertIndexBatch(knex: Knex, entityType: string, rows: AnyRow[], 
     const baseTenant = normalizeScopedValue((row as AnyRow).tenant_id)
     const scopeOrg = scope.orgId !== undefined ? scope.orgId : baseOrg
     const scopeTenant = scope.tenantId !== undefined ? scope.tenantId : baseTenant
-    const doc = buildDocument(row, customFieldMap.get(recordId) ?? [], scopeOrg, scopeTenant)
+    const inputRows = customFieldMap.get(recordId) ?? []
+    const values: IndexCustomFieldValue[] = inputRows.map((fieldRow) => ({
+      key: fieldRow.field_key,
+      value:
+        fieldRow.value_bool ??
+        fieldRow.value_int ??
+        fieldRow.value_float ??
+        fieldRow.value_text ??
+        fieldRow.value_multiline ??
+        null,
+      organizationId: normalizeScopedValue(fieldRow.organization_id),
+      tenantId: normalizeScopedValue(fieldRow.tenant_id),
+    }))
+    const doc = buildIndexDocument(row, values, {
+      organizationId: scopeOrg ?? null,
+      tenantId: scopeTenant ?? null,
+    })
     return {
       entity_type: entityType,
       entity_id: recordId,
