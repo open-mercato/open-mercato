@@ -18,6 +18,7 @@ import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import type { SectionAction } from '../../../../components/detail/types'
 import { useCustomerDictionary } from '../../../../components/detail/hooks/useCustomerDictionary'
 import type { CustomerDictionaryMap } from '../../../../lib/dictionaries'
+import { createTranslatorWithFallback } from '../../../../components/detail/utils'
 
 type DealAssociation = {
   id: string
@@ -95,6 +96,7 @@ function resolveDictionaryLabel(
 
 export default function DealDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const router = useRouter()
   const id = params?.id ?? ''
   const scopeVersion = useOrganizationScopeVersion()
@@ -533,7 +535,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                       actionLabel: t('customers.deals.detail.notesEmptyAction', 'Add a note'),
                     }}
                     onActionChange={setSectionAction}
-                    translator={t}
+                    translator={detailTranslator}
                     onLoadingChange={handleNotesLoadingChange}
                   />
                 ) : null}

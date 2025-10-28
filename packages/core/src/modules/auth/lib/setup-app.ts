@@ -199,7 +199,7 @@ async function ensureDefaultRoleAcls(em: EntityManager, tenantId: string) {
       'query_index.*',
       'catalog.*',
       'sales.*',
-      'audit_logs.undo_self',
+      'audit_logs.*',
       'directory.organizations.view',
       'directory.organizations.manage',
       'customers.*',

@@ -73,6 +73,7 @@ describe('auth CLI setup seeds ACLs', () => {
       'customers.deals.view',
       'customers.deals.manage',
       'example.*',
+      'audit_logs.*',
     ]))
     expect(adminAcl?.featuresJson).not.toContain('directory.organizations.*')
 

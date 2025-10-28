@@ -2,6 +2,7 @@
 
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { CustomerDictionaryKind } from '../../lib/dictionaries'
+import type { Translator } from './types'
 
 export function formatDateTime(value?: string | null): string | null {
   if (!value) return null
@@ -78,6 +79,17 @@ export function resolveTodoApiPath(source: string): string | null {
   const [module] = source.split(':')
   if (!module) return null
   return `/api/${module}/todos`
+}
+
+export function createTranslatorWithFallback(
+  translate: (key: string, params?: Record<string, string | number>) => string,
+): Translator {
+  return (key, fallback, params) => {
+    const value = translate(key, params)
+    if (value !== key) return value
+    if (!fallback) return key
+    return formatTemplate(fallback, params)
+  }
 }
 
 export function createDictionarySelectLabels(

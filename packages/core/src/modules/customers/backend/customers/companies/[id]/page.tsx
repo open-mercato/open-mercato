@@ -29,7 +29,7 @@ import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights'
-import { formatTemplate } from '../../../../components/detail/utils'
+import { createTranslatorWithFallback, formatTemplate } from '../../../../components/detail/utils'
 import {
   CompanyPeopleSection,
   type CompanyPersonSummary,
@@ -97,6 +97,7 @@ function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) 
 export default function CustomerCompanyDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialTab = React.useMemo(() => {
@@ -740,7 +741,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                 }}
                 onActionChange={handleSectionActionChange}
                 onLoadingChange={handleDealsLoadingChange}
-                translator={t}
+                translator={detailTranslator}
               />
             )}
             {activeTab === 'people' && (
@@ -755,7 +756,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                 }}
                 onActionChange={handleSectionActionChange}
                 onLoadingChange={handlePeopleLoadingChange}
-                translator={t}
+                translator={detailTranslator}
                 onPeopleChange={(next) => {
                   setData((prev) => (prev ? { ...prev, people: next } : prev))
                 }}
@@ -772,7 +773,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                 }}
                 onActionChange={handleSectionActionChange}
                 onLoadingChange={handleAddressesLoadingChange}
-                translator={t}
+                translator={detailTranslator}
               />
             )}
             {activeTab === 'tasks' && (
