@@ -9,7 +9,6 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { useT, useLocale } from '@/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { LanguageSwitcher } from '@open-mercato/ui/frontend/LanguageSwitcher'
 import { onboardingStartSchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 
 type SubmissionState = 'idle' | 'loading' | 'success'
@@ -114,10 +113,7 @@ export default function OnboardingPage() {
   const disabled = submitting || state === 'success'
 
   return (
-    <div className="relative min-h-svh flex items-center justify-center bg-muted/40 px-4">
-      <div className="absolute top-4 right-4">
-        <LanguageSwitcher />
-      </div>
+    <div className="relative min-h-svh flex items-center justify-center bg-muted/40 px-4 pb-24">
       <Card className="w-full max-w-lg shadow-lg">
         <CardHeader className="flex flex-col gap-4 p-10 text-center">
           <div className="flex flex-col items-center gap-3">

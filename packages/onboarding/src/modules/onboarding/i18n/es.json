@@ -25,7 +25,12 @@
       "body": "We just need to confirm your email address to finish setting up the organization {organizationName}.",
       "cta": "Confirm email & activate workspace",
       "expiry": "The link will expire in 24 hours. If you didn't request this, you can safely ignore this message.",
-      "footer": "Open Mercato · Tenant onboarding service"
+      "footer": "Open Mercato · Tenant onboarding service",
+      "adminSubject": "New self-service onboarding request",
+      "adminPreview": "New onboarding request submitted",
+      "adminHeading": "New onboarding request",
+      "adminBody": "{firstName} {lastName} ({email}) submitted an onboarding request for {organizationName}.",
+      "adminFooter": "You can review the tenant after verification is complete."
     },
     "errors": {
       "emailInvalid": "Enter a valid work email.",
@@ -33,7 +38,8 @@
       "lastNameRequired": "Last name is required.",
       "organizationNameRequired": "Organization name is required.",
       "termsRequired": "Please accept the terms to continue.",
-      "emailExists": "We already have an account with this email. Try signing in or resetting your password."
+      "emailExists": "We already have an account with this email. Try signing in or resetting your password.",
+      "pendingRequest": "We already have a pending verification. Please try again in about {minutes} minutes or contact the administrator."
     }
   }
 }

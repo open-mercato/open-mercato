@@ -5,6 +5,7 @@ import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 
 const DEFAULT_ROLE_NAMES = ['employee', 'admin', 'superadmin'] as const
+const DEMO_SUPERADMIN_EMAIL = 'superadmin@acme.com'
 
 export type EnsureRolesOptions = {
   roleNames?: string[]
@@ -159,6 +160,7 @@ export async function setupInitialTenant(
   }
 
   await ensureDefaultRoleAcls(em, tenantId)
+  await deactivateDemoSuperAdminIfSelfOnboardingEnabled(em)
 
   return {
     tenantId,
@@ -281,5 +283,27 @@ async function ensureRoleAclFor(
   }
   if (changed || options.isSuperAdmin) {
     await em.persistAndFlush(existing)
+  }
+}
+
+async function deactivateDemoSuperAdminIfSelfOnboardingEnabled(em: EntityManager) {
+  if (process.env.SELF_SERVICE_ONBOARDING_ENABLED !== 'true') return
+  try {
+    const user = await em.findOne(User, { email: DEMO_SUPERADMIN_EMAIL })
+    if (!user) return
+    let dirty = false
+    if (user.passwordHash) {
+      user.passwordHash = null
+      dirty = true
+    }
+    if (user.isConfirmed !== false) {
+      user.isConfirmed = false
+      dirty = true
+    }
+    if (dirty) {
+      await em.persistAndFlush(user)
+    }
+  } catch (error) {
+    console.error('[auth.setup] failed to deactivate demo superadmin user', error)
   }
 }
