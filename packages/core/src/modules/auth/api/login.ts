@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { userLoginSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
@@ -55,4 +57,51 @@ export async function POST(req: Request) {
     res.cookies.set('session_token', sess.token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
   }
   return res
+}
+
+const loginRequestSchema = userLoginSchema.extend({
+  password: z.string().min(6).describe('User password'),
+  remember: z.enum(['on', '1', 'true']).optional().describe('Persist the session (submit `on`, `1`, or `true`).'),
+}).describe('Login form payload')
+
+const loginSuccessSchema = z.object({
+  ok: z.literal(true),
+  token: z.string().describe('JWT token issued for subsequent API calls'),
+  redirect: z.string().nullable().describe('Next location the client should navigate to'),
+})
+
+const loginErrorSchema = z.object({
+  ok: z.literal(false),
+  error: z.string(),
+})
+
+const loginMethodDoc: OpenApiMethodDoc = {
+  summary: 'Authenticate user credentials',
+  description: 'Validates the submitted credentials and issues a bearer token cookie for subsequent API calls.',
+  tags: ['Authentication & Accounts'],
+  requestBody: {
+    contentType: 'application/x-www-form-urlencoded',
+    schema: loginRequestSchema,
+    description: 'Form-encoded payload captured from the login form.',
+  },
+  responses: [
+    {
+      status: 200,
+      description: 'Authentication succeeded',
+      schema: loginSuccessSchema,
+    },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: loginErrorSchema },
+    { status: 401, description: 'Invalid credentials', schema: loginErrorSchema },
+    { status: 403, description: 'User lacks required role', schema: loginErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'Authenticate user credentials',
+  description: 'Accepts login form submissions and manages cookie/session issuance.',
+  methods: {
+    POST: loginMethodDoc,
+  },
 }

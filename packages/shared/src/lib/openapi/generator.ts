@@ -837,6 +837,21 @@ function schemaTypeLabel(schema: any): string {
   return 'any'
 }
 
+function schemaHasDetails(schema: any): boolean {
+  if (!schema || typeof schema !== 'object') return false
+  if (Array.isArray(schema.enum) && schema.enum.length) return true
+  if (schema.const !== undefined) return true
+  if (typeof schema.format === 'string') return true
+  if (Array.isArray(schema.oneOf) && schema.oneOf.some((s) => schemaHasDetails(s))) return true
+  if (Array.isArray(schema.anyOf) && schema.anyOf.some((s) => schemaHasDetails(s))) return true
+  if (Array.isArray(schema.allOf) && schema.allOf.some((s) => schemaHasDetails(s))) return true
+  if (schema.items && schemaHasDetails(schema.items)) return true
+  if (schema.properties && Object.keys(schema.properties).length) return true
+  if (Array.isArray(schema.prefixItems) && schema.prefixItems.some((s) => schemaHasDetails(s))) return true
+  if (schema.type && schema.type !== 'object') return true
+  return false
+}
+
 function formatJsonExample(example: unknown): string | null {
   if (example === undefined) return null
   try {
@@ -913,7 +928,9 @@ export function generateMarkdownFromOpenApi(doc: OpenApiDocument): string {
         const content = op.requestBody.content?.['application/json']
         const example = content?.example ?? content?.examples?.default?.value
         const formatted = formatJsonExample(example)
-        const schemaFormatted = content?.schema ? formatJsonExample(content.schema) : null
+        const schemaFormatted = content?.schema && schemaHasDetails(content.schema)
+          ? formatJsonExample(content.schema)
+          : null
         lines.push('')
         lines.push('### Request Body')
         if (formatted) {
@@ -945,7 +962,9 @@ export function generateMarkdownFromOpenApi(doc: OpenApiDocument): string {
           const content = response.content?.['application/json']
           const example = content?.example ?? content?.examples?.default?.value
           const formatted = formatJsonExample(example)
-          const schemaFormatted = content?.schema ? formatJsonExample(content.schema) : null
+          const schemaFormatted = content?.schema && schemaHasDetails(content.schema)
+            ? formatJsonExample(content.schema)
+            : null
           if (formatted) {
             lines.push('')
             lines.push('```json')
