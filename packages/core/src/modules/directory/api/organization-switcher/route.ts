@@ -6,6 +6,8 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { computeHierarchyForOrganizations, type ComputedHierarchy } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import { getSelectedOrganizationFromRequest, resolveOrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { directoryTag, directoryErrorSchema, organizationSwitcherResponseSchema } from '../openapi'
 
 type OrganizationMenuNode = {
   id: string
@@ -159,4 +161,24 @@ export async function GET(req: NextRequest) {
     console.error('Failed to build organization switcher payload', err)
     return NextResponse.json({ items: [], selectedId: null, canManage: false }, { status: 500 })
   }
+}
+
+const organizationSwitcherGetDoc: OpenApiMethodDoc = {
+  summary: 'Load organization switcher menu',
+  description: 'Returns the hierarchical menu of organizations the current user may switch to within the active tenant.',
+  tags: [directoryTag],
+  responses: [
+    { status: 200, description: 'Organization switcher payload.', schema: organizationSwitcherResponseSchema },
+  ],
+  errors: [
+    { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: directoryTag,
+  summary: 'Organization switcher menu',
+  methods: {
+    GET: organizationSwitcherGetDoc,
+  },
 }

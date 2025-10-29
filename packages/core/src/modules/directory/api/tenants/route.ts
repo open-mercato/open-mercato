@@ -4,12 +4,15 @@ import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/fact
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
+import { tenantCreateSchema, tenantUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import { loadCustomFieldValues, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { tenantCrudEvents, tenantCrudIndexer } from '@open-mercato/core/modules/directory/commands/tenants'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { directoryTag, directoryErrorSchema, directoryOkSchema, tenantListResponseSchema } from '../openapi'
 
 const listQuerySchema = z.object({
   id: z.string().uuid().optional(),
@@ -213,3 +216,93 @@ export async function GET(req: Request) {
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const tenantCreateResponseSchema = z.object({
+  id: z.string().uuid(),
+})
+
+const tenantDeleteRequestSchema = z.object({
+  id: z.string().uuid(),
+})
+
+const tenantGetDoc: OpenApiMethodDoc = {
+  summary: 'List tenants',
+  description: 'Returns tenants visible to the current user with optional search and pagination.',
+  tags: [directoryTag],
+  query: listQuerySchema,
+  responses: [
+    { status: 200, description: 'Paged list of tenants.', schema: tenantListResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid query parameters', schema: directoryErrorSchema },
+    { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
+  ],
+}
+
+const tenantPostDoc: OpenApiMethodDoc = {
+  summary: 'Create tenant',
+  description: 'Creates a new tenant and returns its identifier.',
+  tags: [directoryTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: tenantCreateSchema,
+    description: 'Tenant name and optional activation flag.',
+  },
+  responses: [
+    { status: 201, description: 'Tenant created.', schema: tenantCreateResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
+    { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.tenants.manage feature', schema: directoryErrorSchema },
+  ],
+}
+
+const tenantPutDoc: OpenApiMethodDoc = {
+  summary: 'Update tenant',
+  description: 'Updates tenant properties such as name or activation state.',
+  tags: [directoryTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: tenantUpdateSchema,
+    description: 'Tenant identifier with fields to update.',
+  },
+  responses: [
+    { status: 200, description: 'Tenant updated.', schema: directoryOkSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
+    { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.tenants.manage feature', schema: directoryErrorSchema },
+  ],
+}
+
+const tenantDeleteDoc: OpenApiMethodDoc = {
+  summary: 'Delete tenant',
+  description: 'Soft deletes the tenant identified by id.',
+  tags: [directoryTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: tenantDeleteRequestSchema,
+    description: 'Identifier of the tenant to remove.',
+  },
+  responses: [
+    { status: 200, description: 'Tenant removed.', schema: directoryOkSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
+    { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.tenants.manage feature', schema: directoryErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: directoryTag,
+  summary: 'Manage tenants',
+  methods: {
+    GET: tenantGetDoc,
+    POST: tenantPostDoc,
+    PUT: tenantPutDoc,
+    DELETE: tenantDeleteDoc,
+  },
+}

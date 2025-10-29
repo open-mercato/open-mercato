@@ -8,6 +8,13 @@ import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widget
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  dashboardsTag,
+  dashboardsErrorSchema,
+  dashboardsOkSchema,
+  dashboardLayoutStateSchema,
+} from '../openapi'
 
 const DEFAULT_SIZE = 'md'
 
@@ -247,4 +254,48 @@ export async function PUT(req: Request) {
   await em.flush()
 
   return NextResponse.json({ ok: true })
+}
+
+const layoutGetDoc: OpenApiMethodDoc = {
+  summary: 'Load the current dashboard layout',
+  description: 'Returns the saved widget layout together with the widgets the current user is allowed to place.',
+  tags: [dashboardsTag],
+  responses: [
+    {
+      status: 200,
+      description: 'Current dashboard layout and available widgets.',
+      schema: dashboardLayoutStateSchema,
+    },
+  ],
+  errors: [
+    { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+  ],
+}
+
+const layoutPutDoc: OpenApiMethodDoc = {
+  summary: 'Persist dashboard layout changes',
+  description: 'Saves the provided widget ordering, sizes, and settings for the current user.',
+  tags: [dashboardsTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: dashboardLayoutSchema,
+    description: 'List of dashboard widgets with ordering, sizing, and settings.',
+  },
+  responses: [
+    { status: 200, description: 'Layout updated successfully.', schema: dashboardsOkSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid layout payload', schema: dashboardsErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Missing dashboards.configure feature', schema: dashboardsErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: dashboardsTag,
+  summary: 'Manage personal dashboard layout',
+  methods: {
+    GET: layoutGetDoc,
+    PUT: layoutPutDoc,
+  },
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { DashboardUserWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
@@ -6,6 +7,13 @@ import { userWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  dashboardsTag,
+  dashboardsErrorSchema,
+  dashboardUserWidgetsResponseSchema,
+  dashboardUserWidgetsUpdateResponseSchema,
+} from '../../openapi'
 
 const FEATURE = 'dashboards.admin.assign-widgets'
 
@@ -125,4 +133,53 @@ export async function PUT(req: Request) {
   await em.flush()
 
   return NextResponse.json({ ok: true, mode: 'override', widgetIds })
+}
+
+const userWidgetsQuerySchema = z.object({
+  userId: z.string().uuid(),
+  tenantId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
+})
+
+const userWidgetsGetDoc: OpenApiMethodDoc = {
+  summary: 'Read widget overrides for a user',
+  description: 'Returns the widgets inherited and explicitly configured for the requested user within the current scope.',
+  tags: [dashboardsTag],
+  query: userWidgetsQuerySchema,
+  responses: [
+    { status: 200, description: 'Widget settings for the user.', schema: dashboardUserWidgetsResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Missing user identifier', schema: dashboardsErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Insufficient permissions to manage user widgets', schema: dashboardsErrorSchema },
+  ],
+}
+
+const userWidgetsPutDoc: OpenApiMethodDoc = {
+  summary: 'Update user-specific dashboard widgets',
+  description: 'Sets the widget override mode and allowed widgets for a user. Passing `mode: inherit` clears overrides.',
+  tags: [dashboardsTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: userWidgetSettingsSchema,
+    description: 'User identifier, optional scope, override mode, and widget ids.',
+  },
+  responses: [
+    { status: 200, description: 'Overrides saved.', schema: dashboardUserWidgetsUpdateResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid payload or unknown widgets', schema: dashboardsErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Insufficient permissions to manage user widgets', schema: dashboardsErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: dashboardsTag,
+  summary: 'Manage user-level dashboard widgets',
+  methods: {
+    GET: userWidgetsGetDoc,
+    PUT: userWidgetsPutDoc,
+  },
 }

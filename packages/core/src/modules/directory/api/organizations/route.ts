@@ -5,6 +5,7 @@ import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/fact
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { organizationCreateSchema, organizationUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import {
   computeHierarchyForOrganizations,
   rebuildHierarchyForTenant,
@@ -20,6 +21,13 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { organizationCrudEvents, organizationCrudIndexer } from '@open-mercato/core/modules/directory/commands/organizations'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  directoryTag,
+  directoryErrorSchema,
+  directoryOkSchema,
+  organizationListResponseSchema,
+} from '../openapi'
 
 type CrudInput = Record<string, unknown>
 const rawBodySchema = z.object({}).passthrough()
@@ -354,3 +362,93 @@ export async function GET(req: Request) {
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const organizationCreateResponseSchema = z.object({
+  id: z.string().uuid(),
+})
+
+const organizationDeleteRequestSchema = z.object({
+  id: z.string().uuid(),
+})
+
+const organizationsGetDoc: OpenApiMethodDoc = {
+  summary: 'List organizations',
+  description: 'Returns organizations using options, tree, or paginated manage view depending on the `view` parameter.',
+  tags: [directoryTag],
+  query: viewSchema,
+  responses: [
+    { status: 200, description: 'Organization data for the requested view.', schema: organizationListResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid query or tenant scope', schema: directoryErrorSchema },
+    { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
+  ],
+}
+
+const organizationsPostDoc: OpenApiMethodDoc = {
+  summary: 'Create organization',
+  description: 'Creates a new organization within a tenant and optionally assigns hierarchy relationships.',
+  tags: [directoryTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: organizationCreateSchema,
+    description: 'Organization attributes and optional hierarchy configuration.',
+  },
+  responses: [
+    { status: 201, description: 'Organization created.', schema: organizationCreateResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
+    { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.organizations.manage feature', schema: directoryErrorSchema },
+  ],
+}
+
+const organizationsPutDoc: OpenApiMethodDoc = {
+  summary: 'Update organization',
+  description: 'Updates organization details and hierarchy assignments.',
+  tags: [directoryTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: organizationUpdateSchema,
+    description: 'Organization identifier followed by fields to update.',
+  },
+  responses: [
+    { status: 200, description: 'Organization updated.', schema: directoryOkSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
+    { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.organizations.manage feature', schema: directoryErrorSchema },
+  ],
+}
+
+const organizationsDeleteDoc: OpenApiMethodDoc = {
+  summary: 'Delete organization',
+  description: 'Soft deletes an organization identified by id.',
+  tags: [directoryTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: organizationDeleteRequestSchema,
+    description: 'Identifier of the organization to delete.',
+  },
+  responses: [
+    { status: 200, description: 'Organization deleted.', schema: directoryOkSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: directoryErrorSchema },
+    { status: 401, description: 'Authentication required', schema: directoryErrorSchema },
+    { status: 403, description: 'Missing directory.organizations.manage feature', schema: directoryErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: directoryTag,
+  summary: 'Manage organizations',
+  methods: {
+    GET: organizationsGetDoc,
+    POST: organizationsPostDoc,
+    PUT: organizationsPutDoc,
+    DELETE: organizationsDeleteDoc,
+  },
+}

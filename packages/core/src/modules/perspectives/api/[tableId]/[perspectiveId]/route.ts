@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { deleteUserPerspective } from '@open-mercato/core/modules/perspectives/services/perspectiveService'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { perspectivesTag, perspectivesErrorSchema, perspectivesSuccessSchema } from '../../openapi'
 
 export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['perspectives.use'] },
@@ -48,4 +51,32 @@ export async function DELETE(req: Request, ctx: { params: { tableId: string; per
   })
 
   return NextResponse.json({ success: true })
+}
+
+const perspectiveDeletePathParamsSchema = z.object({
+  tableId: z.string().min(1),
+  perspectiveId: z.string().uuid(),
+})
+
+const perspectiveDeleteDoc: OpenApiMethodDoc = {
+  summary: 'Delete a personal perspective',
+  description: 'Removes a perspective owned by the current user for the given table.',
+  tags: [perspectivesTag],
+  responses: [
+    { status: 200, description: 'Perspective removed.', schema: perspectivesSuccessSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid identifiers supplied', schema: perspectivesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: perspectivesErrorSchema },
+    { status: 404, description: 'Perspective not found', schema: perspectivesErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: perspectivesTag,
+  summary: 'Delete personal perspective',
+  pathParams: perspectiveDeletePathParamsSchema,
+  methods: {
+    DELETE: perspectiveDeleteDoc,
+  },
 }

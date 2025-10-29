@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@/lib/di/container'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
@@ -9,6 +10,7 @@ import { seedExampleTodos } from '@open-mercato/example/modules/example/cli'
 import { seedDashboardDefaultsForTenant } from '@open-mercato/core/modules/dashboards/cli'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { signJwt } from '@/lib/auth/jwt'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: {
@@ -113,3 +115,27 @@ export async function GET(req: Request) {
 }
 
 export default GET
+
+const onboardingTag = 'Onboarding'
+
+const onboardingVerifyQuerySchema = z.object({
+  token: onboardingVerifySchema.shape.token,
+})
+
+const onboardingVerifyDoc: OpenApiMethodDoc = {
+  summary: 'Verify onboarding token',
+  description: 'Validates the onboarding token, provisions the tenant, seeds demo data, and redirects the user to the dashboard.',
+  tags: [onboardingTag],
+  query: onboardingVerifyQuerySchema,
+  responses: [
+    { status: 302, description: 'Redirect to onboarding UI or dashboard' },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: onboardingTag,
+  summary: 'Onboarding verification redirect',
+  methods: {
+    GET: onboardingVerifyDoc,
+  },
+}

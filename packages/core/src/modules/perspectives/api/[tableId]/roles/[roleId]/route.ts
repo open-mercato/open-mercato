@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { clearRolePerspectives } from '@open-mercato/core/modules/perspectives/services/perspectiveService'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { perspectivesTag, perspectivesErrorSchema, perspectivesSuccessSchema } from '../../../openapi'
 
 export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['perspectives.role_defaults'] },
@@ -53,4 +56,33 @@ export async function DELETE(req: Request, ctx: { params: { tableId: string; rol
   })
 
   return NextResponse.json({ success: true })
+}
+
+const rolePerspectiveDeleteParamsSchema = z.object({
+  tableId: z.string().min(1),
+  roleId: z.string().uuid(),
+})
+
+const rolePerspectiveDeleteDoc: OpenApiMethodDoc = {
+  summary: 'Clear role perspectives for a table',
+  description: 'Removes all role-level perspectives associated with the provided role identifier for the table.',
+  tags: [perspectivesTag],
+  responses: [
+    { status: 200, description: 'Role perspectives cleared.', schema: perspectivesSuccessSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid identifiers supplied', schema: perspectivesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: perspectivesErrorSchema },
+    { status: 403, description: 'Missing perspectives.role_defaults feature', schema: perspectivesErrorSchema },
+    { status: 404, description: 'Role not found in scope', schema: perspectivesErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: perspectivesTag,
+  summary: 'Delete role-level perspectives',
+  pathParams: rolePerspectiveDeleteParamsSchema,
+  methods: {
+    DELETE: rolePerspectiveDeleteDoc,
+  },
 }

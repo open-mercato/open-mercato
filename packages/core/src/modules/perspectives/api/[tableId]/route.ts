@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { perspectiveSaveSchema } from '@open-mercato/core/modules/perspectives/data/validators'
@@ -10,6 +11,13 @@ import {
   type PerspectiveScope,
 } from '@open-mercato/core/modules/perspectives/services/perspectiveService'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  perspectivesTag,
+  perspectivesErrorSchema,
+  perspectivesIndexResponseSchema,
+  perspectiveSaveResponseSchema,
+} from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['perspectives.use'] },
@@ -220,4 +228,50 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
     rolePerspectives: updatedRolePerspectives ?? [],
     clearedRoleIds: clearRoleIds ?? [],
   })
+}
+
+const perspectivePathParamsSchema = z.object({
+  tableId: z.string().min(1),
+})
+
+const perspectivesGetDoc: OpenApiMethodDoc = {
+  summary: 'Load perspectives for a table',
+  description: 'Returns personal perspectives and available role defaults for the requested table identifier.',
+  tags: [perspectivesTag],
+  responses: [
+    { status: 200, description: 'Current perspectives and defaults.', schema: perspectivesIndexResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid table identifier', schema: perspectivesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: perspectivesErrorSchema },
+  ],
+}
+
+const perspectivesPostDoc: OpenApiMethodDoc = {
+  summary: 'Create or update a perspective',
+  description: 'Saves a personal perspective and optionally applies the same configuration to selected roles.',
+  tags: [perspectivesTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: perspectiveSaveSchema,
+    description: 'Perspective payload including optional role defaults.',
+  },
+  responses: [
+    { status: 200, description: 'Perspective saved successfully.', schema: perspectiveSaveResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed or invalid roles provided', schema: perspectivesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: perspectivesErrorSchema },
+    { status: 403, description: 'Missing perspectives.role_defaults feature for role updates', schema: perspectivesErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: perspectivesTag,
+  summary: 'Manage table perspectives',
+  pathParams: perspectivePathParamsSchema,
+  methods: {
+    GET: perspectivesGetDoc,
+    POST: perspectivesPostDoc,
+  },
 }

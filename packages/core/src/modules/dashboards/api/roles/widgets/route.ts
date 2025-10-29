@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
 import { roleWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  dashboardsTag,
+  dashboardsErrorSchema,
+  dashboardRoleWidgetsResponseSchema,
+  dashboardRoleWidgetsUpdateResponseSchema,
+} from '../../openapi'
 
 const FEATURE = 'dashboards.admin.assign-widgets'
 
@@ -122,4 +130,53 @@ export async function PUT(req: Request) {
   await em.flush()
 
   return NextResponse.json({ ok: true, widgetIds })
+}
+
+const roleWidgetsQuerySchema = z.object({
+  roleId: z.string().uuid(),
+  tenantId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
+})
+
+const roleWidgetsGetDoc: OpenApiMethodDoc = {
+  summary: 'Fetch widget assignments for a role',
+  description: 'Returns the widgets explicitly assigned to the given role together with the evaluation scope.',
+  tags: [dashboardsTag],
+  query: roleWidgetsQuerySchema,
+  responses: [
+    { status: 200, description: 'Current widget configuration for the role.', schema: dashboardRoleWidgetsResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Missing role identifier', schema: dashboardsErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Insufficient permissions to manage role widgets', schema: dashboardsErrorSchema },
+  ],
+}
+
+const roleWidgetsPutDoc: OpenApiMethodDoc = {
+  summary: 'Update widgets assigned to a role',
+  description: 'Persists the widget list for a role within the provided tenant and organization scope.',
+  tags: [dashboardsTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: roleWidgetSettingsSchema,
+    description: 'Role identifier, optional scope, and the widget ids that should remain assigned.',
+  },
+  responses: [
+    { status: 200, description: 'Widgets updated successfully.', schema: dashboardRoleWidgetsUpdateResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid payload or unknown widgets', schema: dashboardsErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Insufficient permissions to manage role widgets', schema: dashboardsErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: dashboardsTag,
+  summary: 'Manage dashboard widgets assigned to a role',
+  methods: {
+    GET: roleWidgetsGetDoc,
+    PUT: roleWidgetsPutDoc,
+  },
 }
