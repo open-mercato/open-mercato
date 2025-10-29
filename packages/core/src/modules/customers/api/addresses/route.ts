@@ -7,6 +7,11 @@ import { addressCreateSchema, addressUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import {
+  createCustomersCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -114,3 +119,50 @@ const { POST, PUT, DELETE } = crud
 
 export { POST, PUT, DELETE }
 export const GET = crud.GET
+
+const addressListItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    entity_id: z.string().uuid(),
+    name: z.string().nullable().optional(),
+    purpose: z.string().nullable().optional(),
+    address_line1: z.string().nullable().optional(),
+    address_line2: z.string().nullable().optional(),
+    building_number: z.string().nullable().optional(),
+    flat_number: z.string().nullable().optional(),
+    city: z.string().nullable().optional(),
+    region: z.string().nullable().optional(),
+    postal_code: z.string().nullable().optional(),
+    country: z.string().nullable().optional(),
+    latitude: z.number().nullable().optional(),
+    longitude: z.number().nullable().optional(),
+    is_primary: z.boolean().nullable().optional(),
+    organization_id: z.string().uuid().nullable().optional(),
+    tenant_id: z.string().uuid().nullable().optional(),
+  })
+  .passthrough()
+
+const addressCreateResponseSchema = z.object({
+  id: z.string().uuid().nullable(),
+})
+
+export const openApi = createCustomersCrudOpenApi({
+  resourceName: 'Address',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(addressListItemSchema),
+  create: {
+    schema: addressCreateSchema,
+    responseSchema: addressCreateResponseSchema,
+    description: 'Creates a customer address record and associates it with the referenced entity.',
+  },
+  update: {
+    schema: addressUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates fields on an existing customer address.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes an address by id. The identifier may be included in the body or query.',
+  },
+})

@@ -12,6 +12,11 @@ import {
   extractAllCustomFieldEntries,
   splitCustomFieldPayload,
 } from '@open-mercato/shared/lib/crud/custom-fields'
+import {
+  createCustomersCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -243,3 +248,52 @@ const { POST, PUT, DELETE } = crud
 
 export { POST, PUT, DELETE }
 export const GET = crud.GET
+
+const companyListItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    display_name: z.string().optional(),
+    description: z.string().nullable().optional(),
+    owner_user_id: z.string().uuid().nullable().optional(),
+    primary_email: z.string().nullable().optional(),
+    primary_phone: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    lifecycle_stage: z.string().nullable().optional(),
+    source: z.string().nullable().optional(),
+    next_interaction_at: z.string().nullable().optional(),
+    next_interaction_name: z.string().nullable().optional(),
+    next_interaction_ref_id: z.string().nullable().optional(),
+    next_interaction_icon: z.string().nullable().optional(),
+    next_interaction_color: z.string().nullable().optional(),
+    organization_id: z.string().uuid().nullable().optional(),
+    tenant_id: z.string().uuid().nullable().optional(),
+    created_at: z.string().nullable().optional(),
+  })
+  .passthrough()
+
+const companyCreateResponseSchema = z.object({
+  id: z.string().uuid().nullable(),
+  companyId: z.string().uuid().nullable(),
+})
+
+export const openApi = createCustomersCrudOpenApi({
+  resourceName: 'Company',
+  pluralName: 'Companies',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(companyListItemSchema),
+  create: {
+    schema: companyCreateSchema,
+    responseSchema: companyCreateResponseSchema,
+    description: 'Creates a company record and associated profile data.',
+  },
+  update: {
+    schema: companyUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates company profile fields, tags, or custom attributes.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a company by id. The identifier can be provided via body or query.',
+  },
+})

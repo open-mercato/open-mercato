@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@/lib/auth/server'
@@ -23,6 +24,42 @@ const querySchema = z.object({
 }).passthrough()
 
 const rawBodySchema = z.object({}).passthrough()
+
+const userCreateSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+  organizationId: z.string().uuid(),
+  roles: z.array(z.string()).optional(),
+})
+
+const userUpdateSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email().optional(),
+  password: z.string().min(6).optional(),
+  organizationId: z.string().uuid().optional(),
+  roles: z.array(z.string()).optional(),
+})
+
+const userListItemSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  organizationId: z.string().uuid().nullable(),
+  organizationName: z.string().nullable(),
+  tenantId: z.string().uuid().nullable(),
+  tenantName: z.string().nullable(),
+  roles: z.array(z.string()),
+})
+
+const userListResponseSchema = z.object({
+  items: z.array(userListItemSchema),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().positive(),
+  isSuperAdmin: z.boolean().optional(),
+})
+
+const okResponseSchema = z.object({ ok: z.literal(true) })
+
+const errorResponseSchema = z.object({ error: z.string() })
 
 type CrudInput = Record<string, unknown>
 
@@ -257,4 +294,70 @@ async function assertCanAssignRoles(req: Request, roles: unknown) {
   if (!acl?.isSuperAdmin) {
     throw forbidden('Only super administrators can assign the superadmin role.')
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Authentication & Accounts',
+  summary: 'User management',
+  methods: {
+    GET: {
+      summary: 'List users',
+      description:
+        'Returns users for the current tenant. Super administrators may scope the response via organization or role filters.',
+      query: querySchema,
+      responses: [
+        { status: 200, description: 'User collection', schema: userListResponseSchema },
+      ],
+    },
+    POST: {
+      summary: 'Create user',
+      description: 'Creates a new confirmed user within the specified organization and optional roles.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: userCreateSchema,
+      },
+      responses: [
+        {
+          status: 201,
+          description: 'User created',
+          schema: z.object({ id: z.string().uuid() }),
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload or duplicate email', schema: errorResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
+        { status: 403, description: 'Attempted to assign privileged roles', schema: errorResponseSchema },
+      ],
+    },
+    PUT: {
+      summary: 'Update user',
+      description: 'Updates profile fields, organization assignment, credentials, or role memberships.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: userUpdateSchema,
+      },
+      responses: [
+        { status: 200, description: 'User updated', schema: okResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: errorResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
+        { status: 403, description: 'Attempted to assign privileged roles', schema: errorResponseSchema },
+        { status: 404, description: 'User not found', schema: errorResponseSchema },
+      ],
+    },
+    DELETE: {
+      summary: 'Delete user',
+      description: 'Deletes a user by identifier. Undo support is provided via the command bus.',
+      query: z.object({ id: z.string().uuid().describe('User identifier') }),
+      responses: [
+        { status: 200, description: 'User deleted', schema: okResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'User cannot be deleted', schema: errorResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
+        { status: 404, description: 'User not found', schema: errorResponseSchema },
+      ],
+    },
+  },
 }
