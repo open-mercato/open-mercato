@@ -32,6 +32,7 @@ import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
   expression:
     `create index "entity_indexes_customer_company_profile_tenant_doc_idx" on "entity_indexes" ("tenant_id", "entity_id") include ("doc") where deleted_at is null and entity_type = 'customers:customer_company_profile' and organization_id is null and tenant_id is not null`,
 })
+@Index({ name: 'entity_indexes_type_tenant_idx', properties: ['entityType', 'tenantId'] })
 export class EntityIndexRow {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

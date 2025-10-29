@@ -1,7 +1,6 @@
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { upsertIndexRow } from '../lib/indexer'
-import { applyCoverageAdjustments } from '../lib/coverage'
-import type { CoverageAdjustment } from '../lib/coverage'
+import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/coverage'
 
 export const metadata = { event: 'query_index.upsert_one', persistent: false }
 
@@ -28,50 +27,47 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   if (!suppressCoverage) {
     const doc = result.doc
     const isActive = !!doc && (doc.deleted_at == null || doc.deleted_at === null)
-    const adjustments: CoverageAdjustment[] = []
+    let baseDelta: number | undefined =
+      typeof payload?.coverageBaseDelta === 'number' ? payload.coverageBaseDelta : undefined
+    let indexDelta: number | undefined =
+      typeof payload?.coverageIndexDelta === 'number' ? payload.coverageIndexDelta : undefined
+    const crudAction = typeof payload?.crudAction === 'string' ? payload.crudAction : undefined
 
-    const push = (orgId: string | null, deltaBase: number, deltaIndex: number) => {
-      if (deltaBase === 0 && deltaIndex === 0) return
-      adjustments.push({
-        entityType,
-        tenantId: tenantId ?? null,
-        organizationId: orgId,
-        withDeleted: false,
-        deltaBase,
-        deltaIndex,
-      })
+    if (baseDelta === undefined) {
+      if (result.revived) baseDelta = 1
+      else if (crudAction === 'created') baseDelta = 1
+      else baseDelta = 0
     }
 
-    if (isActive) {
-      if (result.created) {
-        push(organizationId ?? null, 1, 1)
-        if (organizationId != null) push(null, 1, 1)
-      } else if (result.revived) {
-        push(organizationId ?? null, 1, 1)
-        if (organizationId != null) push(null, 1, 1)
-      }
+    if (indexDelta === undefined) {
+      if (isActive && (result.created || result.revived)) indexDelta = 1
+      else indexDelta = 0
     }
 
+    if (!isActive && baseDelta > 0) baseDelta = 0
+    if (!isActive && indexDelta > 0) indexDelta = 0
+    if (!Number.isFinite(baseDelta)) baseDelta = 0
+    if (!Number.isFinite(indexDelta)) indexDelta = 0
+
+    const adjustments = createCoverageAdjustments({
+      entityType,
+      tenantId: tenantId ?? null,
+      organizationId: organizationId ?? null,
+      baseDelta,
+      indexDelta,
+    })
     if (adjustments.length) {
       await applyCoverageAdjustments(em, adjustments)
     }
-    if (!suppressCoverage && coverageDelayMs !== undefined && coverageDelayMs >= 0) {
+    if (coverageDelayMs !== undefined && coverageDelayMs >= 0) {
       try {
         const bus = ctx.resolve<any>('eventBus')
         await bus.emitEvent('query_index.coverage.refresh', {
           entityType,
           tenantId: tenantId ?? null,
-          organizationId,
+          organizationId: null,
           delayMs: coverageDelayMs,
         })
-        if (organizationId !== null) {
-          await bus.emitEvent('query_index.coverage.refresh', {
-            entityType,
-            tenantId: tenantId ?? null,
-            organizationId: null,
-            delayMs: coverageDelayMs,
-          })
-        }
       } catch {}
     }
   }

@@ -3,7 +3,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { E as AllEntities } from '@/generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { readCoverageSnapshot } from '../lib/coverage'
+import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
 
@@ -20,6 +20,8 @@ export async function GET(req: Request) {
   const knex = (em as any).getConnection().getKnex()
   const orgId = auth.orgId
   const tenantId = auth.tenantId ?? null
+  const url = new URL(req.url)
+  const forceRefresh = url.searchParams.has('refresh') && url.searchParams.get('refresh') !== '0'
 
   // Generated entities from code
   const generated: { entityId: string; label: string }[] = []
@@ -77,6 +79,19 @@ export async function GET(req: Request) {
 
   const COVERAGE_STALE_MS = 60_000
 
+  if (forceRefresh) {
+    await Promise.all(
+      entityIds.map((entityId) =>
+        refreshCoverageSnapshot(em, {
+          entityType: entityId,
+          tenantId: tenantId ?? null,
+          organizationId: null,
+          withDeleted: false,
+        }).catch(() => undefined)
+      )
+    )
+  }
+
   const coverageSnapshots = await Promise.all(
     entityIds.map((entityId) =>
       readCoverageSnapshot(knex, {
@@ -116,23 +131,25 @@ export async function GET(req: Request) {
     })
   }
 
-  try {
-    const eventBus = resolve('eventBus')
-    if (entitiesNeedingRefresh.size > 0) {
-      await Promise.all(
-        Array.from(entitiesNeedingRefresh).map((entityId) =>
-          eventBus
-            .emitEvent('query_index.coverage.refresh', {
-              entityType: entityId,
-              tenantId: tenantId ?? null,
-              organizationId: null,
-              delayMs: 0,
-            })
-            .catch(() => undefined)
+  if (!forceRefresh) {
+    try {
+      const eventBus = resolve('eventBus')
+      if (entitiesNeedingRefresh.size > 0) {
+        await Promise.all(
+          Array.from(entitiesNeedingRefresh).map((entityId) =>
+            eventBus
+              .emitEvent('query_index.coverage.refresh', {
+                entityType: entityId,
+                tenantId: tenantId ?? null,
+                organizationId: null,
+                delayMs: 0,
+              })
+              .catch(() => undefined)
+          )
         )
-      )
-    }
-  } catch {}
+      }
+    } catch {}
+  }
 
   const response = NextResponse.json({ items })
   const partial = items.find((item) => item.ok === false)

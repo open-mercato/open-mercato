@@ -47,11 +47,14 @@ export default function QueryIndexesTable() {
   const [search, setSearch] = React.useState('')
   const qc = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
+  const [refreshSeq, setRefreshSeq] = React.useState(0)
 
   const { data, isLoading } = useQuery<Resp>({
-    queryKey: ['query-index-status', scopeVersion],
+    queryKey: ['query-index-status', scopeVersion, refreshSeq],
     queryFn: async () => {
-      const res = await apiFetch('/api/query_index/status')
+      const baseUrl = '/api/query_index/status'
+      const url = refreshSeq > 0 ? `${baseUrl}?refresh=${refreshSeq}` : baseUrl
+      const res = await apiFetch(url)
       if (!res.ok) throw new Error('Failed to load status')
       return res.json()
     },
@@ -78,7 +81,15 @@ export default function QueryIndexesTable() {
       title="Query Indexes"
       actions={(
         <>
-          <Button variant="outline" onClick={() => qc.invalidateQueries({ queryKey: ['query-index-status'] })}>Refresh</Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setRefreshSeq((v) => v + 1)
+              qc.invalidateQueries({ queryKey: ['query-index-status'] })
+            }}
+          >
+            Refresh
+          </Button>
         </>
       )}
       columns={columns}

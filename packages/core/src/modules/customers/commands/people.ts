@@ -45,6 +45,8 @@ import {
   diffCustomFieldChanges,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 type PersonAddressSnapshot = {
   id: string
@@ -145,6 +147,10 @@ type PersonSnapshot = {
 type PersonUndoPayload = {
   before?: PersonSnapshot | null
   after?: PersonSnapshot | null
+}
+
+const personCrudIndexer: CrudIndexerConfig<CustomerEntity> = {
+  entityType: E.customers.customer_person_profile,
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | null {
@@ -494,6 +500,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         tenantId,
         organizationId,
       },
+      indexer: personCrudIndexer,
     })
 
     return { entityId: entity.id, personId: profile.id }
@@ -646,6 +653,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         tenantId: record.tenantId,
         organizationId: record.organizationId,
       },
+      indexer: personCrudIndexer,
     })
 
     return { entityId: record.id }
@@ -802,6 +810,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         organizationId: before.entity.organizationId,
         tenantId: before.entity.tenantId,
       },
+      indexer: personCrudIndexer,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -848,6 +857,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         },
+        indexer: personCrudIndexer,
       })
       return { entityId: record.id }
     },
@@ -1085,6 +1095,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           organizationId: entity.organizationId,
           tenantId: entity.tenantId,
         },
+        indexer: personCrudIndexer,
       })
       const resetValues = buildCustomFieldResetMap(before.custom, null)
       if (Object.keys(resetValues).length) {

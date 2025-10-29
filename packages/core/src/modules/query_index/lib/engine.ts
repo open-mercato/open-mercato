@@ -5,7 +5,31 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import type { Knex } from 'knex'
 import type { EventBus } from '@open-mercato/events'
-import { readCoverageSnapshot } from './coverage'
+import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
+
+function parseBooleanToken(value: string | null | undefined, defaultValue: boolean): boolean {
+  if (value == null) return defaultValue
+  const token = value.trim().toLowerCase()
+  if (!token.length) return defaultValue
+  if (['1', 'true', 'yes', 'on'].includes(token)) return true
+  if (['0', 'false', 'no', 'off'].includes(token)) return false
+  return defaultValue
+}
+
+function resolveBooleanEnv(names: readonly string[], defaultValue: boolean): boolean {
+  for (const name of names) {
+    const raw = process.env[name]
+    if (raw !== undefined) return parseBooleanToken(raw, defaultValue)
+  }
+  return defaultValue
+}
+
+function resolveDebugVerbosity(): boolean {
+  const level = (process.env.LOG_VERBOSITY ?? process.env.LOG_LEVEL ?? '').toLowerCase()
+  if (['debug', 'trace', 'silly'].includes(level)) return true
+  const nodeEnv = (process.env.NODE_ENV ?? '').toLowerCase()
+  return nodeEnv === 'development'
+}
 
 type ResultRow = Record<string, unknown>
 type ResultBuilder<TResult = ResultRow[]> = Knex.QueryBuilder<ResultRow, TResult>
@@ -163,6 +187,7 @@ export class HybridQueryEngine implements QueryEngine {
   private sqlDebugEnabled: boolean | null = null
   private forcePartialIndexEnabled: boolean | null = null
   private autoReindexEnabled: boolean | null = null
+  private coverageOptimizationEnabled: boolean | null = null
   private pendingCoverageRefreshKeys = new Set<string>()
 
   constructor(
@@ -917,14 +942,6 @@ export class HybridQueryEngine implements QueryEngine {
     const exists = await knex('entity_indexes').select('entity_id').where({ entity_type: entity }).first()
     return !!exists
   }
-  private resolveSimpleOrganizationId(scope: { ids: string[]; includeNull: boolean } | null): string | null | undefined {
-    if (!scope) return null
-    if (scope.includeNull) return undefined
-    if (scope.ids.length === 0) return null
-    if (scope.ids.length === 1) return scope.ids[0]
-    return undefined
-  }
-
   private async getStoredCoverageSnapshot(
     entity: string,
     tenantId: string | null,
@@ -932,6 +949,14 @@ export class HybridQueryEngine implements QueryEngine {
     withDeleted: boolean
   ): Promise<{ baseCount: number; indexedCount: number } | null> {
     try {
+      if (!this.isCoverageOptimizationEnabled()) {
+        await refreshCoverageSnapshot(this.em, {
+          entityType: entity,
+          tenantId,
+          organizationId,
+          withDeleted,
+        })
+      }
       const knex = this.getKnex()
       const row = await readCoverageSnapshot(knex, {
         entityType: entity,
@@ -1041,13 +1066,30 @@ export class HybridQueryEngine implements QueryEngine {
 
   private isAutoReindexEnabled(): boolean {
     if (this.autoReindexEnabled != null) return this.autoReindexEnabled
-    const raw = (process.env.QUERY_INDEX_AUTO_REINDEX ?? '').trim().toLowerCase()
+    const raw = (
+      process.env.SCHEDULE_AUTO_REINDEX ??
+      process.env.QUERY_INDEX_AUTO_REINDEX ??
+      ''
+    )
+      .trim()
+      .toLowerCase()
     if (!raw) {
       this.autoReindexEnabled = true
       return true
     }
     this.autoReindexEnabled = !['0', 'false', 'no', 'off'].includes(raw)
     return this.autoReindexEnabled
+  }
+
+  private isCoverageOptimizationEnabled(): boolean {
+    if (this.coverageOptimizationEnabled != null) return this.coverageOptimizationEnabled
+    const raw = (process.env.OPTIMIZE_INDEX_COVERAGE_STATS ?? '').trim().toLowerCase()
+    if (!raw) {
+      this.coverageOptimizationEnabled = false
+      return false
+    }
+    this.coverageOptimizationEnabled = ['1', 'true', 'yes', 'on'].includes(raw)
+    return this.coverageOptimizationEnabled
   }
 
   private async columnExists(table: string, column: string): Promise<boolean> {
@@ -1220,23 +1262,19 @@ export class HybridQueryEngine implements QueryEngine {
 
   private isDebugVerbosity(): boolean {
     if (this.debugVerbosity != null) return this.debugVerbosity
-    const level = (process.env.LOG_VERBOSITY ?? process.env.LOG_LEVEL ?? '').toLowerCase()
-    const nodeEnv = (process.env.NODE_ENV ?? '').toLowerCase()
-    this.debugVerbosity = level === 'debug' || level === 'trace' || level === 'silly' || nodeEnv === 'development'
+    this.debugVerbosity = resolveDebugVerbosity()
     return this.debugVerbosity
   }
 
   private isSqlDebugEnabled(): boolean {
     if (this.sqlDebugEnabled != null) return this.sqlDebugEnabled
-    const raw = (process.env.QUERY_ENGINE_DEBUG_SQL ?? '').toLowerCase()
-    this.sqlDebugEnabled = raw === '1' || raw === 'true' || raw === 'yes'
+    this.sqlDebugEnabled = resolveBooleanEnv(['QUERY_ENGINE_DEBUG_SQL'], false)
     return this.sqlDebugEnabled
   }
 
   private isForcePartialIndexEnabled(): boolean {
     if (this.forcePartialIndexEnabled != null) return this.forcePartialIndexEnabled
-    const raw = (process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES ?? 'true').toLowerCase()
-    this.forcePartialIndexEnabled = raw === '1' || raw === 'true' || raw === 'yes'
+    this.forcePartialIndexEnabled = resolveBooleanEnv(['FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES'], true)
     return this.forcePartialIndexEnabled
   }
 
@@ -1245,33 +1283,18 @@ export class HybridQueryEngine implements QueryEngine {
     opts: QueryOptions,
     _sourceTable?: string
   ): Promise<{ stats?: { baseCount: number; indexedCount: number }; scope: 'scoped' | 'global' } | null> {
-    const orgScope = this.resolveOrganizationScope(opts)
-    const simpleOrgId = this.resolveSimpleOrganizationId(orgScope)
     const tenantId = opts.tenantId ?? null
     const withDeleted = !!opts.withDeleted
 
-    const scopedSnapshot = await this.getStoredCoverageSnapshot(entity, tenantId, simpleOrgId ?? null, withDeleted)
-    if (!scopedSnapshot) {
-      this.scheduleCoverageRefresh(entity, tenantId, simpleOrgId ?? null, withDeleted)
+    const snapshot = await this.getStoredCoverageSnapshot(entity, tenantId, null, withDeleted)
+    if (!snapshot) {
+      this.scheduleCoverageRefresh(entity, tenantId, null, withDeleted)
       return { stats: undefined, scope: 'scoped' }
     }
 
-    const scopedGap = scopedSnapshot.baseCount > 0 && scopedSnapshot.indexedCount < scopedSnapshot.baseCount
-    if (scopedGap) {
-      this.scheduleCoverageRefresh(entity, tenantId, simpleOrgId ?? null, withDeleted)
-      return { stats: scopedSnapshot, scope: 'scoped' }
-    }
-    this.scheduleCoverageRefresh(entity, tenantId, simpleOrgId ?? null, withDeleted)
-
-    if (this.isForcePartialIndexEnabled()) {
-      const globalSnapshot = await this.getStoredCoverageSnapshot(entity, tenantId, null, withDeleted)
-      if (!globalSnapshot) {
-        this.scheduleCoverageRefresh(entity, tenantId, null, withDeleted)
-        return { stats: undefined, scope: 'global' }
-      } else if (globalSnapshot.baseCount > 0 && globalSnapshot.indexedCount < globalSnapshot.baseCount) {
-        this.scheduleCoverageRefresh(entity, tenantId, null, withDeleted)
-        return { stats: globalSnapshot, scope: 'global' }
-      }
+    const hasGap = snapshot.baseCount > 0 && snapshot.indexedCount < snapshot.baseCount
+    if (hasGap) {
+      return { stats: snapshot, scope: 'scoped' }
     }
 
     return null

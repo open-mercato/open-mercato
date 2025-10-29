@@ -12,6 +12,19 @@ import type {
 } from '../crud/types'
 import { CrudHttpError } from '../crud/errors'
 
+const COVERAGE_REFRESH_INTERVAL_MS = 5 * 60 * 1000
+const coverageRefreshTracker = new Map<string, number>()
+
+function shouldTriggerCoverageRefresh(entityType: string | undefined, tenantId: string | null): boolean {
+  if (!entityType) return false
+  const key = `${entityType}|${tenantId ?? '__null__'}`
+  const now = Date.now()
+  const last = coverageRefreshTracker.get(key) ?? 0
+  if (now - last < COVERAGE_REFRESH_INTERVAL_MS) return false
+  coverageRefreshTracker.set(key, now)
+  return true
+}
+
 type CustomEntityValues = Record<string, unknown>
 
 export interface DataEngine {
@@ -399,6 +412,13 @@ export class DefaultDataEngine implements DataEngine {
     }
 
     if (indexer) {
+      const resolveCoverageBaseDelta = (): number | undefined => {
+        if (action === 'created') return 1
+        if (action === 'deleted') return -1
+        return undefined
+      }
+      const coverageBaseDelta = resolveCoverageBaseDelta()
+
       if (action === 'deleted') {
         const payload = indexer.buildDeletePayload
           ? indexer.buildDeletePayload(ctx)
@@ -408,8 +428,11 @@ export class DefaultDataEngine implements DataEngine {
               organizationId: ctx.identifiers.organizationId,
               tenantId: ctx.identifiers.tenantId,
             }
+        const enrichedPayload = payload as Record<string, unknown>
+        enrichedPayload.crudAction = action
+        if (coverageBaseDelta !== undefined) enrichedPayload.coverageBaseDelta = coverageBaseDelta
         try {
-          await bus.emitEvent('query_index.delete_one', payload)
+          await bus.emitEvent('query_index.delete_one', enrichedPayload)
         } catch {
           // non-blocking
         }
@@ -422,11 +445,23 @@ export class DefaultDataEngine implements DataEngine {
               organizationId: ctx.identifiers.organizationId,
               tenantId: ctx.identifiers.tenantId,
             }
+        const enrichedPayload = payload as Record<string, unknown>
+        enrichedPayload.crudAction = action
+        if (coverageBaseDelta !== undefined) enrichedPayload.coverageBaseDelta = coverageBaseDelta
         try {
-          await bus.emitEvent('query_index.upsert_one', payload)
+          await bus.emitEvent('query_index.upsert_one', enrichedPayload)
         } catch {
           // non-blocking
         }
+      }
+
+      if (shouldTriggerCoverageRefresh(indexer.entityType, ctx.identifiers.tenantId ?? null)) {
+        void bus.emitEvent('query_index.coverage.refresh', {
+          entityType: indexer.entityType,
+          tenantId: ctx.identifiers.tenantId ?? null,
+          organizationId: null,
+          delayMs: 0,
+        }).catch(() => undefined)
       }
     }
   }

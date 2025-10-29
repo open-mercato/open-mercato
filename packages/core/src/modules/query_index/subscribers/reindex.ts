@@ -1,8 +1,14 @@
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { upsertIndexRow } from '../lib/indexer'
+import { applyCoverageAdjustments, createCoverageAdjustments, writeCoverageCounts, refreshCoverageSnapshot } from '../lib/coverage'
+import type { CoverageAdjustment } from '../lib/coverage'
 
 export const metadata = { event: 'query_index.reindex', persistent: true }
 
 const deriveOrgFromId = new Set<string>(['directory:organization'])
+const COVERAGE_FLUSH_BATCH = 100
+const COVERAGE_REFRESH_THROTTLE_MS = 5 * 60 * 1000
+const lastCoverageReset = new Map<string, number>()
 
 export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
   const em = ctx.resolve<any>('em')
@@ -50,79 +56,126 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     const hasOrgCol = await knex.schema.hasColumn(table, 'organization_id')
     const hasTenantCol = await knex.schema.hasColumn(table, 'tenant_id')
     const hasDeletedCol = await knex.schema.hasColumn(table, 'deleted_at')
+    const coverageScopeKey = (tenantValue: string | null) => `${tenantValue ?? '__null__'}`
+
+    // Build reusable base query for counts and iteration
+    const baseWhere = (builder: any) => {
+      if (hasDeletedCol) builder.whereNull('b.deleted_at')
+      if (tenantId !== undefined && hasTenantCol) {
+        if (tenantId === null) builder.whereNull('b.tenant_id')
+        else builder.where('b.tenant_id', tenantId)
+      }
+    }
+
+    const baseCounts = new Map<string | null, number>()
+    if (hasTenantCol && tenantId === undefined) {
+      const rows = await knex({ b: table })
+        .modify(baseWhere)
+        .select(knex.raw('b.tenant_id as tenant_id'))
+        .count<{ count: unknown }[]>({ count: '*' })
+        .groupBy('b.tenant_id')
+      for (const row of rows) {
+        const tenantValue = row?.tenant_id ?? null
+        const count = toNumber((row as any)?.count)
+        baseCounts.set(tenantValue, count)
+      }
+    } else {
+      const row = await knex({ b: table })
+        .modify(baseWhere)
+        .count({ count: '*' })
+        .first()
+      const key = tenantId === undefined ? null : tenantId ?? null
+      baseCounts.set(key, toNumber(row?.count))
+    }
+
+    // Reset coverage counts for scopes unless recently refreshed
+    const now = Date.now()
+    for (const [tenantValue, count] of baseCounts) {
+      const key = `${entityType}|${coverageScopeKey(tenantValue)}`
+      const last = lastCoverageReset.get(key) ?? 0
+      if (now - last < COVERAGE_REFRESH_THROTTLE_MS && !forceFull) continue
+      await writeCoverageCounts(em, { entityType, tenantId: tenantValue, organizationId: null, withDeleted: false }, { baseCount: count, indexedCount: 0 })
+      lastCoverageReset.set(key, now)
+    }
 
     // Build base query depending on mode; select only columns that exist
     const baseSelect: any[] = ['b.id']
     if (hasOrgCol) baseSelect.push('b.organization_id')
     if (hasTenantCol) baseSelect.push('b.tenant_id')
     let q = knex({ b: table }).select(baseSelect)
-    if (hasDeletedCol) q = q.whereNull('b.deleted_at')
-
-    // Scope base rows
-    if (tenantId !== undefined && hasTenantCol) {
-      if (tenantId === null) q = q.whereNull('b.tenant_id')
-      else q = q.andWhere((bld: any) => bld.where({ 'b.tenant_id': tenantId }).orWhereNull('b.tenant_id'))
-    }
-
-    if (!forceFull) {
-      // Resume: only rows missing in index for the target scope
-      const orgExpr = hasOrgCol
-        ? knex.raw('b.organization_id')
-        : (deriveOrgFromId.has(entityType) ? knex.raw('b.id') : knex.raw('null'))
-      const tenantExpr = (tenantId !== undefined)
-        ? knex.raw('?', [tenantId])
-        : (hasTenantCol ? knex.raw('b.tenant_id') : knex.raw('null'))
-      const onParts: string[] = []
-      onParts.push(knex.raw('ei.entity_type = ?', [entityType]).toString())
-      onParts.push('ei.entity_id = (b.id::text)')
-      onParts.push(`(ei.organization_id is not distinct from ${orgExpr.toString()})`)
-      onParts.push(`(ei.tenant_id is not distinct from ${tenantExpr.toString()})`)
-      onParts.push('ei.deleted_at is null')
-      q = q.leftJoin({ ei: 'entity_indexes' }, knex.raw(onParts.join(' AND ')))
-        .whereNull('ei.id')
-    }
+    q = q.modify(baseWhere)
 
     const rows = await q
-    const coverageScopes = new Set<string>()
-    const coverageKey = (tenantValue: string | null, orgValue: string | null) => `${tenantValue ?? '__null__'}|${orgValue ?? '__null__'}`
+    const adjustments: CoverageAdjustment[] = []
+    const flushAdjustments = async () => {
+      if (!adjustments.length) return
+      await applyCoverageAdjustments(em, adjustments.splice(0, adjustments.length))
+    }
 
     for (const r of rows) {
       const scopeOrg = hasOrgCol
         ? (r as any).organization_id ?? null
         : (deriveOrgFromId.has(entityType) ? String((r as any).id) : null)
-      const scopeTenant = tenantId !== undefined ? tenantId : (hasTenantCol ? (r as any).tenant_id ?? null : null)
-      await eventBus.emitEvent('query_index.upsert_one', {
+      const scopeTenant = tenantId !== undefined
+        ? tenantId ?? null
+        : (hasTenantCol ? ((r as any).tenant_id ?? null) : null)
+
+      const result = await upsertIndexRow(em, {
         entityType,
         recordId: String(r.id),
         organizationId: scopeOrg,
         tenantId: scopeTenant,
-        suppressCoverage: true,
       })
-      coverageScopes.add(coverageKey(scopeTenant ?? null, scopeOrg ?? null))
+
+      const doc = result.doc
+      const isActive = !!doc && (doc.deleted_at == null || doc.deleted_at === null)
+      if (isActive) {
+        adjustments.push(
+          ...createCoverageAdjustments({
+            entityType,
+            tenantId: scopeTenant ?? null,
+            organizationId: null,
+            baseDelta: 0,
+            indexDelta: 1,
+          })
+        )
+        if (adjustments.length >= COVERAGE_FLUSH_BATCH) {
+          await flushAdjustments()
+        }
+      }
+
+      void eventBus
+        .emitEvent('query_index.vectorize_one', {
+          entityType,
+          recordId: String(r.id),
+          organizationId: scopeOrg,
+          tenantId: scopeTenant,
+        })
+        .catch(() => undefined)
     }
 
-    const delayMs = payload?.coverageDelayMs ?? 2000
-    for (const key of coverageScopes) {
-      const [tenantToken, orgToken] = key.split('|')
-      const tenantValue = tenantToken === '__null__' ? null : tenantToken
-      const orgValue = orgToken === '__null__' ? null : orgToken
-      await eventBus.emitEvent('query_index.coverage.refresh', {
+    await flushAdjustments()
+
+    // Final sync to ensure counts match persisted data
+    for (const [tenantValue] of baseCounts) {
+      await refreshCoverageSnapshot(em, {
         entityType,
         tenantId: tenantValue,
-        organizationId: orgValue,
-        delayMs,
+        organizationId: null,
+        withDeleted: false,
       })
-      if (orgValue !== null) {
-        await eventBus.emitEvent('query_index.coverage.refresh', {
-          entityType,
-          tenantId: tenantValue,
-          organizationId: null,
-          delayMs,
-        })
-      }
     }
   } finally {
     // Always remove the lock record for this scope so a restart is possible
     try { await lockScope().del() } catch {}
   }
+}
+
+function toNumber(value: unknown): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
 }

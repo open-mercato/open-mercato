@@ -24,8 +24,18 @@ export type CoverageAdjustment = {
   deltaIndex: number
 }
 
+export type CoverageDeltaInput = {
+  entityType: string
+  tenantId: string | null
+  organizationId: string | null
+  withDeleted?: boolean
+  baseDelta: number
+  indexDelta: number
+}
+
 const COLUMN_CACHE = new Map<string, boolean>()
 const GLOBAL_ORGANIZATION_PLACEHOLDER = '00000000-0000-0000-0000-000000000000'
+export const COVERAGE_ORG_PLACEHOLDER = GLOBAL_ORGANIZATION_PLACEHOLDER
 
 function toCount(value: unknown): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0
@@ -75,6 +85,23 @@ async function fetchCoverageRow(
   return row ?? null
 }
 
+async function pruneDuplicateCoverageRows(
+  knex: Knex,
+  scope: CoverageScope,
+  keepId: string | null
+) {
+  const query = knex('entity_index_coverage')
+    .where('entity_type', scope.entityType)
+    .where('tenant_id', scope.tenantId ?? null)
+    .where('with_deleted', scope.withDeleted === true)
+    .modify((qb) => applyOrganizationCondition(qb, 'organization_id', scope.organizationId ?? null))
+  if (keepId) {
+    await query.andWhereNot('id', keepId).del()
+  } else {
+    await query.del()
+  }
+}
+
 async function upsertCoverageRow(
   knex: Knex,
   scope: CoverageScope,
@@ -90,7 +117,7 @@ async function upsertCoverageRow(
       .del()
   }
 
-  await knex('entity_index_coverage')
+  const rows = await knex('entity_index_coverage')
     .insert({
       entity_type: scope.entityType,
       tenant_id: scope.tenantId ?? null,
@@ -106,6 +133,10 @@ async function upsertCoverageRow(
       indexed_count: counts.indexedCount,
       refreshed_at: knex.fn.now(),
     })
+    .returning<{ id: string }[]>('id')
+
+  const keepId = rows?.[0]?.id ?? null
+  await pruneDuplicateCoverageRows(knex, scope, keepId)
 }
 
 export async function readCoverageSnapshot(
@@ -137,26 +168,14 @@ export async function applyCoverageAdjustments(
 ): Promise<void> {
   if (!adjustments.length) return
   const knex = (em as any).getConnection().getKnex() as Knex
-
-  console.log('Applying coverage adjustments', adjustments);
-  for (const adj of adjustments) {
-    if (!adj.entityType) continue
-    const withDeleted = adj.withDeleted === true
-    const deltaBase = Number.isFinite(adj.deltaBase) ? adj.deltaBase : 0
-    const deltaIndex = Number.isFinite(adj.deltaIndex) ? adj.deltaIndex : 0
-    if (deltaBase === 0 && deltaIndex === 0) continue
-
-    const scope: CoverageScope = {
-      entityType: adj.entityType,
-      tenantId: adj.tenantId ?? null,
-      organizationId: adj.organizationId ?? null,
-      withDeleted,
-    }
+  const aggregated = aggregateAdjustments(adjustments)
+  for (const entry of aggregated) {
+    const scope = entry.scope
     const existing = await fetchCoverageRow(knex, scope)
     const currentBase = existing ? toCount(existing.base_count) : 0
     const currentIndex = existing ? toCount(existing.indexed_count) : 0
-    const nextBase = Math.max(currentBase + deltaBase, 0)
-    const nextIndex = Math.max(currentIndex + deltaIndex, 0)
+    const nextBase = Math.max(currentBase + entry.deltaBase, 0)
+    const nextIndex = Math.max(currentIndex + entry.deltaIndex, 0)
 
     await upsertCoverageRow(knex, scope, { baseCount: nextBase, indexedCount: nextIndex })
   }
@@ -214,4 +233,78 @@ export async function refreshCoverageSnapshot(em: EntityManager, scope: Coverage
   const indexCount = toCount(indexRow?.count)
 
   await upsertCoverageRow(knex, { entityType, tenantId, organizationId, withDeleted }, { baseCount, indexedCount: indexCount })
+}
+
+export async function writeCoverageCounts(
+  em: EntityManager,
+  scope: CoverageScope,
+  counts: { baseCount: number; indexedCount: number }
+): Promise<void> {
+  const entityType = String(scope.entityType || '')
+  if (!entityType) return
+  const knex = (em as any).getConnection().getKnex() as Knex
+  const tenantId = scope.tenantId ?? null
+  const organizationId = scope.organizationId ?? null
+  const withDeleted = scope.withDeleted === true
+  const baseCount = Math.max(0, Math.trunc(toCount(counts.baseCount)))
+  const indexCount = Math.max(0, Math.trunc(toCount(counts.indexedCount)))
+  await upsertCoverageRow(knex, { entityType, tenantId, organizationId, withDeleted }, { baseCount, indexedCount: indexCount })
+}
+
+type AggregatedAdjustment = {
+  scope: CoverageScope
+  deltaBase: number
+  deltaIndex: number
+}
+
+function aggregateAdjustments(adjustments: CoverageAdjustment[]): AggregatedAdjustment[] {
+  const map = new Map<string, AggregatedAdjustment>()
+  for (const adj of adjustments) {
+    if (!adj?.entityType) continue
+    const deltaBase = Number.isFinite(adj.deltaBase) ? adj.deltaBase : 0
+    const deltaIndex = Number.isFinite(adj.deltaIndex) ? adj.deltaIndex : 0
+    if (deltaBase === 0 && deltaIndex === 0) continue
+    const scope: CoverageScope = {
+      entityType: adj.entityType,
+      tenantId: adj.tenantId ?? null,
+      organizationId: adj.organizationId ?? null,
+      withDeleted: adj.withDeleted === true,
+    }
+    const key = scopeKey(scope)
+    const existing = map.get(key)
+    if (existing) {
+      existing.deltaBase += deltaBase
+      existing.deltaIndex += deltaIndex
+    } else {
+      map.set(key, { scope, deltaBase, deltaIndex })
+    }
+  }
+  return Array.from(map.values())
+}
+
+function scopeKey(scope: CoverageScope): string {
+  const tenant = scope.tenantId ?? '__tenant_null__'
+  const org = normalizeOrganizationForStore(scope.organizationId ?? null)
+  const deleted = scope.withDeleted === true ? '1' : '0'
+  return `${scope.entityType}|${tenant}|${org}|${deleted}`
+}
+
+export function createCoverageAdjustments(input: CoverageDeltaInput): CoverageAdjustment[] {
+  const entityType = String(input.entityType || '')
+  if (!entityType) return []
+  const baseDelta = Number.isFinite(input.baseDelta) ? input.baseDelta : 0
+  const indexDelta = Number.isFinite(input.indexDelta) ? input.indexDelta : 0
+  if (baseDelta === 0 && indexDelta === 0) return []
+  const withDeleted = input.withDeleted === true
+  const tenantId = input.tenantId ?? null
+  return [
+    {
+      entityType,
+      tenantId,
+      organizationId: null,
+      withDeleted,
+      deltaBase: baseDelta,
+      deltaIndex: indexDelta,
+    },
+  ]
 }

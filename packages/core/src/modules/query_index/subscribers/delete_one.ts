@@ -1,7 +1,6 @@
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { markDeleted } from '../lib/indexer'
-import { applyCoverageAdjustments } from '../lib/coverage'
-import type { CoverageAdjustment } from '../lib/coverage'
+import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/coverage'
 
 export const metadata = { event: 'query_index.delete_one', persistent: false }
 
@@ -25,19 +24,6 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   }
   const { wasActive } = await markDeleted(em, { entityType, recordId, organizationId, tenantId })
 
-  const adjustments: CoverageAdjustment[] = []
-  const push = (orgId: string | null, deltaBase: number, deltaIndex: number) => {
-    if (deltaBase === 0 && deltaIndex === 0) return
-    adjustments.push({
-      entityType,
-      tenantId: tenantId ?? null,
-      organizationId: orgId,
-      withDeleted: false,
-      deltaBase,
-      deltaIndex,
-    })
-  }
-
   let baseDelta = 0
   let baseCheckSucceeded = false
   try {
@@ -51,11 +37,27 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   } catch {}
   if (!baseCheckSucceeded) baseDelta = -1
 
-  const indexDelta = wasActive ? -1 : 0
-  if (baseDelta !== 0 || indexDelta !== 0) {
-    push(organizationId ?? null, baseDelta, indexDelta)
-    if (organizationId != null) push(null, baseDelta, indexDelta)
-    await applyCoverageAdjustments(em, adjustments)
+  const baseDeltaOverride =
+    typeof payload?.coverageBaseDelta === 'number' ? payload.coverageBaseDelta : undefined
+  const indexDeltaOverride =
+    typeof payload?.coverageIndexDelta === 'number' ? payload.coverageIndexDelta : undefined
+  let effectiveBaseDelta = baseDeltaOverride ?? baseDelta
+  let effectiveIndexDelta = indexDeltaOverride ?? (wasActive ? -1 : 0)
+
+  if (!Number.isFinite(effectiveBaseDelta)) effectiveBaseDelta = 0
+  if (!Number.isFinite(effectiveIndexDelta)) effectiveIndexDelta = 0
+
+  if (effectiveBaseDelta !== 0 || effectiveIndexDelta !== 0) {
+    const adjustments = createCoverageAdjustments({
+      entityType,
+      tenantId: tenantId ?? null,
+      organizationId: organizationId ?? null,
+      baseDelta: effectiveBaseDelta,
+      indexDelta: effectiveIndexDelta,
+    })
+    if (adjustments.length) {
+      await applyCoverageAdjustments(em, adjustments)
+    }
   }
 
   const shouldRefreshCoverage = coverageDelayMs === undefined || coverageDelayMs >= 0
@@ -66,17 +68,9 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       await bus.emitEvent('query_index.coverage.refresh', {
         entityType,
         tenantId: tenantId ?? null,
-        organizationId,
+        organizationId: null,
         delayMs: delay,
       })
-      if (organizationId !== null) {
-        await bus.emitEvent('query_index.coverage.refresh', {
-          entityType,
-          tenantId: tenantId ?? null,
-          organizationId: null,
-          delayMs: delay,
-        })
-      }
     } catch {}
   }
 }
