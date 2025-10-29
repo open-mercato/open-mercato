@@ -9,6 +9,8 @@ import type { CommandRuntimeContext, CommandLogMetadata } from '@open-mercato/sh
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { AwilixContainer } from 'awilix'
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['audit_logs.redo_self'] },
@@ -17,6 +19,20 @@ export const metadata = {
 type RedoRequestBody = {
   logId?: string
 }
+
+const redoRequestSchema = z.object({
+  logId: z.string().min(1).describe('Identifier of the previously undone action log'),
+})
+
+const redoResponseSchema = z.object({
+  ok: z.literal(true),
+  logId: z.string().nullable().describe('Identifier of the new redo log entry, if available'),
+  undoToken: z.string().nullable().describe('New undo token associated with the redone action'),
+})
+
+const errorSchema = z.object({
+  error: z.string(),
+})
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -167,4 +183,28 @@ function deriveUpdateInput(log: ActionLog): Record<string, unknown> | null {
     }
   }
   return payload
+}
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'Redo a previously undone action',
+  description: 'Replays the command associated with a recently undone action, reapplying the change and issuing a fresh undo token.',
+  methods: {
+    POST: {
+      summary: 'Redo by action log id',
+      description:
+        'Redoes the latest undone command owned by the caller. Requires the action to still be eligible for redo within tenant and organization scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: redoRequestSchema,
+      },
+      responses: [
+        { status: 200, description: 'Redo executed successfully', schema: redoResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Log not eligible for redo', schema: errorSchema },
+        { status: 401, description: 'Authentication required', schema: errorSchema },
+        { status: 403, description: 'Redo blocked by scope checks', schema: errorSchema },
+      ],
+    },
+  },
 }

@@ -6,10 +6,56 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadAuditLogDisplayMaps } from '../display'
+import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
 }
+
+const auditActionQuerySchema = z.object({
+  organizationId: z.string().uuid().describe('Limit results to a specific organization').optional(),
+  actorUserId: z.string().uuid().describe('Filter logs created by a specific actor (tenant administrators only)').optional(),
+  undoableOnly: z
+    .enum(['true', 'false'])
+    .default('false')
+    .describe('When `true`, only undoable actions are returned')
+    .optional(),
+  limit: z.string().describe('Maximum number of records to return (default 50)').optional(),
+  before: z.string().describe('Return actions created before this ISO-8601 timestamp').optional(),
+  after: z.string().describe('Return actions created after this ISO-8601 timestamp').optional(),
+})
+
+const auditActionItemSchema = z.object({
+  id: z.string(),
+  commandId: z.string(),
+  actionLabel: z.string().nullable(),
+  executionState: z.enum(['done', 'undone', 'failed', 'redone']),
+  actorUserId: z.string().uuid().nullable(),
+  actorUserName: z.string().nullable(),
+  tenantId: z.string().uuid().nullable(),
+  tenantName: z.string().nullable(),
+  organizationId: z.string().uuid().nullable(),
+  organizationName: z.string().nullable(),
+  resourceKind: z.string().nullable(),
+  resourceId: z.string().nullable(),
+  undoToken: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  snapshotBefore: z.unknown().nullable(),
+  snapshotAfter: z.unknown().nullable(),
+  changes: z.record(z.unknown()).nullable(),
+  context: z.record(z.unknown()).nullable(),
+})
+
+const auditActionResponseSchema = z.object({
+  items: z.array(auditActionItemSchema),
+  canViewTenant: z.boolean(),
+})
+
+const errorSchema = z.object({
+  error: z.string(),
+})
 
 function parseDate(value: string | null): Date | undefined {
   if (!value) return undefined
@@ -101,4 +147,24 @@ export async function GET(req: Request) {
   }))
 
   return NextResponse.json({ items, canViewTenant })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'List action audit logs',
+  description: 'Retrieve recent state-changing actions with undo/redo metadata for the current tenant.',
+  methods: {
+    GET: {
+      summary: 'Fetch action logs',
+      description:
+        'Returns recent action audit log entries. Tenant administrators can widen the scope to other actors or organizations, and callers can optionally restrict results to undoable actions.',
+      query: auditActionQuerySchema,
+      responses: [
+        { status: 200, description: 'Action logs retrieved successfully', schema: auditActionResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid filter values', schema: errorSchema },
+        { status: 401, description: 'Authentication required', schema: errorSchema },
+      ],
+    },
+  },
 }

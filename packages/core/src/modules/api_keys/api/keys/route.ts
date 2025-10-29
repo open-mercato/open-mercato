@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -13,6 +14,50 @@ const listQuerySchema = z.object({
   page: z.string().optional(),
   pageSize: z.string().optional(),
   search: z.string().optional(),
+})
+
+const apiKeyRoleSchema = z.object({
+  id: z.string().describe('Role identifier or alias assigned to the key'),
+  name: z.string().nullable().describe('Display name of the mapped role, if available'),
+})
+
+const apiKeyListItemSchema = z.object({
+  id: z.string().describe('API key identifier'),
+  name: z.string().describe('Friendly label used to identify the key'),
+  description: z.string().nullable().describe('Optional free-form description'),
+  keyPrefix: z.string().describe('Public prefix exposed to clients'),
+  organizationId: z.string().uuid().nullable().describe('Organization scope of the key'),
+  organizationName: z.string().nullable().describe('Resolved organization display name'),
+  createdAt: z.string().describe('Creation timestamp (ISO 8601)'),
+  lastUsedAt: z.string().nullable().describe('Last time the key was observed in use (ISO 8601)'),
+  expiresAt: z.string().nullable().describe('When the key expires (ISO 8601)'),
+  roles: z.array(apiKeyRoleSchema).describe('Effective roles applied when this key authenticates'),
+})
+
+const apiKeyCollectionResponseSchema = z.object({
+  items: z.array(apiKeyListItemSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  totalPages: z.number().int().nonnegative(),
+})
+
+const apiKeyCreateResponseSchema = z.object({
+  id: z.string().describe('Newly created API key identifier'),
+  name: z.string(),
+  keyPrefix: z.string(),
+  secret: z.string().describe('Full API key value. Shown once for secure persistence.').optional(),
+  tenantId: z.string().uuid().nullable(),
+  organizationId: z.string().uuid().nullable(),
+  roles: z.array(apiKeyRoleSchema),
+})
+
+const deleteResponseSchema = z.object({
+  success: z.literal(true),
+})
+
+const errorSchema = z.object({
+  error: z.string(),
 })
 
 function json(payload: unknown, init: ResponseInit = { status: 200 }) {
@@ -236,3 +281,68 @@ export const metadata = crud.metadata
 export const GET = crud.GET
 export const POST = crud.POST
 export const DELETE = crud.DELETE
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'Manage API keys',
+  description:
+    'Provides list, creation, and deletion capabilities for API keys scoped to the authenticated tenant and organization.',
+  methods: {
+    GET: {
+      summary: 'List API keys',
+      description:
+        'Returns paginated API keys visible to the current user, including per-key role assignments and organization context.',
+      query: listQuerySchema,
+      responses: [
+        {
+          status: 200,
+          description: 'Collection of API keys',
+          schema: apiKeyCollectionResponseSchema,
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Tenant context missing', schema: errorSchema },
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Forbidden by organization scope', schema: errorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Create API key',
+      description:
+        'Creates a new API key, returning the one-time secret value together with the generated key prefix and scope details.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: createApiKeySchema,
+        description: 'API key definition including optional scope and role assignments.',
+      },
+      responses: [
+        {
+          status: 201,
+          description: 'API key created successfully',
+          schema: apiKeyCreateResponseSchema,
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload or missing tenant context', schema: errorSchema },
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Organization outside allowed scope', schema: errorSchema },
+      ],
+    },
+    DELETE: {
+      summary: 'Delete API key',
+      description:
+        'Removes an API key by identifier. The key must belong to the current tenant and fall within the requester organization scope.',
+      query: z.object({
+        id: z.string().uuid().describe('API key identifier to delete'),
+      }),
+      responses: [
+        { status: 200, description: 'Key deleted successfully', schema: deleteResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Missing or invalid identifier', schema: errorSchema },
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Organization outside allowed scope', schema: errorSchema },
+        { status: 404, description: 'Key not found within scope', schema: errorSchema },
+      ],
+    },
+  },
+}

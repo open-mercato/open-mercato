@@ -3,11 +3,51 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { promises as fs } from 'fs'
 import path from 'path'
+import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
   POST: { requireAuth: true, requireFeatures: ['attachments.manage'] },
 }
+
+const attachmentQuerySchema = z.object({
+  entityId: z.string().min(1).describe('Entity identifier that owns the attachments'),
+  recordId: z.string().min(1).describe('Record identifier within the entity'),
+})
+
+const attachmentItemSchema = z.object({
+  id: z.string().describe('Attachment identifier'),
+  url: z.string().describe('Public path to the stored asset'),
+  fileName: z.string().describe('Original filename'),
+  fileSize: z.number().int().nonnegative().describe('File size in bytes'),
+  createdAt: z.string().describe('Upload timestamp (ISO 8601)'),
+})
+
+const attachmentListResponseSchema = z.object({
+  items: z.array(attachmentItemSchema),
+})
+
+const attachmentUploadBodySchema = z.object({
+  entityId: z.string().min(1),
+  recordId: z.string().min(1),
+  fieldKey: z.string().optional(),
+  file: z.string().min(1).describe('Binary file payload; supplied as multipart form-data'),
+})
+
+const uploadResponseSchema = z.object({
+  ok: z.literal(true),
+  item: z.object({
+    id: z.string(),
+    url: z.string(),
+    fileName: z.string(),
+    fileSize: z.number().int().nonnegative(),
+  }),
+})
+
+const errorSchema = z.object({
+  error: z.string(),
+})
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -100,4 +140,39 @@ export async function POST(req: Request) {
   await em.persistAndFlush(att)
 
   return NextResponse.json({ ok: true, item: { id: (att as any).id, url: urlPath, fileName: safeName, fileSize: buf.length } })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'Manage entity attachments',
+  description: 'Upload and list attachments associated with module entities and records.',
+  methods: {
+    GET: {
+      summary: 'List attachments for a record',
+      description: 'Returns uploaded attachments for the given entity record, ordered by newest first.',
+      query: attachmentQuerySchema,
+      responses: [
+        { status: 200, description: 'Attachments found for the record', schema: attachmentListResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Missing entity or record identifiers', schema: errorSchema },
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Upload attachment',
+      description: 'Uploads a new attachment using multipart form-data and stores metadata for later retrieval.',
+      requestBody: {
+        contentType: 'multipart/form-data',
+        schema: attachmentUploadBodySchema,
+      },
+      responses: [
+        { status: 200, description: 'Attachment stored successfully', schema: uploadResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Payload validation error', schema: errorSchema },
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Attachment violates field constraints', schema: errorSchema },
+      ],
+    },
+  },
 }
