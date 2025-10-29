@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { CustomEntity, CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { E as AllEntities } from '@/generated/entities.ids.generated'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/data/validators'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -147,3 +149,112 @@ export async function DELETE(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
+const entitySummarySchema = z.object({
+  entityId: z.string(),
+  source: z.enum(['code', 'custom']),
+  label: z.string(),
+  description: z.string().optional(),
+  labelField: z.string().optional(),
+  defaultEditor: z.string().optional(),
+  showInSidebar: z.boolean().optional(),
+  count: z.number(),
+})
+
+const entityListResponseSchema = z.object({
+  items: z.array(entitySummarySchema),
+})
+
+const deleteEntityRequestSchema = z.object({
+  entityId: z.string(),
+})
+
+const upsertCustomEntityResponseSchema = z.object({
+  ok: z.literal(true),
+  item: z.object({
+    id: z.string().uuid(),
+    entityId: z.string(),
+    label: z.string(),
+    description: z.string().optional(),
+  }),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Entities',
+  summary: 'Manage custom entities',
+  methods: {
+    GET: {
+      summary: 'List available entities',
+      description: 'Returns generated and custom entities scoped to the caller with field counts per entity.',
+      responses: [
+        {
+          status: 200,
+          description: 'List of entities',
+          schema: entityListResponseSchema,
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+    POST: {
+      summary: 'Upsert custom entity',
+      description: 'Creates or updates a tenant/org scoped custom entity definition.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: upsertCustomEntitySchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Entity saved',
+          schema: upsertCustomEntityResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Validation error',
+          schema: z.object({
+            error: z.string(),
+            details: z.any().optional(),
+          }),
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+    DELETE: {
+      summary: 'Soft delete custom entity',
+      description: 'Marks the specified custom entity inactive within the current scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: deleteEntityRequestSchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Entity deleted',
+          schema: z.object({ ok: z.boolean() }),
+        },
+        {
+          status: 400,
+          description: 'Missing entity id',
+          schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 404,
+          description: 'Entity not found in scope',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+  },
+}
