@@ -25,6 +25,16 @@ export type CustomerAddressFormat = 'line_first' | 'street_first'
   properties: ['tenantId', 'organizationId', 'id'],
   where: "deleted_at is null and kind = 'company'",
 })
+@Index({
+  name: 'idx_ce_tenant_company_id',
+  properties: ['tenantId', 'id'],
+  where: "deleted_at is null and kind = 'company'",
+})
+@Index({
+  name: 'idx_ce_tenant_person_id',
+  properties: ['tenantId', 'id'],
+  where: "deleted_at is null and kind = 'person'",
+})
 export class CustomerEntity {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
