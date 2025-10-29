@@ -3,7 +3,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { E as AllEntities } from '@/generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { readCoverageSnapshot } from '../lib/coverage'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
 
@@ -51,60 +51,6 @@ export async function GET(req: Request) {
     entityIds = entityIds.filter((id) => enabled.has(id))
   } catch {}
 
-  async function columnExists(table: string, column: string): Promise<boolean> {
-    try {
-      const row = await knex('information_schema.columns')
-        .where({ table_name: table, column_name: column })
-        .first()
-      return !!row
-    } catch {
-      return false
-    }
-  }
-
-  async function countBase(entityType: string, tenantIdParam: string | null): Promise<number> {
-    // Counts intentionally ignore organization scope. Aggregate across orgs but respect tenant filtering where available.
-    const table = resolveEntityTableName(em, entityType)
-    const hasTenant = await columnExists(table, 'tenant_id')
-    const hasDeleted = await columnExists(table, 'deleted_at')
-
-    let q = knex(table)
-    if (hasTenant && tenantIdParam != null) q = q.andWhere((b: any) => b.where({ tenant_id: tenantIdParam }).orWhereNull('tenant_id'))
-    if (hasDeleted) q = q.andWhere({ deleted_at: null })
-
-    try {
-      const r = await q.count('* as count').first()
-      const n = r && (r as any).count != null ? Number((r as any).count) : 0
-      return isNaN(n) ? 0 : n
-    } catch {
-      // Fallback: unscoped count
-      try {
-        const r = await knex(table).count('* as count').first()
-        const n = r && (r as any).count != null ? Number((r as any).count) : 0
-        return isNaN(n) ? 0 : n
-      } catch {
-        return 0
-      }
-    }
-  }
-
-  async function countIndex(entityType: string, tenantIdParam: string | null): Promise<number> {
-    try {
-      const r = await knex('entity_indexes')
-        .where({ entity_type: entityType })
-        .modify((qb: any) => {
-          if (tenantIdParam != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantIdParam }).orWhereNull('tenant_id'))
-          qb.andWhere({ deleted_at: null })
-        })
-        .count('* as count')
-        .first()
-      const n = r && (r as any).count != null ? Number((r as any).count) : 0
-      return isNaN(n) ? 0 : n
-    } catch {
-      return 0
-    }
-  }
-
   async function fetchJob(entityType: string, tenantIdParam: string | null): Promise<{ status: 'idle' | 'reindexing' | 'purging'; startedAt?: string | null; finishedAt?: string | null }> {
     try {
       const row = await knex('entity_index_jobs')
@@ -122,15 +68,74 @@ export async function GET(req: Request) {
     }
   }
 
-  const items: any[] = []
-  for (const eid of entityIds) {
-    const [baseCount, indexCount, job] = await Promise.all([countBase(eid, tenantId), countIndex(eid, tenantId), fetchJob(eid, tenantId)])
-    const label = (byId.get(eid)?.label) || eid
-    items.push({ entityId: eid, label, baseCount, indexCount, ok: baseCount === indexCount, job })
+  const normalizeCount = (value: unknown): number | null => {
+    if (value == null) return null
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
   }
 
+  const COVERAGE_STALE_MS = 60_000
+
+  const coverageSnapshots = await Promise.all(
+    entityIds.map((entityId) =>
+      readCoverageSnapshot(knex, {
+        entityType: entityId,
+        tenantId: tenantId ?? null,
+        organizationId: null,
+        withDeleted: false,
+      })
+    )
+  )
+
+  const jobs = await Promise.all(entityIds.map((eid) => fetchJob(eid, tenantId)))
+
+  const entitiesNeedingRefresh = new Set<string>()
+  const items: any[] = []
+  for (let idx = 0; idx < entityIds.length; idx += 1) {
+    const eid = entityIds[idx]
+    let coverage = coverageSnapshots[idx]
+
+    const refreshedAt = coverage?.refreshed_at instanceof Date ? coverage.refreshed_at : coverage?.refreshed_at ? new Date(coverage.refreshed_at) : null
+    const isStale = !coverage || !refreshedAt || (Date.now() - refreshedAt.getTime() > COVERAGE_STALE_MS)
+    if (isStale) entitiesNeedingRefresh.add(eid)
+
+    const job = jobs[idx]
+    const label = (byId.get(eid)?.label) || eid
+    const baseCountNumber = normalizeCount(coverage?.baseCount)
+    const indexCountNumber = normalizeCount(coverage?.indexedCount)
+    const ok = baseCountNumber != null && indexCountNumber != null ? baseCountNumber === indexCountNumber : false
+    items.push({
+      entityId: eid,
+      label,
+      baseCount: baseCountNumber,
+      indexCount: indexCountNumber,
+      ok,
+      job,
+      refreshedAt: refreshedAt ?? null,
+    })
+  }
+
+  try {
+    const eventBus = resolve('eventBus')
+    if (entitiesNeedingRefresh.size > 0) {
+      await Promise.all(
+        Array.from(entitiesNeedingRefresh).map((entityId) =>
+          eventBus
+            .emitEvent('query_index.coverage.refresh', {
+              entityType: entityId,
+              tenantId: tenantId ?? null,
+              organizationId: null,
+              delayMs: 0,
+            })
+            .catch(() => undefined)
+        )
+      )
+    }
+  } catch {}
+
   const response = NextResponse.json({ items })
-  const partial = items.find((item) => item.baseCount !== item.indexCount)
+  const partial = items.find((item) => item.ok === false)
   if (partial) {
     response.headers.set(
       'x-om-partial-index',

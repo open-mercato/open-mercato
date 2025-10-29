@@ -72,3 +72,20 @@ export const openApi: OpenApiRouteDoc = {
 ```
 
 Leaving `openApi` undefined still emits an operation, but providing schemas unlocks typed examples, Markdown tables, and better client generation.
+
+## Profiling CRUD latency
+
+You can inspect where time is spent inside CRUD routes (including query engine calls and custom-field decoration) by enabling the built-in profiler:
+
+- Set `OM_CRUD_PROFILE` (or `NEXT_PUBLIC_OM_CRUD_PROFILE` when debugging from the browser) to a comma-separated list that matches resource names. Use `*`/`all` for everything, or prefixes like `customers.*`.
+- Optionally set `OM_QE_PROFILE` (or `NEXT_PUBLIC_OM_QE_PROFILE`) to mirror the same filters when you want the hybrid query engine to log `[qe:profile]` traces alongside the CRUD timings.
+- Run the server (`npm run dev`, `npm run start`, etc.) with the variable exported, then trigger the slow request.
+- The server logs emit `[crud:profile]` JSON objects showing the total duration and per-step timings (`request_received`, `query_engine_complete`, `custom_fields_complete`, `after_list_hook`, and more). This helps pinpoint expensive joins, hooks, or cache writes without attaching an external profiler.
++ When `OM_QE_PROFILE` is enabled, the hybrid query engine logs `[qe:profile]` entries that break down index coverage checks, count queries, and data fetch phases so you can see whether the slowdown happens before or after the database call.
+
+## Performance notes
+
+- **Hybrid query indexes**: CRUD list routes that declare `entityId`/`fields` automatically hit the query index engine. Keep indexes fresh via `QUERY_INDEX_AUTO_REINDEX=true`, and monitor partial coverage warnings (`FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES`) to avoid falling back to slower base queries.
+- **Scope-aware filtering**: Most bottlenecks come from wide org/tenant scopes. Narrow filters (date ranges, search terms, tag constraints) before exporting large datasets to limit the amount of data the engine hydrates.
+- **Custom fields**: Every list request decorates records by loading field definitions per entity/tenant/org. Large custom field catalogs or high cardinality definitions can add ~10–50 ms per batch. Prefer targeted `customFieldSources` and archive unused definitions to keep lookups lean. For heavy exports, consider omitting `customFields` or caching the derived values in your module.
+- **Instrumentation first**: Enable `OM_CRUD_PROFILE` to identify the slow step (query execution, transformation, custom field decoration, hooks). Address the specific hot spot rather than applying blanket optimisations.

@@ -83,12 +83,43 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     }
 
     const rows = await q
+    const coverageScopes = new Set<string>()
+    const coverageKey = (tenantValue: string | null, orgValue: string | null) => `${tenantValue ?? '__null__'}|${orgValue ?? '__null__'}`
+
     for (const r of rows) {
       const scopeOrg = hasOrgCol
         ? (r as any).organization_id ?? null
         : (deriveOrgFromId.has(entityType) ? String((r as any).id) : null)
       const scopeTenant = tenantId !== undefined ? tenantId : (hasTenantCol ? (r as any).tenant_id ?? null : null)
-      await eventBus.emitEvent('query_index.upsert_one', { entityType, recordId: String(r.id), organizationId: scopeOrg, tenantId: scopeTenant })
+      await eventBus.emitEvent('query_index.upsert_one', {
+        entityType,
+        recordId: String(r.id),
+        organizationId: scopeOrg,
+        tenantId: scopeTenant,
+        suppressCoverage: true,
+      })
+      coverageScopes.add(coverageKey(scopeTenant ?? null, scopeOrg ?? null))
+    }
+
+    const delayMs = payload?.coverageDelayMs ?? 2000
+    for (const key of coverageScopes) {
+      const [tenantToken, orgToken] = key.split('|')
+      const tenantValue = tenantToken === '__null__' ? null : tenantToken
+      const orgValue = orgToken === '__null__' ? null : orgToken
+      await eventBus.emitEvent('query_index.coverage.refresh', {
+        entityType,
+        tenantId: tenantValue,
+        organizationId: orgValue,
+        delayMs,
+      })
+      if (orgValue !== null) {
+        await eventBus.emitEvent('query_index.coverage.refresh', {
+          entityType,
+          tenantId: tenantValue,
+          organizationId: null,
+          delayMs,
+        })
+      }
     }
   } finally {
     // Always remove the lock record for this scope so a restart is possible

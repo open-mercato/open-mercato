@@ -101,3 +101,36 @@ export class EntityIndexJob {
   @Property({ name: 'finished_at', type: Date, nullable: true })
   finishedAt?: Date | null
 }
+
+// Snapshot counts for coverage checks (per entity / tenant / org / withDeleted scope)
+@Entity({ tableName: 'entity_index_coverage' })
+@Index({
+  name: 'entity_index_coverage_scope_idx',
+  properties: ['entityType', 'tenantId', 'organizationId', 'withDeleted'],
+  options: { unique: true },
+})
+export class EntityIndexCoverage {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'entity_type', type: 'text' })
+  entityType!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'with_deleted', type: 'boolean', default: false })
+  withDeleted: boolean = false
+
+  @Property({ name: 'base_count', type: 'int', unsigned: true, default: 0 })
+  baseCount: number = 0
+
+  @Property({ name: 'indexed_count', type: 'int', unsigned: true, default: 0 })
+  indexedCount: number = 0
+
+  @Property({ name: 'refreshed_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  refreshedAt: Date = new Date()
+}

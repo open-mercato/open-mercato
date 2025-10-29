@@ -2839,6 +2839,33 @@ const seedStressTest: ModuleCli = {
     )
     bar?.complete()
 
+    try {
+      const eventBus = container.resolve<any>('eventBus')
+      const coverageEntities = [
+        CoreEntities.customers.customer_entity,
+        CoreEntities.customers.customer_person_profile,
+        CoreEntities.customers.customer_company_profile,
+      ]
+      await Promise.all(
+        coverageEntities.map(async (entityType) => {
+          await eventBus.emitEvent('query_index.coverage.refresh', {
+            entityType,
+            tenantId,
+            organizationId,
+            delayMs: 0,
+          })
+          await eventBus.emitEvent('query_index.coverage.refresh', {
+            entityType,
+            tenantId,
+            organizationId: null,
+            delayMs: 0,
+          })
+        })
+      )
+    } catch (err) {
+      console.warn('[customers.cli] Failed to refresh query index coverage after stress-test seeding', err)
+    }
+
     if (result.created > 0) {
       console.log(
         `Created ${result.created} stress test customer contacts (existing previously: ${result.existing})`

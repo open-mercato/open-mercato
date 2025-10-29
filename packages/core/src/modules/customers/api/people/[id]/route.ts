@@ -131,6 +131,88 @@ function readCustomField(record: Record<string, unknown>, key: string): unknown 
   return undefined
 }
 
+type RouteProfilerMark = { label: string; time: bigint; extra?: Record<string, unknown> }
+type RouteProfiler = { enabled: boolean; mark: (label: string, extra?: Record<string, unknown>) => void; end: (extra?: Record<string, unknown>) => void }
+
+function normalizeProfilerTokens(input: string | null | undefined): string[] {
+  if (!input) return []
+  return input
+    .split(',')
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length > 0)
+}
+
+function profilerMatches(scope: string, tokens: string[]): boolean {
+  if (!tokens.length) return false
+  const lower = scope.toLowerCase()
+  return tokens.some((token) => {
+    if (token === '*' || token === 'all' || token === '1' || token === 'true') return true
+    if (token.endsWith('*')) {
+      const prefix = token.slice(0, -1)
+      return prefix.length === 0 ? true : lower.startsWith(prefix)
+    }
+    return token === lower
+  })
+}
+
+function isRouteProfilingEnabled(scope: string): boolean {
+  const candidates = [
+    process.env.OM_CRUD_PROFILE,
+    process.env.NEXT_PUBLIC_OM_CRUD_PROFILE,
+    process.env.OM_ROUTE_PROFILE,
+    process.env.NEXT_PUBLIC_OM_ROUTE_PROFILE,
+  ]
+  for (const raw of candidates) {
+    if (!raw) continue
+    const tokens = normalizeProfilerTokens(raw)
+    if (profilerMatches(scope, tokens)) return true
+  }
+  return false
+}
+
+function createRouteProfiler(scope: string): RouteProfiler {
+  if (!isRouteProfilingEnabled(scope)) {
+    return { enabled: false, mark: () => {}, end: () => {} }
+  }
+  const marks: RouteProfilerMark[] = [{ label: 'start', time: process.hrtime.bigint() }]
+  const round = (value: number) => Math.round(value * 1000) / 1000
+  return {
+    enabled: true,
+    mark(label, extra) {
+      marks.push({ label, time: process.hrtime.bigint(), extra })
+    },
+    end(extra) {
+      marks.push({ label: 'end', time: process.hrtime.bigint(), extra })
+      const segments: Array<{ step: string; durationMs: number; extra?: Record<string, unknown> }> = []
+      for (let idx = 1; idx < marks.length; idx += 1) {
+        const current = marks[idx]
+        const previous = marks[idx - 1]
+        if (current.label === 'end') continue
+        const durationMs = Number(current.time - previous.time) / 1_000_000
+        segments.push({
+          step: current.label,
+          durationMs: round(durationMs),
+          ...(current.extra ? { extra: current.extra } : {}),
+        })
+      }
+      const totalNs = marks[marks.length - 1].time - marks[0].time
+      const payload: Record<string, unknown> = {
+        scope,
+        totalMs: round(Number(totalNs) / 1_000_000),
+        steps: segments,
+      }
+      const tail = marks[marks.length - 1]
+      if (tail.extra && Object.keys(tail.extra).length > 0) payload.meta = tail.extra
+      else if (extra && Object.keys(extra).length > 0) payload.meta = extra
+      try {
+        console.info('[route:profile]', payload)
+      } catch {
+        // ignore logging failures
+      }
+    },
+  }
+}
+
 async function resolveTodoDetails(
   queryEngine: QueryEngine,
   links: CustomerTodoLink[],
@@ -279,280 +361,368 @@ async function resolveTodoDetails(
 }
 
 export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
-  const auth = await getAuthFromRequest(_req)
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const parse = paramsSchema.safeParse({ id: ctx.params?.id })
-  if (!parse.success) return NextResponse.json({ error: 'Invalid person id' }, { status: 400 })
+  const profiler = createRouteProfiler('customers.people.detail')
+  profiler.mark('request_received')
 
   const includeTokens = parseIncludeParams(_req)
+  profiler.mark('includes_parsed', { include: Array.from(includeTokens) })
+
   const includeActivities = includeTokens.has('activities')
   const includeAddresses = includeTokens.has('addresses')
   const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
   const includeDeals = includeTokens.has('deals')
   const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
 
-  const container = await createRequestContainer()
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
-  const em = container.resolve<EntityManager>('em')
-
-  const person = await em.findOne(
-    CustomerEntity,
-    { id: parse.data.id, kind: 'person', deletedAt: null },
-    {
-      populate: [
-        'personProfile',
-        'personProfile.company',
-        'personProfile.company.companyProfile',
-      ],
-    }
-  )
-  if (!person) return notFound('Person not found')
-
-  if (auth.tenantId && person.tenantId !== auth.tenantId) return notFound('Person not found')
-  const allowedOrgIds = new Set<string>()
-  if (scope?.filterIds?.length) scope.filterIds.forEach((id) => allowedOrgIds.add(id))
-  else if (auth.orgId) allowedOrgIds.add(auth.orgId)
-
-  if (allowedOrgIds.size && person.organizationId && !allowedOrgIds.has(person.organizationId)) {
-    return forbidden('Access denied')
-  }
-
-  const profile = await em.findOne(CustomerPersonProfile, { entity: person })
-  const addresses = includeAddresses
-    ? await em.find(CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } })
-    : []
-  const tagAssignments = await em.find(CustomerTagAssignment, { entity: person.id }, { populate: ['tag'] })
-
-  const comments = includeComments
-    ? await em.find(CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
-    : []
-  const activities = includeActivities
-    ? await em.find(CustomerActivity, { entity: person.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 })
-    : []
-  const todoLinks = includeTodos
-    ? await em.find(CustomerTodoLink, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
-    : []
-
+  let statusCode = 500
+  let profileMeta: Record<string, unknown> | undefined
+  let addresses: CustomerAddress[] = []
+  let comments: CustomerComment[] = []
+  let activities: CustomerActivity[] = []
+  let todoLinks: CustomerTodoLink[] = []
   let todoDetails = new Map<string, TodoDetail>()
-  if (includeTodos && todoLinks.length) {
-    const queryEngine = container.resolve<QueryEngine>('queryEngine')
-    try {
-      todoDetails = await resolveTodoDetails(
-        queryEngine,
-        todoLinks,
-        person.tenantId ?? auth.tenantId ?? null,
-        [person.organizationId ?? null, ...(scope?.filterIds ?? [])],
-      )
-    } catch (err) {
-      console.warn('customers.people.detail: failed to enrich todo links', err)
-    }
-  }
-
-  const authorIds = new Set<string>()
-  if (includeActivities) {
-    for (const activity of activities) {
-      if (activity.authorUserId) authorIds.add(activity.authorUserId)
-    }
-  }
-  if (includeComments) {
-    for (const comment of comments) {
-      if (comment.authorUserId) authorIds.add(comment.authorUserId)
-    }
-  }
-  const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
-  if (viewerUserId) authorIds.add(viewerUserId)
-
-  let userMap = new Map<string, { name: string | null; email: string | null }>()
-  if (authorIds.size) {
-    const authorIdList = Array.from(authorIds)
-    const users = await em.find(User, { id: { $in: authorIdList } })
-    userMap = new Map(
-      users.map((user) => [
-        user.id,
-        {
-          name: user.name ?? null,
-          email: user.email ?? null,
-        },
-      ])
-    )
-  }
-
   let deals: CustomerDeal[] = []
-  if (includeDeals) {
-    const dealLinks = await em.find(CustomerDealPersonLink, { person: person.id }, { populate: ['deal'] })
-    deals = dealLinks
-      .map((link) => (link.deal as CustomerDeal | string | null) ?? null)
-      .filter((deal): deal is CustomerDeal => !!deal && typeof deal !== 'string')
-  }
+  let tagAssignments: CustomerTagAssignment[] = []
+  let userMap = new Map<string, { name: string | null; email: string | null }>()
+  let customFields: Record<string, unknown> = {}
+  let viewerUserId: string | null = null
+  let profile: CustomerPersonProfile | null = null
 
-  const entityCustomFieldValues = await loadCustomFieldValues({
-    em,
-    entityId: E.customers.customer_entity,
-    recordIds: [person.id],
-    tenantIdByRecord: { [person.id]: person.tenantId ?? null },
-    organizationIdByRecord: { [person.id]: person.organizationId ?? null },
-    tenantFallbacks: [
-      person.tenantId ?? auth.tenantId ?? null,
-    ].filter((v): v is string => !!v),
-  })
-  let profileCustomFieldValues: Record<string, Record<string, unknown>> = {}
-  const profileId = profile?.id ?? null
-  if (profileId) {
-    profileCustomFieldValues = await loadCustomFieldValues({
+  try {
+    const parse = paramsSchema.safeParse({ id: ctx.params?.id })
+    if (!parse.success) {
+      statusCode = 400
+      profileMeta = { reason: 'invalid_person_id' }
+      return NextResponse.json({ error: 'Invalid person id' }, { status: 400 })
+    }
+    profiler.mark('params_resolved', { id: parse.data.id })
+
+    const auth = await getAuthFromRequest(_req)
+    if (!auth) {
+      profiler.mark('auth_missing')
+      statusCode = 401
+      profileMeta = { reason: 'unauthorized' }
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    profiler.mark('auth_resolved', {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+      userId: auth.sub ?? null,
+      isApiKey: !!auth.isApiKey,
+    })
+    viewerUserId = auth.isApiKey ? null : auth.sub ?? null
+
+    const container = await createRequestContainer()
+    profiler.mark('container_resolved')
+
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
+    profiler.mark('scope_resolved', {
+      scopedOrganizations: Array.isArray(scope?.filterIds) ? scope.filterIds.length : 0,
+    })
+    const em = container.resolve<EntityManager>('em')
+
+    const person = await em.findOne(
+      CustomerEntity,
+      { id: parse.data.id, kind: 'person', deletedAt: null },
+      {
+        populate: [
+          'personProfile',
+          'personProfile.company',
+          'personProfile.company.companyProfile',
+        ],
+      }
+    )
+    profiler.mark('person_loaded', { found: !!person })
+    if (!person) {
+      statusCode = 404
+      profileMeta = { reason: 'person_not_found' }
+      return notFound('Person not found')
+    }
+
+    if (auth.tenantId && person.tenantId !== auth.tenantId) {
+      statusCode = 404
+      profileMeta = { reason: 'person_tenant_mismatch' }
+      return notFound('Person not found')
+    }
+    const allowedOrgIds = new Set<string>()
+    if (scope?.filterIds?.length) scope.filterIds.forEach((id) => allowedOrgIds.add(id))
+    else if (auth.orgId) allowedOrgIds.add(auth.orgId)
+
+    if (allowedOrgIds.size && person.organizationId && !allowedOrgIds.has(person.organizationId)) {
+      statusCode = 403
+      profileMeta = { reason: 'organization_forbidden' }
+      return forbidden('Access denied')
+    }
+
+    profile = await em.findOne(CustomerPersonProfile, { entity: person })
+    profiler.mark('profile_loaded', { found: !!profile })
+
+    if (includeAddresses) {
+      addresses = await em.find(CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } })
+      profiler.mark('addresses_loaded', { count: addresses.length })
+    }
+
+    tagAssignments = await em.find(CustomerTagAssignment, { entity: person.id }, { populate: ['tag'] })
+    profiler.mark('tags_loaded', { count: tagAssignments.length })
+
+    if (includeComments) {
+      comments = await em.find(CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
+      profiler.mark('comments_loaded', { count: comments.length })
+    }
+
+    if (includeActivities) {
+      activities = await em.find(CustomerActivity, { entity: person.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 })
+      profiler.mark('activities_loaded', { count: activities.length })
+    }
+
+    if (includeTodos) {
+      todoLinks = await em.find(CustomerTodoLink, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
+      profiler.mark('todo_links_loaded', { count: todoLinks.length })
+      if (todoLinks.length) {
+        const queryEngine = container.resolve<QueryEngine>('queryEngine')
+        try {
+          todoDetails = await resolveTodoDetails(
+            queryEngine,
+            todoLinks,
+            person.tenantId ?? auth.tenantId ?? null,
+            [person.organizationId ?? null, ...(scope?.filterIds ?? [])],
+          )
+        } catch (err) {
+          console.warn('customers.people.detail: failed to enrich todo links', err)
+        }
+        profiler.mark('todo_details_enriched', { count: todoDetails.size })
+      }
+    }
+
+    const authorIds = new Set<string>()
+    if (includeActivities) {
+      for (const activity of activities) {
+        if (activity.authorUserId) authorIds.add(activity.authorUserId)
+      }
+    }
+    if (includeComments) {
+      for (const comment of comments) {
+        if (comment.authorUserId) authorIds.add(comment.authorUserId)
+      }
+    }
+    if (viewerUserId) authorIds.add(viewerUserId)
+
+    if (authorIds.size) {
+      const users = await em.find(User, { id: { $in: Array.from(authorIds) } })
+      userMap = new Map(
+        users.map((user) => [
+          user.id,
+          {
+            name: user.name ?? null,
+            email: user.email ?? null,
+          },
+        ])
+      )
+      profiler.mark('authors_loaded', { count: userMap.size })
+    }
+
+    if (includeDeals) {
+      const dealLinks = await em.find(CustomerDealPersonLink, { person: person.id }, { populate: ['deal'] })
+      deals = dealLinks
+        .map((link) => (link.deal as CustomerDeal | string | null) ?? null)
+        .filter((deal): deal is CustomerDeal => !!deal && typeof deal !== 'string')
+      profiler.mark('deals_loaded', { count: deals.length })
+    }
+
+    const entityCustomFieldValues = await loadCustomFieldValues({
       em,
-      entityId: E.customers.customer_person_profile,
-      recordIds: [profileId],
-      tenantIdByRecord: { [profileId]: profile?.tenantId ?? null },
-      organizationIdByRecord: { [profileId]: profile?.organizationId ?? null },
+      entityId: E.customers.customer_entity,
+      recordIds: [person.id],
+      tenantIdByRecord: { [person.id]: person.tenantId ?? null },
+      organizationIdByRecord: { [person.id]: person.organizationId ?? null },
       tenantFallbacks: [
-        profile?.tenantId ?? person.tenantId ?? auth.tenantId ?? null,
+        person.tenantId ?? auth.tenantId ?? null,
       ].filter((v): v is string => !!v),
     })
+    profiler.mark('entity_custom_fields_loaded', { keys: Object.keys(entityCustomFieldValues?.[person.id] ?? {}).length })
+
+    let profileCustomFieldValues: Record<string, Record<string, unknown>> = {}
+    const profileId = profile?.id ?? null
+    if (profileId) {
+      profileCustomFieldValues = await loadCustomFieldValues({
+        em,
+        entityId: E.customers.customer_person_profile,
+        recordIds: [profileId],
+        tenantIdByRecord: { [profileId]: profile?.tenantId ?? null },
+        organizationIdByRecord: { [profileId]: profile?.organizationId ?? null },
+        tenantFallbacks: [
+          profile?.tenantId ?? person.tenantId ?? auth.tenantId ?? null,
+        ].filter((v): v is string => !!v),
+      })
+      profiler.mark('profile_custom_fields_loaded', { keys: Object.keys(profileCustomFieldValues?.[profileId] ?? {}).length })
+    }
+
+    const routing = await resolvePersonCustomFieldRouting(em, person.tenantId ?? null, person.organizationId ?? null)
+    profiler.mark('custom_field_routing_resolved', { keys: routing.size })
+    customFields = mergePersonCustomFieldValues(
+      routing,
+      entityCustomFieldValues?.[person.id] ?? {},
+      profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
+    )
+    profiler.mark('custom_fields_merged', { keys: Object.keys(customFields).length })
+
+    const viewerUserIdFinal = viewerUserId
+    const response = NextResponse.json({
+      person: {
+        id: person.id,
+        displayName: person.displayName,
+        description: person.description,
+        ownerUserId: person.ownerUserId,
+        primaryEmail: person.primaryEmail,
+        primaryPhone: person.primaryPhone,
+        status: person.status,
+        lifecycleStage: person.lifecycleStage,
+        source: person.source,
+        nextInteractionAt: person.nextInteractionAt ? person.nextInteractionAt.toISOString() : null,
+        nextInteractionName: person.nextInteractionName,
+        nextInteractionRefId: person.nextInteractionRefId,
+        nextInteractionIcon: person.nextInteractionIcon,
+        nextInteractionColor: person.nextInteractionColor,
+        organizationId: person.organizationId,
+        tenantId: person.tenantId,
+        isActive: person.isActive,
+        createdAt: person.createdAt.toISOString(),
+        updatedAt: person.updatedAt.toISOString(),
+      },
+      profile: profile
+        ? {
+            id: profile.id,
+            firstName: profile.firstName,
+            lastName: profile.lastName,
+            preferredName: profile.preferredName,
+            jobTitle: profile.jobTitle,
+            department: profile.department,
+            seniority: profile.seniority,
+            timezone: profile.timezone,
+            linkedInUrl: profile.linkedInUrl,
+            twitterUrl: profile.twitterUrl,
+            companyEntityId: profile.company ? (typeof profile.company === 'string' ? profile.company : profile.company.id) : null,
+          }
+        : null,
+      customFields,
+      tags: serializeTags(tagAssignments),
+      addresses: includeAddresses
+        ? addresses.map((address) => ({
+            id: address.id,
+            name: address.name,
+            purpose: address.purpose,
+            addressLine1: address.addressLine1,
+            addressLine2: address.addressLine2,
+            buildingNumber: address.buildingNumber,
+            flatNumber: address.flatNumber,
+            city: address.city,
+            region: address.region,
+            postalCode: address.postalCode,
+            country: address.country,
+            latitude: address.latitude,
+            longitude: address.longitude,
+            isPrimary: address.isPrimary,
+            createdAt: address.createdAt.toISOString(),
+          }))
+        : [],
+      comments: includeComments
+        ? comments.map((comment) => {
+            const authorInfo = comment.authorUserId ? userMap.get(comment.authorUserId) : null
+            return {
+              id: comment.id,
+              body: comment.body,
+              authorUserId: comment.authorUserId,
+              authorName: authorInfo?.name ?? null,
+              authorEmail: authorInfo?.email ?? null,
+              dealId: comment.deal ? (typeof comment.deal === 'string' ? comment.deal : comment.deal.id) : null,
+              createdAt: comment.createdAt.toISOString(),
+              appearanceIcon: comment.appearanceIcon ?? null,
+              appearanceColor: comment.appearanceColor ?? null,
+            }
+          })
+        : [],
+      activities: includeActivities
+        ? activities.map((activity) => ({
+            id: activity.id,
+            activityType: activity.activityType,
+            subject: activity.subject,
+            body: activity.body,
+            occurredAt: activity.occurredAt ? activity.occurredAt.toISOString() : null,
+            dealId: activity.deal ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id) : null,
+            authorUserId: activity.authorUserId,
+            authorName: activity.authorUserId ? userMap.get(activity.authorUserId)?.name ?? null : null,
+            authorEmail: activity.authorUserId ? userMap.get(activity.authorUserId)?.email ?? null : null,
+            createdAt: activity.createdAt.toISOString(),
+            appearanceIcon: activity.appearanceIcon ?? null,
+            appearanceColor: activity.appearanceColor ?? null,
+          }))
+        : [],
+      deals: includeDeals
+        ? deals.map((deal) => ({
+            id: deal.id,
+            title: deal.title,
+            status: deal.status,
+            pipelineStage: deal.pipelineStage,
+            valueAmount: deal.valueAmount,
+            valueCurrency: deal.valueCurrency,
+            probability: deal.probability,
+            expectedCloseAt: deal.expectedCloseAt ? deal.expectedCloseAt.toISOString() : null,
+            ownerUserId: deal.ownerUserId,
+            source: deal.source,
+            createdAt: deal.createdAt.toISOString(),
+            updatedAt: deal.updatedAt.toISOString(),
+          }))
+        : [],
+      todos: includeTodos
+        ? todoLinks.map((link) => {
+            const source = typeof link.todoSource === 'string' && link.todoSource.trim().length > 0 ? link.todoSource : 'example:todo'
+            const key = `${source}:${link.todoId}`
+            const detail = todoDetails.get(key)
+            return {
+              id: link.id,
+              todoId: link.todoId,
+              todoSource: source,
+              createdAt: link.createdAt.toISOString(),
+              createdByUserId: link.createdByUserId,
+              title: detail?.title ?? null,
+              isDone: detail?.isDone ?? null,
+              priority: detail?.priority ?? null,
+              severity: detail?.severity ?? null,
+              description: detail?.description ?? null,
+              dueAt: detail?.dueAt ?? null,
+              todoOrganizationId: detail?.organizationId ?? null,
+              customValues: detail?.customValues ?? null,
+            }
+          })
+        : [],
+      viewer: {
+        userId: viewerUserIdFinal,
+        name: viewerUserIdFinal ? userMap.get(viewerUserIdFinal)?.name ?? null : null,
+        email: viewerUserIdFinal ? userMap.get(viewerUserIdFinal)?.email ?? auth.email ?? null : auth.email ?? null,
+      },
+    })
+    statusCode = 200
+    profileMeta = {
+      include: Array.from(includeTokens),
+      counts: {
+        tags: tagAssignments.length,
+        comments: comments.length,
+        activities: activities.length,
+        todos: todoLinks.length,
+        addresses: addresses.length,
+        deals: deals.length,
+      },
+    }
+    profiler.mark('response_ready', { status: statusCode })
+    return response
+  } catch (err) {
+    if (statusCode < 400) statusCode = 500
+    const message = err instanceof Error ? err.message : String(err)
+    profileMeta = { ...(profileMeta ?? {}), error: message }
+    throw err
+  } finally {
+    profiler.end({ status: statusCode, ...(profileMeta ?? {}) })
   }
-
-  const routing = await resolvePersonCustomFieldRouting(em, person.tenantId ?? null, person.organizationId ?? null)
-  const customFields = mergePersonCustomFieldValues(
-    routing,
-    entityCustomFieldValues?.[person.id] ?? {},
-    profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
-  )
-
-  return NextResponse.json({
-    person: {
-      id: person.id,
-      displayName: person.displayName,
-      description: person.description,
-      ownerUserId: person.ownerUserId,
-      primaryEmail: person.primaryEmail,
-      primaryPhone: person.primaryPhone,
-      status: person.status,
-      lifecycleStage: person.lifecycleStage,
-      source: person.source,
-      nextInteractionAt: person.nextInteractionAt ? person.nextInteractionAt.toISOString() : null,
-      nextInteractionName: person.nextInteractionName,
-      nextInteractionRefId: person.nextInteractionRefId,
-      nextInteractionIcon: person.nextInteractionIcon,
-      nextInteractionColor: person.nextInteractionColor,
-      organizationId: person.organizationId,
-      tenantId: person.tenantId,
-      isActive: person.isActive,
-      createdAt: person.createdAt.toISOString(),
-      updatedAt: person.updatedAt.toISOString(),
-    },
-    profile: profile
-      ? {
-          id: profile.id,
-          firstName: profile.firstName,
-          lastName: profile.lastName,
-          preferredName: profile.preferredName,
-          jobTitle: profile.jobTitle,
-          department: profile.department,
-          seniority: profile.seniority,
-          timezone: profile.timezone,
-          linkedInUrl: profile.linkedInUrl,
-          twitterUrl: profile.twitterUrl,
-          companyEntityId: profile.company ? (typeof profile.company === 'string' ? profile.company : profile.company.id) : null,
-        }
-      : null,
-    customFields,
-    tags: serializeTags(tagAssignments),
-    addresses: includeAddresses
-      ? addresses.map((address) => ({
-          id: address.id,
-          name: address.name,
-          purpose: address.purpose,
-          addressLine1: address.addressLine1,
-          addressLine2: address.addressLine2,
-          buildingNumber: address.buildingNumber,
-          flatNumber: address.flatNumber,
-          city: address.city,
-          region: address.region,
-          postalCode: address.postalCode,
-          country: address.country,
-          latitude: address.latitude,
-          longitude: address.longitude,
-          isPrimary: address.isPrimary,
-          createdAt: address.createdAt.toISOString(),
-        }))
-      : [],
-    comments: includeComments
-      ? comments.map((comment) => {
-          const authorInfo = comment.authorUserId ? userMap.get(comment.authorUserId) : null
-          return {
-            id: comment.id,
-            body: comment.body,
-            authorUserId: comment.authorUserId,
-            authorName: authorInfo?.name ?? null,
-            authorEmail: authorInfo?.email ?? null,
-            dealId: comment.deal ? (typeof comment.deal === 'string' ? comment.deal : comment.deal.id) : null,
-            createdAt: comment.createdAt.toISOString(),
-            appearanceIcon: comment.appearanceIcon ?? null,
-            appearanceColor: comment.appearanceColor ?? null,
-          }
-        })
-      : [],
-    activities: includeActivities
-      ? activities.map((activity) => ({
-          id: activity.id,
-          activityType: activity.activityType,
-          subject: activity.subject,
-          body: activity.body,
-          occurredAt: activity.occurredAt ? activity.occurredAt.toISOString() : null,
-          dealId: activity.deal ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id) : null,
-          authorUserId: activity.authorUserId,
-          authorName: activity.authorUserId ? userMap.get(activity.authorUserId)?.name ?? null : null,
-          authorEmail: activity.authorUserId ? userMap.get(activity.authorUserId)?.email ?? null : null,
-          createdAt: activity.createdAt.toISOString(),
-          appearanceIcon: activity.appearanceIcon ?? null,
-          appearanceColor: activity.appearanceColor ?? null,
-        }))
-      : [],
-    deals: includeDeals
-      ? deals.map((deal) => ({
-          id: deal.id,
-          title: deal.title,
-          status: deal.status,
-          pipelineStage: deal.pipelineStage,
-          valueAmount: deal.valueAmount,
-          valueCurrency: deal.valueCurrency,
-          probability: deal.probability,
-          expectedCloseAt: deal.expectedCloseAt ? deal.expectedCloseAt.toISOString() : null,
-          ownerUserId: deal.ownerUserId,
-          source: deal.source,
-          createdAt: deal.createdAt.toISOString(),
-          updatedAt: deal.updatedAt.toISOString(),
-        }))
-      : [],
-    todos: includeTodos
-      ? todoLinks.map((link) => {
-          const source = typeof link.todoSource === 'string' && link.todoSource.trim().length > 0 ? link.todoSource : 'example:todo'
-          const key = `${source}:${link.todoId}`
-          const detail = todoDetails.get(key)
-          return {
-            id: link.id,
-            todoId: link.todoId,
-            todoSource: source,
-            createdAt: link.createdAt.toISOString(),
-            createdByUserId: link.createdByUserId,
-            title: detail?.title ?? null,
-            isDone: detail?.isDone ?? null,
-            priority: detail?.priority ?? null,
-            severity: detail?.severity ?? null,
-            description: detail?.description ?? null,
-            dueAt: detail?.dueAt ?? null,
-            todoOrganizationId: detail?.organizationId ?? null,
-            customValues: detail?.customValues ?? null,
-          }
-        })
-      : [],
-    viewer: {
-      userId: viewerUserId,
-      name: viewerUserId ? userMap.get(viewerUserId)?.name ?? null : null,
-      email: viewerUserId ? userMap.get(viewerUserId)?.email ?? auth.email ?? null : auth.email ?? null,
-    },
-  })
 }
-
 const personDetailQuerySchema = z.object({
   include: z
     .string()

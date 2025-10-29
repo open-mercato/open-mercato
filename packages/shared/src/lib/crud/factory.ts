@@ -471,6 +471,95 @@ function determineAccessType(query: unknown, total: number, idField: string): st
   return total > 1 ? 'read:list' : 'read'
 }
 
+type CrudProfilerMark = {
+  label: string
+  time: bigint
+  extra?: Record<string, unknown>
+}
+
+type CrudProfiler = {
+  enabled: boolean
+  mark: (label: string, extra?: Record<string, unknown>) => void
+  end: (extra?: Record<string, unknown>) => void
+}
+
+function normalizeProfilerTokens(input: string | null | undefined): string[] {
+  if (!input) return []
+  return input
+    .split(',')
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length > 0)
+}
+
+function profilerMatches(resource: string, tokens: string[]): boolean {
+  if (!tokens.length) return false
+  const target = resource.toLowerCase()
+  return tokens.some((token) => {
+    if (token === '*' || token === 'all' || token === '1' || token === 'true') return true
+    if (token.endsWith('*')) {
+      const prefix = token.slice(0, -1)
+      return prefix.length === 0 ? true : target.startsWith(prefix)
+    }
+    return token === target
+  })
+}
+
+function isCrudProfilingEnabled(resource: string): boolean {
+  const raw = process.env.OM_CRUD_PROFILE ?? process.env.NEXT_PUBLIC_OM_CRUD_PROFILE
+  if (!raw) return false
+  const tokens = normalizeProfilerTokens(raw)
+  return profilerMatches(resource, tokens)
+}
+
+function createCrudProfiler(resource: string, operation: string): CrudProfiler {
+  const scope = `${resource}:${operation}`
+  if (!isCrudProfilingEnabled(resource)) {
+    return {
+      enabled: false,
+      mark: () => {},
+      end: () => {},
+    }
+  }
+  const marks: CrudProfilerMark[] = [{ label: 'start', time: process.hrtime.bigint() }]
+  const round = (value: number) => Math.round(value * 1000) / 1000
+  return {
+    enabled: true,
+    mark: (label: string, extra?: Record<string, unknown>) => {
+      marks.push({ label, time: process.hrtime.bigint(), extra })
+    },
+    end: (extra?: Record<string, unknown>) => {
+      marks.push({ label: 'end', time: process.hrtime.bigint(), extra })
+      const segments: Array<{ step: string; durationMs: number; extra?: Record<string, unknown> }> = []
+      for (let idx = 1; idx < marks.length; idx += 1) {
+        const current = marks[idx]
+        const previous = marks[idx - 1]
+        const durationMs = Number(current.time - previous.time) / 1_000_000
+        const step = current.label
+        if (step === 'end') continue
+        segments.push({
+          step,
+          durationMs: round(durationMs),
+          extra: current.extra,
+        })
+      }
+      const totalNs = marks[marks.length - 1].time - marks[0].time
+      const payload: Record<string, unknown> = {
+        scope,
+        totalMs: round(Number(totalNs) / 1_000_000),
+        steps: segments,
+      }
+      if (extra && Object.keys(extra).length) {
+        payload.meta = extra
+      }
+      try {
+        console.info('[crud:profile]', payload)
+      } catch {
+        // ignore logging failures
+      }
+    },
+  }
+}
+
 export type LogCrudAccessOptions = {
   container: AwilixContainer
   auth: AuthContext | null
@@ -672,6 +761,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       ? listCustomFieldDecorator.entityIds
       : [listCustomFieldDecorator.entityIds]
     if (!entityIds.length) return items
+    const cfProfiler = createCrudProfiler(resourceKind, 'custom_fields')
+    cfProfiler.mark('prepare')
+    let profileClosed = false
+    const endProfile = (extra?: Record<string, unknown>) => {
+      if (!cfProfiler.enabled || profileClosed) return
+      profileClosed = true
+      cfProfiler.end(extra)
+    }
     try {
       const em = ctx.container.resolve<EntityManager>('em')
       const organizationIds =
@@ -684,7 +781,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         tenantId: ctx.auth?.tenantId ?? null,
         organizationIds,
       })
-      return items.map((raw) => {
+      cfProfiler.mark('definitions_loaded', { definitionCount: definitionIndex.size })
+      const decoratedItems = items.map((raw) => {
         if (!raw || typeof raw !== 'object') return raw
         const item = raw as Record<string, unknown>
         const context = listCustomFieldDecorator.resolveContext
@@ -702,14 +800,26 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           organizationId: organizationId ?? null,
           tenantId: tenantId ?? null,
         })
-        return {
+        const output = {
           ...item,
           customValues: decorated.customValues,
           customFields: decorated.customFields,
         }
+        return output
       })
+      cfProfiler.mark('decorate_complete', { itemCount: decoratedItems.length })
+      endProfile({
+        entityIds: entityIds.length,
+        itemCount: decoratedItems.length,
+      })
+      return decoratedItems
     } catch (err) {
       console.warn('[crud] failed to decorate custom fields', err)
+      endProfile({
+        result: 'error',
+        entityIds: entityIds.length,
+        itemCount: items.length,
+      })
       return items
     }
   }
@@ -762,15 +872,34 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   }
 
   async function GET(request: Request) {
+    const profiler = createCrudProfiler(resourceKind, 'list')
+    profiler.mark('request_received')
+    let profileClosed = false
+    const finishProfile = (extra?: Record<string, unknown>) => {
+      if (!profiler.enabled || profileClosed) return
+      profileClosed = true
+      profiler.end(extra)
+    }
     try {
+      profiler.mark('resolve_context')
       const ctx = await withCtx(request)
-      if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      if (!opts.list) return json({ error: 'Not implemented' }, { status: 501 })
+      profiler.mark('context_ready')
+      if (!ctx.auth) {
+        finishProfile({ reason: 'unauthorized' })
+        return json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      if (!opts.list) {
+        finishProfile({ reason: 'list_not_configured' })
+        return json({ error: 'Not implemented' }, { status: 501 })
+      }
       const url = new URL(request.url)
       const queryParams = Object.fromEntries(url.searchParams.entries())
+      profiler.mark('query_parsed')
       const validated = opts.list.schema.parse(queryParams)
+      profiler.mark('query_validated')
 
       await opts.hooks?.beforeList?.(validated as any, ctx)
+      profiler.mark('before_list_hook')
 
       const availableFormats = resolveAvailableExportFormats(opts.list)
       const requestedExport = normalizeExportFormat((queryParams as any).format)
@@ -781,6 +910,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const exportScopeParam = (queryParams as any).exportScope ?? (queryParams as any).export_scope
       const exportScope = typeof exportScopeParam === 'string' ? exportScopeParam.toLowerCase() : null
       const exportFullRequested = exportRequested && (exportScope === 'full' || String((queryParams as any).full || 'false').toLowerCase() === 'true')
+      profiler.mark('export_configured', { exportRequested, exportFullRequested })
 
       const cacheEnabled = isCrudCacheEnabled() && !exportRequested
       const cacheTimerStart = cacheEnabled && isCrudCacheDebugEnabled()
@@ -801,6 +931,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           }
         }
       }
+      profiler.mark('cache_checked', { cached: cachedValue !== null })
 
       const tenantForScope = ctx.auth?.tenantId ?? null
       const maybeStoreCrudCache = async (payload: any) => {
@@ -869,8 +1000,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       if (cachedValue) {
         cacheStatus = 'hit'
+        profiler.mark('cache_hit', { generatedAt: cachedValue.generatedAt ?? null })
         const payload = safeClone(cachedValue.payload)
         const items = Array.isArray((payload as any)?.items) ? (payload as any).items : []
+        profiler.mark('cache_payload_ready', { itemCount: items.length })
         await logCrudAccess({
           container: ctx.container,
           auth: ctx.auth,
@@ -884,12 +1017,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
         logCacheOutcome('hit', items.length)
-        return respondWithPayload(payload)
+        const response = respondWithPayload(payload)
+        finishProfile({ result: 'cache_hit', cacheStatus })
+        return response
       }
 
       // Prefer query engine when configured
       if (opts.list.entityId && opts.list.fields) {
+        profiler.mark('query_engine_prepare')
         const qe = ctx.container.resolve<QueryEngine>('queryEngine')
+        profiler.mark('query_engine_resolved')
         const sortFieldRaw = (queryParams as any).sortField || 'id'
         const sortDirRaw = ((queryParams as any).sortDir || 'asc').toLowerCase() === 'desc' ? SortDir.Desc : SortDir.Asc
         const sortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
@@ -901,7 +1038,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           ? ({} as Where<any>)
           : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
         const withDeleted = String((queryParams as any).withDeleted || 'false') === 'true'
+        profiler.mark('filters_ready', { withDeleted })
         if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+          profiler.mark('scope_blocked')
           logForbidden({
             resourceKind,
             action: 'list',
@@ -914,7 +1053,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           await opts.hooks?.afterList?.(emptyPayload, { ...ctx, query: validated as any })
           await maybeStoreCrudCache(emptyPayload)
           logCacheOutcome(cacheStatus, emptyPayload.items.length)
-          return respondWithPayload(emptyPayload)
+          const response = respondWithPayload(emptyPayload)
+          finishProfile({ result: 'empty_scope', cacheStatus, itemCount: 0, total: 0 })
+          return response
         }
         const queryOpts: any = {
           fields: opts.list.fields!,
@@ -935,10 +1076,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           queryOpts.organizationId = ctx.selectedOrganizationId ?? undefined
           queryOpts.organizationIds = ctx.organizationIds ?? undefined
         }
+        profiler.mark('query_options_ready')
         const res = await qe.query(opts.list.entityId as any, queryOpts)
+        profiler.mark('query_engine_complete', {
+          itemCount: Array.isArray(res.items) ? res.items.length : 0,
+          total: typeof res.total === 'number' ? res.total : null,
+        })
         const rawItems = res.items || []
         let transformedItems = rawItems.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+        profiler.mark('transform_complete', { itemCount: transformedItems.length })
         transformedItems = await decorateItemsWithCustomFields(transformedItems, ctx)
+        profiler.mark('custom_fields_complete', { itemCount: transformedItems.length })
 
         await logCrudAccess({
           container: ctx.container,
@@ -951,6 +1099,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           tenantId: ctx.auth.tenantId ?? null,
           query: validated,
         })
+        profiler.mark('access_logged')
 
         if (exportRequested && requestedExport) {
           const total = typeof res.total === 'number' ? res.total : rawItems.length
@@ -964,6 +1113,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             delete queryBase.page
             let nextPage = 2
             while (exportItems.length < total) {
+              profiler.mark('export_next_page_request', { page: nextPage })
               const nextRes = await qe.query(opts.list.entityId as any, {
                 ...queryBase,
                 page: { page: nextPage, pageSize: exportPageSizeNumber },
@@ -988,6 +1138,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           const serialized = serializeExport(prepared, requestedExport)
           const exportPayload = { items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1, ...(res.meta ? { meta: res.meta } : {}) }
           await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
+          profiler.mark('after_list_hook')
           const response = new Response(serialized.body, {
             headers: {
               'content-type': serialized.contentType,
@@ -1006,6 +1157,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               }),
             )
           }
+          finishProfile({
+            result: 'export',
+            cacheStatus,
+            itemCount: exportItems.length,
+            total,
+          })
           return response
         }
 
@@ -1018,15 +1175,27 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           ...(res.meta ? { meta: res.meta } : {}),
         }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
+        profiler.mark('after_list_hook')
         await maybeStoreCrudCache(payload)
+        profiler.mark('cache_store_attempt', { cacheEnabled })
         logCacheOutcome(cacheStatus, payload.items.length)
-        return respondWithPayload(payload)
+        const response = respondWithPayload(payload)
+        finishProfile({
+          result: 'ok',
+          cacheStatus,
+          itemCount: payload.items.length,
+          total: payload.total ?? payload.items.length,
+        })
+        return response
       }
 
       // Fallback: plain ORM list
+      profiler.mark('orm_fallback_prepare')
       const em = ctx.container.resolve<any>('em')
       const repo = em.getRepository(ormCfg.entity)
+      profiler.mark('orm_repo_ready')
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        profiler.mark('fallback_scope_blocked')
         logForbidden({
           resourceKind,
           action: 'list',
@@ -1039,7 +1208,15 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         await opts.hooks?.afterList?.(emptyPayload, { ...ctx, query: validated as any })
         await maybeStoreCrudCache(emptyPayload)
         logCacheOutcome(cacheStatus, emptyPayload.items.length)
-        return respondWithPayload(emptyPayload)
+        const response = respondWithPayload(emptyPayload)
+        finishProfile({
+          result: 'empty_scope',
+          cacheStatus,
+          itemCount: 0,
+          total: 0,
+          branch: 'fallback',
+        })
+        return response
       }
       const where: any = buildScopedWhere(
         {},
@@ -1053,7 +1230,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
       )
       let list = await repo.find(where)
+      profiler.mark('orm_query_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
       list = await decorateItemsWithCustomFields(list, ctx)
+      profiler.mark('fallback_custom_fields_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
       await logCrudAccess({
         container: ctx.container,
         auth: ctx.auth,
@@ -1065,6 +1244,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         tenantId: ctx.auth.tenantId ?? null,
         query: validated,
       })
+      profiler.mark('access_logged')
       if (exportRequested && requestedExport) {
         const exportItems = exportFullRequested ? list.map(normalizeFullRecordForExport) : list
         const prepared = exportFullRequested
@@ -1074,19 +1254,39 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
         const serialized = serializeExport(prepared, requestedExport)
         await opts.hooks?.afterList?.({ items: exportItems, total: exportItems.length, page: 1, pageSize: exportItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
-        return new Response(serialized.body, {
+        profiler.mark('after_list_hook')
+        const response = new Response(serialized.body, {
           headers: {
             'content-type': serialized.contentType,
             'content-disposition': `attachment; filename="${filename}"`,
           },
         })
+        finishProfile({
+          result: 'export',
+          cacheStatus,
+          itemCount: exportItems.length,
+          total: exportItems.length,
+          branch: 'fallback',
+        })
+        return response
       }
       const payload = { items: list, total: list.length }
       await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
+      profiler.mark('after_list_hook')
       await maybeStoreCrudCache(payload)
+      profiler.mark('cache_store_attempt', { cacheEnabled })
       logCacheOutcome(cacheStatus, payload.items.length)
-      return respondWithPayload(payload)
+      const response = respondWithPayload(payload)
+      finishProfile({
+        result: 'ok',
+        cacheStatus,
+        itemCount: payload.items.length,
+        total: payload.total,
+        branch: 'fallback',
+      })
+      return response
     } catch (e) {
+      finishProfile({ result: 'error' })
       return handleError(e)
     }
   }

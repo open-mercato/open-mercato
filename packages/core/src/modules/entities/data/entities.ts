@@ -2,6 +2,26 @@ import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
 
 // Definitions of custom fields scoped to an entity type and organization
 @Entity({ tableName: 'custom_field_defs' })
+@Index({
+  name: 'cf_defs_active_entity_tenant_org_idx',
+  properties: ['entityId', 'tenantId', 'organizationId'],
+  where: 'is_active = true',
+})
+@Index({
+  name: 'cf_defs_active_entity_tenant_idx',
+  properties: ['entityId', 'tenantId'],
+  where: 'is_active = true and organization_id is null',
+})
+@Index({
+  name: 'cf_defs_active_entity_org_idx',
+  properties: ['entityId', 'organizationId'],
+  where: 'is_active = true and tenant_id is null',
+})
+@Index({
+  name: 'cf_defs_active_entity_global_idx',
+  properties: ['entityId'],
+  where: 'is_active = true and tenant_id is null and organization_id is null',
+})
 export class CustomFieldDef {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
