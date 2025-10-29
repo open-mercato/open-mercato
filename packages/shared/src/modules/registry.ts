@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@/lib/openapi/types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
+import type { VectorModuleConfig } from './vector'
 
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
@@ -127,6 +128,7 @@ export type Module = {
   // Discovered from ce.ts (module root). Each entry represents an entityId with optional label/description.
   customEntities?: Array<{ id: string; label?: string; description?: string }>
   dashboardWidgets?: ModuleDashboardWidgetEntry[]
+  vector?: VectorModuleConfig
 }
 
 function normPath(s: string) {

@@ -1,0 +1,51 @@
+---
+title: Vector Search API
+description: REST endpoints that expose similarity search and background reindexing.
+---
+
+All endpoints require authentication and the relevant vector permissions.
+
+| Endpoint | Method | Features | Description |
+| --- | --- | --- | --- |
+| `/api/vector/search` | `GET` | `vector.search` | Runs a vector similarity search for the current tenant/organisation scope. Query string parameters: `q` (required text), `limit` (optional, default 10). |
+| `/api/vector/reindex` | `POST` | `vector.reindex` | Recomputes embeddings. Body accepts `{ "entityId": "module:entity", "purgeFirst": true }`. When `entityId` is omitted the service reindexes every configured entity for the tenant. Also available via `yarn mercato vector reindex`. |
+
+### Search response
+
+```json title="GET /api/vector/search?q=customer"
+{
+  "results": [
+    {
+      "entityId": "customers:customer_entity",
+      "recordId": "1dcf0d22-...",
+      "score": 0.89,
+      "url": "/backend/customers/people/1dcf0d22-...",
+      "presenter": {
+        "title": "Alex Jensen",
+        "subtitle": "alex@acme.dev"
+      },
+      "links": [
+        { "href": "/backend/customers/deals/4f18...", "label": "Open deal" }
+      ]
+    }
+  ]
+}
+```
+
+Each result includes a similarity `score` (higher is better), a primary URL, optional presenter metadata, and auxiliary links (exposed in the UI as chips / row actions).
+
+### Reindex payloads
+
+```bash
+# Reindex a single entity (customers)
+curl -X POST /api/vector/reindex \
+  -H "Content-Type: application/json" \
+  --data '{"entityId":"customers:customer_entity"}'
+
+# Purge + rebuild everything for the current tenant
+curl -X POST /api/vector/reindex \
+  -H "Content-Type: application/json" \
+  --data '{"purgeFirst":true}'
+```
+
+The API executes synchronously; for large datasets trigger the endpoint from a background job or CLI wrapper.

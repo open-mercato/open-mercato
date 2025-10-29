@@ -11,6 +11,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'perspectives', from: '@open-mercato/core' },
   { id: 'entities', from: '@open-mercato/core' },
   { id: 'query_index', from: '@open-mercato/core' },
+  { id: 'vector', from: '@open-mercato/vector' },
   { id: 'audit_logs', from: '@open-mercato/core' },
   { id: 'attachments', from: '@open-mercato/core' },
   { id: 'catalog', from: '@open-mercato/core' },
