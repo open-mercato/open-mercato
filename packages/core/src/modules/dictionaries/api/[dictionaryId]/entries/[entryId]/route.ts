@@ -6,6 +6,15 @@ import { updateDictionaryEntrySchema } from '@open-mercato/core/modules/dictiona
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  dictionaryEntryParamsSchema,
+  dictionaryEntryResponseSchema,
+  dictionariesErrorSchema,
+  dictionariesOkSchema,
+  dictionariesTag,
+  updateDictionaryEntrySchema as updateEntryDocSchema,
+} from '../../../openapi'
 const paramsSchema = z.object({
   dictionaryId: z.string().uuid(),
   entryId: z.string().uuid(),
@@ -138,4 +147,49 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     console.error('[dictionaries/:id/entries/:entryId.DELETE] Unexpected error', err)
     return NextResponse.json({ error: 'Failed to delete dictionary entry' }, { status: 500 })
   }
+}
+
+const dictionaryEntryPatchDoc: OpenApiMethodDoc = {
+  summary: 'Update dictionary entry',
+  description: 'Updates the specified dictionary entry using the command bus pipeline.',
+  tags: [dictionariesTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: updateEntryDocSchema,
+    description: 'Fields to update on the dictionary entry.',
+  },
+  responses: [
+    { status: 200, description: 'Dictionary entry updated.', schema: dictionaryEntryResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: dictionariesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dictionariesErrorSchema },
+    { status: 404, description: 'Dictionary or entry not found', schema: dictionariesErrorSchema },
+    { status: 500, description: 'Failed to update entry', schema: dictionariesErrorSchema },
+  ],
+}
+
+const dictionaryEntryDeleteDoc: OpenApiMethodDoc = {
+  summary: 'Delete dictionary entry',
+  description: 'Deletes the specified dictionary entry via the command bus.',
+  tags: [dictionariesTag],
+  responses: [
+    { status: 200, description: 'Entry deleted.', schema: dictionariesOkSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: dictionariesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dictionariesErrorSchema },
+    { status: 404, description: 'Dictionary or entry not found', schema: dictionariesErrorSchema },
+    { status: 500, description: 'Failed to delete entry', schema: dictionariesErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: dictionariesTag,
+  summary: 'Dictionary entry resource',
+  pathParams: dictionaryEntryParamsSchema,
+  methods: {
+    PATCH: dictionaryEntryPatchDoc,
+    DELETE: dictionaryEntryDeleteDoc,
+  },
 }

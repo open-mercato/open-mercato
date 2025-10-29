@@ -6,6 +6,15 @@ import { createDictionaryEntrySchema } from '@open-mercato/core/modules/dictiona
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  createDictionaryEntrySchema as createEntryDocSchema,
+  dictionaryEntryListResponseSchema,
+  dictionaryEntryResponseSchema,
+  dictionaryIdParamsSchema,
+  dictionariesErrorSchema,
+  dictionariesTag,
+} from '../../openapi'
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
 
@@ -113,4 +122,49 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     console.error('[dictionaries/:id/entries.POST] Unexpected error', err)
     return NextResponse.json({ error: 'Failed to create dictionary entry' }, { status: 500 })
   }
+}
+
+const dictionaryEntriesGetDoc: OpenApiMethodDoc = {
+  summary: 'List dictionary entries',
+  description: 'Returns entries for the specified dictionary ordered alphabetically.',
+  tags: [dictionariesTag],
+  responses: [
+    { status: 200, description: 'Dictionary entries.', schema: dictionaryEntryListResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid parameters', schema: dictionariesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dictionariesErrorSchema },
+    { status: 404, description: 'Dictionary not found', schema: dictionariesErrorSchema },
+    { status: 500, description: 'Failed to load dictionary entries', schema: dictionariesErrorSchema },
+  ],
+}
+
+const dictionaryEntriesPostDoc: OpenApiMethodDoc = {
+  summary: 'Create dictionary entry',
+  description: 'Creates a new entry in the specified dictionary.',
+  tags: [dictionariesTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: createEntryDocSchema,
+    description: 'Entry value, label, and optional presentation metadata.',
+  },
+  responses: [
+    { status: 201, description: 'Dictionary entry created.', schema: dictionaryEntryResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: dictionariesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dictionariesErrorSchema },
+    { status: 404, description: 'Dictionary not found', schema: dictionariesErrorSchema },
+    { status: 500, description: 'Failed to create dictionary entry', schema: dictionariesErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: dictionariesTag,
+  summary: 'Dictionary entries collection',
+  pathParams: dictionaryIdParamsSchema,
+  methods: {
+    GET: dictionaryEntriesGetDoc,
+    POST: dictionaryEntriesPostDoc,
+  },
 }
