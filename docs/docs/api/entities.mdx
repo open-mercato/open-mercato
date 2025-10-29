@@ -3,106 +3,71 @@ title: Entities & Custom Fields
 description: REST endpoints for custom entity metadata, field definitions, and record management.
 ---
 
-Entity extensibility is central to Open Mercato. These endpoints let you inspect generated entities, author tenant- or org-scoped overrides, and manage the data itself.
+Entity extensibility is central to Open Mercato. Every endpoint published by the module lives under `/api/entities/*`; the tables below list the suffix you append to your API origin.
 
 ```bash
 export BASE_URL="http://localhost:3000/api"
 export API_KEY="<paste your API key secret here>"
-export ENTITY_ID="example.todo"        # generated or custom entity id
-export CUSTOM_ENTITY_ID="<custom entity uuid>"  # returned by POST /entities
+export ENTITY_ID="example.todo"              # generated or custom entity id
+export CUSTOM_ENTITY_ID="<uuid from POST /entities/entities>"
 export RECORD_ID="<record uuid>"
 ```
 
-Provision an API key with the appropriate `entities.*` features as noted in [Managing API keys](../user-guide/api-keys).
+Provision an API key with the required `entities.*` features as described in [Managing API keys](../user-guide/api-keys). Feature flags are defined in `packages/core/src/modules/entities/acl.ts:1`.
 
-## Entity Catalog — `GET /entities`
+> **Heads-up:** The dispatcher checks feature requirements exported from each route’s `metadata`. If a call returns `403`, confirm the feature listed in the section header is granted to the caller.
 
-**Feature:** Authenticated user (scoped by tenant/org)
+## Custom entity catalogue — `/entities/entities`
+
+### List entities — `GET /entities/entities`
+
+- Auth-only guard; no feature requirement (`packages/core/src/modules/entities/api/entities.ts:8`).
+- Returns generated MikroORM entities plus tenant/org scoped overrides with field counts.
 
 ```bash
-curl -X GET "$BASE_URL/entities" \
+curl -X GET "$BASE_URL/entities/entities" \
   -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
-Response snippet:
+### Upsert custom entity — `POST /entities/entities`
 
-```json
-{
-  "items": [
-    {
-      "entityId": "example.todo",
-      "source": "code",
-      "label": "example.todo",
-      "count": 4
-    },
-    {
-      "entityId": "custom.ticket",
-      "source": "custom",
-      "label": "Support Ticket",
-      "description": "Tenant-defined issue tracker",
-      "showInSidebar": true,
-      "count": 6
-    }
-  ]
-}
-```
-
-## Upsert Custom Entity — `POST /entities`
-
-**Feature:** `entities.definitions.manage`
+- Feature: `entities.definitions.manage`.
+- Body matches `upsertCustomEntitySchema` (`packages/core/src/modules/entities/data/validators.ts:72`):
+  - `entityId` (string) identifies the logical entity (e.g. `custom.ticket`).
+  - Display metadata: `label`, optional `description`, `labelField`, `defaultEditor`, `showInSidebar`.
+  - Flags: `isActive` (default true).
 
 ```bash
-curl -X POST "$BASE_URL/entities" \
+curl -X POST "$BASE_URL/entities/entities" \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "entityId": "custom.ticket",
     "label": "Support Ticket",
-    "description": "Tenant-defined issue tracker",
-    "isActive": true,
+    "description": "Tenant defined issue tracker",
     "labelField": "title",
     "defaultEditor": "markdown",
     "showInSidebar": true
   }'
 ```
 
-Response:
+### Soft delete custom entity — `DELETE /entities/entities`
 
-```json
-{
-  "ok": true,
-  "item": {
-    "id": "5b10b44a-97a6-4f42-9b86-11df3cf9f54d",
-    "entityId": "custom.ticket",
-    "label": "Support Ticket",
-    "description": "Tenant-defined issue tracker"
-  }
-}
-```
-
-## Soft Delete Custom Entity — `DELETE /entities`
-
-**Feature:** `entities.definitions.manage`
+- Feature: `entities.definitions.manage`.
+- Request accepts JSON `{ "entityId": "<id>" }`; the implementation scopes deletion to the caller’s tenant/org (`packages/core/src/modules/entities/api/entities.ts:121`).
 
 ```bash
-curl -X DELETE "$BASE_URL/entities" \
+curl -X DELETE "$BASE_URL/entities/entities" \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "entityId": "custom.ticket"
-  }'
+  -d '{ "entityId": "custom.ticket" }'
 ```
 
-Response:
+### Sidebar entities — `GET /entities/sidebar-entities`
 
-```json
-{ "ok": true }
-```
-
-## Sidebar Entities — `GET /entities/sidebar-entities`
-
-**Feature:** Authenticated user
+- Auth-only guard (`packages/core/src/modules/entities/api/sidebar-entities.ts:7`).
+- Returns custom entities flagged with `showInSidebar` so you can build scoped navigation.
 
 ```bash
 curl -X GET "$BASE_URL/entities/sidebar-entities" \
@@ -110,14 +75,13 @@ curl -X GET "$BASE_URL/entities/sidebar-entities" \
   -H "Accept: application/json"
 ```
 
-Returns the subset flagged with `showInSidebar` for navigation building.
+## Field definitions — `/entities/definitions*`
 
-## Field Definitions
+### Load active definitions — `GET /entities/definitions`
 
-### List Active Definitions — `GET /entities/definitions`
-
-**Feature:** Authenticated user  
-Requires `entityId` query parameter.
+- Auth-only guard; no feature gate so record forms can load fields (`packages/core/src/modules/entities/api/definitions.ts:8`).
+- Accepts repeated `entityId=<id>` parameters or a comma-delimited `entityIds` query.
+- Response merges global, org, and tenant scopes, omitting tombstoned keys and preserving priority metadata (`packages/core/src/modules/entities/api/definitions.ts:120`).
 
 ```bash
 curl -X GET "$BASE_URL/entities/definitions?entityId=$ENTITY_ID" \
@@ -125,9 +89,24 @@ curl -X GET "$BASE_URL/entities/definitions?entityId=$ENTITY_ID" \
   -H "Accept: application/json"
 ```
 
-### Upsert Definition — `POST /entities/definitions`
+### Management snapshot — `GET /entities/definitions.manage`
 
-**Feature:** `entities.definitions.manage`
+- Feature: `entities.definitions.manage`.
+- Returns `{ items, deletedKeys }`, showing winners per scope plus keys tombstoned in the current tenant/org (`packages/core/src/modules/entities/api/definitions.manage.ts:15`).
+
+```bash
+curl -X GET "$BASE_URL/entities/definitions.manage?entityId=$ENTITY_ID" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Accept: application/json"
+```
+
+### Upsert definition — `POST /entities/definitions`
+
+- Feature: `entities.definitions.manage`.
+- Body matches `upsertCustomFieldDefSchema` (`packages/core/src/modules/entities/data/validators.ts:97`):
+  - Required: `entityId`, `key`, `kind`.
+  - `configJson` lets you set `label`, `options`, `filterable`, `listVisible`, `formEditable`, dictionaries, validation rules, and editor hints.
+  - Optional `isActive` soft disables fields without deleting history.
 
 ```bash
 curl -X POST "$BASE_URL/entities/definitions" \
@@ -140,15 +119,35 @@ curl -X POST "$BASE_URL/entities/definitions" \
     \"configJson\": {
       \"label\": \"Priority\",
       \"options\": [\"low\", \"medium\", \"high\"],
-      \"filterable\": true
+      \"filterable\": true,
+      \"listVisible\": true
     },
     \"isActive\": true
   }"
 ```
 
-### Delete Definition — `DELETE /entities/definitions`
+### Batch upsert — `POST /entities/definitions.batch`
 
-**Feature:** `entities.definitions.manage`
+- Feature: `entities.definitions.manage`.
+- Body `{ entityId, definitions: [ ... ] }` lets you send an ordered array of definition payloads (`packages/core/src/modules/entities/api/definitions.batch.ts:19`).
+
+```bash
+curl -X POST "$BASE_URL/entities/definitions.batch" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"entityId\": \"$ENTITY_ID\",
+    \"definitions\": [
+      { \"key\": \"status\", \"kind\": \"enum\", \"configJson\": { \"label\": \"Status\", \"options\": [\"open\",\"won\",\"lost\"], \"priority\": 0 } },
+      { \"key\": \"assignee\", \"kind\": \"string\", \"configJson\": { \"label\": \"Assignee\", \"filterable\": true, \"priority\": 1 } }
+    ]
+  }"
+```
+
+### Soft delete definition — `DELETE /entities/definitions`
+
+- Feature: `entities.definitions.manage`.
+- Accepts JSON `{ "entityId": "...", "key": "..." }` and marks the definition inactive (`packages/core/src/modules/entities/api/definitions.ts:189`).
 
 ```bash
 curl -X DELETE "$BASE_URL/entities/definitions" \
@@ -160,57 +159,13 @@ curl -X DELETE "$BASE_URL/entities/definitions" \
   }"
 ```
 
-### Management Snapshot — `GET /entities/definitions/manage`
+### Restore definition — `POST /entities/definitions.restore`
 
-**Feature:** `entities.definitions.manage`  
-Returns active + tombstoned entries to help build administration UI.
-
-```bash
-curl -X GET "$BASE_URL/entities/definitions/manage?entityId=$ENTITY_ID" \
-  -H "X-Api-Key: $API_KEY" \
-  -H "Accept: application/json"
-```
-
-### Batch Upsert — `POST /entities/definitions/batch`
-
-**Feature:** `entities.definitions.manage`
+- Feature: `entities.definitions.manage`.
+- Body `{ entityId, key }` reactivates a tombstoned definition and invalidates the cache (`packages/core/src/modules/entities/api/definitions.restore.ts:9`).
 
 ```bash
-curl -X POST "$BASE_URL/entities/definitions/batch" \
-  -H "X-Api-Key: $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"entityId\": \"$ENTITY_ID\",
-    \"definitions\": [
-      {
-        \"key\": \"status\",
-        \"kind\": \"enum\",
-        \"configJson\": {
-          \"label\": \"Status\",
-          \"options\": [\"open\", \"in_progress\", \"done\"],
-          \"listVisible\": true
-        },
-        \"isActive\": true
-      },
-      {
-        \"key\": \"assignee\",
-        \"kind\": \"string\",
-        \"configJson\": {
-          \"label\": \"Assignee\",
-          \"filterable\": true
-        },
-        \"isActive\": true
-      }
-    ]
-  }"
-```
-
-### Restore Definition — `POST /entities/definitions/restore`
-
-**Feature:** `entities.definitions.manage`
-
-```bash
-curl -X POST "$BASE_URL/entities/definitions/restore" \
+curl -X POST "$BASE_URL/entities/definitions.restore" \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
@@ -219,49 +174,28 @@ curl -X POST "$BASE_URL/entities/definitions/restore" \
   }"
 ```
 
-Response:
+## Records — `/entities/records`
 
-```json
-{ "ok": true }
-```
+### List records — `GET /entities/records`
 
-## Relation Options — `GET /entities/relations/options`
-
-**Feature:** `entities.definitions.view`  
-Use to power select inputs that reference another entity.
+- Feature: `entities.records.view` (`packages/core/src/modules/entities/api/records.ts:18`).
+- Required query: `entityId`. Optional filters include:
+  - Paging: `page`, `pageSize` (max 100), `withDeleted`.
+  - Sorting: `sortField`, `sortDir`.
+  - Export: `format=csv|json|xml|markdown`, `exportScope=full`, `all=true`, `full=true`.
+  - Arbitrary field filters; prefix custom fields with `cf_`.
 
 ```bash
-curl -X GET "$BASE_URL/entities/relations/options?entityId=$ENTITY_ID&labelField=title&q=demo" \
+curl -X GET "$BASE_URL/entities/records?entityId=$ENTITY_ID&page=1&pageSize=25&sortField=created_at&sortDir=desc" \
   -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
-Response:
+### Create record — `POST /entities/records`
 
-```json
-{
-  "items": [
-    { "value": "6d44ce18-4bc7-49d6-8b25-a94288363f25", "label": "Demo Ticket" }
-  ]
-}
-```
-
-## Records
-
-### List Records — `GET /entities/records`
-
-**Feature:** `entities.records.view`  
-Requires `entityId`; supports pagination, filtering (including `cf_` custom fields), sorting, CSV/JSON export.
-
-```bash
-curl -X GET "$BASE_URL/entities/records?entityId=$ENTITY_ID&page=1&pageSize=25&search=demo" \
-  -H "X-Api-Key: $API_KEY" \
-  -H "Accept: application/json"
-```
-
-### Create Record — `POST /entities/records`
-
-**Feature:** `entities.records.manage`
+- Feature: `entities.records.manage`.
+- Body `{ entityId, recordId?, values }` where `values` is a flat object; prefixing `cf_` is optional because the handler normalises keys (`packages/core/src/modules/entities/api/records.ts:204`).
+- Supplying a non-UUID `recordId` triggers auto-generation; use this to support optimistic UI drafts.
 
 ```bash
 curl -X POST "$BASE_URL/entities/records" \
@@ -269,23 +203,19 @@ curl -X POST "$BASE_URL/entities/records" \
   -H "Content-Type: application/json" \
   -d "{
     \"entityId\": \"$ENTITY_ID\",
-    \"fields\": {
+    \"values\": {
       \"title\": \"Onboard new merchant\",
-      \"description\": \"Kick off data import and permissions setup\",
+      \"description\": \"Kick off data import\",
       \"cf_priority\": \"high\"
     }
   }"
 ```
 
-Response:
+### Update record — `PUT /entities/records`
 
-```json
-{ "id": "8a4377f9-3c1b-4f4f-91cc-d1d913db5e11" }
-```
-
-### Update Record — `PUT /entities/records`
-
-**Feature:** `entities.records.manage`
+- Feature: `entities.records.manage`.
+- Body `{ entityId, recordId, values }` with the same shape as the create payload (`packages/core/src/modules/entities/api/records.ts:246`).
+- The handler re-validates values against active custom fields and, if the provided `recordId` is not a UUID, falls back to create semantics (useful for spreadsheet imports).
 
 ```bash
 curl -X PUT "$BASE_URL/entities/records" \
@@ -293,35 +223,49 @@ curl -X PUT "$BASE_URL/entities/records" \
   -H "Content-Type: application/json" \
   -d "{
     \"entityId\": \"$ENTITY_ID\",
-    \"id\": \"$RECORD_ID\",
-    \"fields\": {
-      \"title\": \"Onboard new merchant (Updated)\",
+    \"recordId\": \"$RECORD_ID\",
+    \"values\": {
+      \"title\": \"Onboard new merchant (updated)\",
       \"cf_priority\": \"medium\"
     }
   }"
 ```
 
-Response:
+### Delete record — `DELETE /entities/records`
 
-```json
-{ "ok": true }
-```
-
-### Delete Record — `DELETE /entities/records?id=<uuid>&entityId=<id>`
-
-**Feature:** `entities.records.manage`  
-Performs a soft delete (respects tenant/org scope).
+- Feature: `entities.records.manage`.
+- Accepts query parameters (`?entityId=...&recordId=...`) or JSON body; deletion is soft and scoped to the active tenant/org (`packages/core/src/modules/entities/api/records.ts:337`).
 
 ```bash
-curl -X DELETE "$BASE_URL/entities/records?id=$RECORD_ID&entityId=$ENTITY_ID" \
+curl -X DELETE "$BASE_URL/entities/records?entityId=$ENTITY_ID&recordId=$RECORD_ID" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+## Relation options — `GET /entities/relations/options`
+
+- Feature: `entities.definitions.view`.
+- Parameters (`packages/core/src/modules/entities/api/relations/options.ts:12`):
+  - `entityId` (target entity providing options).
+  - `labelField` (field used for display text).
+  - Optional `q` (search), `pageSize`, `cursor`.
+
+```bash
+curl -X GET "$BASE_URL/entities/relations/options?entityId=$ENTITY_ID&labelField=title&q=demo" \
   -H "X-Api-Key: $API_KEY" \
   -H "Accept: application/json"
 ```
 
-Response:
+Response example:
 
 ```json
-{ "ok": true }
+{
+  "items": [
+    { "value": "6d44ce18-4bc7-49d6-8b25-a94288363f25", "label": "Demo Ticket" }
+  ],
+  "nextCursor": null
+}
 ```
 
-> **Next steps:** Pair these APIs with the Query Engine (`@open-mercato/shared/lib/query/types`) for advanced filtering, or plug them into custom admin forms using the shared `CrudForm` component to deliver tenant-ready experiences.
+---
+
+Pair these endpoints with the DI `queryEngine` for server-side filtering or plug them into shared admin components (`packages/shared/src/lib/crud/factory.ts:23`) to deliver tenant-aware experiences without rebuilding CRUD plumbing.

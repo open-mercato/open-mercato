@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { z } from 'zod'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
@@ -12,6 +14,32 @@ import { Role } from '../../data/entities'
 export const metadata = {
   GET: { requireAuth: true },
 }
+
+const sidebarNavItemSchema: z.ZodType<{ href: string; title: string; defaultTitle: string; enabled: boolean; hidden?: boolean; children?: any[] }> = z.lazy(() =>
+  z.object({
+    href: z.string(),
+    title: z.string(),
+    defaultTitle: z.string(),
+    enabled: z.boolean(),
+    hidden: z.boolean().optional(),
+    children: z.array(sidebarNavItemSchema).optional(),
+  })
+)
+
+const adminNavResponseSchema = z.object({
+  groups: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      defaultName: z.string(),
+      items: z.array(sidebarNavItemSchema),
+    })
+  ),
+})
+
+const adminNavErrorSchema = z.object({
+  error: z.string(),
+})
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -296,4 +324,20 @@ function adoptSidebarDefaults(groups: ReturnType<typeof applySidebarPreference>)
     defaultName: group.name,
     items: adoptItems(group.items),
   }))
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Authentication & Accounts',
+  summary: 'Admin sidebar navigation',
+  methods: {
+    GET: {
+      summary: 'Resolve sidebar entries',
+      description:
+        'Returns the backend navigation tree available to the authenticated administrator after applying role and personal sidebar preferences.',
+      responses: [
+        { status: 200, description: 'Sidebar navigation structure', schema: adminNavResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: adminNavErrorSchema },
+      ],
+    },
+  },
 }
