@@ -39,6 +39,8 @@ type ApiDocsExplorerProps = {
   tagOrder: string[]
   servers: ServerOption[]
   docsUrl: string
+  jsonSpecUrl: string
+  markdownSpecUrl: string
 }
 
 type ContentVariant = {
@@ -171,7 +173,7 @@ type Category = {
 }
 
 export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
-  const { title, version, description, operations, tagOrder, servers, docsUrl } = props
+  const { title, version, description, operations, tagOrder, servers, docsUrl, jsonSpecUrl, markdownSpecUrl } = props
 
   const methodOptions = useMemo(
     () => Array.from(new Set(operations.map((operation) => operation.method))).sort((a, b) => a.localeCompare(b)),
@@ -300,7 +302,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
               </div>
             </Link>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <nav className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
               <Link href="/" className="hover:text-foreground hover:underline">
                 Home
@@ -317,6 +319,22 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
             >
               Try Endpoint
             </button>
+            <Link
+              href={jsonSpecUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-10 items-center justify-center rounded-md border border-border px-3 text-sm font-medium text-muted-foreground hover:border-foreground hover:text-foreground"
+            >
+              OpenAPI JSON
+            </Link>
+            <Link
+              href={markdownSpecUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-10 items-center justify-center rounded-md border border-border px-3 text-sm font-medium text-muted-foreground hover:border-foreground hover:text-foreground"
+            >
+              Markdown Docs
+            </Link>
             <Link
               href={docsUrl}
               target="_blank"
