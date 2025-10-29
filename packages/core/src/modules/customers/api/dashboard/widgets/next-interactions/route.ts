@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerEntity } from '../../../../data/entities'
 import type { FilterQuery } from '@mikro-orm/core'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const querySchema = z.object({
   limit: z.coerce.number().min(1).max(20).default(5),
@@ -92,4 +93,45 @@ export async function GET(req: Request) {
       { status: 500 }
     )
   }
+}
+
+const nextInteractionItemSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string().nullable().optional(),
+  kind: z.string().nullable().optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  nextInteractionAt: z.string().nullable(),
+  nextInteractionName: z.string().nullable().optional(),
+  nextInteractionIcon: z.string().nullable().optional(),
+  nextInteractionColor: z.string().nullable().optional(),
+  ownerUserId: z.string().uuid().nullable().optional(),
+})
+
+const nextInteractionResponseSchema = z.object({
+  items: z.array(nextInteractionItemSchema),
+  now: z.string(),
+})
+
+const widgetErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Next interactions widget',
+  methods: {
+    GET: {
+      summary: 'Fetch upcoming customer interactions',
+      description: 'Lists upcoming (or optionally past) customer interaction reminders ordered by interaction date.',
+      query: querySchema,
+      responses: [
+        { status: 200, description: 'Widget payload', schema: nextInteractionResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid query parameters', schema: widgetErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: widgetErrorSchema },
+        { status: 500, description: 'Widget failed to load', schema: widgetErrorSchema },
+      ],
+    },
+  },
 }

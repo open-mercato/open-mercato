@@ -8,6 +8,7 @@ import { CustomerDictionaryEntry } from '../../../data/entities'
 import { mapDictionaryKind, resolveDictionaryRouteContext } from '../context'
 import { createDictionaryCacheKey, createDictionaryCacheTags, invalidateDictionaryCache, DICTIONARY_CACHE_TTL_MS } from '../cache'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const colorSchema = z.string().trim().regex(/^#([0-9A-Fa-f]{6})$/, 'Invalid color hex')
 const iconSchema = z.string().trim().min(1).max(48)
@@ -173,4 +174,55 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
     console.error('customers.dictionaries.create failed', err)
     return NextResponse.json({ error: translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') }, { status: 400 })
   }
+}
+
+const dictionaryEntrySchema = z.object({
+  id: z.string().uuid(),
+  value: z.string(),
+  label: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+  icon: z.string().nullable().optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  isInherited: z.boolean().optional(),
+})
+
+const dictionaryListResponseSchema = z.object({
+  items: z.array(dictionaryEntrySchema),
+})
+
+const dictionaryErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Customer dictionary entries',
+  methods: {
+    GET: {
+      summary: 'List dictionary entries',
+      description: 'Returns the merged dictionary entries for the requested kind, including inherited values.',
+      responses: [
+        { status: 200, description: 'Dictionary entries', schema: dictionaryListResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },
+        { status: 400, description: 'Failed to resolve dictionary context', schema: dictionaryErrorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Create or override dictionary entry',
+      description: 'Creates a dictionary entry (or updates the existing entry for the same value) within the current organization scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: postSchema,
+      },
+      responses: [
+        { status: 201, description: 'Dictionary entry created', schema: dictionaryEntrySchema },
+        { status: 200, description: 'Dictionary entry updated', schema: dictionaryEntrySchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: dictionaryErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },
+        { status: 409, description: 'Duplicate value conflict', schema: dictionaryErrorSchema },
+      ],
+    },
+  },
 }

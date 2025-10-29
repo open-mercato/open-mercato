@@ -6,10 +6,53 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { AccessLogService } from '@open-mercato/core/modules/audit_logs/services/accessLogService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadAuditLogDisplayMaps } from '../display'
+import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
 }
+
+const auditAccessQuerySchema = z.object({
+  organizationId: z.string().uuid().describe('Limit results to a specific organization').optional(),
+  actorUserId: z.string().uuid().describe('Filter by actor user id (tenant administrators only)').optional(),
+  resourceKind: z.string().describe('Restrict to a resource kind such as `order` or `product`').optional(),
+  accessType: z.string().describe('Access type filter, e.g. `read` or `export`').optional(),
+  page: z.string().describe('Page number (default 1)').optional(),
+  pageSize: z.string().describe('Page size (default 50)').optional(),
+  limit: z.string().describe('Explicit maximum number of records when paginating manually').optional(),
+  before: z.string().describe('Return logs created before this ISO-8601 timestamp').optional(),
+  after: z.string().describe('Return logs created after this ISO-8601 timestamp').optional(),
+})
+
+const auditAccessItemSchema = z.object({
+  id: z.string(),
+  resourceKind: z.string(),
+  resourceId: z.string(),
+  accessType: z.string(),
+  actorUserId: z.string().uuid().nullable(),
+  actorUserName: z.string().nullable(),
+  tenantId: z.string().uuid().nullable(),
+  tenantName: z.string().nullable(),
+  organizationId: z.string().uuid().nullable(),
+  organizationName: z.string().nullable(),
+  fields: z.array(z.string()),
+  context: z.record(z.unknown()).nullable(),
+  createdAt: z.string(),
+})
+
+const auditAccessResponseSchema = z.object({
+  items: z.array(auditAccessItemSchema),
+  canViewTenant: z.boolean(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  total: z.number().int(),
+  totalPages: z.number().int(),
+})
+
+const errorSchema = z.object({
+  error: z.string(),
+})
 
 function parseDate(value: string | null): Date | undefined {
   if (!value) return undefined
@@ -109,4 +152,24 @@ export async function GET(req: Request) {
     total: list.total,
     totalPages: list.totalPages,
   })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'List access audit logs',
+  description: 'Retrieve read-only audit log entries detailing resource access within the current tenant or organization.',
+  methods: {
+    GET: {
+      summary: 'Retrieve access logs',
+      description:
+        'Fetches paginated access audit logs scoped to the authenticated user. Tenant administrators can optionally expand the search to other actors or organizations.',
+      query: auditAccessQuerySchema,
+      responses: [
+        { status: 200, description: 'Access logs returned successfully', schema: auditAccessResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid filters supplied', schema: errorSchema },
+        { status: 401, description: 'Authentication required', schema: errorSchema },
+      ],
+    },
+  },
 }

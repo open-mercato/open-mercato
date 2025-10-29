@@ -6,6 +6,7 @@ import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entitie
 import { upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
 import { invalidateDefinitionsCache } from './definitions.cache'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
@@ -80,4 +81,48 @@ export async function POST(req: Request) {
   })
 
   return NextResponse.json({ ok: true })
+}
+
+const batchResponseSchema = z.object({
+  ok: z.literal(true),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Entities',
+  summary: 'Batch upsert custom field definitions',
+  methods: {
+    POST: {
+      summary: 'Save multiple custom field definitions',
+      description: 'Creates or updates multiple definitions for a single entity in one transaction.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: batchSchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Definitions saved',
+          schema: batchResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Validation error',
+          schema: z.object({
+            error: z.string(),
+            details: z.any().optional(),
+          }),
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 500,
+          description: 'Unexpected failure',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+  },
 }

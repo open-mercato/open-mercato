@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { tableNameFromEntityId } from '@open-mercato/shared/lib/entities/naming'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
@@ -57,3 +59,41 @@ export async function GET(req: Request) {
   return NextResponse.json({ items })
 }
 
+const relationOptionsQuerySchema = z.object({
+  entityId: z.string().min(1),
+  labelField: z.string().optional(),
+  q: z.string().optional(),
+})
+
+const relationOptionsResponseSchema = z.object({
+  items: z.array(
+    z.object({
+      value: z.string(),
+      label: z.string(),
+    })
+  ),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Entities',
+  summary: 'Relation options lookup',
+  methods: {
+    GET: {
+      summary: 'List relation options',
+      description: 'Returns up to 50 option entries for populating relation dropdowns, automatically resolving label fields when omitted.',
+      query: relationOptionsQuerySchema,
+      responses: [
+        {
+          status: 200,
+          description: 'Option list',
+          schema: relationOptionsResponseSchema,
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+  },
+}

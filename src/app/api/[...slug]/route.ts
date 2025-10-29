@@ -1,10 +1,12 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApi } from '@open-mercato/shared/modules/registry'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { enforceTenantSelection, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 
 async function checkAuthorization(
   methodMetadata: any,
@@ -15,24 +17,61 @@ async function checkAuthorization(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  if ((methodMetadata?.requireRoles && methodMetadata.requireRoles.length) && 
-      (!auth || !auth.roles || !methodMetadata.requireRoles.some((r: string) => auth.roles!.includes(r)))) {
+  const requiredRoles: string[] = Array.isArray(methodMetadata?.requireRoles)
+    ? methodMetadata.requireRoles.filter((role: unknown): role is string => typeof role === 'string' && role.length > 0)
+    : []
+  const requiredFeatures: string[] = Array.isArray(methodMetadata?.requireFeatures)
+    ? methodMetadata.requireFeatures.filter((feature: unknown): feature is string => typeof feature === 'string' && feature.length > 0)
+    : []
+
+  if (
+    requiredRoles.length &&
+    (!auth || !Array.isArray(auth.roles) || !requiredRoles.some((role) => auth.roles!.includes(role)))
+  ) {
     return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
   }
 
-  if (methodMetadata?.requireFeatures && methodMetadata.requireFeatures.length) {
+  let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
+  const ensureContainer = async () => {
+    if (!container) container = await createRequestContainer()
+    return container
+  }
+
+  if (auth) {
+    const rawTenantCandidate = await extractTenantCandidate(req)
+    if (rawTenantCandidate !== undefined) {
+      const tenantCandidate = sanitizeTenantCandidate(rawTenantCandidate)
+      if (tenantCandidate !== undefined) {
+        const normalizedCandidate = normalizeTenantId(tenantCandidate) ?? null
+        const actorTenant = normalizeTenantId(auth.tenantId ?? null) ?? null
+        const tenantDiffers = normalizedCandidate !== actorTenant
+        if (tenantDiffers) {
+          try {
+            const guardContainer = await ensureContainer()
+            await enforceTenantSelection({ auth, container: guardContainer }, tenantCandidate)
+          } catch (error) {
+            if (error instanceof CrudHttpError) {
+              return NextResponse.json(error.body ?? { error: 'Forbidden' }, { status: error.status })
+            }
+            throw error
+          }
+        }
+      }
+    }
+  }
+
+  if (requiredFeatures.length) {
     if (!auth) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    const container = await createRequestContainer()
-    const rbac = container.resolve<RbacService>('rbacService')
-    const featureContext = await resolveFeatureCheckContext({ container, auth, request: req })
+    const featureContainer = await ensureContainer()
+    const rbac = featureContainer.resolve<RbacService>('rbacService')
+    const featureContext = await resolveFeatureCheckContext({ container: featureContainer, auth, request: req })
     const { organizationId } = featureContext
-    const ok = await rbac.userHasAllFeatures(
-      auth.sub,
-      methodMetadata.requireFeatures,
-      { tenantId: auth.tenantId, organizationId }
-    )
+    const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
+      tenantId: auth.tenantId,
+      organizationId,
+    })
     if (!ok) {
       try {
         const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId })
@@ -44,7 +83,7 @@ async function checkAuthorization(
           tenantId: auth.tenantId ?? null,
           selectedOrganizationId: featureContext.scope.selectedId,
           organizationId,
-          requiredFeatures: methodMetadata.requireFeatures,
+          requiredFeatures,
           grantedFeatures: acl.features,
           isSuperAdmin: acl.isSuperAdmin,
           allowedOrganizations: acl.organizations,
@@ -58,16 +97,62 @@ async function checkAuthorization(
             userId: auth.sub,
             tenantId: auth.tenantId ?? null,
             organizationId,
-            requiredFeatures: methodMetadata.requireFeatures,
+            requiredFeatures,
             error: err instanceof Error ? err.message : err,
           })
         } catch {}
       }
-      return NextResponse.json({ error: 'Forbidden', requiredFeatures: methodMetadata.requireFeatures }, { status: 403 })
+      return NextResponse.json({ error: 'Forbidden', requiredFeatures }, { status: 403 })
     }
   }
 
   return null
+}
+
+function sanitizeTenantCandidate(candidate: unknown): unknown {
+  if (typeof candidate === 'string') {
+    const lowered = candidate.trim().toLowerCase()
+    if (lowered === 'null') return null
+    if (lowered === 'undefined') return undefined
+    return candidate.trim()
+  }
+  return candidate
+}
+
+async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
+  const tenantParams = req.nextUrl?.searchParams?.getAll?.('tenantId') ?? []
+  if (tenantParams.length > 0) {
+    return tenantParams[tenantParams.length - 1]
+  }
+
+  const method = (req.method || 'GET').toUpperCase()
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+    return undefined
+  }
+
+  const rawContentType = req.headers.get('content-type')
+  if (!rawContentType) return undefined
+  const contentType = rawContentType.split(';')[0].trim().toLowerCase()
+
+  try {
+    if (contentType === 'application/json') {
+      const payload = await req.clone().json()
+      if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'tenantId' in payload) {
+        return (payload as Record<string, unknown>).tenantId
+      }
+    } else if (contentType === 'application/x-www-form-urlencoded' || contentType === 'multipart/form-data') {
+      const form = await req.clone().formData()
+      if (form.has('tenantId')) {
+        const value = form.get('tenantId')
+        if (value instanceof File) return value.name
+        return value
+      }
+    }
+  } catch {
+    // Ignore parsing failures; downstream handlers can deal with malformed payloads.
+  }
+
+  return undefined
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {

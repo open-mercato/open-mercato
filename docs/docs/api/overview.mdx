@@ -74,6 +74,12 @@ Full examples live in the [Directory service guide](./directory).
 - For integration tests, compose requests with `createRequestContainer()` to reuse the same dependency injection graph as production handlers.
 - Use the shared CRUD helpers in `@open-mercato/shared/lib/crud/factory` to ensure consistent pagination, scoping, and event emission logic.
 
+## Documentation & Playground
+
+- `GET /docs/api` opens the OpenAPI Explorer, an interactive playground generated from the live module registry. Access it from the admin UI once signed in, browse every operation, review example payloads, and paste an API token to execute authenticated requests against your chosen base URL.
+- `GET /api/docs/openapi` returns the OpenAPI 3.1 JSON document for client generation, contract testing, or syncing external tooling.
+- `GET /api/docs/markdown` serves the same specification as Markdown, ideal for quick sharing or feeding into LLM prompts.
+
 ## Module Guides
 
 - [Authentication & RBAC](./auth)

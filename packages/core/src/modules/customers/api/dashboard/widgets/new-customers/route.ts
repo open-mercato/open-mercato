@@ -4,6 +4,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerEntity, type CustomerEntityKind } from '../../../../data/entities'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const querySchema = z.object({
   limit: z.coerce.number().min(1).max(20).default(5),
@@ -86,4 +87,41 @@ export async function GET(req: Request) {
       { status: 500 }
     )
   }
+}
+
+const newCustomersItemSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string().nullable().optional(),
+  kind: z.string().nullable().optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  createdAt: z.string(),
+  ownerUserId: z.string().uuid().nullable().optional(),
+})
+
+const newCustomersResponseSchema = z.object({
+  items: z.array(newCustomersItemSchema),
+})
+
+const widgetErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'New customers widget',
+  methods: {
+    GET: {
+      summary: 'Fetch recently created customers',
+      description: 'Returns the latest customers created within the scoped tenant/organization for dashboard display.',
+      query: querySchema,
+      responses: [
+        { status: 200, description: 'Widget payload', schema: newCustomersResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid query parameters', schema: widgetErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: widgetErrorSchema },
+        { status: 500, description: 'Widget failed to load', schema: widgetErrorSchema },
+      ],
+    },
+  },
 }

@@ -8,6 +8,11 @@ import { personCreateSchema, personUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
+import {
+  createCustomersCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -239,3 +244,50 @@ const { POST, PUT, DELETE } = crud
 
 export { POST, PUT, DELETE }
 export const GET = crud.GET
+
+const personListItemSchema = z.object({
+  id: z.string().uuid(),
+  display_name: z.string().optional(),
+  description: z.string().nullable().optional(),
+  owner_user_id: z.string().uuid().nullable().optional(),
+  primary_email: z.string().nullable().optional(),
+  primary_phone: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  lifecycle_stage: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
+  next_interaction_at: z.string().nullable().optional(),
+  next_interaction_name: z.string().nullable().optional(),
+  next_interaction_ref_id: z.string().nullable().optional(),
+  next_interaction_icon: z.string().nullable().optional(),
+  next_interaction_color: z.string().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+})
+
+const personCreateResponseSchema = z.object({
+  id: z.string().uuid().nullable(),
+  personId: z.string().uuid().nullable(),
+})
+
+export const openApi = createCustomersCrudOpenApi({
+  resourceName: 'Person',
+  pluralName: 'People',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(personListItemSchema),
+  create: {
+    schema: personCreateSchema,
+    responseSchema: personCreateResponseSchema,
+    description: 'Creates a person contact using scoped organization and tenant identifiers.',
+  },
+  update: {
+    schema: personUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates contact details or custom fields for a person.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a person by id. Request body or query may provide the identifier.',
+  },
+})

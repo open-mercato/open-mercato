@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { EntityManager } from '@mikro-orm/core'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -47,4 +49,37 @@ export async function GET(req: Request) {
     if (cache) await cache.set(cacheKey, payload, { tags: [`nav:entities:${auth.tenantId || 'null'}`] })
   } catch {}
   return NextResponse.json(payload)
+}
+
+const sidebarEntitiesResponseSchema = z.object({
+  items: z.array(
+    z.object({
+      entityId: z.string(),
+      label: z.string(),
+      href: z.string(),
+    })
+  ),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Entities',
+  summary: 'List sidebar entities',
+  methods: {
+    GET: {
+      summary: 'Get sidebar entities',
+      description: 'Returns custom entities flagged with `showInSidebar` for the current tenant/org scope.',
+      responses: [
+        {
+          status: 200,
+          description: 'Sidebar entities for navigation',
+          schema: sidebarEntitiesResponseSchema,
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+  },
 }

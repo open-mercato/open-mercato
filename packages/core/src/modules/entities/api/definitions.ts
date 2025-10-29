@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
@@ -10,6 +11,7 @@ import {
   invalidateDefinitionsCache,
   ENTITY_DEFINITIONS_CACHE_TTL_MS,
 } from './definitions.cache'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   // Reading definitions is needed by record forms; keep it auth-protected but accessible to all authenticated users
@@ -317,6 +319,155 @@ export async function DELETE(req: Request) {
   })
   // Changing field definitions may impact forms but not sidebar items; no nav cache touch
   return NextResponse.json({ ok: true })
+}
+
+const definitionsQuerySchema = z
+  .object({
+    entityId: z.union([z.string(), z.array(z.string())]).optional(),
+    entityIds: z.string().optional(),
+  })
+  .refine(
+    (value) => {
+      if (value.entityId && typeof value.entityId === 'string' && value.entityId.trim().length > 0) return true
+      if (Array.isArray(value.entityId) && value.entityId.length > 0) return true
+      return typeof value.entityIds === 'string' && value.entityIds.trim().length > 0
+    },
+    { message: 'Provide at least one entityId or an entityIds list.' }
+  )
+
+const customFieldOptionValueSchema = z.union([z.string(), z.number()])
+
+const customFieldDefinitionSchema = z.object({
+  key: z.string(),
+  kind: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+  multi: z.boolean().optional(),
+  options: z.array(customFieldOptionValueSchema).optional(),
+  optionsUrl: z.string().optional(),
+  filterable: z.boolean().optional(),
+  formEditable: z.boolean().optional(),
+  listVisible: z.boolean().optional(),
+  editor: z.string().optional(),
+  input: z.string().optional(),
+  dictionaryId: z.string().optional(),
+  dictionaryInlineCreate: z.boolean().optional(),
+  priority: z.number().optional(),
+  validation: z.array(z.any()).optional(),
+  maxAttachmentSizeMb: z.number().optional(),
+  acceptExtensions: z.array(z.any()).optional(),
+  entityId: z.string(),
+})
+
+const definitionsResponseSchema = z.object({
+  items: z.array(customFieldDefinitionSchema),
+})
+
+const upsertDefinitionResponseSchema = z.object({
+  ok: z.literal(true),
+  item: z.object({
+    id: z.string().uuid(),
+    key: z.string(),
+    kind: z.string(),
+    configJson: z.record(z.any()),
+    isActive: z.boolean().optional(),
+  }),
+})
+
+const deleteDefinitionRequestSchema = z.object({
+  entityId: z.string(),
+  key: z.string(),
+})
+
+const deleteDefinitionResponseSchema = z.object({
+  ok: z.literal(true),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Entities',
+  summary: 'Manage custom field definitions',
+  methods: {
+    GET: {
+      summary: 'List active custom field definitions',
+      description: 'Returns active custom field definitions for the supplied entity ids, respecting tenant scope and tombstones.',
+      query: definitionsQuerySchema,
+      responses: [
+        {
+          status: 200,
+          description: 'Definition list',
+          schema: definitionsResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Missing entity id',
+          schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+    POST: {
+      summary: 'Upsert custom field definition',
+      description: 'Creates or updates a custom field definition for the current tenant/org scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: upsertCustomFieldDefSchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Definition saved',
+          schema: upsertDefinitionResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Validation failed',
+          schema: z.object({
+            error: z.string(),
+            details: z.any().optional(),
+          }),
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+    DELETE: {
+      summary: 'Soft delete custom field definition',
+      description: 'Marks the specified definition inactive and tombstones it for the current scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: deleteDefinitionRequestSchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Definition deleted',
+          schema: deleteDefinitionResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Missing entity id or key',
+          schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 404,
+          description: 'Definition not found',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+  },
 }
 const computeDefinitionScore = (def: any, cfg: Record<string, any>, entityIndex: number) => {
   const listVisibleScore = cfg.listVisible === false ? 0 : 1

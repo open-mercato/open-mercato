@@ -19,6 +19,14 @@ type ParameterLocation = 'query' | 'path' | 'header'
 
 type JsonSchema = Record<string, unknown>
 
+type SchemaConversionContext = {
+  memo: WeakMap<ZodTypeAny, JsonSchema>
+}
+
+type ExampleGenerationContext = {
+  stack: WeakSet<ZodTypeAny>
+}
+
 type ExampleMap = {
   query?: unknown
   body?: unknown
@@ -27,6 +35,44 @@ type ExampleMap = {
 }
 
 const HTTP_METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+
+function resolveType(def: any): string | undefined {
+  if (!def) return undefined
+  if (typeof def.typeName === 'string' && def.typeName.length) return def.typeName
+  if (typeof def.type === 'string' && def.type.length) return def.type
+  return undefined
+}
+
+function getShape(def: any): Record<string, ZodTypeAny> {
+  if (!def) return {}
+  const shape = typeof def.shape === 'function' ? def.shape() : def.shape
+  if (shape && typeof shape === 'object') return shape as Record<string, ZodTypeAny>
+  return {}
+}
+
+function normalizeChecks(checks: any[] | undefined): Array<{ kind?: string; value?: unknown; extra?: Record<string, unknown> }> {
+  if (!Array.isArray(checks)) return []
+  return checks.map((check) => {
+    if (!check) return {}
+    const base = (check as any)?._zod?.def ?? (check as any)?.def ?? check
+    const kind = typeof (check as any)?.kind === 'string'
+      ? (check as any).kind
+      : typeof base?.check === 'string'
+        ? base.check
+        : undefined
+    const value =
+      base?.value ??
+      base?.minimum ??
+      base?.maximum ??
+      base?.exact ??
+      base?.length ??
+      base?.limit ??
+      base?.includes ??
+      base?.min ??
+      base?.max
+    return { kind, value, extra: base && typeof base === 'object' ? base : undefined }
+  })
+}
 
 const DEFAULT_EXAMPLE_VALUES = {
   string: 'string',
@@ -93,50 +139,51 @@ function unwrap(schema?: ZodTypeAny): {
     if (!def) {
       return { schema: current, optional, nullable, defaultValue }
     }
-    const typeName = def.typeName
-    if (typeName === ZodFirstPartyTypeKind.ZodOptional) {
+    const typeName = resolveType(def)
+    if (typeName === ZodFirstPartyTypeKind.ZodOptional || typeName === 'optional') {
       optional = true
       current = (current as any)._def.innerType
       continue
     }
-    if (typeName === ZodFirstPartyTypeKind.ZodNullable) {
+    if (typeName === ZodFirstPartyTypeKind.ZodNullable || typeName === 'nullable') {
       nullable = true
       current = (current as any)._def.innerType
       continue
     }
-    if (typeName === ZodFirstPartyTypeKind.ZodDefault) {
+    if (typeName === ZodFirstPartyTypeKind.ZodDefault || typeName === 'default') {
       optional = true
-      defaultValue = (current as any)._def.defaultValue()
+      const rawDefault = (current as any)._def.defaultValue
+      defaultValue = typeof rawDefault === 'function' ? rawDefault() : rawDefault
       current = (current as any)._def.innerType
       continue
     }
-    if (typeName === ZodFirstPartyTypeKind.ZodEffects) {
-      current = (current as any)._def.schema
+    if (typeName === ZodFirstPartyTypeKind.ZodPipeline || typeName === 'pipe') {
+      current = (current as any)._def.out ?? (current as any)._def.innerType ?? (current as any)._def.schema
       continue
     }
-    if (typeName === ZodFirstPartyTypeKind.ZodPipeline) {
-      current = (current as any)._def.out
+    if (typeName === 'transformer') {
+      current = (current as any)._def.output
       continue
     }
-    if (typeName === ZodFirstPartyTypeKind.ZodLazy) {
+    if (typeName === ZodFirstPartyTypeKind.ZodLazy || typeName === 'lazy') {
       const getter = (current as any)._def.getter
       current = typeof getter === 'function' ? getter() : current
       if (current === schema) break
       continue
     }
-    if (typeName === ZodFirstPartyTypeKind.ZodPromise) {
+    if (typeName === ZodFirstPartyTypeKind.ZodPromise || typeName === 'promise') {
       current = (current as any)._def.type
       continue
     }
-    if (typeName === ZodFirstPartyTypeKind.ZodCatch) {
+    if (typeName === ZodFirstPartyTypeKind.ZodCatch || typeName === 'catch') {
       current = (current as any)._def.innerType
       continue
     }
-    if (typeName === ZodFirstPartyTypeKind.ZodReadonly) {
+    if (typeName === ZodFirstPartyTypeKind.ZodReadonly || typeName === 'readonly') {
       current = (current as any)._def.innerType
       continue
     }
-    if (typeName === ZodFirstPartyTypeKind.ZodBranded) {
+    if (typeName === ZodFirstPartyTypeKind.ZodBranded || typeName === 'branded') {
       current = (current as any)._def.type
       continue
     }
@@ -145,273 +192,392 @@ function unwrap(schema?: ZodTypeAny): {
   return { schema: current, optional, nullable, defaultValue }
 }
 
-function zodToJsonSchema(schema?: ZodTypeAny): JsonSchema | undefined {
+function zodToJsonSchema(schema?: ZodTypeAny, ctx?: SchemaConversionContext): JsonSchema | undefined {
   if (!schema) return undefined
-  const { schema: inner, nullable } = unwrap(schema)
-  if (!inner) return undefined
-  const def = (inner as any)._def
-  if (!def) return undefined
-  const typeName = def.typeName as ZodFirstPartyTypeKind
+  const context: SchemaConversionContext = ctx ?? { memo: new WeakMap<ZodTypeAny, JsonSchema>() }
 
-  let result: JsonSchema
+  const cached = context.memo.get(schema)
+  if (cached) return cached
+
+  const placeholder: JsonSchema = {}
+  context.memo.set(schema, placeholder)
+
+  const { schema: inner, nullable } = unwrap(schema)
+  if (!inner) {
+    if (nullable) placeholder.nullable = true
+    return placeholder
+  }
+
+  if (inner !== schema && typeof inner === 'object') {
+    if (!context.memo.has(inner as ZodTypeAny)) {
+      context.memo.set(inner as ZodTypeAny, placeholder)
+    }
+  }
+
+  const def = (inner as any)._def
+  if (!def) return placeholder
+  const typeName = resolveType(def) as ZodFirstPartyTypeKind | string | undefined
+
+  const result = placeholder
 
   switch (typeName) {
-    case ZodFirstPartyTypeKind.ZodString: {
-      result = { type: 'string' }
-      const checks = def.checks || []
+    case ZodFirstPartyTypeKind.ZodString:
+    case 'string': {
+      result.type = 'string'
+      const checks = normalizeChecks(def.checks)
       for (const check of checks) {
-        if (check.kind === 'uuid') result.format = 'uuid'
-        else if (check.kind === 'email') result.format = 'email'
-        else if (check.kind === 'url') result.format = 'uri'
-        else if (check.kind === 'regex' && check.regex instanceof RegExp) {
-          result.pattern = check.regex.source
-        } else if (check.kind === 'datetime') {
+        if (!check.kind) continue
+        if (check.kind === 'uuid' || check.extra?.format === 'uuid') {
+          result.format = 'uuid'
+        } else if (check.kind === 'email' || check.extra?.format === 'email') {
+          result.format = 'email'
+        } else if (check.kind === 'url' || check.extra?.format === 'uri' || check.extra?.format === 'url') {
+          result.format = 'uri'
+        } else if (check.kind === 'regex' && check.extra?.pattern instanceof RegExp) {
+          result.pattern = check.extra.pattern.source
+        } else if (check.kind === 'string_format' && typeof check.extra?.format === 'string') {
+          result.format = check.extra.format
+        } else if (check.kind === 'datetime' || check.extra?.format === 'date-time') {
           result.format = 'date-time'
-        } else if (check.kind === 'length' || check.kind === 'min' || check.kind === 'max') {
+        } else if (['length', 'len', 'exact_length'].includes(check.kind ?? '')) {
           if (typeof check.value === 'number') {
-            const key = check.kind === 'length' ? 'minLength' : (check.kind === 'min' ? 'minLength' : 'maxLength')
-            result[key] = check.value
+            result.minLength = check.value
+            result.maxLength = check.value
           }
+        } else if (check.kind === 'min' || check.kind === 'min_length') {
+          if (typeof check.value === 'number') result.minLength = check.value
+        } else if (check.kind === 'max' || check.kind === 'max_length') {
+          if (typeof check.value === 'number') result.maxLength = check.value
         }
       }
       break
     }
-    case ZodFirstPartyTypeKind.ZodNumber: {
-      result = { type: 'number' }
-      const checks = def.checks || []
+    case ZodFirstPartyTypeKind.ZodNumber:
+    case 'number': {
+      result.type = 'number'
+      const checks = normalizeChecks(def.checks)
       for (const check of checks) {
-        if (check.kind === 'int') result.type = 'integer'
-        if (check.kind === 'min') result.minimum = check.value
-        if (check.kind === 'max') result.maximum = check.value
+        if (!check.kind) continue
+        if (check.kind === 'int' || check.kind === 'isInteger') result.type = 'integer'
+        if ((check.kind === 'min' || check.kind === 'gte') && typeof check.value === 'number') result.minimum = check.value
+        if ((check.kind === 'max' || check.kind === 'lte') && typeof check.value === 'number') result.maximum = check.value
+        if (check.kind === 'multipleOf' && typeof check.value === 'number') result.multipleOf = check.value
       }
       break
     }
     case ZodFirstPartyTypeKind.ZodBigInt:
-      result = { type: 'integer', format: 'int64' }
+    case 'bigint':
+      result.type = 'integer'
+      result.format = 'int64'
       break
     case ZodFirstPartyTypeKind.ZodBoolean:
-      result = { type: 'boolean' }
+    case 'boolean':
+      result.type = 'boolean'
       break
-    case ZodFirstPartyTypeKind.ZodLiteral: {
-      const value = def.value
-      result = { type: typeof value, enum: [value] }
+    case ZodFirstPartyTypeKind.ZodLiteral:
+    case 'literal': {
+      const value = def.value ?? (Array.isArray(def.values) ? def.values[0] : undefined)
+      result.type = typeof value
+      result.enum = [value]
       break
     }
     case ZodFirstPartyTypeKind.ZodEnum:
-      result = { type: 'string', enum: def.values.slice() }
+    case 'enum': {
+      const entries = def.values ?? def.entries
+      const values = Array.isArray(entries) ? entries : entries ? Object.values(entries) : []
+      const enumerators = values.filter((v: unknown) => typeof v === 'string' || typeof v === 'number')
+      const allString = enumerators.every((v: unknown) => typeof v === 'string')
+      result.type = allString ? 'string' : 'number'
+      result.enum = enumerators
       break
+    }
     case ZodFirstPartyTypeKind.ZodNativeEnum: {
       const values = Object.values(def.values).filter((v) => typeof v === 'string' || typeof v === 'number')
       const allString = values.every((v) => typeof v === 'string')
-      result = { type: allString ? 'string' : 'number', enum: values }
+      result.type = allString ? 'string' : 'number'
+      result.enum = values
       break
     }
-    case ZodFirstPartyTypeKind.ZodUnion: {
+    case ZodFirstPartyTypeKind.ZodUnion:
+    case 'union': {
       const options = def.options || []
-      result = { oneOf: options.map((option: ZodTypeAny) => zodToJsonSchema(option) ?? {}) }
+      result.oneOf = options.map((option: ZodTypeAny) => zodToJsonSchema(option, context) ?? {})
       break
     }
-    case ZodFirstPartyTypeKind.ZodIntersection: {
-      result = { allOf: [zodToJsonSchema(def.left), zodToJsonSchema(def.right)] }
+    case ZodFirstPartyTypeKind.ZodIntersection:
+    case 'intersection': {
+      result.allOf = [
+        zodToJsonSchema(def.left, context) ?? {},
+        zodToJsonSchema(def.right, context) ?? {},
+      ]
       break
     }
-    case ZodFirstPartyTypeKind.ZodPipeline: {
-      result = zodToJsonSchema(def.out) ?? {}
+    case ZodFirstPartyTypeKind.ZodPipeline:
+    case 'pipe': {
+      const resolved = zodToJsonSchema(def.out ?? def.innerType ?? def.schema, context) ?? {}
+      Object.assign(result, resolved)
       break
     }
-    case ZodFirstPartyTypeKind.ZodLazy: {
+    case ZodFirstPartyTypeKind.ZodLazy:
+    case 'lazy': {
       const next = typeof def.getter === 'function' ? def.getter() : undefined
-      result = zodToJsonSchema(next) ?? {}
+      const resolved = next ? zodToJsonSchema(next, context) : undefined
+      if (resolved) Object.assign(result, resolved)
       break
     }
-    case ZodFirstPartyTypeKind.ZodPromise: {
-      result = zodToJsonSchema(def.type) ?? {}
+    case ZodFirstPartyTypeKind.ZodPromise:
+    case 'promise': {
+      const resolved = zodToJsonSchema(def.type, context)
+      if (resolved) Object.assign(result, resolved)
       break
     }
-    case ZodFirstPartyTypeKind.ZodCatch: {
-      result = zodToJsonSchema(def.innerType) ?? {}
+    case ZodFirstPartyTypeKind.ZodCatch:
+    case 'catch': {
+      const resolved = zodToJsonSchema(def.innerType ?? def.type, context)
+      if (resolved) Object.assign(result, resolved)
       break
     }
-    case ZodFirstPartyTypeKind.ZodReadonly: {
-      result = zodToJsonSchema(def.innerType) ?? {}
+    case ZodFirstPartyTypeKind.ZodReadonly:
+    case 'readonly': {
+      const resolved = zodToJsonSchema(def.innerType ?? def.type, context)
+      if (resolved) Object.assign(result, resolved)
       break
     }
-    case ZodFirstPartyTypeKind.ZodArray: {
-      result = {
-        type: 'array',
-        items: zodToJsonSchema(def.type) ?? {},
-      }
+    case ZodFirstPartyTypeKind.ZodArray:
+    case 'array': {
+      const elementSchema =
+        def.type && typeof def.type === 'object'
+          ? def.type
+          : (def.element && typeof def.element === 'object' ? def.element : undefined)
+      result.type = 'array'
+      result.items = zodToJsonSchema(elementSchema as ZodTypeAny, context) ?? {}
       if (typeof def.minLength === 'number') result.minItems = def.minLength
       if (typeof def.maxLength === 'number') result.maxItems = def.maxLength
+      const checks = normalizeChecks(def.checks)
+      for (const check of checks) {
+        if (check.kind === 'min_length' && typeof check.value === 'number') result.minItems = check.value
+        if (check.kind === 'max_length' && typeof check.value === 'number') result.maxItems = check.value
+        if (check.kind === 'length' && typeof check.value === 'number') {
+          result.minItems = check.value
+          result.maxItems = check.value
+        }
+      }
       break
     }
-    case ZodFirstPartyTypeKind.ZodTuple: {
+    case ZodFirstPartyTypeKind.ZodTuple:
+    case 'tuple': {
       const items = def.items || []
-      result = {
-        type: 'array',
-        prefixItems: items.map((item: ZodTypeAny) => zodToJsonSchema(item) ?? {}),
-        minItems: items.length,
-        maxItems: items.length,
-      }
+      result.type = 'array'
+      result.prefixItems = items.map((item: ZodTypeAny) => zodToJsonSchema(item, context) ?? {})
+      result.minItems = items.length
+      result.maxItems = items.length
       break
     }
-    case ZodFirstPartyTypeKind.ZodRecord: {
-      result = {
-        type: 'object',
-        additionalProperties: zodToJsonSchema(def.valueType) ?? {},
-      }
+    case ZodFirstPartyTypeKind.ZodRecord:
+    case 'record': {
+      result.type = 'object'
+      result.additionalProperties = zodToJsonSchema(def.valueType ?? def.value, context) ?? {}
       break
     }
-    case ZodFirstPartyTypeKind.ZodObject: {
-      const shape = def.shape()
+    case ZodFirstPartyTypeKind.ZodObject:
+    case 'object': {
+      result.type = 'object'
+      const shape = getShape(def)
       const properties: Record<string, JsonSchema> = {}
       const required: string[] = []
       for (const [key, rawSchema] of Object.entries(shape)) {
         const unwrapped = unwrap(rawSchema as ZodTypeAny)
-        const childSchema = zodToJsonSchema(unwrapped.schema)
+        const childSchema = zodToJsonSchema(unwrapped.schema, context)
         if (!childSchema) continue
-        if (unwrapped.nullable) childSchema.nullable = true
-        if (unwrapped.defaultValue !== undefined) childSchema.default = unwrapped.defaultValue
-        properties[key] = childSchema
+        const baseSchema = childSchema
+        let propertySchema: JsonSchema = baseSchema
+        if (unwrapped.nullable) {
+          propertySchema = {
+            anyOf: [{ type: 'null' }, propertySchema],
+          }
+        }
+        if (unwrapped.defaultValue !== undefined) {
+          if (propertySchema === baseSchema) {
+            propertySchema = { allOf: [baseSchema], default: unwrapped.defaultValue }
+          } else {
+            propertySchema = { ...propertySchema, default: unwrapped.defaultValue }
+          }
+        }
+        properties[key] = propertySchema
         if (!unwrapped.optional) required.push(key)
       }
-      result = {
-        type: 'object',
-        properties,
-      }
+      result.properties = properties
       if (required.length > 0) result.required = required
       if (def.unknownKeys === 'passthrough') {
         result.additionalProperties = true
-      } else if (def.catchall && def.catchall._def.typeName !== ZodFirstPartyTypeKind.ZodNever) {
-        result.additionalProperties = zodToJsonSchema(def.catchall) ?? true
+      } else if (def.catchall && resolveType(def.catchall._def) !== ZodFirstPartyTypeKind.ZodNever && resolveType(def.catchall._def) !== 'never') {
+        result.additionalProperties = zodToJsonSchema(def.catchall, context) ?? true
       } else {
         result.additionalProperties = false
       }
       break
     }
     case ZodFirstPartyTypeKind.ZodDate:
-      result = { type: 'string', format: 'date-time' }
+    case 'date':
+      result.type = 'string'
+      result.format = 'date-time'
       break
     case ZodFirstPartyTypeKind.ZodNull:
-      result = { type: 'null' }
+    case 'null':
+      result.type = 'null'
       break
     case ZodFirstPartyTypeKind.ZodVoid:
+    case 'void':
     case ZodFirstPartyTypeKind.ZodNever:
-      result = {}
+    case 'never':
       break
     case ZodFirstPartyTypeKind.ZodAny:
+    case 'any':
     case ZodFirstPartyTypeKind.ZodUnknown:
+    case 'unknown':
     case ZodFirstPartyTypeKind.ZodNaN:
+    case 'nan':
     default:
-      result = {}
       break
   }
 
-  if (nullable && result) {
+  if (nullable) {
     if (result.type && result.type !== 'null') {
       result.nullable = true
     } else if (!result.type) {
-      result.anyOf = [{ type: 'null' }, { ...result }]
+      const clone = { ...result }
+      result.anyOf = [{ type: 'null' }, clone]
     }
   }
 
   return result
 }
 
-function generateExample(schema?: ZodTypeAny): unknown {
+function generateExample(schema?: ZodTypeAny, ctx?: ExampleGenerationContext): unknown {
   if (!schema) return undefined
-  const { schema: inner, optional, nullable, defaultValue } = unwrap(schema)
-  if (!inner) {
+  if ((typeof schema !== 'object' || schema === null) && typeof schema !== 'function') return undefined
+  const trackable = schema as object
+  const context: ExampleGenerationContext = ctx ?? { stack: new WeakSet<ZodTypeAny>() }
+  if (context.stack.has(trackable as ZodTypeAny)) return undefined
+  context.stack.add(trackable as ZodTypeAny)
+
+  try {
+    const { schema: inner, optional, nullable, defaultValue } = unwrap(schema)
+    if (!inner) {
+      if (defaultValue !== undefined) return defaultValue
+      if (nullable) return null
+      if (optional) return undefined
+      return undefined
+    }
+    const def = (inner as any)._def
+    const typeName = resolveType(def) as ZodFirstPartyTypeKind | string | undefined
     if (defaultValue !== undefined) return defaultValue
+
     if (nullable) return null
     if (optional) return undefined
-    return undefined
-  }
-  const typeName = (inner as any)._def?.typeName as ZodFirstPartyTypeKind | undefined
-  if (defaultValue !== undefined) return defaultValue
 
-  if (nullable) return null
-  if (optional) return undefined
-
-  switch (typeName) {
-    case ZodFirstPartyTypeKind.ZodString: {
-      const checks = (inner as any)._def?.checks || []
-      for (const check of checks) {
-        if (check.kind === 'uuid') return DEFAULT_EXAMPLE_VALUES.uuid
-        if (check.kind === 'email') return DEFAULT_EXAMPLE_VALUES.email
-        if (check.kind === 'url') return DEFAULT_EXAMPLE_VALUES.url
-        if (check.kind === 'datetime') return DEFAULT_EXAMPLE_VALUES.datetime
+    switch (typeName) {
+      case ZodFirstPartyTypeKind.ZodString:
+      case 'string': {
+        const checks = normalizeChecks(def?.checks)
+        for (const check of checks) {
+          if (!check.kind && !check.extra?.format) continue
+          if (check.kind === 'uuid' || check.extra?.format === 'uuid') return DEFAULT_EXAMPLE_VALUES.uuid
+          if (check.kind === 'email' || check.extra?.format === 'email') return DEFAULT_EXAMPLE_VALUES.email
+          if (check.kind === 'url' || check.extra?.format === 'url' || check.extra?.format === 'uri') return DEFAULT_EXAMPLE_VALUES.url
+          if (check.kind === 'datetime' || check.extra?.format === 'date-time') return DEFAULT_EXAMPLE_VALUES.datetime
+        }
+        return DEFAULT_EXAMPLE_VALUES.string
       }
-      return DEFAULT_EXAMPLE_VALUES.string
-    }
-    case ZodFirstPartyTypeKind.ZodNumber: {
-      const checks = (inner as any)._def?.checks || []
-      const isInt = checks.some((check: any) => check.kind === 'int')
-      return isInt ? DEFAULT_EXAMPLE_VALUES.integer : DEFAULT_EXAMPLE_VALUES.number
-    }
-    case ZodFirstPartyTypeKind.ZodBigInt:
-      return BigInt(1)
-    case ZodFirstPartyTypeKind.ZodBoolean:
-      return DEFAULT_EXAMPLE_VALUES.boolean
-    case ZodFirstPartyTypeKind.ZodEnum: {
-      const values = (inner as any)._def?.values || []
-      return values[0]
-    }
-    case ZodFirstPartyTypeKind.ZodNativeEnum: {
-      const values = Object.values((inner as any)._def?.values || [])
-      return values[0]
-    }
-    case ZodFirstPartyTypeKind.ZodLiteral:
-      return (inner as any)._def?.value
-    case ZodFirstPartyTypeKind.ZodArray: {
-      const child = generateExample((inner as any)._def?.type)
-      return child === undefined ? [] : [child]
-    }
-    case ZodFirstPartyTypeKind.ZodTuple: {
-      const items = (inner as any)._def?.items || []
-      return items.map((item: ZodTypeAny) => generateExample(item))
-    }
-    case ZodFirstPartyTypeKind.ZodObject: {
-      const shape = (inner as any)._def?.shape?.() || {}
-      const obj: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(shape)) {
-        const example = generateExample(value as ZodTypeAny)
-        if (example !== undefined) obj[key] = example
+      case ZodFirstPartyTypeKind.ZodNumber:
+      case 'number': {
+        const checks = normalizeChecks(def?.checks)
+        const isInt = checks.some((check) => check.kind === 'int' || check.kind === 'isInteger')
+        return isInt ? DEFAULT_EXAMPLE_VALUES.integer : DEFAULT_EXAMPLE_VALUES.number
       }
-      return obj
-    }
-    case ZodFirstPartyTypeKind.ZodRecord: {
-      const valueExample = generateExample((inner as any)._def?.valueType)
-      return valueExample === undefined ? {} : { key: valueExample }
-    }
-    case ZodFirstPartyTypeKind.ZodUnion: {
-      const options = (inner as any)._def?.options || []
-      return options.length ? generateExample(options[0]) : undefined
-    }
-    case ZodFirstPartyTypeKind.ZodPipeline:
-      return generateExample((inner as any)._def?.out)
-    case ZodFirstPartyTypeKind.ZodLazy: {
-      const next = typeof (inner as any)._def?.getter === 'function' ? (inner as any)._def.getter() : undefined
-      return next ? generateExample(next) : undefined
-    }
-    case ZodFirstPartyTypeKind.ZodPromise:
-      return generateExample((inner as any)._def?.type)
-    case ZodFirstPartyTypeKind.ZodCatch:
-      return generateExample((inner as any)._def?.innerType)
-    case ZodFirstPartyTypeKind.ZodReadonly:
-      return generateExample((inner as any)._def?.innerType)
-    case ZodFirstPartyTypeKind.ZodIntersection: {
-      const left = generateExample((inner as any)._def?.left)
-      const right = generateExample((inner as any)._def?.right)
-      if (typeof left === 'object' && left && typeof right === 'object' && right) {
-        return { ...(left as object), ...(right as object) }
+      case ZodFirstPartyTypeKind.ZodBigInt:
+      case 'bigint':
+        return BigInt(1)
+      case ZodFirstPartyTypeKind.ZodBoolean:
+      case 'boolean':
+        return DEFAULT_EXAMPLE_VALUES.boolean
+      case ZodFirstPartyTypeKind.ZodEnum:
+      case 'enum': {
+        const entries = def?.values ?? def?.entries
+        const values = Array.isArray(entries) ? entries : entries ? Object.values(entries) : []
+        return values[0]
       }
-      return left ?? right
+      case ZodFirstPartyTypeKind.ZodNativeEnum: {
+        const values = Object.values(def?.values || [])
+        return values[0]
+      }
+      case ZodFirstPartyTypeKind.ZodLiteral:
+      case 'literal':
+        return def?.value ?? (Array.isArray(def?.values) ? def.values[0] : undefined)
+      case ZodFirstPartyTypeKind.ZodArray:
+      case 'array': {
+        const child = generateExample(def?.type ?? def?.element, context)
+        return child === undefined ? [] : [child]
+      }
+      case ZodFirstPartyTypeKind.ZodTuple:
+      case 'tuple': {
+        const items = def?.items || []
+        return items.map((item: ZodTypeAny) => generateExample(item, context))
+      }
+      case ZodFirstPartyTypeKind.ZodObject:
+      case 'object': {
+        const shape = getShape(def)
+        const obj: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(shape)) {
+          const example = generateExample(value as ZodTypeAny, context)
+          if (example !== undefined) obj[key] = example
+        }
+        return obj
+      }
+      case ZodFirstPartyTypeKind.ZodRecord:
+      case 'record': {
+        const valueExample = generateExample(def?.valueType ?? def?.value, context)
+        return valueExample === undefined ? {} : { key: valueExample }
+      }
+      case ZodFirstPartyTypeKind.ZodUnion:
+      case 'union': {
+        const options = def?.options || []
+        return options.length ? generateExample(options[0], context) : undefined
+      }
+      case ZodFirstPartyTypeKind.ZodPipeline:
+      case 'pipe':
+        return generateExample(def?.out ?? def?.innerType ?? def?.schema, context)
+      case ZodFirstPartyTypeKind.ZodLazy:
+      case 'lazy': {
+        const next = typeof def?.getter === 'function' ? def.getter() : undefined
+        return next ? generateExample(next, context) : undefined
+      }
+      case ZodFirstPartyTypeKind.ZodPromise:
+      case 'promise':
+        return generateExample(def?.type, context)
+      case ZodFirstPartyTypeKind.ZodCatch:
+      case 'catch':
+        return generateExample(def?.innerType ?? def?.type, context)
+      case ZodFirstPartyTypeKind.ZodReadonly:
+      case 'readonly':
+        return generateExample(def?.innerType ?? def?.type, context)
+      case ZodFirstPartyTypeKind.ZodIntersection:
+      case 'intersection': {
+        const left = generateExample(def?.left, context)
+        const right = generateExample(def?.right, context)
+        if (typeof left === 'object' && left && typeof right === 'object' && right) {
+          return { ...(left as object), ...(right as object) }
+        }
+        return left ?? right
+      }
+      case ZodFirstPartyTypeKind.ZodDate:
+      case 'date':
+        return DEFAULT_EXAMPLE_VALUES.datetime
+      default:
+        return undefined
     }
-    case ZodFirstPartyTypeKind.ZodDate:
-      return DEFAULT_EXAMPLE_VALUES.datetime
-    default:
-      return undefined
+  } finally {
+    context.stack.delete(trackable as ZodTypeAny)
   }
 }
 
@@ -444,9 +610,10 @@ function buildParameters(
 
   const { schema: unwrapped } = unwrap(schema)
   if (!unwrapped) return params
-  const typeName = (unwrapped as any)._def?.typeName as ZodFirstPartyTypeKind | undefined
-  if (typeName === ZodFirstPartyTypeKind.ZodObject) {
-    const shape = (unwrapped as any)._def?.shape?.() || {}
+  const def = (unwrapped as any)._def
+  const typeName = resolveType(def) as ZodFirstPartyTypeKind | string | undefined
+  if (typeName === ZodFirstPartyTypeKind.ZodObject || typeName === 'object') {
+    const shape = getShape(def)
     for (const [key, raw] of Object.entries(shape)) {
       const details = unwrap(raw as ZodTypeAny)
       if (!details.schema) continue
@@ -480,8 +647,8 @@ function mergePathParamSchemas(schema: ZodTypeAny | undefined, params: PathParam
   const map: Record<string, ZodTypeAny> = {}
   if (schema) {
     const { schema: unwrapped } = unwrap(schema)
-    if (unwrapped && (unwrapped as any)._def?.typeName === ZodFirstPartyTypeKind.ZodObject) {
-      const shape = (unwrapped as any)._def?.shape?.() || {}
+    if (unwrapped && (unwrapped as any)._def && (resolveType((unwrapped as any)._def) === ZodFirstPartyTypeKind.ZodObject || resolveType((unwrapped as any)._def) === 'object')) {
+      const shape = getShape((unwrapped as any)._def)
       for (const [key, value] of Object.entries(shape)) {
         map[key] = value as ZodTypeAny
       }
@@ -528,6 +695,7 @@ function buildResponses(
       status: 401,
       description: 'Unauthorized',
       schema: z.object({ error: z.string() }),
+      xAutoGenerated: true,
     })
   }
   if (Array.isArray(metadata?.requireFeatures) && metadata.requireFeatures.length) {
@@ -535,6 +703,7 @@ function buildResponses(
       status: 403,
       description: 'Forbidden – missing required features',
       schema: z.object({ error: z.string() }),
+      xAutoGenerated: true,
     })
   }
   if (!list.some((res) => res.status >= 200 && res.status < 300)) {
@@ -562,6 +731,7 @@ function buildResponses(
               },
             },
           }),
+      ...(res.xAutoGenerated ? { 'x-autoGenerated': true } : {}),
     }
   }
   return entries
@@ -601,12 +771,33 @@ function collectExamples(
   return examples
 }
 
-function stringifyBodyExample(value: unknown): string {
+function toFormUrlEncoded(value: unknown): string {
+  if (!value || typeof value !== 'object') return ''
+  const params = new URLSearchParams()
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (raw === undefined) continue
+    params.append(key, raw === null ? '' : String(raw))
+  }
+  return params.toString()
+}
+
+function stringifyBodyExample(value: unknown, mediaType?: string): string {
   if (value === undefined) return ''
+  if (mediaType === 'application/x-www-form-urlencoded') {
+    return toFormUrlEncoded(value)
+  }
+  if (!mediaType || mediaType === 'application/json') {
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch {
+      return ''
+    }
+  }
+  if (typeof value === 'string') return value
   try {
     return JSON.stringify(value, null, 2)
   } catch {
-    return ''
+    return String(value)
   }
 }
 
@@ -658,9 +849,10 @@ function buildCurlSample(
   }
 
   const bodyExample = examples.body ?? requestBody?.example
+  const requestContentType = requestBody?.contentType ?? 'application/json'
   if (bodyExample !== undefined) {
-    lines.push('  -H "Content-Type: application/json"')
-    const serialized = stringifyBodyExample(bodyExample)
+    lines.push(`  -H "Content-Type: ${requestContentType}"`)
+    const serialized = stringifyBodyExample(bodyExample, requestContentType)
     if (serialized) lines.push(`  -d '${serialized.replace(/'/g, "\\'")}'`)
   }
 
@@ -834,10 +1026,94 @@ function schemaTypeLabel(schema: any): string {
   return 'any'
 }
 
-function formatJsonExample(example: unknown): string | null {
+function schemaHasDetails(schema: any): boolean {
+  if (!schema || typeof schema !== 'object') return false
+  if (Array.isArray(schema.enum) && schema.enum.length) return true
+  if (schema.const !== undefined) return true
+  if (typeof schema.format === 'string') return true
+  if (Array.isArray(schema.oneOf) && schema.oneOf.some((s) => schemaHasDetails(s))) return true
+  if (Array.isArray(schema.anyOf) && schema.anyOf.some((s) => schemaHasDetails(s))) return true
+  if (Array.isArray(schema.allOf) && schema.allOf.some((s) => schemaHasDetails(s))) return true
+  if (schema.items && schemaHasDetails(schema.items)) return true
+  if (schema.properties && Object.keys(schema.properties).length) return true
+  if (Array.isArray(schema.prefixItems) && schema.prefixItems.some((s) => schemaHasDetails(s))) return true
+  if (schema.type && schema.type !== 'object') return true
+  return false
+}
+
+type ContentSelection = {
+  mediaType: string
+  entry: any
+}
+
+type DisplaySnippet = {
+  value: string
+  language: string
+}
+
+function selectContentVariant(content?: Record<string, any>): ContentSelection | undefined {
+  if (!content) return undefined
+  const entries = Object.entries(content)
+  if (!entries.length) return undefined
+  const preferred = [
+    'application/json',
+    'application/x-www-form-urlencoded',
+    'multipart/form-data',
+    'text/plain',
+  ]
+  for (const mediaType of preferred) {
+    const match = entries.find(([type]) => type === mediaType)
+    if (match) {
+      const [selectedType, entry] = match
+      return { mediaType: selectedType, entry }
+    }
+  }
+  const [mediaType, entry] = entries[0]
+  return { mediaType, entry }
+}
+
+function formatExampleForDisplay(example: unknown, mediaType?: string): DisplaySnippet | null {
   if (example === undefined) return null
+  if (mediaType === 'application/x-www-form-urlencoded') {
+    const encoded = toFormUrlEncoded(example)
+    if (!encoded) return null
+    return { value: encoded, language: 'text' }
+  }
+  if (mediaType === 'multipart/form-data') {
+    if (example && typeof example === 'object') {
+      const lines = Object.entries(example as Record<string, unknown>).map(([key, value]) => {
+        const rendered = value === undefined || value === null ? '' : String(value)
+        return `${key}=${rendered}`
+      })
+      if (lines.length) {
+        return { value: lines.join('\n'), language: 'text' }
+      }
+    }
+    if (typeof example === 'string') {
+      return { value: example, language: 'text' }
+    }
+  }
+  if (!mediaType || mediaType === 'application/json') {
+    try {
+      return { value: JSON.stringify(example, null, 2), language: 'json' }
+    } catch {
+      return null
+    }
+  }
+  if (typeof example === 'string') {
+    return { value: example, language: 'text' }
+  }
   try {
-    return JSON.stringify(example, null, 2)
+    return { value: JSON.stringify(example, null, 2), language: 'json' }
+  } catch {
+    return { value: String(example), language: 'text' }
+  }
+}
+
+function formatSchemaForDisplay(schema: any): DisplaySnippet | null {
+  if (!schema) return null
+  try {
+    return { value: JSON.stringify(schema, null, 2), language: 'json' }
   } catch {
     return null
   }
@@ -907,25 +1183,31 @@ export function generateMarkdownFromOpenApi(doc: OpenApiDocument): string {
       }
 
       if (op.requestBody) {
-        const content = op.requestBody.content?.['application/json']
-        const example = content?.example ?? content?.examples?.default?.value
-        const formatted = formatJsonExample(example)
-        const schemaFormatted = content?.schema ? formatJsonExample(content.schema) : null
-        lines.push('')
-        lines.push('### Request Body')
-        if (formatted) {
+        const selection = selectContentVariant(op.requestBody.content)
+        if (selection) {
+          const { mediaType, entry } = selection
+          const example = entry?.example ?? entry?.examples?.default?.value
+          const formatted = formatExampleForDisplay(example, mediaType)
+          const schemaFormatted =
+            entry?.schema && schemaHasDetails(entry.schema) ? formatSchemaForDisplay(entry.schema) : null
           lines.push('')
-          lines.push('```json')
-          lines.push(formatted)
-          lines.push('```')
-        } else if (schemaFormatted) {
+          lines.push('### Request Body')
           lines.push('')
-          lines.push('```json')
-          lines.push(schemaFormatted)
-          lines.push('```')
-        } else {
-          lines.push('')
-          lines.push('`application/json`')
+          lines.push(`Content-Type: \`${mediaType}\``)
+          if (formatted) {
+            lines.push('')
+            lines.push(`\`\`\`${formatted.language}`)
+            lines.push(formatted.value)
+            lines.push('```')
+          } else if (schemaFormatted) {
+            lines.push('')
+            lines.push(`\`\`\`${schemaFormatted.language}`)
+            lines.push(schemaFormatted.value)
+            lines.push('```')
+          } else {
+            lines.push('')
+            lines.push('No example available for this content type.')
+          }
         }
       }
 
@@ -936,22 +1218,29 @@ export function generateMarkdownFromOpenApi(doc: OpenApiDocument): string {
         lines.push('### Responses')
         for (const status of responseStatuses) {
           const response = responses[status]
+          if (response?.['x-autoGenerated']) continue
           lines.push('')
           lines.push(`**${status}** – ${response.description || 'Response'}`)
-          const content = response.content?.['application/json']
-          const example = content?.example ?? content?.examples?.default?.value
-          const formatted = formatJsonExample(example)
-          const schemaFormatted = content?.schema ? formatJsonExample(content.schema) : null
-          if (formatted) {
+          const selection = selectContentVariant(response.content)
+          if (selection) {
+            const { mediaType, entry } = selection
+            const example = entry?.example ?? entry?.examples?.default?.value
+            const formatted = formatExampleForDisplay(example, mediaType)
+            const schemaFormatted =
+              entry?.schema && schemaHasDetails(entry.schema) ? formatSchemaForDisplay(entry.schema) : null
             lines.push('')
-            lines.push('```json')
-            lines.push(formatted)
-            lines.push('```')
-          } else if (schemaFormatted) {
-            lines.push('')
-            lines.push('```json')
-            lines.push(schemaFormatted)
-            lines.push('```')
+            lines.push(`Content-Type: \`${mediaType}\``)
+            if (formatted) {
+              lines.push('')
+              lines.push(`\`\`\`${formatted.language}`)
+              lines.push(formatted.value)
+              lines.push('```')
+            } else if (schemaFormatted) {
+              lines.push('')
+              lines.push(`\`\`\`${schemaFormatted.language}`)
+              lines.push(schemaFormatted.value)
+              lines.push('```')
+            }
           }
         }
       }

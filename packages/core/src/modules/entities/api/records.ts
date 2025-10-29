@@ -8,6 +8,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { setRecordCustomFields } from '../lib/helpers'
 import { CustomFieldValue } from '../data/entities'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.records.view'] },
@@ -23,6 +24,32 @@ function parseBool(v: string | null, d = false) {
 }
 
 const DEFAULT_EXPORT_PAGE_SIZE = 1000
+
+const listRecordsQuerySchema = z
+  .object({
+    entityId: z.string().min(1),
+    page: z.coerce.number().int().min(1).optional(),
+    pageSize: z.coerce.number().int().min(1).max(100).optional(),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+    withDeleted: z.coerce.boolean().optional(),
+    format: z.enum(['csv', 'json', 'xml', 'markdown']).optional(),
+    exportScope: z.enum(['full']).optional(),
+    export_scope: z.enum(['full']).optional(),
+    all: z.coerce.boolean().optional(),
+    full: z.coerce.boolean().optional(),
+  })
+  .passthrough()
+
+const recordItemSchema = z.record(z.string(), z.any())
+
+const listRecordsResponseSchema = z.object({
+  items: z.array(recordItemSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  totalPages: z.number(),
+})
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
@@ -189,6 +216,22 @@ const postBodySchema = z.object({
   values: z.record(z.string(), z.any()).default({}),
 })
 
+const putBodySchema = z.object({
+  entityId: z.string().min(1),
+  recordId: z.string().min(1),
+  values: z.record(z.string(), z.any()).default({}),
+})
+
+const mutationResponseSchema = z.object({
+  ok: z.literal(true),
+  item: z
+    .object({
+      entityId: z.string(),
+      recordId: z.string(),
+    })
+    .optional(),
+})
+
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -351,4 +394,144 @@ function normalizeValues(input: Record<string, any>): Record<string, any> {
     out[key] = v
   }
   return out
+}
+
+const deleteResponseSchema = z.object({
+  ok: z.literal(true),
+})
+
+const errorSchema = z.object({
+  error: z.string(),
+}).passthrough()
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Entities',
+  summary: 'CRUD operations on entity records',
+  methods: {
+    GET: {
+      summary: 'List records',
+      description:
+        'Returns paginated records for the supplied entity. Supports custom field filters, exports, and soft-delete toggles.',
+      query: listRecordsQuerySchema,
+      responses: [
+        {
+          status: 200,
+          description: 'Paginated records',
+          schema: listRecordsResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Missing entity id',
+          schema: errorSchema,
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: errorSchema,
+        },
+        {
+          status: 500,
+          description: 'Unexpected failure',
+          schema: errorSchema,
+        },
+      ],
+    },
+    POST: {
+      summary: 'Create record',
+      description:
+        'Creates a record for the given entity. When `recordId` is omitted or not a UUID the data engine will generate one automatically.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: postBodySchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Record created',
+          schema: mutationResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Validation failure',
+          schema: errorSchema,
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: errorSchema,
+        },
+        {
+          status: 500,
+          description: 'Unexpected failure',
+          schema: errorSchema,
+        },
+      ],
+    },
+    PUT: {
+      summary: 'Update record',
+      description:
+        'Updates an existing record. If the provided recordId is not a UUID the record will be created instead to support optimistic flows.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: putBodySchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Record updated',
+          schema: mutationResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Validation failure',
+          schema: errorSchema,
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: errorSchema,
+        },
+        {
+          status: 500,
+          description: 'Unexpected failure',
+          schema: errorSchema,
+        },
+      ],
+    },
+    DELETE: {
+      summary: 'Delete record',
+      description: 'Soft deletes the specified record within the current tenant/org scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: deleteBodySchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Record deleted',
+          schema: deleteResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Missing entity id or record id',
+          schema: errorSchema,
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: errorSchema,
+        },
+        {
+          status: 404,
+          description: 'Record not found',
+          schema: errorSchema,
+        },
+        {
+          status: 500,
+          description: 'Unexpected failure',
+          schema: errorSchema,
+        },
+      ],
+    },
+  },
 }

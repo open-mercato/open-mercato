@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@/lib/di/container'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
@@ -10,6 +11,7 @@ import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/l
 import VerificationEmail from '@open-mercato/onboarding/modules/onboarding/emails/VerificationEmail'
 import AdminNotificationEmail from '@open-mercato/onboarding/modules/onboarding/emails/AdminNotificationEmail'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   POST: {
@@ -159,3 +161,44 @@ export async function POST(req: Request) {
 }
 
 export default POST
+
+const onboardingTag = 'Onboarding'
+
+const onboardingSuccessSchema = z.object({
+  ok: z.literal(true),
+  email: z.string().email(),
+})
+
+const onboardingErrorSchema = z.object({
+  ok: z.literal(false),
+  error: z.string(),
+  fieldErrors: z.record(z.string(), z.string()).optional(),
+})
+
+const onboardingPostDoc: OpenApiMethodDoc = {
+  summary: 'Submit onboarding request',
+  description: 'Accepts a self-service onboarding form submission and triggers email verification.',
+  tags: [onboardingTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: onboardingStartSchema,
+    description: 'Onboarding form payload with contact and organization information.',
+  },
+  responses: [
+    { status: 200, description: 'Onboarding request accepted.', schema: onboardingSuccessSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: onboardingErrorSchema },
+    { status: 404, description: 'Self-service onboarding disabled', schema: onboardingErrorSchema },
+    { status: 409, description: 'Existing account or pending request', schema: onboardingErrorSchema },
+    { status: 500, description: 'Unexpected server error', schema: onboardingErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: onboardingTag,
+  summary: 'Self-service onboarding submission',
+  methods: {
+    POST: onboardingPostDoc,
+  },
+}

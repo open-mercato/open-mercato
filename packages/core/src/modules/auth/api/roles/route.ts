@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
@@ -17,6 +18,37 @@ const querySchema = z.object({
   pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
 }).passthrough()
+
+const roleCreateSchema = z.object({
+  name: z.string().min(2).max(100),
+  tenantId: z.string().uuid().nullable().optional(),
+})
+
+const roleUpdateSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(2).max(100).optional(),
+  tenantId: z.string().uuid().nullable().optional(),
+})
+
+const roleListItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  usersCount: z.number().int().nonnegative(),
+  tenantId: z.string().uuid().nullable(),
+  tenantIds: z.array(z.string().uuid()).optional(),
+  tenantName: z.string().nullable(),
+})
+
+const roleListResponseSchema = z.object({
+  items: z.array(roleListItemSchema),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().positive(),
+  isSuperAdmin: z.boolean().optional(),
+})
+
+const okResponseSchema = z.object({ ok: z.literal(true) })
+
+const errorResponseSchema = z.object({ error: z.string() })
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.roles.list'] },
@@ -197,3 +229,71 @@ export async function GET(req: Request) {
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Authentication & Accounts',
+  summary: 'Role management',
+  methods: {
+    GET: {
+      summary: 'List roles',
+      description:
+        'Returns available roles within the current tenant. Super administrators receive visibility across tenants.',
+      query: querySchema,
+      responses: [
+        { status: 200, description: 'Role collection', schema: roleListResponseSchema },
+      ],
+    },
+    POST: {
+      summary: 'Create role',
+      description: 'Creates a new role for the current tenant or globally when `tenantId` is omitted.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: roleCreateSchema,
+      },
+      responses: [
+        {
+          status: 201,
+          description: 'Role created',
+          schema: z.object({ id: z.string().uuid() }),
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: errorResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
+      ],
+    },
+    PUT: {
+      summary: 'Update role',
+      description: 'Updates mutable fields on an existing role.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: roleUpdateSchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Role updated',
+          schema: okResponseSchema,
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: errorResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
+        { status: 404, description: 'Role not found', schema: errorResponseSchema },
+      ],
+    },
+    DELETE: {
+      summary: 'Delete role',
+      description: 'Deletes a role by identifier. Fails when users remain assigned.',
+      query: z.object({ id: z.string().uuid().describe('Role identifier') }),
+      responses: [
+        { status: 200, description: 'Role deleted', schema: okResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Role cannot be deleted', schema: errorResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
+        { status: 404, description: 'Role not found', schema: errorResponseSchema },
+      ],
+    },
+  },
+}

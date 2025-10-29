@@ -3,6 +3,8 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { dashboardsTag, dashboardsErrorSchema, dashboardWidgetCatalogSchema } from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['dashboards.admin.assign-widgets'] },
@@ -35,4 +37,25 @@ export async function GET(req: Request) {
       supportsRefresh: !!widget.metadata.supportsRefresh,
     })),
   })
+}
+
+const widgetCatalogGetDoc: OpenApiMethodDoc = {
+  summary: 'List available dashboard widgets',
+  description: 'Returns the catalog of widgets that modules expose, including defaults and feature requirements.',
+  tags: [dashboardsTag],
+  responses: [
+    { status: 200, description: 'Widgets available for assignment.', schema: dashboardWidgetCatalogSchema },
+  ],
+  errors: [
+    { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Insufficient permissions to view widget catalog', schema: dashboardsErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: dashboardsTag,
+  summary: 'Dashboard widget catalog',
+  methods: {
+    GET: widgetCatalogGetDoc,
+  },
 }

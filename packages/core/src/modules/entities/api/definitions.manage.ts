@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
@@ -77,3 +79,50 @@ export async function GET(req: Request) {
   return NextResponse.json({ items, deletedKeys })
 }
 
+const definitionsManageQuerySchema = z.object({
+  entityId: z.string(),
+})
+
+const managedDefinitionSchema = z.object({
+  id: z.string().uuid(),
+  key: z.string(),
+  kind: z.string(),
+  configJson: z.record(z.any()).nullable().optional(),
+  isActive: z.boolean().optional(),
+  organizationId: z.string().uuid().nullable(),
+  tenantId: z.string().uuid().nullable(),
+})
+
+const definitionsManageResponseSchema = z.object({
+  items: z.array(managedDefinitionSchema),
+  deletedKeys: z.array(z.string()),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Entities',
+  summary: 'Inspect scoped custom field definitions',
+  methods: {
+    GET: {
+      summary: 'Get management snapshot',
+      description: 'Returns scoped custom field definitions (including inactive tombstones) for administration interfaces.',
+      query: definitionsManageQuerySchema,
+      responses: [
+        {
+          status: 200,
+          description: 'Scoped definitions and deleted keys',
+          schema: definitionsManageResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Missing entity id',
+          schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 401,
+          description: 'Missing authentication or feature',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+  },
+}

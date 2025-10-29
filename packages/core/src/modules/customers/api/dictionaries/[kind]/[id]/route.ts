@@ -8,6 +8,7 @@ import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/typ
 import { CustomerDictionaryEntry } from '../../../../data/entities'
 import { mapDictionaryKind, resolveDictionaryRouteContext } from '../../context'
 import { invalidateDictionaryCache } from '../../cache'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -169,4 +170,57 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
     console.error('customers.dictionaries.delete failed', err)
     return NextResponse.json({ error: translate('customers.errors.lookup_failed', 'Failed to delete dictionary entry') }, { status: 400 })
   }
+}
+
+const dictionaryEntrySchema = z.object({
+  id: z.string().uuid(),
+  value: z.string(),
+  label: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+  icon: z.string().nullable().optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  isInherited: z.boolean().optional(),
+})
+
+const dictionaryDeleteResponseSchema = z.object({
+  success: z.literal(true),
+})
+
+const dictionaryErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Customer dictionary entry',
+  methods: {
+    PATCH: {
+      summary: 'Update dictionary entry',
+      description: 'Updates value, label, color, or icon for an existing customer dictionary entry.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: patchSchema,
+      },
+      responses: [
+        { status: 200, description: 'Updated dictionary entry', schema: dictionaryEntrySchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: dictionaryErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },
+        { status: 404, description: 'Entry not found', schema: dictionaryErrorSchema },
+        { status: 409, description: 'Duplicate value conflict', schema: dictionaryErrorSchema },
+      ],
+    },
+    DELETE: {
+      summary: 'Delete dictionary entry',
+      description: 'Removes a customer dictionary entry by identifier.',
+      responses: [
+        { status: 200, description: 'Entry deleted', schema: dictionaryDeleteResponseSchema },
+      ],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },
+        { status: 404, description: 'Entry not found', schema: dictionaryErrorSchema },
+      ],
+    },
+  },
 }

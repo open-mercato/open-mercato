@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
@@ -18,6 +19,20 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
 }
+
+const userAclResponseSchema = z.object({
+  hasCustomAcl: z.boolean(),
+  isSuperAdmin: z.boolean(),
+  features: z.array(z.string()),
+  organizations: z.array(z.string()).nullable(),
+})
+
+const userAclUpdateResponseSchema = z.object({
+  ok: z.literal(true),
+  sanitized: z.boolean(),
+})
+
+const userAclErrorSchema = z.object({ error: z.string() })
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -159,4 +174,35 @@ function hasRestrictedChanges(requested: string[], effective: string[], existing
     if (identical) return false
   }
   return true
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Authentication & Accounts',
+  summary: 'User ACL management',
+  methods: {
+    GET: {
+      summary: 'Fetch user ACL',
+      description: 'Returns custom ACL overrides for a user within the current tenant, if any.',
+      query: getSchema,
+      responses: [
+        { status: 200, description: 'User ACL entry', schema: userAclResponseSchema },
+        { status: 400, description: 'Invalid user id', schema: userAclErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: userAclErrorSchema },
+      ],
+    },
+    PUT: {
+      summary: 'Update user ACL',
+      description: 'Configures per-user ACL overrides, including super admin access, feature list, and organization scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: putSchema,
+      },
+      responses: [
+        { status: 200, description: 'User ACL updated', schema: userAclUpdateResponseSchema },
+        { status: 400, description: 'Invalid payload', schema: userAclErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: userAclErrorSchema },
+        { status: 403, description: 'Insufficient privileges to modify ACL', schema: userAclErrorSchema },
+      ],
+    },
+  },
 }

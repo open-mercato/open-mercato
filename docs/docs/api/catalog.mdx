@@ -1,0 +1,132 @@
+---
+title: Catalog
+description: Command payloads for managing catalog products, variants, options, and pricing.
+---
+
+The catalog module currently exposes command handlers but no REST endpoints (its `apis` array is empty in `generated/modules.generated.ts`, so `/api/catalog/...` routes are not yet published). Integration points such as the back-office UI and future CRUD routes call the command bus described below. This page documents the available command ids and the Zod schemas they validate against so you can safely script imports, seed data, or build bespoke HTTP wrappers.
+
+## Running catalog commands
+
+```ts
+import { createRequestContainer } from '@/lib/di/container'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+
+const container = await createRequestContainer()
+const commandBus = container.resolve<CommandBus>('commandBus')
+
+await commandBus.execute('catalog.products.create', {
+  input: {
+    organizationId,
+    tenantId,
+    name: 'Starter T-Shirt',
+    code: 'tee-basic',
+    primaryCurrencyCode: 'USD',
+    metadata: { category: 'apparel' },
+    customFields: { material: 'cotton' }
+  },
+  ctx: { auth, container }
+})
+```
+
+- Every command enforces tenant and organization scope via `ensureTenantScope`/`ensureOrganizationScope` (`packages/core/src/modules/catalog/commands/shared.ts:42`).
+- Custom fields can be supplied either as `customFields` object or prefixed keys (`cf_color`); handlers call `parseWithCustomFields` and `setCustomFieldsIfAny` to persist values (`packages/core/src/modules/catalog/commands/products.ts:100`).
+- Undo metadata is logged automatically; the audit log payload includes before/after snapshots for δ previews and rollbacks.
+
+## Product commands — `catalog.products.*`
+
+Handlers live in `packages/core/src/modules/catalog/commands/products.ts`.
+
+| Command id | Purpose | Schema |
+| --- | --- | --- |
+| `catalog.products.create` | Create a product master record | `productCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:18`) |
+| `catalog.products.update` | Patch an existing product (only provided keys are updated) | `productUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:32`) |
+| `catalog.products.delete` | Soft delete a product once variants/prices are cleaned up | n/a (requires `before.id` in the undo snapshot) |
+
+Key fields from `productCreateSchema`:
+
+- `organizationId`, `tenantId` — required scope identifiers.
+- `name` (string, ≤255), optional `description`.
+- Optional catalog metadata: `code` (lowercase slug), `statusEntryId`, `primaryCurrencyCode`, `defaultUnit`, `channelIds` array.
+- Flags: `isConfigurable`, `isActive`, plus arbitrary `metadata` JSON.
+
+Example payload:
+
+```json
+{
+  "organizationId": "3d552375-7813-4e9d-8807-0283c907a9f9",
+  "tenantId": "a2c6e50e-a6ef-4c7a-afe4-7b6f1998b5c2",
+  "name": "Starter T-Shirt",
+  "code": "tee-basic",
+  "primaryCurrencyCode": "USD",
+  "channelIds": ["bf5efc35-c493-44e4-9307-5f50331a7405"],
+  "isConfigurable": true,
+  "metadata": { "category": "apparel" },
+  "customFields": { "material": "cotton" }
+}
+```
+
+## Variant commands — `catalog.variants.*`
+
+Defined in `packages/core/src/modules/catalog/commands/variants.ts`.
+
+| Command id | Purpose | Schema |
+| --- | --- | --- |
+| `catalog.variants.create` | Create a SKU tied to a product | `variantCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:39`) |
+| `catalog.variants.update` | Patch variant attributes, dimensions, or option selections | `variantUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:65`) |
+| `catalog.variants.delete` | Remove a variant after ensuring there are no prices or option links | n/a (id provided through undo payload) |
+
+Highlights from `variantCreateSchema`:
+
+- Required: `organizationId`, `tenantId`, `productId`.
+- Optional: `name`, `sku`, `barcode`, `statusEntryId`, `isDefault`, `isActive`.
+- Dimensions and weight via nested objects (`dimensions.width/height/depth/unit`, `weightValue`, `weightUnit`).
+- `optionConfiguration` array linking option ids to option value selections.
+
+## Option & option value commands — `catalog.options.*`
+
+Both option and option value handlers are colocated in `packages/core/src/modules/catalog/commands/options.ts`.
+
+| Command id | Purpose | Schema |
+| --- | --- | --- |
+| `catalog.options.create` | Add a configurable product option | `optionCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:78`) |
+| `catalog.options.update` | Update option properties or custom fields | `optionUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:95`) |
+| `catalog.options.delete` | Remove an option after clearing variant links | n/a |
+| `catalog.option-values.create` | Persist an option value for a product option | `optionValueCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:107`) |
+| `catalog.option-values.update` | Patch an option value | `optionValueUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:125`) |
+| `catalog.option-values.delete` | Remove an option value and unlink affected variants | n/a |
+
+`optionValueCreateSchema` mirrors option fields but scopes them to a single option (`optionId`) and maintains ordering via `position`. Deletions automatically clean up `CatalogVariantOptionValue` links so variants remain consistent (`packages/core/src/modules/catalog/commands/options.ts:430`).
+
+## Price commands — `catalog.prices.*`
+
+Stored in `packages/core/src/modules/catalog/commands/prices.ts`.
+
+| Command id | Purpose | Schema |
+| --- | --- | --- |
+| `catalog.prices.create` | Add a price row for a variant | `priceCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:122`) |
+| `catalog.prices.update` | Update price attributes | `priceUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:140`) |
+| `catalog.prices.delete` | Remove a price entry | n/a |
+
+Key fields:
+
+- `variantId`, `organizationId`, `tenantId`.
+- `currencyCode` (ISO-4217), optional `kind` (`list`, `sale`, `tier`, `custom`).
+- Quantity bands: `minQuantity`, `maxQuantity`.
+- Price components: `unitPriceNet`, `unitPriceGross`, `taxRate`.
+- Effective dates: `startsAt`, `endsAt` (coerced to `Date` by Zod).
+
+## Feature flags
+
+RBAC gates for upcoming REST/UX surfaces are already declared in `packages/core/src/modules/catalog/acl.ts:1`:
+
+- `catalog.products.view` / `catalog.products.manage`
+- `catalog.variants.manage`
+- `catalog.options.manage`
+- `catalog.pricing.manage`
+- `catalog.settings.manage`
+
+Grant these to API keys or roles you intend to use with wrapper endpoints so future upgrades continue to respect access boundaries.
+
+---
+
+Until dedicated REST routes ship, call the command bus directly or wrap these commands inside your own Next.js API routes. The schemas listed here ensure imports, integrations, and tests remain aligned with the core module.

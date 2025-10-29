@@ -7,6 +7,8 @@ import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { AwilixContainer } from 'awilix'
+import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['audit_logs.undo_self'] },
@@ -15,6 +17,19 @@ export const metadata = {
 type UndoRequestBody = {
   undoToken?: string
 }
+
+const undoRequestSchema = z.object({
+  undoToken: z.string().min(1).describe('Undo token issued by the action log entry'),
+})
+
+const undoResponseSchema = z.object({
+  ok: z.literal(true),
+  logId: z.string().describe('Identifier of the action log that was undone'),
+})
+
+const errorSchema = z.object({
+  error: z.string(),
+})
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -98,4 +113,28 @@ async function createRuntimeContext(container: AwilixContainer, auth: AuthContex
     organizationIds: scope.filterIds,
     request,
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'Undo a recent action',
+  description: 'Executes the undo operation for the most recent undoable action belonging to the caller.',
+  methods: {
+    POST: {
+      summary: 'Undo action by token',
+      description:
+        'Replays the undo handler registered for a command. The provided undo token must match the latest undoable log entry accessible to the caller.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: undoRequestSchema,
+      },
+      responses: [
+        { status: 200, description: 'Undo applied successfully', schema: undoResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid or unavailable undo token', schema: errorSchema },
+        { status: 401, description: 'Authentication required', schema: errorSchema },
+        { status: 403, description: 'Undo blocked by organization or tenant scope', schema: errorSchema },
+      ],
+    },
+  },
 }

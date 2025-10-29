@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
@@ -18,6 +19,19 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
 }
+
+const roleAclResponseSchema = z.object({
+  isSuperAdmin: z.boolean(),
+  features: z.array(z.string()),
+  organizations: z.array(z.string()).nullable(),
+})
+
+const roleAclUpdateResponseSchema = z.object({
+  ok: z.literal(true),
+  sanitized: z.boolean(),
+})
+
+const roleAclErrorSchema = z.object({ error: z.string() })
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -133,4 +147,37 @@ function isTenantRestrictedFeature(feature: string): boolean {
   if (feature === '*' || feature === 'directory.*') return true
   if (feature.startsWith('directory.tenants')) return true
   return false
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Authentication & Accounts',
+  summary: 'Role ACL management',
+  methods: {
+    GET: {
+      summary: 'Fetch role ACL',
+      description: 'Returns the feature and organization assignments associated with a role within the current tenant.',
+      query: getSchema,
+      responses: [
+        { status: 200, description: 'Role ACL entry', schema: roleAclResponseSchema },
+        { status: 400, description: 'Invalid role id', schema: roleAclErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: roleAclErrorSchema },
+        { status: 404, description: 'Role not found', schema: roleAclErrorSchema },
+      ],
+    },
+    PUT: {
+      summary: 'Update role ACL',
+      description: 'Replaces the feature list, super admin flag, and optional organization assignments for a role.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: putSchema,
+      },
+      responses: [
+        { status: 200, description: 'Role ACL updated', schema: roleAclUpdateResponseSchema },
+        { status: 400, description: 'Invalid payload', schema: roleAclErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: roleAclErrorSchema },
+        { status: 403, description: 'Insufficient privileges to modify ACL', schema: roleAclErrorSchema },
+        { status: 404, description: 'Role not found', schema: roleAclErrorSchema },
+      ],
+    },
+  },
 }

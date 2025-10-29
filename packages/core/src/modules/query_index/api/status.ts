@@ -4,6 +4,8 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { E as AllEntities } from '@/generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['query_index.status.view'] },
@@ -142,4 +144,24 @@ export async function GET(req: Request) {
     )
   }
   return response
+}
+
+const queryIndexStatusDoc: OpenApiMethodDoc = {
+  summary: 'Inspect query index coverage',
+  description: 'Returns entity counts comparing base tables with the query index along with the latest job status.',
+  tags: [queryIndexTag],
+  responses: [
+    { status: 200, description: 'Current query index status.', schema: queryIndexStatusResponseSchema },
+  ],
+  errors: [
+    { status: 401, description: 'Authentication required', schema: queryIndexErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: queryIndexTag,
+  summary: 'Query index status',
+  methods: {
+    GET: queryIndexStatusDoc,
+  },
 }

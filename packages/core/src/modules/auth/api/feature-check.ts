@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 
@@ -29,4 +31,43 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: false, granted })
 }
 
+const featureCheckRequestSchema = z.object({
+  features: z.array(z.string()).describe('Feature identifiers to check'),
+}).describe('Batch feature check payload')
 
+const featureCheckResponseSchema = z.object({
+  ok: z.boolean().describe('Indicates whether all requested features are granted'),
+  granted: z.array(z.string()).describe('Features the current user may access'),
+})
+
+const featureCheckMethodDoc: OpenApiMethodDoc = {
+  summary: 'Check feature grants for the current user',
+  description: 'Evaluates which of the requested features are available to the signed-in user within the active tenant / organization context.',
+  tags: ['Authentication & Accounts'],
+  requestBody: {
+    contentType: 'application/json',
+    schema: featureCheckRequestSchema,
+    description: 'Feature identifiers to evaluate.',
+  },
+  responses: [
+    {
+      status: 200,
+      description: 'Evaluation result',
+      schema: featureCheckResponseSchema,
+    },
+  ],
+  errors: [
+    {
+      status: 401,
+      description: 'Authentication required',
+      schema: z.object({ ok: z.literal(false), error: z.string() }),
+    },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'Check feature grants for the current user',
+  methods: {
+    POST: featureCheckMethodDoc,
+  },
+}
