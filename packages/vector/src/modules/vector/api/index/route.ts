@@ -5,6 +5,7 @@ import type { VectorIndexService } from '@open-mercato/vector'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['vector.search'] },
+  DELETE: { requireAuth: true, requireFeatures: ['vector.manage'] },
 }
 
 function parseLimit(value: string | null): number {
@@ -55,6 +56,40 @@ export async function GET(req: Request) {
       ? error.status
       : (typeof error?.statusCode === 'number' ? error.statusCode : undefined)
     console.error('[vector.index.list] failed', error)
+    return NextResponse.json({ error: message }, { status: status && status >= 400 ? status : 500 })
+  }
+}
+
+export async function DELETE(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const url = new URL(req.url)
+  const entityIdParam = url.searchParams.get('entityId')
+
+  const container = await createRequestContainer()
+  let service: VectorIndexService
+  try {
+    service = container.resolve<VectorIndexService>('vectorIndexService')
+  } catch {
+    return NextResponse.json({ error: 'Vector index unavailable' }, { status: 503 })
+  }
+
+  try {
+    await service.purgeIndex({
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId ?? null,
+      entityId: entityIdParam ?? undefined,
+    })
+    return NextResponse.json({ ok: true })
+  } catch (error: any) {
+    const message = typeof error?.message === 'string' ? error.message : 'Vector index purge failed'
+    const status = typeof error?.status === 'number'
+      ? error.status
+      : (typeof error?.statusCode === 'number' ? error.statusCode : undefined)
+    console.error('[vector.index.purge] failed', error)
     return NextResponse.json({ error: message }, { status: status && status >= 400 ? status : 500 })
   }
 }

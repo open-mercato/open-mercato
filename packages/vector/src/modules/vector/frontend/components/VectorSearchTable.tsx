@@ -167,6 +167,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(apiKeyAvailable ? null : missingKeyMessage)
   const [reindexing, setReindexing] = React.useState(false)
+  const [purging, setPurging] = React.useState(false)
   const debounceRef = React.useRef<number | null>(null)
   const abortRef = React.useRef<AbortController | null>(null)
 
@@ -248,7 +249,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
   }, [searchValue, apiKeyAvailable, missingKeyMessage])
 
   const handleReindex = React.useCallback(async () => {
-    if (!apiKeyAvailable || reindexing) return
+    if (!apiKeyAvailable || reindexing || purging) return
     setReindexing(true)
     try {
       const res = await apiFetch('/api/vector/reindex', {
@@ -310,7 +311,36 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
     } finally {
       setReindexing(false)
     }
-  }, [apiKeyAvailable, reindexing, searchValue])
+  }, [apiKeyAvailable, reindexing, purging, searchValue])
+
+  const handlePurge = React.useCallback(async () => {
+    if (!apiKeyAvailable || purging || reindexing) return
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm('Remove all vector entries for this tenant? This cannot be undone.')
+      if (!confirmed) return
+    }
+    setPurging(true)
+    try {
+      const res = await apiFetch('/api/vector/index', {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        const message = typeof body?.error === 'string' ? body.error : 'Vector purge failed'
+        setError(message)
+        return
+      }
+      if (typeof window !== 'undefined') {
+        window.alert('Vector index purged. Reindex to rebuild embeddings.')
+      }
+      setRows([])
+      setError(null)
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : 'Vector purge failed')
+    } finally {
+      setPurging(false)
+    }
+  }, [apiKeyAvailable, purging, reindexing])
 
   return (
     <DataTable<Row>
@@ -328,10 +358,19 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             type="button"
             size="sm"
             variant="outline"
-            disabled={!apiKeyAvailable || reindexing}
+            disabled={!apiKeyAvailable || purging || reindexing}
             onClick={handleReindex}
           >
             {reindexing ? 'Reindexing…' : 'Reindex vectors'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!apiKeyAvailable || purging || reindexing}
+            onClick={handlePurge}
+          >
+            {purging ? 'Purging…' : 'Purge index'}
           </Button>
           {error ? <span className="text-sm text-destructive">{error}</span> : null}
         </div>

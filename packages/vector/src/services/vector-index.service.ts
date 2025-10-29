@@ -17,6 +17,24 @@ import { EmbeddingService } from './embedding'
 
 type ContainerResolver = () => unknown
 
+const ENRICHMENT_FIELD_HINTS: Record<EntityId, string[]> = {
+  'customers:customer_entity': [
+    'id',
+    'display_name',
+    'description',
+    'status',
+    'lifecycle_stage',
+    'primary_email',
+    'primary_phone',
+    'kind',
+    'customer_kind',
+  ],
+  'customers:customer_comment': ['id', 'entity_id', 'body', 'appearance_icon', 'appearance_color'],
+  'customers:customer_activity': ['id', 'entity_id', 'activity_type', 'subject', 'body', 'deal_id'],
+  'customers:customer_deal': ['id', 'title', 'pipeline_stage', 'status', 'value_amount', 'value_currency'],
+  'customers:customer_todo_link': ['id', 'entity_id', 'todo_id', 'todo_source'],
+}
+
 export type VectorIndexServiceOptions = {
   drivers: VectorDriver[]
   embeddingService: EmbeddingService
@@ -72,6 +90,10 @@ export class VectorIndexService {
     return driver
   }
 
+  private getEnrichmentFields(entityId: EntityId): string[] | undefined {
+    return ENRICHMENT_FIELD_HINTS[entityId]
+  }
+
   private async fetchRecord(entityId: EntityId, recordIds: string[], tenantId: string, organizationId?: string | null) {
     const filters: Record<string, any> = { id: { $in: recordIds } }
     const result = await this.opts.queryEngine.query(entityId, {
@@ -79,6 +101,7 @@ export class VectorIndexService {
       organizationId: organizationId ?? undefined,
       filters,
       includeCustomFields: true,
+      fields: this.getEnrichmentFields(entityId),
     })
     const byId = new Map<string, Record<string, any>>()
     for (const item of result.items) {
@@ -450,6 +473,31 @@ export class VectorIndexService {
   async reindexAll(args: { tenantId: string; organizationId?: string | null; purgeFirst?: boolean }): Promise<void> {
     for (const entityId of this.listEnabledEntities()) {
       await this.reindexEntity({ entityId, tenantId: args.tenantId, organizationId: args.organizationId ?? null, purgeFirst: args.purgeFirst })
+    }
+  }
+
+  async purgeIndex(args: { tenantId: string; organizationId?: string | null; entityId?: EntityId | null }): Promise<void> {
+    const targets = args.entityId ? [args.entityId] : this.listEnabledEntities()
+    if (!targets.length) return
+
+    const grouped = new Map<VectorDriverId, EntityId[]>()
+    for (const entityId of targets) {
+      const cfg = this.entityConfig.get(entityId)
+      if (!cfg) continue
+      const driver = this.getDriver(cfg.driverId)
+      if (typeof driver.purge !== 'function') {
+        throw new Error(`[vector] Driver ${cfg.driverId} does not support purging entities`)
+      }
+      if (!grouped.has(cfg.driverId)) grouped.set(cfg.driverId, [])
+      grouped.get(cfg.driverId)!.push(entityId)
+    }
+
+    for (const [driverId, entityIds] of grouped.entries()) {
+      const driver = this.getDriver(driverId)
+      await driver.ensureReady()
+      for (const entityId of entityIds) {
+        await driver.purge!(entityId, args.tenantId)
+      }
     }
   }
 
