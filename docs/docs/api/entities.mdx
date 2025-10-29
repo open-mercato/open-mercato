@@ -266,6 +266,11 @@ Response example:
 }
 ```
 
+### Implementation helpers
+
+- The module also exports `createDefinitionsCacheKey` and `invalidateDefinitionsCache` in `packages/core/src/modules/entities/api/definitions.cache.ts:6`. These utilities are meant for internal cache management when definitions change; there is no public HTTP route at `/entities/definitions.cache`, even though the generator lists the file for completeness.
+- If you mirror the caching strategy, tag invalidations with `entities:definitions:<tenant>` so UI fragments and API consumers observe new fields immediately.
+
 ---
 
 Pair these endpoints with the DI `queryEngine` for server-side filtering or plug them into shared admin components (`packages/shared/src/lib/crud/factory.ts:23`) to deliver tenant-aware experiences without rebuilding CRUD plumbing.

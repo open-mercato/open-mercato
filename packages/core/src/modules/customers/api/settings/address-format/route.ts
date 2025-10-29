@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -9,6 +10,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { customerSettingsUpsertSchema } from '../../../data/validators'
 import { loadCustomerSettings } from '../../../commands/settings'
 import { withScopedPayload } from '../../utils'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.settings.manage'] },
@@ -94,4 +96,41 @@ export async function PUT(req: Request) {
     console.error('customers.settings.address-format.put failed', err)
     return NextResponse.json({ error: translate('customers.errors.save_failed', 'Failed to save settings') }, { status: 400 })
   }
+}
+
+const addressFormatResponseSchema = z.object({
+  addressFormat: z.string(),
+})
+
+const addressFormatErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Customer address format settings',
+  methods: {
+    GET: {
+      summary: 'Retrieve address format',
+      description: 'Returns the current address formatting preference for the selected organization.',
+      responses: [
+        { status: 200, description: 'Current address format', schema: addressFormatResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: addressFormatErrorSchema },
+        { status: 400, description: 'Organization context missing', schema: addressFormatErrorSchema },
+      ],
+    },
+    PUT: {
+      summary: 'Update address format',
+      description: 'Updates the address format preference for the selected organization.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: customerSettingsUpsertSchema,
+      },
+      responses: [
+        { status: 200, description: 'Updated address format', schema: addressFormatResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: addressFormatErrorSchema },
+        { status: 400, description: 'Invalid payload or organization context', schema: addressFormatErrorSchema },
+      ],
+    },
+  },
 }

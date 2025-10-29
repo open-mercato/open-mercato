@@ -14,6 +14,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -219,4 +220,69 @@ export async function GET(request: Request, context: { params?: Record<string, u
       email: viewerEmail,
     },
   })
+}
+
+const dealDetailResponseSchema = z.object({
+  deal: z.object({
+    id: z.string().uuid(),
+    title: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    pipelineStage: z.string().nullable().optional(),
+    valueAmount: z.number().nullable().optional(),
+    valueCurrency: z.string().nullable().optional(),
+    probability: z.number().nullable().optional(),
+    expectedCloseAt: z.string().nullable().optional(),
+    ownerUserId: z.string().uuid().nullable().optional(),
+    source: z.string().nullable().optional(),
+    organizationId: z.string().uuid().nullable().optional(),
+    tenantId: z.string().uuid().nullable().optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+  people: z.array(
+    z.object({
+      id: z.string().uuid(),
+      label: z.string(),
+      subtitle: z.string().nullable().optional(),
+      kind: z.literal('person'),
+    }),
+  ),
+  companies: z.array(
+    z.object({
+      id: z.string().uuid(),
+      label: z.string(),
+      subtitle: z.string().nullable().optional(),
+      kind: z.literal('company'),
+    }),
+  ),
+  customFields: z.record(z.string(), z.unknown()),
+  viewer: z.object({
+    userId: z.string().uuid().nullable(),
+    name: z.string().nullable(),
+    email: z.string().nullable(),
+  }),
+})
+
+const dealDetailErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Fetch deal detail',
+  methods: {
+    GET: {
+      summary: 'Fetch deal with associations',
+      description: 'Returns a deal with linked people, companies, custom fields, and viewer context.',
+      responses: [
+        { status: 200, description: 'Deal detail payload', schema: dealDetailResponseSchema },
+      ],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: dealDetailErrorSchema },
+        { status: 403, description: 'Forbidden for tenant/organization scope', schema: dealDetailErrorSchema },
+        { status: 404, description: 'Deal not found', schema: dealDetailErrorSchema },
+      ],
+    },
+  },
 }

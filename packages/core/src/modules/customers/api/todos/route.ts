@@ -18,6 +18,8 @@ import { CustomerTodoLink, CustomerEntity } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E as ExampleEntities } from '@open-mercato/example/generated/entities.ids.generated'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createPagedListResponseSchema } from '../openapi'
 
 const unlinkSchema = z.object({
   id: z.string().uuid(),
@@ -784,4 +786,115 @@ export async function DELETE(req: Request) {
     console.error('customers.todos.unlink failed', err)
     return NextResponse.json({ error: translate('customers.errors.todo_unlink_failed', 'Failed to unlink todo') }, { status: 400 })
   }
+}
+
+const todoListItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    todoId: z.string().uuid(),
+    todoSource: z.string(),
+    todoTitle: z.string().nullable().optional(),
+    todoIsDone: z.boolean().nullable().optional(),
+    todoPriority: z.number().nullable().optional(),
+    todoSeverity: z.string().nullable().optional(),
+    todoDescription: z.string().nullable().optional(),
+    todoDueAt: z.string().nullable().optional(),
+    todoCustomValues: z.record(z.string(), z.unknown()).nullable().optional(),
+    todoOrganizationId: z.string().uuid().nullable().optional(),
+    organizationId: z.string().uuid().nullable().optional(),
+    tenantId: z.string().uuid().nullable().optional(),
+    createdAt: z.string(),
+    customer: z
+      .object({
+        id: z.string().uuid().nullable(),
+        displayName: z.string().nullable(),
+        kind: z.string().nullable(),
+      })
+      .passthrough(),
+  })
+  .passthrough()
+
+const todoListResponseSchema = createPagedListResponseSchema(todoListItemSchema)
+
+const todoCreateResponseSchema = z.object({
+  todoId: z.string().uuid().nullable(),
+  linkId: z.string().uuid().nullable(),
+})
+
+const todoLinkResponseSchema = z.object({
+  linkId: z.string().uuid().nullable(),
+})
+
+const todoErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Customer todo links',
+  methods: {
+    GET: {
+      summary: 'List todos linked to customers',
+      description: 'Returns paginated todo link entries filtered by completion, search term, or entity.',
+      query: listQuerySchema,
+      responses: [
+        { status: 200, description: 'Paginated todo links', schema: todoListResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid query parameters', schema: todoErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: todoErrorSchema },
+        { status: 403, description: 'Tenant or organization scope blocked the request', schema: todoErrorSchema },
+        { status: 500, description: 'Unexpected error', schema: todoErrorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Create todo and link to customer',
+      description: 'Creates a new todo (via the configured source entity) and links it to the specified customer record.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: todoLinkWithTodoCreateSchema,
+      },
+      responses: [
+        { status: 201, description: 'Todo created and linked', schema: todoCreateResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Validation failed', schema: todoErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: todoErrorSchema },
+        { status: 403, description: 'Insufficient access to customer scope', schema: todoErrorSchema },
+      ],
+    },
+    PUT: {
+      summary: 'Link existing todo to customer',
+      description: 'Links an existing todo record to a customer entity within the allowed scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: todoLinkCreateSchema,
+      },
+      responses: [
+        { status: 200, description: 'Todo linked', schema: todoLinkResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Validation failed', schema: todoErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: todoErrorSchema },
+        { status: 403, description: 'Insufficient access to customer scope', schema: todoErrorSchema },
+      ],
+    },
+    DELETE: {
+      summary: 'Unlink todo from customer',
+      description: 'Removes the association between a todo and the specified customer.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: unlinkSchema,
+        description: 'Provide the `id` of the link to remove. The value may also be passed via the `id` query parameter.',
+      },
+      responses: [
+        { status: 200, description: 'Todo unlinked', schema: todoLinkResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid request or missing link id', schema: todoErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: todoErrorSchema },
+        { status: 403, description: 'Insufficient access to customer scope', schema: todoErrorSchema },
+      ],
+    },
+  },
 }

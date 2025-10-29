@@ -26,6 +26,7 @@ import {
 } from '../../../lib/customFieldRouting'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@/modules/entities'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -586,4 +587,180 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       email: viewerUserId ? userMap.get(viewerUserId)?.email ?? auth.email ?? null : auth.email ?? null,
     },
   })
+}
+
+const companyDetailQuerySchema = z.object({
+  include: z
+    .string()
+    .optional()
+    .describe('Comma-separated list of relations to include (addresses, comments, activities, deals, todos, people).'),
+}).passthrough()
+
+const companyDetailResponseSchema = z.object({
+  company: z.object({
+    id: z.string().uuid(),
+    displayName: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    ownerUserId: z.string().uuid().nullable().optional(),
+    primaryEmail: z.string().nullable().optional(),
+    primaryPhone: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    lifecycleStage: z.string().nullable().optional(),
+    source: z.string().nullable().optional(),
+    nextInteractionAt: z.string().nullable().optional(),
+    nextInteractionName: z.string().nullable().optional(),
+    nextInteractionRefId: z.string().nullable().optional(),
+    nextInteractionIcon: z.string().nullable().optional(),
+    nextInteractionColor: z.string().nullable().optional(),
+    organizationId: z.string().uuid().nullable().optional(),
+    tenantId: z.string().uuid().nullable().optional(),
+    isActive: z.boolean().optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+  profile: z
+    .object({
+      id: z.string().uuid(),
+      legalName: z.string().nullable().optional(),
+      brandName: z.string().nullable().optional(),
+      domain: z.string().nullable().optional(),
+      websiteUrl: z.string().nullable().optional(),
+      industry: z.string().nullable().optional(),
+      sizeBucket: z.string().nullable().optional(),
+      annualRevenue: z.number().nullable().optional(),
+    })
+    .nullable(),
+  customFields: z.record(z.string(), z.unknown()),
+  tags: z.array(
+    z.object({
+      id: z.string().uuid(),
+      label: z.string(),
+      color: z.string().nullable().optional(),
+    }),
+  ),
+  addresses: z.array(
+    z.object({
+      id: z.string().uuid(),
+      name: z.string().nullable().optional(),
+      purpose: z.string().nullable().optional(),
+      addressLine1: z.string().nullable().optional(),
+      addressLine2: z.string().nullable().optional(),
+      buildingNumber: z.string().nullable().optional(),
+      flatNumber: z.string().nullable().optional(),
+      city: z.string().nullable().optional(),
+      region: z.string().nullable().optional(),
+      postalCode: z.string().nullable().optional(),
+      country: z.string().nullable().optional(),
+      latitude: z.number().nullable().optional(),
+      longitude: z.number().nullable().optional(),
+      isPrimary: z.boolean().nullable().optional(),
+      createdAt: z.string(),
+    }),
+  ),
+  comments: z.array(
+    z.object({
+      id: z.string().uuid(),
+      body: z.string().nullable().optional(),
+      authorUserId: z.string().uuid().nullable().optional(),
+      authorName: z.string().nullable().optional(),
+      authorEmail: z.string().nullable().optional(),
+      dealId: z.string().uuid().nullable().optional(),
+      createdAt: z.string(),
+      appearanceIcon: z.string().nullable().optional(),
+      appearanceColor: z.string().nullable().optional(),
+    }),
+  ),
+  activities: z.array(
+    z.object({
+      id: z.string().uuid(),
+      activityType: z.string(),
+      subject: z.string().nullable().optional(),
+      body: z.string().nullable().optional(),
+      occurredAt: z.string().nullable().optional(),
+      dealId: z.string().uuid().nullable().optional(),
+      authorUserId: z.string().uuid().nullable().optional(),
+      authorName: z.string().nullable().optional(),
+      authorEmail: z.string().nullable().optional(),
+      createdAt: z.string(),
+      appearanceIcon: z.string().nullable().optional(),
+      appearanceColor: z.string().nullable().optional(),
+    }),
+  ),
+  deals: z.array(
+    z.object({
+      id: z.string().uuid(),
+      title: z.string().nullable().optional(),
+      status: z.string().nullable().optional(),
+      pipelineStage: z.string().nullable().optional(),
+      valueAmount: z.number().nullable().optional(),
+      valueCurrency: z.string().nullable().optional(),
+      probability: z.number().nullable().optional(),
+      expectedCloseAt: z.string().nullable().optional(),
+      ownerUserId: z.string().uuid().nullable().optional(),
+      source: z.string().nullable().optional(),
+      createdAt: z.string(),
+      updatedAt: z.string(),
+    }),
+  ),
+  todos: z.array(
+    z.object({
+      id: z.string().uuid(),
+      todoId: z.string().uuid(),
+      todoSource: z.string(),
+      createdAt: z.string(),
+      createdByUserId: z.string().uuid().nullable().optional(),
+      title: z.string().nullable().optional(),
+      isDone: z.boolean().nullable().optional(),
+      priority: z.number().nullable().optional(),
+      severity: z.string().nullable().optional(),
+      description: z.string().nullable().optional(),
+      dueAt: z.string().nullable().optional(),
+      todoOrganizationId: z.string().uuid().nullable().optional(),
+      customValues: z.record(z.string(), z.unknown()).nullable().optional(),
+    }),
+  ),
+  people: z.array(
+    z.object({
+      id: z.string().uuid(),
+      displayName: z.string().nullable().optional(),
+      primaryEmail: z.string().nullable().optional(),
+      primaryPhone: z.string().nullable().optional(),
+      status: z.string().nullable().optional(),
+      lifecycleStage: z.string().nullable().optional(),
+      jobTitle: z.string().nullable().optional(),
+      department: z.string().nullable().optional(),
+      createdAt: z.string(),
+      organizationId: z.string().uuid().nullable().optional(),
+    }),
+  ),
+  viewer: z.object({
+    userId: z.string().uuid().nullable(),
+    name: z.string().nullable(),
+    email: z.string().nullable(),
+  }),
+})
+
+const companyDetailErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Fetch company detail',
+  methods: {
+    GET: {
+      summary: 'Fetch company with related data',
+      description: 'Returns a company customer record with optional related resources such as addresses, comments, activities, deals, todos, and linked people.',
+      query: companyDetailQuerySchema,
+      responses: [
+        { status: 200, description: 'Company detail payload', schema: companyDetailResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid identifier', schema: companyDetailErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: companyDetailErrorSchema },
+        { status: 403, description: 'Forbidden for tenant/organization scope', schema: companyDetailErrorSchema },
+        { status: 404, description: 'Company not found', schema: companyDetailErrorSchema },
+      ],
+    },
+  },
 }

@@ -8,6 +8,11 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '../utils'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  createCustomersCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -346,3 +351,59 @@ const { POST, PUT, DELETE } = crud
 
 export { POST, PUT, DELETE }
 export const GET = crud.GET
+
+const dealAssociationSchema = z.object({
+  id: z.string().uuid(),
+  label: z.string().nullable(),
+})
+
+const dealListItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    title: z.string().nullable(),
+    description: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    pipeline_stage: z.string().nullable().optional(),
+    value_amount: z.number().nullable().optional(),
+    value_currency: z.string().nullable().optional(),
+    probability: z.number().nullable().optional(),
+    expected_close_at: z.string().nullable().optional(),
+    owner_user_id: z.string().uuid().nullable().optional(),
+    source: z.string().nullable().optional(),
+    organization_id: z.string().uuid().nullable().optional(),
+    tenant_id: z.string().uuid().nullable().optional(),
+    created_at: z.string().nullable().optional(),
+    updated_at: z.string().nullable().optional(),
+    personIds: z.array(z.string().uuid()).optional(),
+    people: z.array(dealAssociationSchema).optional(),
+    companyIds: z.array(z.string().uuid()).optional(),
+    companies: z.array(dealAssociationSchema).optional(),
+    organizationId: z.string().uuid().nullable().optional(),
+    tenantId: z.string().uuid().nullable().optional(),
+  })
+  .passthrough()
+
+const dealCreateResponseSchema = z.object({
+  id: z.string().uuid().nullable(),
+})
+
+export const openApi = createCustomersCrudOpenApi({
+  resourceName: 'Deal',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(dealListItemSchema),
+  create: {
+    schema: dealCreateSchema,
+    responseSchema: dealCreateResponseSchema,
+    description: 'Creates a sales deal, optionally associating people and companies.',
+  },
+  update: {
+    schema: dealUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates pipeline position, metadata, or associations for an existing deal.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a deal by `id`. The identifier may be provided in the body or query parameters.',
+  },
+})

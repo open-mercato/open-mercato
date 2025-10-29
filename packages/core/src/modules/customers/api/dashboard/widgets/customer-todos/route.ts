@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerEntity, CustomerTodoLink } from '../../../../data/entities'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const querySchema = z.object({
   limit: z.coerce.number().min(1).max(20).default(5),
@@ -171,4 +172,49 @@ export async function GET(req: Request) {
       { status: 500 }
     )
   }
+}
+
+const customerTodoWidgetItemSchema = z.object({
+  id: z.string().uuid(),
+  todoId: z.string().uuid(),
+  todoSource: z.string(),
+  todoTitle: z.string().nullable().optional(),
+  createdAt: z.string(),
+  organizationId: z.string().uuid().nullable().optional(),
+  entity: z
+    .object({
+      id: z.string().uuid().nullable(),
+      displayName: z.string().nullable(),
+      kind: z.string().nullable(),
+      ownerUserId: z.string().uuid().nullable().optional(),
+    })
+    .passthrough(),
+})
+
+const customerTodoWidgetResponseSchema = z.object({
+  items: z.array(customerTodoWidgetItemSchema),
+})
+
+const widgetErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Customer todos widget',
+  methods: {
+    GET: {
+      summary: 'Fetch recent customer todo links',
+      description: 'Returns the most recently created todo links for display on dashboards.',
+      query: querySchema,
+      responses: [
+        { status: 200, description: 'Widget payload', schema: customerTodoWidgetResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid query parameters', schema: widgetErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: widgetErrorSchema },
+        { status: 500, description: 'Widget failed to load', schema: widgetErrorSchema },
+      ],
+    },
+  },
 }

@@ -8,6 +8,11 @@ import { commentCreateSchema, commentUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import {
+  createCustomersCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -165,3 +170,45 @@ const { POST, PUT, DELETE } = crud
 
 export { POST, PUT, DELETE }
 export const GET = crud.GET
+
+const commentListItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    entity_id: z.string().uuid().nullable(),
+    deal_id: z.string().uuid().nullable(),
+    body: z.string().nullable(),
+    author_user_id: z.string().uuid().nullable(),
+    appearance_icon: z.string().nullable().optional(),
+    appearance_color: z.string().nullable().optional(),
+    organization_id: z.string().uuid().nullable().optional(),
+    tenant_id: z.string().uuid().nullable().optional(),
+    created_at: z.string().nullable(),
+    updated_at: z.string().nullable().optional(),
+  })
+  .passthrough()
+
+const commentCreateResponseSchema = z.object({
+  id: z.string().uuid().nullable(),
+  authorUserId: z.string().uuid().nullable(),
+})
+
+export const openApi = createCustomersCrudOpenApi({
+  resourceName: 'Comment',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(commentListItemSchema),
+  create: {
+    schema: commentCreateSchema,
+    responseSchema: commentCreateResponseSchema,
+    description: 'Adds a comment to a customer timeline.',
+  },
+  update: {
+    schema: commentUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing timeline comment.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a comment identified by `id` supplied via body or query string.',
+  },
+})

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -8,6 +9,7 @@ import { tagAssignmentSchema } from '../../../data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../../utils'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['customers.activities.manage'] },
@@ -65,4 +67,35 @@ export async function POST(req: Request) {
     console.error('customers.tags.assign failed', err)
     return NextResponse.json({ error: translate('customers.errors.assign_failed', 'Failed to assign tag') }, { status: 400 })
   }
+}
+
+const tagAssignmentResponseSchema = z.object({
+  id: z.string().uuid().nullable(),
+})
+
+const tagAssignmentErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Assign customer tag',
+  methods: {
+    POST: {
+      summary: 'Assign tag to customer entity',
+      description: 'Links a tag to a customer entity within the validated tenant / organization scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: tagAssignmentSchema,
+      },
+      responses: [
+        { status: 201, description: 'Tag assigned to customer', schema: tagAssignmentResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Validation or assignment failed', schema: tagAssignmentErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: tagAssignmentErrorSchema },
+        { status: 403, description: 'Insufficient tenant/organization access', schema: tagAssignmentErrorSchema },
+      ],
+    },
+  },
 }

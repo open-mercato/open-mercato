@@ -7,6 +7,11 @@ import { tagCreateSchema, tagUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import {
+  createCustomersCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -91,3 +96,38 @@ const { POST, PUT, DELETE } = crud
 
 export { POST, PUT, DELETE }
 export const GET = crud.GET
+
+const tagListItemSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string(),
+  label: z.string(),
+  color: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+})
+
+const tagCreateResponseSchema = z.object({
+  id: z.string().uuid().nullable(),
+})
+
+export const openApi = createCustomersCrudOpenApi({
+  resourceName: 'Tag',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(tagListItemSchema),
+  create: {
+    schema: tagCreateSchema,
+    responseSchema: tagCreateResponseSchema,
+    description: 'Creates a tag scoped to the current tenant and organization.',
+  },
+  update: {
+    schema: tagUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates label, color, or description for an existing tag.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a tag identified by `id`. The identifier may be provided via body or query string.',
+  },
+})

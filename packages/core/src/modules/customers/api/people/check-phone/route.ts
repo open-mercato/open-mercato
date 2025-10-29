@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerEntity } from '../../../data/entities'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const querySchema = z.object({
   digits: z
@@ -66,4 +67,33 @@ export async function GET(req: Request) {
       displayName: match.displayName,
     },
   })
+}
+
+const phoneCheckSuccessSchema = z.object({
+  match: z
+    .object({
+      id: z.string().uuid(),
+      displayName: z.string().nullable(),
+    })
+    .nullable(),
+})
+
+const phoneCheckErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Check customer phone number',
+  methods: {
+    GET: {
+      summary: 'Find person by phone digits',
+      description: 'Performs an exact digits comparison (stripping non-numeric characters) to determine whether a customer contact matches the provided phone fragment.',
+      query: querySchema,
+      responses: [
+        { status: 200, description: 'Matching contact (if any)', schema: phoneCheckSuccessSchema },
+        { status: 401, description: 'Unauthorized', schema: phoneCheckErrorSchema },
+      ],
+    },
+  },
 }

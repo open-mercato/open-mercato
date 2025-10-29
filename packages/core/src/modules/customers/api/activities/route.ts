@@ -8,6 +8,11 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '../utils'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import {
+  createCustomersCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 const rawBodySchema = z.object({}).passthrough()
 
 const listSchema = z
@@ -342,3 +347,50 @@ const { POST, PUT, DELETE } = crud
 
 export { POST, PUT, DELETE }
 export const GET = crud.GET
+
+const activityListItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    entityId: z.string().uuid().nullable(),
+    dealId: z.string().uuid().nullable(),
+    activityType: z.string(),
+    subject: z.string().nullable(),
+    body: z.string().nullable(),
+    occurredAt: z.string().nullable(),
+    createdAt: z.string().nullable(),
+    authorUserId: z.string().uuid().nullable(),
+    organizationId: z.string().uuid().nullable().optional(),
+    tenantId: z.string().uuid().nullable().optional(),
+    activityTypeLabel: z.string().nullable().optional(),
+    authorName: z.string().nullable().optional(),
+    authorEmail: z.string().nullable().optional(),
+    appearanceIcon: z.string().nullable().optional(),
+    appearanceColor: z.string().nullable().optional(),
+    dealTitle: z.string().nullable().optional(),
+  })
+  .passthrough()
+
+const activityCreateResponseSchema = z.object({
+  id: z.string().uuid().nullable(),
+})
+
+export const openApi = createCustomersCrudOpenApi({
+  resourceName: 'Activity',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(activityListItemSchema),
+  create: {
+    schema: activityCreateSchema,
+    responseSchema: activityCreateResponseSchema,
+    description: 'Creates a timeline activity linked to an entity or deal.',
+  },
+  update: {
+    schema: activityUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates subject, body, scheduling, or custom fields for an existing activity.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes an activity identified by `id`. Accepts id via body or query string.',
+  },
+})

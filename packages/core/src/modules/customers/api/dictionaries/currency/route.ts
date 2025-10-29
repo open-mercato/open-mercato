@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -64,4 +66,36 @@ export async function GET(req: Request) {
     console.error('[customers.currencyDictionary.GET] Unexpected error', err)
     return NextResponse.json({ error: 'Failed to load currency dictionary.' }, { status: 500 })
   }
+}
+
+const currencyDictionaryResponseSchema = z.object({
+  id: z.string().uuid(),
+  entries: z.array(
+    z.object({
+      id: z.string().uuid(),
+      value: z.string(),
+      label: z.string().nullable().optional(),
+    }),
+  ),
+})
+
+const currencyDictionaryErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Currency dictionary lookup',
+  methods: {
+    GET: {
+      summary: 'Resolve currency dictionary',
+      description: 'Returns the active currency dictionary for the current organization scope, falling back to shared entries when required.',
+      responses: [
+        { status: 200, description: 'Currency dictionary entries', schema: currencyDictionaryResponseSchema },
+        { status: 404, description: 'Currency dictionary missing', schema: currencyDictionaryErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: currencyDictionaryErrorSchema },
+        { status: 500, description: 'Unexpected error', schema: currencyDictionaryErrorSchema },
+      ],
+    },
+  },
 }
