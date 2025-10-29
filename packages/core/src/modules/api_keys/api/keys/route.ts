@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
@@ -9,6 +10,20 @@ import { ApiKey } from '../../data/entities'
 import { createApiKeySchema } from '../../data/validators'
 import { generateApiKeySecret, hashApiKey } from '../../services/apiKeyService'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+
+type ApiKeyCrudCtx = CrudCtx & {
+  __apiKeySecret?: { secret: string; prefix: string }
+  __apiKeyRoleIds?: string[]
+  __apiKeyRoles?: Role[]
+  __apiKeyOrganizationId?: string | null
+  __apiKeyTenantId?: string | null
+}
+
+type ApiKeyEntityWithMeta = ApiKey & {
+  __apiKeySecret?: string
+  __apiKeyRoles?: Role[]
+}
 
 const listQuerySchema = z.object({
   page: z.string().optional(),
@@ -86,13 +101,16 @@ const crud = makeCrudRoute<
   create: {
     schema: createApiKeySchema,
     mapToEntity: (input, ctx) => {
-      const secretData = (ctx as any).__apiKeySecret as { secret: string; prefix: string } | undefined
+      const scopedCtx = ctx as ApiKeyCrudCtx
+      const secretData = scopedCtx.__apiKeySecret
       if (!secretData) throw new Error('API key secret not prepared')
-      const roleIds = Array.isArray((ctx as any).__apiKeyRoleIds) ? (ctx as any).__apiKeyRoleIds as string[] : []
-      const organizationId = (ctx as any).__apiKeyOrganizationId as string | null
+      const roleIds = Array.isArray(scopedCtx.__apiKeyRoleIds) ? scopedCtx.__apiKeyRoleIds : []
+      const organizationId = scopedCtx.__apiKeyOrganizationId ?? null
+      const tenantId = scopedCtx.__apiKeyTenantId ?? null
       return {
         name: input.name,
         description: input.description ?? null,
+        tenantId,
         organizationId,
         keyHash: hashApiKey(secretData.secret),
         keyPrefix: secretData.prefix,
@@ -102,8 +120,9 @@ const crud = makeCrudRoute<
       }
     },
     response: (entity) => {
-      const secret = (entity as any).__apiKeySecret as string | undefined
-      const roles = (entity as any).__apiKeyRoles as Role[] | undefined
+      const meta = entity as ApiKeyEntityWithMeta
+      const secret = meta.__apiKeySecret
+      const roles = meta.__apiKeyRoles
       return {
         id: String(entity.id),
         name: entity.name,
@@ -127,7 +146,8 @@ const crud = makeCrudRoute<
       const pageSize = Math.min(Math.max(parseInt(query.pageSize ?? '20', 10) || 20, 1), 200)
       const search = (query.search ?? '').trim().toLowerCase()
 
-      if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length === 0) {
+      const organizationIds = Array.isArray(ctx.organizationIds) ? ctx.organizationIds : null
+      if (organizationIds && organizationIds.length === 0) {
         throw json({ items: [], total: 0, page, pageSize, totalPages: 0 })
       }
 
@@ -135,8 +155,8 @@ const crud = makeCrudRoute<
       const qb = em.createQueryBuilder(ApiKey, 'k')
       qb.where({ deletedAt: null })
       qb.andWhere({ tenantId: auth.tenantId })
-      if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
-        qb.andWhere({ organizationId: { $in: ctx.organizationIds as any } })
+      if (organizationIds && organizationIds.length > 0) {
+        qb.andWhere({ organizationId: { $in: organizationIds } })
       } else if (auth.orgId) {
         qb.andWhere({ organizationId: auth.orgId })
       }
@@ -166,9 +186,13 @@ const crud = makeCrudRoute<
         if (item.organizationId) orgIdSet.add(String(item.organizationId))
       }
 
+      const roleIdArray = Array.from(roleIdSet)
+      const organizationIdArray = Array.from(orgIdSet)
+      const roleFilter: FilterQuery<Role> = { id: { $in: roleIdArray } }
+      const organizationFilter: FilterQuery<Organization> = { id: { $in: organizationIdArray } }
       const [roles, organizations] = await Promise.all([
-        roleIdSet.size ? em.find(Role, { id: { $in: Array.from(roleIdSet) as any } } as any) : [],
-        orgIdSet.size ? em.find(Organization, { id: { $in: Array.from(orgIdSet) as any } } as any) : [],
+        roleIdArray.length ? em.find(Role, roleFilter) : [],
+        organizationIdArray.length ? em.find(Organization, organizationFilter) : [],
       ])
       const roleMap = new Map(roles.map((role) => [String(role.id), role.name ?? null]))
       const orgMap = new Map(organizations.map((org) => [String(org.id), org.name ?? null]))
@@ -201,8 +225,13 @@ const crud = makeCrudRoute<
       const { translate } = await resolveTranslations()
       if (!auth?.tenantId) throw json({ error: translate('api_keys.errors.tenantRequired', 'Tenant context required') }, { status: 400 })
 
+      const requestedTenant = Object.prototype.hasOwnProperty.call(input, 'tenantId') ? input.tenantId : auth.tenantId
+      const scopedCtx = ctx as ApiKeyCrudCtx
+      const targetTenantId = await enforceTenantSelection(scopedCtx, requestedTenant)
+      scopedCtx.__apiKeyTenantId = targetTenantId
+
       const secretData = generateApiKeySecret()
-      ;(ctx as any).__apiKeySecret = secretData
+      scopedCtx.__apiKeySecret = secretData
 
       const em = ctx.container.resolve<EntityManager>('em')
       const roleTokens = Array.isArray(input.roles) ? input.roles.filter((value) => typeof value === 'string' && value.trim().length > 0) : []
@@ -220,14 +249,15 @@ const crud = makeCrudRoute<
         if (!role) {
           throw json({ error: translate('api_keys.errors.roleNotFound', `Role ${value} not found`, { identifier: value }) }, { status: 400 })
         }
-        if (role.tenantId && auth.tenantId && role.tenantId !== auth.tenantId) {
+        const effectiveTenantId = targetTenantId ?? auth.tenantId ?? null
+        if (role.tenantId && effectiveTenantId && role.tenantId !== effectiveTenantId) {
           throw json({ error: translate('api_keys.errors.roleWrongTenant', `Role ${role.name} belongs to another tenant`, { role: role.name ?? value }) }, { status: 400 })
         }
         roleEntities.push(role)
         roleIds.push(String(role.id))
       }
-      ;(ctx as any).__apiKeyRoles = roleEntities
-      ;(ctx as any).__apiKeyRoleIds = roleIds
+      scopedCtx.__apiKeyRoles = roleEntities
+      scopedCtx.__apiKeyRoleIds = roleIds
 
       const allowedIds = ctx.organizationScope?.allowedIds ?? null
       const organizationId = input.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
@@ -236,15 +266,16 @@ const crud = makeCrudRoute<
           throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
         }
       }
-      ;(ctx as any).__apiKeyOrganizationId = organizationId ?? null
+      scopedCtx.__apiKeyOrganizationId = organizationId ?? null
 
       return { ...input, organizationId }
     },
     afterCreate: async (entity, ctx) => {
-      const secretData = (ctx as any).__apiKeySecret as { secret: string } | undefined
-      const roles = (ctx as any).__apiKeyRoles as Role[] | undefined
-      if (secretData) (entity as any).__apiKeySecret = secretData.secret
-      if (roles) (entity as any).__apiKeyRoles = roles
+      const scopedCtx = ctx as ApiKeyCrudCtx
+      const secretData = scopedCtx.__apiKeySecret
+      const roles = scopedCtx.__apiKeyRoles
+      if (secretData) (entity as ApiKeyEntityWithMeta).__apiKeySecret = secretData.secret
+      if (roles) (entity as ApiKeyEntityWithMeta).__apiKeyRoles = roles
       try {
         const rbac = ctx.container.resolve<RbacService>('rbacService')
         await rbac.invalidateUserCache(`api_key:${entity.id}`)
@@ -257,7 +288,8 @@ const crud = makeCrudRoute<
       const em = ctx.container.resolve<EntityManager>('em')
       const record = await em.findOne(ApiKey, { id, deletedAt: null })
       if (!record) throw json({ error: translate('api_keys.errors.notFound', 'Not found') }, { status: 404 })
-      if (record.tenantId && record.tenantId !== auth.tenantId) {
+      const isSuperAdmin = await resolveIsSuperAdmin(scopedCtx)
+      if (!isSuperAdmin && record.tenantId && record.tenantId !== auth.tenantId) {
         throw json({ error: translate('api_keys.errors.forbidden', 'Forbidden') }, { status: 403 })
       }
       const allowedIds = ctx.organizationScope?.allowedIds ?? null
@@ -266,7 +298,7 @@ const crud = makeCrudRoute<
           throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
         }
       }
-      ;(ctx as any).__apiKeyOrganizationId = record.organizationId ?? null
+      scopedCtx.__apiKeyOrganizationId = record.organizationId ?? null
     },
     afterDelete: async (id, ctx) => {
       try {

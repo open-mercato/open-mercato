@@ -307,9 +307,13 @@ function zodToJsonSchema(schema?: ZodTypeAny): JsonSchema | undefined {
     }
     case ZodFirstPartyTypeKind.ZodArray:
     case 'array': {
+      const elementSchema =
+        def.type && typeof def.type === 'object'
+          ? def.type
+          : (def.element && typeof def.element === 'object' ? def.element : undefined)
       result = {
         type: 'array',
-        items: zodToJsonSchema(def.type ?? def.element) ?? {},
+        items: zodToJsonSchema(elementSchema as ZodTypeAny) ?? {},
       }
       if (typeof def.minLength === 'number') result.minItems = def.minLength
       if (typeof def.maxLength === 'number') result.maxItems = def.maxLength

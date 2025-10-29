@@ -20,6 +20,7 @@ export type ScopedPayloadMessages = {
   tenantRequired?: ScopedMessage
   organizationRequired?: ScopedMessage
   idRequired?: ScopedMessage
+  tenantForbidden?: ScopedMessage
 }
 
 export type ScopedPayloadOptions = {
@@ -31,6 +32,7 @@ const DEFAULT_MESSAGES: Required<ScopedPayloadMessages> = {
   tenantRequired: { key: 'errors.tenant_required', fallback: 'Tenant context is required.' },
   organizationRequired: { key: 'errors.organization_required', fallback: 'Organization context is required.' },
   idRequired: { key: 'errors.id_required', fallback: 'Record identifier is required.' },
+  tenantForbidden: { key: 'errors.tenant_forbidden', fallback: 'You are not allowed to target this tenant.' },
 }
 
 function resolveMessage(messages: ScopedPayloadMessages | undefined, key: keyof ScopedPayloadMessages): ScopedMessage {
@@ -92,6 +94,20 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
     translate,
     options
   )
+  const actorTenantId = normalizeTenant(ctx.auth?.tenantId)
+  const requestedTenantId = normalizeTenant(scoped.tenantId)
+  const isSuperAdmin = authIsSuperAdmin(ctx.auth)
+  if (!isSuperAdmin) {
+    if (actorTenantId) {
+      if (!requestedTenantId || requestedTenantId !== actorTenantId) {
+        const msg = resolveMessage(options.messages, 'tenantForbidden')
+        throw new CrudHttpError(403, { error: translate(msg.key, msg.fallback) })
+      }
+    } else if (requestedTenantId) {
+      const msg = resolveMessage(options.messages, 'tenantForbidden')
+      throw new CrudHttpError(403, { error: translate(msg.key, msg.fallback) })
+    }
+  }
   const { parsed, custom } = parseWithCustomFields(schema, scoped)
   if (custom && Object.keys(custom).length > 0) {
     return {
@@ -100,6 +116,20 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
     } as z.infer<TSchema> & { customFields?: Record<string, unknown> }
   }
   return parsed as z.infer<TSchema> & { customFields?: Record<string, unknown> }
+}
+
+function normalizeTenant(candidate: unknown): string | null {
+  if (typeof candidate === 'string' && candidate.trim().length > 0) return candidate.trim()
+  return null
+}
+
+function authIsSuperAdmin(auth: ScopedContext['auth']): boolean {
+  if (!auth) return false
+  if ((auth as Record<string, unknown>).isSuperAdmin === true) return true
+  const roles = Array.isArray((auth as Record<string, unknown>).roles)
+    ? ((auth as { roles: string[] }).roles ?? [])
+    : []
+  return roles.some((role) => typeof role === 'string' && role.toLowerCase() === 'superadmin')
 }
 
 export function requireRecordId(

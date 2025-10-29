@@ -11,11 +11,43 @@ import {
 } from '../../../services/sidebarPreferencesService'
 import { SIDEBAR_PREFERENCES_VERSION } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 import { Role, RoleSidebarPreference } from '../../../data/entities'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { z } from 'zod'
 
 export const metadata = {
   GET: { requireAuth: true },
   PUT: { requireAuth: true },
 }
+
+const sidebarSettingsSchema = z.object({
+  version: z.number().int().positive(),
+  groupOrder: z.array(z.string()),
+  groupLabels: z.record(z.string(), z.string()),
+  itemLabels: z.record(z.string(), z.string()),
+  hiddenItems: z.array(z.string()),
+})
+
+const sidebarRoleEntrySchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  hasPreference: z.boolean(),
+})
+
+const sidebarPreferencesResponseSchema = z.object({
+  locale: z.string(),
+  settings: sidebarSettingsSchema,
+  canApplyToRoles: z.boolean(),
+  roles: z.array(sidebarRoleEntrySchema),
+})
+
+const sidebarPreferencesUpdateResponseSchema = sidebarPreferencesResponseSchema.extend({
+  appliedRoles: z.array(z.string().uuid()),
+  clearedRoles: z.array(z.string().uuid()),
+})
+
+const sidebarErrorSchema = z.object({
+  error: z.string(),
+})
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -229,4 +261,33 @@ export async function PUT(req: Request) {
     appliedRoles: updatedRoleIds,
     clearedRoles: filteredClearRoleIds,
   })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Authentication & Accounts',
+  summary: 'Sidebar preferences',
+  methods: {
+    GET: {
+      summary: 'Get sidebar preferences',
+      description: 'Returns personal sidebar customization and any role-level preferences the user can manage.',
+      responses: [
+        { status: 200, description: 'Current sidebar configuration', schema: sidebarPreferencesResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: sidebarErrorSchema },
+      ],
+    },
+    PUT: {
+      summary: 'Update sidebar preferences',
+      description: 'Updates personal sidebar configuration and, optionally, applies the same settings to selected roles.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: sidebarPreferencesInputSchema,
+      },
+      responses: [
+        { status: 200, description: 'Preferences saved', schema: sidebarPreferencesUpdateResponseSchema },
+        { status: 400, description: 'Invalid payload', schema: sidebarErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: sidebarErrorSchema },
+        { status: 403, description: 'Missing features for role-wide updates', schema: sidebarErrorSchema },
+      ],
+    },
+  },
 }

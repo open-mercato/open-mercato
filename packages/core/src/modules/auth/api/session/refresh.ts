@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { signJwt } from '@/lib/auth/jwt'
+import { z } from 'zod'
 
 function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''
@@ -24,4 +26,27 @@ export async function GET(req: Request) {
   const res = NextResponse.redirect(toAbs(redirectTo))
   res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   return res
+}
+
+export const metadata = {
+  GET: { requireAuth: false },
+}
+
+const refreshQuerySchema = z.object({
+  redirect: z.string().optional().describe('Absolute or relative URL to redirect after refresh'),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Authentication & Accounts',
+  summary: 'Refresh session token',
+  methods: {
+    GET: {
+      summary: 'Refresh auth cookie from session token',
+      description: 'Exchanges an existing `session_token` cookie for a fresh JWT auth cookie and redirects the browser.',
+      query: refreshQuerySchema,
+      responses: [
+        { status: 302, description: 'Redirect to target location when session is valid', mediaType: 'text/html' },
+      ],
+    },
+  },
 }
