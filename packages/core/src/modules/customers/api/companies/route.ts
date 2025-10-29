@@ -249,27 +249,25 @@ const { POST, PUT, DELETE } = crud
 export { POST, PUT, DELETE }
 export const GET = crud.GET
 
-const companyListItemSchema = z
-  .object({
-    id: z.string().uuid(),
-    display_name: z.string().optional(),
-    description: z.string().nullable().optional(),
-    owner_user_id: z.string().uuid().nullable().optional(),
-    primary_email: z.string().nullable().optional(),
-    primary_phone: z.string().nullable().optional(),
-    status: z.string().nullable().optional(),
-    lifecycle_stage: z.string().nullable().optional(),
-    source: z.string().nullable().optional(),
-    next_interaction_at: z.string().nullable().optional(),
-    next_interaction_name: z.string().nullable().optional(),
-    next_interaction_ref_id: z.string().nullable().optional(),
-    next_interaction_icon: z.string().nullable().optional(),
-    next_interaction_color: z.string().nullable().optional(),
-    organization_id: z.string().uuid().nullable().optional(),
-    tenant_id: z.string().uuid().nullable().optional(),
-    created_at: z.string().nullable().optional(),
-  })
-  .passthrough()
+const companyListItemSchema = z.object({
+  id: z.string().uuid(),
+  display_name: z.string().optional(),
+  description: z.string().nullable().optional(),
+  owner_user_id: z.string().uuid().nullable().optional(),
+  primary_email: z.string().nullable().optional(),
+  primary_phone: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  lifecycle_stage: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
+  next_interaction_at: z.string().nullable().optional(),
+  next_interaction_name: z.string().nullable().optional(),
+  next_interaction_ref_id: z.string().nullable().optional(),
+  next_interaction_icon: z.string().nullable().optional(),
+  next_interaction_color: z.string().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+})
 
 const companyCreateResponseSchema = z.object({
   id: z.string().uuid().nullable(),

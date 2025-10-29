@@ -172,6 +172,67 @@ type Category = {
   operations: ExplorerOperation[]
 }
 
+const PLACEHOLDER_BASE_URL = 'https://api.your-service.com'
+
+type RequestPreview = {
+  method: string
+  url: string
+  headers: Array<[string, string]>
+  body?: string
+  jsonBody?: unknown
+  mediaType?: string
+  usesPlaceholderBase: boolean
+  missingPathParam?: string
+  bodyParseError?: string
+  baseError?: string
+}
+
+type CodeSnippet = {
+  id: string
+  label: string
+  language: string
+  code: string
+}
+
+function escapeSingleQuotes(value: string): string {
+  return value.replace(/'/g, `'\\''`)
+}
+
+function escapeSingleQuotesForJs(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+}
+
+function escapeBackticks(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/`/g, '\\`')
+}
+
+function toPythonLiteral(value: unknown, indent = 0): string {
+  const padding = '  '.repeat(indent)
+  if (value === null || value === undefined) return 'None'
+  if (typeof value === 'boolean') return value ? 'True' : 'False'
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (typeof value === 'string') {
+    return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) return '[]'
+    const entries = value
+      .map((item) => `${'  '.repeat(indent + 1)}${toPythonLiteral(item, indent + 1)}`)
+      .join(',\n')
+    return `[\n${entries},\n${padding}]`
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+    if (!entries.length) return '{}'
+    const lines = entries.map(
+      ([key, entry]) =>
+        `${'  '.repeat(indent + 1)}'${key.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}': ${toPythonLiteral(entry, indent + 1)}`
+    )
+    return `{\n${lines.join(',\n')},\n${padding}}`
+  }
+  return 'None'
+}
+
 export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
   const { title, version, description, operations, tagOrder, servers, docsUrl, jsonSpecUrl, markdownSpecUrl } = props
 
@@ -664,15 +725,17 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
         </section>
 
         <aside className="hidden w-96 shrink-0 xl:block">
-          <TesterPanel
-            key={selectedOperation?.id ?? 'tester'}
-            operation={selectedOperation}
-            baseUrl={baseUrl}
-            setBaseUrl={setBaseUrl}
-            baseUrlOptions={servers}
-            apiKey={apiKey}
-            setApiKey={setApiKey}
-          />
+          <div className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto">
+            <TesterPanel
+              key={selectedOperation?.id ?? 'tester'}
+              operation={selectedOperation}
+              baseUrl={baseUrl}
+              setBaseUrl={setBaseUrl}
+              baseUrlOptions={servers}
+              apiKey={apiKey}
+              setApiKey={setApiKey}
+            />
+          </div>
         </aside>
       </main>
 
@@ -768,6 +831,77 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
   )
 }
 
+function CodeSnippetTabs(props: { snippets: CodeSnippet[] }) {
+  const { snippets } = props
+  const [activeId, setActiveId] = useState(snippets[0]?.id ?? '')
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    const first = snippets[0]?.id ?? ''
+    setActiveId((current) => (snippets.some((snippet) => snippet.id === current) ? current : first))
+  }, [snippets])
+
+  useEffect(() => {
+    setCopied(false)
+  }, [activeId])
+
+  useEffect(() => {
+    if (!copied) return
+    const timeout = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(timeout)
+  }, [copied])
+
+  if (!snippets.length) {
+    return null
+  }
+
+  const activeSnippet = snippets.find((snippet) => snippet.id === activeId) ?? snippets[0]
+
+  const handleCopy = async () => {
+    if (!activeSnippet) return
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return
+    try {
+      await navigator.clipboard.writeText(activeSnippet.code)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          {snippets.map((snippet) => (
+            <button
+              type="button"
+              key={snippet.id}
+              className={`rounded-md border px-3 py-1 text-xs font-semibold ${
+                snippet.id === activeSnippet.id
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:border-foreground hover:text-foreground'
+              }`}
+              onClick={() => setActiveId(snippet.id)}
+            >
+              {snippet.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="inline-flex items-center rounded-md border border-border px-3 py-1 text-xs font-semibold text-muted-foreground hover:border-foreground hover:text-foreground"
+          onClick={handleCopy}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre className="max-h-80 overflow-auto rounded-md bg-muted px-3 py-2 text-xs leading-relaxed">
+        {activeSnippet.code}
+      </pre>
+    </div>
+  )
+}
+
 function MobileOverlay(props: { title: string; children: ReactNode; onClose: () => void }) {
   const { title, children, onClose } = props
   return (
@@ -829,6 +963,182 @@ function TesterPanel(props: TesterPanelProps) {
     return [...baseUrlOptions, { url: baseUrl }]
   }, [baseUrlOptions, baseUrl])
 
+  const requestPreview = useMemo<RequestPreview | null>(() => {
+    if (!operation) return null
+    const method = operation.method.toUpperCase()
+    const rawBase = baseUrl.trim()
+    const normalizedBase = rawBase || PLACEHOLDER_BASE_URL
+    const usesPlaceholderBase = !rawBase
+    const baseWithSlash = normalizedBase.endsWith('/') ? normalizedBase : `${normalizedBase}/`
+    const resolvedPath = applyPathParams(operation.path, pathValues)
+    const relativePath = resolvedPath.replace(/^\//, '')
+
+    let url: URL
+    try {
+      url = new URL(relativePath, baseWithSlash)
+    } catch {
+      return {
+        method,
+        url: '',
+        headers: [],
+        mediaType: requestVariant?.mediaType,
+        usesPlaceholderBase,
+        baseError: 'Base URL must be absolute (include protocol, e.g. https://api.example.com).',
+      }
+    }
+
+    for (const [key, value] of Object.entries(queryValues)) {
+      if (!value) continue
+      url.searchParams.append(key, value)
+    }
+
+    const headers: Array<[string, string]> = [['Accept', 'application/json']]
+    const trimmedKey = apiKey.trim()
+    if (trimmedKey) {
+      headers.push(['Authorization', `Bearer ${trimmedKey}`])
+    }
+
+    let body: string | undefined
+    let jsonBody: unknown
+    let bodyParseError: string | undefined
+
+    if (requestVariant && method !== 'GET' && method !== 'HEAD') {
+      headers.push(['Content-Type', requestVariant.mediaType])
+      if (requestVariant.mediaType === 'application/json') {
+        if (bodyContent.trim()) {
+          try {
+            jsonBody = JSON.parse(bodyContent)
+            body = JSON.stringify(jsonBody)
+          } catch {
+            bodyParseError = 'Request body must be valid JSON.'
+          }
+        }
+      } else {
+        if (bodyContent) {
+          body = bodyContent
+        }
+      }
+    }
+
+    const missingPathParam = pathParams.find((parameter: any) => parameter.required && !pathValues[parameter.name])
+
+    return {
+      method,
+      url: url.toString(),
+      headers,
+      body,
+      jsonBody,
+      mediaType: requestVariant?.mediaType,
+      usesPlaceholderBase,
+      missingPathParam: missingPathParam?.name,
+      bodyParseError,
+    }
+  }, [operation, baseUrl, pathValues, queryValues, apiKey, requestVariant, bodyContent, pathParams])
+
+  const codeSnippets = useMemo<CodeSnippet[]>(() => {
+    if (!requestPreview || requestPreview.baseError) return []
+
+    const snippets: CodeSnippet[] = []
+    const { method, url, headers, body, jsonBody, mediaType } = requestPreview
+
+    if (url) {
+      const curlParts = [`curl -X ${method} '${escapeSingleQuotes(url)}'`]
+      for (const [key, value] of headers) {
+        curlParts.push(`  -H '${escapeSingleQuotes(`${key}: ${value}`)}'`)
+      }
+      if (body) {
+        curlParts.push(`  --data '${escapeSingleQuotes(body)}'`)
+      }
+      snippets.push({
+        id: 'curl',
+        label: 'cURL',
+        language: 'bash',
+        code: curlParts.join(' \\\n'),
+      })
+
+      const headerEntries =
+        headers.length === 0
+          ? ''
+          : headers.map(([key, value]) => `  '${key}': '${escapeSingleQuotesForJs(value)}',`).join('\n')
+      const tsLines: string[] = [
+        `const url = '${escapeSingleQuotesForJs(url)}';`,
+        headerEntries ? `const headers = {\n${headerEntries}\n};` : 'const headers = {};',
+      ]
+
+      if (mediaType === 'application/json' && jsonBody !== undefined) {
+        const payloadLiteral = JSON.stringify(jsonBody, null, 2)
+        tsLines.push('', `const payload = ${payloadLiteral};`)
+        tsLines.push(
+          '',
+          'const response = await fetch(url, {',
+          `  method: '${method}',`,
+          '  headers,',
+          '  body: JSON.stringify(payload),',
+          '});'
+        )
+      } else if (body) {
+        tsLines.push('', `const body = \`${escapeBackticks(body)}\`;`)
+        tsLines.push(
+          '',
+          'const response = await fetch(url, {',
+          `  method: '${method}',`,
+          '  headers,',
+          '  body,',
+          '});'
+        )
+      } else {
+        tsLines.push(
+          '',
+          'const response = await fetch(url, {',
+          `  method: '${method}',`,
+          '  headers,',
+          '});'
+        )
+      }
+      tsLines.push('const data = await response.json();', 'console.log(data);')
+
+      snippets.push({
+        id: 'typescript',
+        label: 'TypeScript',
+        language: 'ts',
+        code: tsLines.join('\n'),
+      })
+
+      const pythonLines: string[] = ["import requests", "", `url = '${escapeSingleQuotesForJs(url)}'`]
+      if (headers.length) {
+        const pythonHeaders = headers
+          .map(([key, value]) => `    '${key}': '${escapeSingleQuotesForJs(value)}',`)
+          .join('\n')
+        pythonLines.push('headers = {', pythonHeaders, '}')
+      } else {
+        pythonLines.push('headers = {}')
+      }
+
+      if (mediaType === 'application/json' && jsonBody !== undefined) {
+        const pythonPayload = toPythonLiteral(jsonBody)
+        pythonLines.push('', `payload = ${pythonPayload}`)
+        pythonLines.push(
+          `response = requests.request('${method}', url, headers=headers, json=payload)`
+        )
+      } else if (body) {
+        pythonLines.push('', `data = ${toPythonLiteral(body)}`)
+        pythonLines.push(`response = requests.request('${method}', url, headers=headers, data=data)`)
+      } else {
+        pythonLines.push('', `response = requests.request('${method}', url, headers=headers)`)
+      }
+      pythonLines.push('print(response.status_code)', 'print(response.text)')
+
+      snippets.push({
+        id: 'python',
+        label: 'Python',
+        language: 'python',
+        code: pythonLines.join('\n'),
+      })
+    }
+
+    return snippets
+  }, [requestPreview])
+
   useEffect(() => {
     const nextPath: Record<string, string> = {}
     for (const parameter of pathParams) {
@@ -863,46 +1173,26 @@ function TesterPanel(props: TesterPanelProps) {
   }
 
   const handleSubmit = async () => {
-    if (!baseUrl) {
+    if (!operation) return
+    if (!baseUrl.trim()) {
       setError('Please provide a base URL for the request.')
       return
     }
-
-    const requiredPathParam = pathParams.find((param: any) => param.required && !pathValues[param.name])
-    if (requiredPathParam) {
-      setError(`Path parameter "${requiredPathParam.name}" is required.`)
+    if (requestPreview?.baseError) {
+      setError(requestPreview.baseError)
       return
     }
-
-    const method = operation.method.toUpperCase()
-    const headers: Record<string, string> = { Accept: 'application/json' }
-    let body: BodyInit | undefined
-
-    if (apiKey) {
-      headers.Authorization = `Bearer ${apiKey.trim()}`
+    if (requestPreview?.missingPathParam) {
+      setError(`Path parameter "${requestPreview.missingPathParam}" is required.`)
+      return
     }
-
-    if (requestVariant && method !== 'GET' && method !== 'HEAD') {
-      headers['Content-Type'] = requestVariant.mediaType
-      if (requestVariant.mediaType === 'application/json') {
-        try {
-          body = bodyContent ? JSON.stringify(JSON.parse(bodyContent)) : undefined
-        } catch (cause) {
-          setError('Request body must be valid JSON.')
-          return
-        }
-      } else if (requestVariant.mediaType === 'application/x-www-form-urlencoded') {
-        body = bodyContent
-      } else {
-        body = bodyContent
-      }
+    if (requestPreview?.bodyParseError) {
+      setError(requestPreview.bodyParseError)
+      return
     }
-
-    const resolvedPath = applyPathParams(operation.path, pathValues)
-    const url = new URL(resolvedPath.replace(/^\//, ''), baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`)
-    for (const [key, value] of Object.entries(queryValues)) {
-      if (!value) continue
-      url.searchParams.append(key, value)
+    if (!requestPreview) {
+      setError('Unable to prepare the request. Check your input and try again.')
+      return
     }
 
     setIsLoading(true)
@@ -911,10 +1201,10 @@ function TesterPanel(props: TesterPanelProps) {
 
     try {
       const started = performance.now()
-      const res = await fetch(url.toString(), {
-        method,
-        headers,
-        body,
+      const res = await fetch(requestPreview.url, {
+        method: requestPreview.method,
+        headers: Object.fromEntries(requestPreview.headers),
+        body: requestPreview.body,
       })
       const duration = performance.now() - started
       const text = await res.text()
@@ -974,6 +1264,14 @@ function TesterPanel(props: TesterPanelProps) {
             </option>
           ))}
         </select>
+        {!baseUrl.trim() && requestPreview?.usesPlaceholderBase ? (
+          <p className="text-xs text-muted-foreground">
+            Examples default to {PLACEHOLDER_BASE_URL}. Update the base URL to match your environment.
+          </p>
+        ) : null}
+        {requestPreview?.baseError ? (
+          <p className="text-xs text-rose-600">{requestPreview.baseError}</p>
+        ) : null}
       </label>
 
       <label className="space-y-2 text-sm">
@@ -1056,6 +1354,19 @@ function TesterPanel(props: TesterPanelProps) {
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono leading-relaxed focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             placeholder="Provide request payload"
           />
+        </section>
+      ) : null}
+
+      {requestPreview?.bodyParseError ? (
+        <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          {requestPreview.bodyParseError}
+        </div>
+      ) : null}
+
+      {codeSnippets.length ? (
+        <section className="space-y-2 text-sm">
+          <div className="font-medium text-foreground">Request examples</div>
+          <CodeSnippetTabs snippets={codeSnippets} />
         </section>
       ) : null}
 

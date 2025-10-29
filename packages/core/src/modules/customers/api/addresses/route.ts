@@ -120,27 +120,25 @@ const { POST, PUT, DELETE } = crud
 export { POST, PUT, DELETE }
 export const GET = crud.GET
 
-const addressListItemSchema = z
-  .object({
-    id: z.string().uuid(),
-    entity_id: z.string().uuid(),
-    name: z.string().nullable().optional(),
-    purpose: z.string().nullable().optional(),
-    address_line1: z.string().nullable().optional(),
-    address_line2: z.string().nullable().optional(),
-    building_number: z.string().nullable().optional(),
-    flat_number: z.string().nullable().optional(),
-    city: z.string().nullable().optional(),
-    region: z.string().nullable().optional(),
-    postal_code: z.string().nullable().optional(),
-    country: z.string().nullable().optional(),
-    latitude: z.number().nullable().optional(),
-    longitude: z.number().nullable().optional(),
-    is_primary: z.boolean().nullable().optional(),
-    organization_id: z.string().uuid().nullable().optional(),
-    tenant_id: z.string().uuid().nullable().optional(),
-  })
-  .passthrough()
+const addressListItemSchema = z.object({
+  id: z.string().uuid(),
+  entity_id: z.string().uuid(),
+  name: z.string().nullable().optional(),
+  purpose: z.string().nullable().optional(),
+  address_line1: z.string().nullable().optional(),
+  address_line2: z.string().nullable().optional(),
+  building_number: z.string().nullable().optional(),
+  flat_number: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  region: z.string().nullable().optional(),
+  postal_code: z.string().nullable().optional(),
+  country: z.string().nullable().optional(),
+  latitude: z.number().nullable().optional(),
+  longitude: z.number().nullable().optional(),
+  is_primary: z.boolean().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+})
 
 const addressCreateResponseSchema = z.object({
   id: z.string().uuid().nullable(),
