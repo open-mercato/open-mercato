@@ -39,14 +39,17 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   }
 
   let baseDelta = 0
+  let baseCheckSucceeded = false
   try {
     const knex = (em as any).getConnection().getKnex()
     const table = resolveEntityTableName(em, entityType)
     const row = await knex(table).select(['deleted_at']).where({ id: recordId }).first()
     const baseMissing = !row
     const baseDeleted = baseMissing || (row && row.deleted_at != null)
+    baseCheckSucceeded = true
     if (baseDeleted) baseDelta = -1
   } catch {}
+  if (!baseCheckSucceeded) baseDelta = -1
 
   const indexDelta = wasActive ? -1 : 0
   if (baseDelta !== 0 || indexDelta !== 0) {
@@ -55,21 +58,23 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     await applyCoverageAdjustments(em, adjustments)
   }
 
-  if (coverageDelayMs !== undefined && coverageDelayMs >= 0) {
+  const shouldRefreshCoverage = coverageDelayMs === undefined || coverageDelayMs >= 0
+  if (shouldRefreshCoverage) {
+    const delay = coverageDelayMs ?? 0
     try {
       const bus = ctx.resolve<any>('eventBus')
       await bus.emitEvent('query_index.coverage.refresh', {
         entityType,
         tenantId: tenantId ?? null,
         organizationId,
-        delayMs: coverageDelayMs,
+        delayMs: delay,
       })
       if (organizationId !== null) {
         await bus.emitEvent('query_index.coverage.refresh', {
           entityType,
           tenantId: tenantId ?? null,
           organizationId: null,
-          delayMs: coverageDelayMs,
+          delayMs: delay,
         })
       }
     } catch {}

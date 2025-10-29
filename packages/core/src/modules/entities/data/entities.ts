@@ -22,6 +22,11 @@ import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
   properties: ['entityId'],
   where: 'is_active = true and tenant_id is null and organization_id is null',
 })
+@Index({
+  name: 'cf_defs_active_entity_key_scope_idx',
+  properties: ['entityId', 'key', 'tenantId', 'organizationId'],
+  where: 'is_active = true and deleted_at is null',
+})
 export class CustomFieldDef {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -151,6 +156,11 @@ export class CustomEntityStorage {
 
 // Values for custom fields (EAV); recordId is a text to support any PK
 @Entity({ tableName: 'custom_field_values' })
+@Index({
+  name: 'cf_values_entity_record_tenant_idx',
+  properties: ['entityId', 'recordId', 'tenantId'],
+  where: 'deleted_at is null',
+})
 export class CustomFieldValue {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

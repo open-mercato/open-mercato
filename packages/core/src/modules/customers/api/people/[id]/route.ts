@@ -218,6 +218,7 @@ async function resolveTodoDetails(
   links: CustomerTodoLink[],
   tenantId: string | null,
   organizationIds: Array<string | null>,
+  profiler?: RouteProfiler,
 ): Promise<Map<string, TodoDetail>> {
   const details = new Map<string, TodoDetail>()
   if (!links.length || !tenantId) return details
@@ -234,9 +235,12 @@ async function resolveTodoDetails(
     idsBySource.get(source)!.add(id)
   }
 
+  profiler?.mark('todo_links_grouped', { sourceCount: idsBySource.size, linkCount: links.length })
+
   for (const [source, idSet] of idsBySource.entries()) {
     const ids = Array.from(idSet)
     if (!ids.length) continue
+    profiler?.mark('todo_query_start', { source, count: ids.length })
     try {
       const result = await queryEngine.query<Record<string, unknown>>(source as EntityId, {
         tenantId,
@@ -245,6 +249,9 @@ async function resolveTodoDetails(
         includeCustomFields: ['priority', 'due_at', 'severity', 'description'],
         page: { page: 1, pageSize: Math.max(ids.length, 1) },
       })
+      const itemCount = Array.isArray(result.items) ? result.items.length : 0
+      profiler?.mark('todo_query_complete', { source, itemCount })
+      let enriched = 0
       for (const item of result.items ?? []) {
         if (!item || typeof item !== 'object') continue
         const record = item as Record<string, unknown>
@@ -351,12 +358,16 @@ async function resolveTodoDetails(
           organizationId,
           customValues: Object.keys(customValues).length ? customValues : null,
         })
+        enriched += 1
       }
+      profiler?.mark('todo_items_processed', { source, enriched })
     } catch (err) {
+      profiler?.mark('todo_query_failed', { source, error: err instanceof Error ? err.message : String(err) })
       console.warn(`customers.people.detail: failed to resolve todos for source ${source}`, err)
     }
   }
 
+  profiler?.mark('todo_details_ready', { enrichedCount: details.size })
   return details
 }
 
@@ -485,11 +496,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             todoLinks,
             person.tenantId ?? auth.tenantId ?? null,
             [person.organizationId ?? null, ...(scope?.filterIds ?? [])],
+            profiler,
           )
         } catch (err) {
           console.warn('customers.people.detail: failed to enrich todo links', err)
         }
-        profiler.mark('todo_details_enriched', { count: todoDetails.size })
+        profiler.mark('todo_details_enriched', { count: todoDetails.size, links: todoLinks.length })
       }
     }
 
