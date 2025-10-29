@@ -96,3 +96,20 @@ export type VectorSearchHit = {
   driverId: VectorDriverId
   metadata?: Record<string, unknown> | null
 }
+
+export type VectorIndexEntry = {
+  entityId: EntityId
+  recordId: string
+  driverId: VectorDriverId
+  tenantId: string
+  organizationId?: string | null
+  checksum: string
+  url?: string | null
+  presenter?: VectorResultPresenter | null
+  links?: VectorLinkDescriptor[] | null
+  payload?: Record<string, unknown> | null
+  metadata?: Record<string, unknown> | null
+  createdAt: string
+  updatedAt: string
+  score?: number | null
+}

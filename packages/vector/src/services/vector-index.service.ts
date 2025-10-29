@@ -9,6 +9,7 @@ import {
   type VectorDriverId,
   type VectorLinkDescriptor,
   type VectorResultPresenter,
+  type VectorIndexEntry,
 } from '../types'
 import type { VectorDriver } from '../types'
 import { computeChecksum } from './checksum'
@@ -173,6 +174,69 @@ export class VectorIndexService {
       links: links ?? null,
       payload: source.payload ?? null,
     })
+  }
+
+  private buildFallbackPresenter(
+    record: Record<string, any>,
+    customFields: Record<string, any>,
+  ): VectorResultPresenter | null {
+    const titleCandidate =
+      record.display_name ??
+      record.displayName ??
+      record.name ??
+      record.title ??
+      record.subject ??
+      null
+    if (!titleCandidate) return null
+    const subtitleCandidate =
+      record.description ??
+      record.summary ??
+      record.body ??
+      customFields.summary ??
+      customFields.description ??
+      null
+    return {
+      title: String(titleCandidate),
+      subtitle: subtitleCandidate ? String(subtitleCandidate) : undefined,
+    }
+  }
+
+  private resolveMetadata(
+    primary: Record<string, unknown> | null | undefined,
+    secondary: Record<string, unknown> | null | undefined,
+  ): Record<string, unknown> | null {
+    if (primary && typeof primary === 'object') return primary
+    if (secondary && typeof secondary === 'object') return secondary
+    return null
+  }
+
+  private mergeMetadata(
+    base: Record<string, unknown> | null,
+    fallback: Record<string, unknown> | null,
+  ): Record<string, unknown> | null {
+    if (!base && !fallback) return null
+    if (!base) return fallback
+    if (!fallback) return base
+    return { ...fallback, ...base }
+  }
+
+  private buildMetadataSnapshot(
+    record: Record<string, any>,
+    customFields: Record<string, any>,
+  ): Record<string, unknown> | null {
+    const snapshotCandidates = [
+      record.summary,
+      record.description,
+      record.body,
+      customFields.summary,
+      customFields.description,
+      customFields.body,
+    ]
+    const snapshot = snapshotCandidates.find((value) => typeof value === 'string' && value.trim().length > 0)
+    const result: Record<string, unknown> = {}
+    if (snapshot) result.snapshot = snapshot
+    if (!Object.keys(result).length) return null
+    return result
   }
 
   private buildDefaultSource(entityId: EntityId, payload: { record: Record<string, any>; customFields: Record<string, any> }): VectorIndexSource {
@@ -387,6 +451,143 @@ export class VectorIndexService {
     for (const entityId of this.listEnabledEntities()) {
       await this.reindexEntity({ entityId, tenantId: args.tenantId, organizationId: args.organizationId ?? null, purgeFirst: args.purgeFirst })
     }
+  }
+
+  async listIndexEntries(args: {
+    tenantId: string
+    organizationId?: string | null
+    entityId?: EntityId
+    limit?: number
+    offset?: number
+    driverId?: VectorDriverId
+  }): Promise<VectorIndexEntry[]> {
+    const targetEntity = args.entityId ? this.entityConfig.get(args.entityId) : null
+    if (args.entityId && !targetEntity) {
+      return []
+    }
+    const driverId =
+      args.driverId ??
+      (targetEntity ? targetEntity.driverId : this.defaultDriverId)
+    const driver = this.getDriver(driverId)
+    if (typeof driver.list !== 'function') {
+      throw new Error(`[vector] Driver ${driverId} does not support listing index entries`)
+    }
+    await driver.ensureReady()
+    const list = await driver.list({
+      tenantId: args.tenantId,
+      organizationId: args.organizationId ?? null,
+      entityId: args.entityId,
+      limit: args.limit,
+      offset: args.offset,
+      orderBy: 'updated',
+    })
+    if (!list.length) {
+      return []
+    }
+
+    const entityBuckets = new Map<EntityId, Set<string>>()
+    for (const entry of list) {
+      const cfg = this.entityConfig.get(entry.entityId)
+      if (!cfg) continue
+      if (!entityBuckets.has(entry.entityId)) {
+        entityBuckets.set(entry.entityId, new Set())
+      }
+      entityBuckets.get(entry.entityId)!.add(entry.recordId)
+    }
+
+    const recordCache = new Map<EntityId, Map<string, { record: Record<string, any>; customFields: Record<string, any> }>>()
+    for (const [entityId, ids] of entityBuckets.entries()) {
+      const map = await this.fetchRecord(entityId, Array.from(ids), args.tenantId, args.organizationId ?? null)
+      const filtered = new Map<string, { record: Record<string, any>; customFields: Record<string, any> }>()
+      for (const id of ids) {
+        const raw = map.get(id)
+        if (!raw) continue
+        const payload = this.extractRecordPayload(raw)
+        filtered.set(id, payload)
+      }
+      recordCache.set(entityId, filtered)
+    }
+
+    const enriched = await Promise.all(
+      list.map(async (entry) => {
+        const cfgEntry = this.entityConfig.get(entry.entityId)
+        if (!cfgEntry) {
+          return {
+            ...entry,
+            driverId,
+            presenter: entry.presenter ?? null,
+            links: entry.links ?? null,
+            url: entry.url ?? null,
+            metadata: entry.payload ?? entry.metadata ?? null,
+            score: entry.score ?? null,
+          }
+        }
+
+        const records = recordCache.get(entry.entityId)
+        const payload = records?.get(entry.recordId)
+        if (!payload) {
+          return {
+            ...entry,
+            driverId,
+            presenter: entry.presenter ?? null,
+            links: entry.links ?? null,
+            url: entry.url ?? null,
+            metadata: entry.payload ?? entry.metadata ?? null,
+            score: entry.score ?? null,
+          }
+        }
+
+        const { record, customFields } = payload
+        const presenter = await this.resolvePresenter(
+          cfgEntry.config,
+          {
+            record,
+            customFields,
+            tenantId: args.tenantId,
+            organizationId: args.organizationId ?? null,
+          },
+          entry.presenter ?? null,
+        )
+        const links = await this.resolveLinks(
+          cfgEntry.config,
+          {
+            record,
+            customFields,
+            tenantId: args.tenantId,
+            organizationId: args.organizationId ?? null,
+          },
+          entry.links ?? null,
+        )
+        const url = await this.resolveUrl(
+          cfgEntry.config,
+          {
+            record,
+            customFields,
+            tenantId: args.tenantId,
+            organizationId: args.organizationId ?? null,
+          },
+          entry.url ?? null,
+        )
+
+        const normalizedPresenter = presenter ?? this.buildFallbackPresenter(record, customFields)
+        const normalizedLinks = links ?? null
+        const normalizedUrl = url ?? null
+        const baseMetadata = this.resolveMetadata(entry.payload, entry.metadata)
+        const metadata = this.mergeMetadata(baseMetadata, this.buildMetadataSnapshot(record, customFields))
+
+        return {
+          ...entry,
+          driverId,
+          presenter: normalizedPresenter,
+          links: normalizedLinks,
+          url: normalizedUrl,
+          metadata,
+          score: entry.score ?? null,
+        }
+      }),
+    )
+
+    return enriched
   }
 
   async search(request: VectorQueryRequest): Promise<VectorSearchHit[]> {

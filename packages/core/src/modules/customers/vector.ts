@@ -10,7 +10,14 @@ type VectorContext = {
 }
 
 const customerEntityCache = new WeakMap<Record<string, any>, any>()
+const personProfileCache = new WeakMap<Record<string, any>, ProfileDetails | null>()
+const companyProfileCache = new WeakMap<Record<string, any>, ProfileDetails | null>()
 const todoCache = new WeakMap<Record<string, any>, any>()
+
+type ProfileDetails = {
+  base: Record<string, any>
+  customFields: Record<string, any>
+}
 
 async function loadRecord(ctx: VectorContext, entityId: string, recordId?: string | null) {
   if (!recordId || !ctx.queryEngine) return null
@@ -23,6 +30,50 @@ async function loadRecord(ctx: VectorContext, entityId: string, recordId?: strin
   return res.items[0] as Record<string, any> | undefined
 }
 
+function splitRecordAndCustomFields(raw: Record<string, any>): ProfileDetails {
+  const base: Record<string, any> = {}
+  const customFields: Record<string, any> = {}
+  const multiFlags = new Map<string, boolean>()
+  for (const [key, value] of Object.entries(raw)) {
+    if (key.startsWith('cf:') && key.endsWith('__is_multi')) {
+      const cfKey = key.slice(3, -'__is_multi'.length)
+      multiFlags.set(cfKey, Boolean(value))
+    }
+  }
+  for (const [key, value] of Object.entries(raw)) {
+    if (key.startsWith('cf:')) {
+      if (key.endsWith('__is_multi')) continue
+      const cfKey = key.slice(3)
+      const isMulti = multiFlags.get(cfKey)
+      if (Array.isArray(value)) {
+        customFields[cfKey] = value
+      } else if (value === null || value === undefined) {
+        customFields[cfKey] = null
+      } else if (isMulti) {
+        customFields[cfKey] = [value]
+      } else {
+        customFields[cfKey] = value
+      }
+    } else {
+      base[key] = value
+    }
+  }
+  return { base, customFields }
+}
+
+async function loadProfile(ctx: VectorContext, entityId: string, profileEntityId: string): Promise<ProfileDetails | null> {
+  if (!ctx.queryEngine) return null
+  const res = await ctx.queryEngine.query(profileEntityId, {
+    tenantId: ctx.tenantId,
+    organizationId: ctx.organizationId ?? undefined,
+    filters: { entity_id: entityId },
+    includeCustomFields: true,
+  })
+  const raw = res.items[0]
+  if (!raw) return null
+  return splitRecordAndCustomFields(raw as Record<string, any>)
+}
+
 async function getCustomerEntity(ctx: VectorContext, entityId?: string | null) {
   if (!entityId) return null
   if (customerEntityCache.has(ctx.record)) {
@@ -31,6 +82,38 @@ async function getCustomerEntity(ctx: VectorContext, entityId?: string | null) {
   const entity = await loadRecord(ctx, 'customers:customer_entity', entityId)
   customerEntityCache.set(ctx.record, entity ?? null)
   return entity ?? null
+}
+
+function resolveEntityId(record: Record<string, any>): string | null {
+  return record.id ?? record.entity_id ?? record.customer_entity_id ?? null
+}
+
+async function getPersonProfile(ctx: VectorContext) {
+  if (personProfileCache.has(ctx.record)) {
+    return personProfileCache.get(ctx.record)
+  }
+  const entityId = resolveEntityId(ctx.record)
+  if (!entityId) {
+    personProfileCache.set(ctx.record, null)
+    return null
+  }
+  const profile = await loadProfile(ctx, entityId, 'customers:customer_person_profile')
+  personProfileCache.set(ctx.record, profile)
+  return profile
+}
+
+async function getCompanyProfile(ctx: VectorContext) {
+  if (companyProfileCache.has(ctx.record)) {
+    return companyProfileCache.get(ctx.record)
+  }
+  const entityId = resolveEntityId(ctx.record)
+  if (!entityId) {
+    companyProfileCache.set(ctx.record, null)
+    return null
+  }
+  const profile = await loadProfile(ctx, entityId, 'customers:customer_company_profile')
+  companyProfileCache.set(ctx.record, profile)
+  return profile
 }
 
 async function getLinkedTodo(ctx: VectorContext) {
@@ -68,21 +151,105 @@ function snippet(text: unknown, max = 140): string | undefined {
   return `${trimmed.slice(0, max - 3)}...`
 }
 
+function appendLine(lines: string[], label: string, value: unknown) {
+  if (value === null || value === undefined) return
+  const text = Array.isArray(value)
+    ? value.map((item) => (item === null || item === undefined ? '' : String(item))).filter(Boolean).join(', ')
+    : (typeof value === 'object' ? JSON.stringify(value) : String(value))
+  if (!text.trim()) return
+  lines.push(`${label}: ${text}`)
+}
+
+function friendlyLabel(input: string): string {
+  return input
+    .replace(/^cf:/, '')
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, (_, a, b) => `${a} ${b}`)
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function appendCustomFieldLines(lines: string[], customFields: Record<string, any>, prefix: string) {
+  for (const [key, value] of Object.entries(customFields)) {
+    if (value === null || value === undefined) continue
+    const label = prefix ? `${prefix} ${friendlyLabel(key)}` : friendlyLabel(key)
+    appendLine(lines, label, value)
+  }
+}
+
 export const vectorConfig: VectorModuleConfig = {
   defaultDriverId: 'pgvector',
   entities: [
     {
       entityId: 'customers:customer_entity',
-      formatResult: async ({ record }) => {
+      buildSource: async (ctx) => {
+        const lines: string[] = []
+        const record = ctx.record
+        appendLine(lines, 'Customer', record.display_name ?? record.name ?? record.title ?? record.id)
+        appendLine(lines, 'Description', record.description)
+        appendLine(lines, 'Status', record.status)
+        appendLine(lines, 'Lifecycle stage', record.lifecycle_stage)
+        appendLine(lines, 'Primary email', record.primary_email)
+        appendLine(lines, 'Primary phone', record.primary_phone)
+        appendCustomFieldLines(lines, ctx.customFields, 'Customer custom')
+
+        let profileDetails: ProfileDetails | null = null
+        if ((record.kind ?? record.customer_kind) === 'person') {
+          profileDetails = await getPersonProfile(ctx)
+          if (profileDetails) {
+            const base = profileDetails.base
+            appendLine(lines, 'Preferred name', base.preferred_name)
+            appendLine(lines, 'First name', base.first_name)
+            appendLine(lines, 'Last name', base.last_name)
+            appendLine(lines, 'Job title', base.job_title)
+            appendLine(lines, 'Department', base.department)
+            appendLine(lines, 'Seniority', base.seniority)
+            appendLine(lines, 'Timezone', base.timezone)
+            appendLine(lines, 'LinkedIn', base.linked_in_url)
+            appendLine(lines, 'Twitter', base.twitter_url)
+            appendCustomFieldLines(lines, profileDetails.customFields, 'Person custom')
+          }
+        } else {
+          profileDetails = await getCompanyProfile(ctx)
+          if (profileDetails) {
+            const base = profileDetails.base
+            appendLine(lines, 'Legal name', base.legal_name)
+            appendLine(lines, 'Brand name', base.brand_name)
+            appendLine(lines, 'Domain', base.domain)
+            appendLine(lines, 'Website', base.website_url)
+            appendLine(lines, 'Industry', base.industry)
+            appendLine(lines, 'Company size', base.size_bucket)
+            appendLine(lines, 'Annual revenue', base.annual_revenue)
+            appendCustomFieldLines(lines, profileDetails.customFields, 'Company custom')
+          }
+        }
+
+        return {
+          input: lines,
+          presenter: null,
+          checksumSource: {
+            record: ctx.record,
+            customFields: ctx.customFields,
+            profile: profileDetails,
+          },
+        }
+      },
+      formatResult: async (ctx) => {
+        const { record } = ctx
         const title = String(record.display_name ?? record.title ?? record.name ?? record.id ?? 'Customer')
         const subtitleParts: string[] = []
         if (record.kind === 'person') {
           if (record.primary_email) subtitleParts.push(String(record.primary_email))
           if (record.primary_phone) subtitleParts.push(String(record.primary_phone))
-          if (record.job_title) subtitleParts.push(String(record.job_title))
+          const profile = await getPersonProfile(ctx)
+          const profileBase = profile?.base ?? {}
+          if (profileBase.job_title) subtitleParts.push(String(profileBase.job_title))
+          if (profileBase.department) subtitleParts.push(String(profileBase.department))
         } else if (record.kind === 'company') {
           if (record.status) subtitleParts.push(String(record.status))
           if (record.lifecycle_stage) subtitleParts.push(String(record.lifecycle_stage))
+          const profile = await getCompanyProfile(ctx)
+          const profileBase = profile?.base ?? {}
+          if (profileBase.industry) subtitleParts.push(String(profileBase.industry))
         }
         const description = snippet(record.description ?? record.summary)
         if (description) subtitleParts.push(description)

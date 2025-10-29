@@ -3,14 +3,26 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
+import * as LucideIcons from 'lucide-react'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import type { VectorSearchHit } from '@open-mercato/vector'
-import { fetchVectorResults } from '../utils'
+import type { VectorSearchHit, VectorIndexEntry } from '@open-mercato/vector'
+import { cn } from '@open-mercato/shared/lib/utils'
+import { fetchVectorResults, fetchVectorIndexEntries } from '../utils'
 
-type Row = VectorSearchHit
+type Row = {
+  entityId: string
+  recordId: string
+  driverId: string
+  score: number | null
+  url: string | null
+  presenter: VectorSearchHit['presenter'] | null
+  links: VectorSearchHit['links'] | null
+  updatedAt: string | null
+  metadata: Record<string, unknown> | null
+}
 const MIN_QUERY_LENGTH = 2
 
 const columns: ColumnDef<Row>[] = [
@@ -19,27 +31,65 @@ const columns: ColumnDef<Row>[] = [
     header: 'Result',
     cell: ({ row }) => {
       const item = row.original
+      const iconName = item.presenter?.icon
+      const Icon = iconName ? resolveIcon(iconName) : null
+      const typeLabel = formatEntityId(item.entityId)
+      const snapshot = item.presenter?.subtitle ?? extractSnapshot(item.metadata)
+      const links = normalizeLinks(item.links)
       return (
         <div className="flex flex-col">
-          <span className="font-medium">{item.presenter?.title ?? item.recordId}</span>
-          {item.presenter?.subtitle ? (
-            <span className="text-sm text-muted-foreground">{item.presenter.subtitle}</span>
-          ) : null}
+          <div className="flex items-start gap-3">
+            {Icon ? <Icon className="mt-0.5 h-5 w-5 text-muted-foreground" /> : null}
+            <div className="flex flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{item.presenter?.title ?? item.recordId}</span>
+                <span className="rounded border border-muted-foreground/40 px-2 py-0.5 text-xs text-muted-foreground">
+                  {typeLabel}
+                </span>
+              </div>
+              {snapshot ? (
+                <span className="text-sm text-muted-foreground">{snapshot}</span>
+              ) : null}
+              {links.length ? (
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  {links.map((link) => (
+                    <span
+                      key={`${item.entityId}:${item.recordId}:${link.href}`}
+                      className={cn(
+                        'rounded-full border px-2 py-0.5 text-xs',
+                        link.kind === 'primary'
+                          ? 'border-primary text-primary'
+                          : 'border-muted-foreground/40 text-muted-foreground',
+                      )}
+                    >
+                      {link.label ?? link.href}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
       )
     },
     meta: { priority: 1 },
   },
   {
-    id: 'entity',
-    header: 'Entity',
-    accessorKey: 'entityId',
+    id: 'score',
+    header: 'Score',
+    cell: ({ row }) => <span>{row.original.score != null ? row.original.score.toFixed(2) : '—'}</span>,
     meta: { priority: 2 },
   },
   {
-    id: 'score',
-    header: 'Score',
-    cell: ({ row }) => <span>{row.original.score.toFixed(2)}</span>,
+    id: 'updated',
+    header: 'Updated',
+    cell: ({ row }) => {
+      const value = row.original.updatedAt
+      if (!value) return <span>—</span>
+      const date = new Date(value)
+      if (Number.isNaN(date.getTime())) return <span>—</span>
+      return <span>{date.toLocaleString()}</span>
+    },
     meta: { priority: 2 },
   },
 ]
@@ -47,6 +97,58 @@ const columns: ColumnDef<Row>[] = [
 function normalizeLinks(links?: Row['links']): { href: string; label?: string; kind?: string }[] {
   if (!Array.isArray(links)) return []
   return links.filter((link) => typeof link?.href === 'string') as Array<{ href: string; label?: string; kind?: string }>
+}
+
+function toPascalCase(input: string): string {
+  return input
+    .split(/[-_ ]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('')
+}
+
+type LucideIconComponent = React.ComponentType<{ className?: string }>
+
+function resolveIcon(name?: string): LucideIconComponent | null {
+  if (!name) return null
+  const key = toPascalCase(name)
+  const Icon = (LucideIcons as Record<string, LucideIconComponent | undefined>)[key]
+  return typeof Icon === 'function' ? Icon : null
+}
+
+function humanizeSegment(segment: string): string {
+  return segment
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function formatEntityId(entityId: string): string {
+  if (!entityId.includes(':')) return humanizeSegment(entityId)
+  const [module, entity] = entityId.split(':')
+  const moduleLabel = humanizeSegment(module)
+  const entityLabel = humanizeSegment(entity)
+  return `${moduleLabel} · ${entityLabel}`
+}
+
+function extractSnapshot(metadata: Record<string, unknown> | null): string | null {
+  if (!metadata) return null
+  const candidateKeys = ['snapshot', 'summary', 'description', 'body', 'content', 'note']
+  for (const key of candidateKeys) {
+    const value = metadata[key]
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (trimmed.length) return trimmed
+    }
+  }
+  for (const value of Object.values(metadata)) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (trimmed.length) return trimmed
+    }
+  }
+  return null
 }
 
 function pickPrimaryLink(row: Row): string | null {
@@ -75,33 +177,16 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
   }, [router])
 
   React.useEffect(() => {
-    if (!apiKeyAvailable) {
-      abortRef.current?.abort()
-      if (debounceRef.current) {
-        window.clearTimeout(debounceRef.current)
-        debounceRef.current = null
-      }
-      setRows([])
-      setError(missingKeyMessage)
-      setLoading(false)
-      return
-    }
+    const trimmed = searchValue.trim()
     abortRef.current?.abort()
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current)
       debounceRef.current = null
     }
 
-    const trimmed = searchValue.trim()
-    if (!trimmed) {
+    if (!apiKeyAvailable) {
       setRows([])
-      setError(null)
-      setLoading(false)
-      return
-    }
-    if (trimmed.length < MIN_QUERY_LENGTH) {
-      setRows([])
-      setError(null)
+      setError(missingKeyMessage)
       setLoading(false)
       return
     }
@@ -110,11 +195,41 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
     abortRef.current = controller
     setLoading(true)
 
+    const delay = trimmed.length >= MIN_QUERY_LENGTH ? 250 : 150
+
     debounceRef.current = window.setTimeout(async () => {
       try {
-        const data = await fetchVectorResults(trimmed, 50, controller.signal)
-        setRows(data.results as Row[])
-        setError(data.error ?? null)
+        if (trimmed.length >= MIN_QUERY_LENGTH) {
+          const data = await fetchVectorResults(trimmed, 50, controller.signal)
+          const mapped = data.results.map<Row>((item: VectorSearchHit) => ({
+            entityId: item.entityId,
+            recordId: item.recordId,
+            driverId: item.driverId,
+            score: typeof item.score === 'number' ? item.score : null,
+            url: item.url ?? null,
+            presenter: item.presenter ?? null,
+            links: item.links ?? null,
+            updatedAt: null,
+            metadata: (item.metadata as Record<string, unknown> | null) ?? null,
+          }))
+          setRows(mapped)
+          setError(data.error ?? null)
+        } else {
+          const data = await fetchVectorIndexEntries({ limit: 50, signal: controller.signal })
+          const mapped = data.entries.map<Row>((entry: VectorIndexEntry) => ({
+            entityId: entry.entityId,
+            recordId: entry.recordId,
+            driverId: entry.driverId,
+            score: entry.score ?? null,
+            url: entry.url ?? null,
+            presenter: entry.presenter ?? null,
+            links: entry.links ?? null,
+            updatedAt: entry.updatedAt ?? null,
+            metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
+          }))
+          setRows(mapped)
+          setError(data.error ?? null)
+        }
         setPage(1)
       } catch (err: any) {
         if (controller.signal.aborted) return
@@ -124,7 +239,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
       } finally {
         if (!controller.signal.aborted) setLoading(false)
       }
-    }, 250)
+    }, delay)
 
     return () => {
       controller.abort()
@@ -149,17 +264,46 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
       if (typeof window !== 'undefined') {
         window.alert('Vector reindex started. Results will refresh once embeddings complete.')
       }
+      setError(null)
       const trimmed = searchValue.trim()
       if (trimmed.length >= MIN_QUERY_LENGTH) {
         try {
           const data = await fetchVectorResults(trimmed, 50)
-          setRows(data.results as Row[])
+          const mapped = data.results.map<Row>((item: VectorSearchHit) => ({
+            entityId: item.entityId,
+            recordId: item.recordId,
+            driverId: item.driverId,
+            score: typeof item.score === 'number' ? item.score : null,
+            url: item.url ?? null,
+            presenter: item.presenter ?? null,
+            links: item.links ?? null,
+            updatedAt: null,
+            metadata: (item.metadata as Record<string, unknown> | null) ?? null,
+          }))
+          setRows(mapped)
           setError(data.error ?? null)
         } catch (err: any) {
           setError(err instanceof Error ? err.message : 'Vector search failed')
         }
       } else {
-        setRows([])
+        try {
+          const data = await fetchVectorIndexEntries({ limit: 50 })
+          const mapped = data.entries.map<Row>((entry: VectorIndexEntry) => ({
+            entityId: entry.entityId,
+            recordId: entry.recordId,
+            driverId: entry.driverId,
+            score: entry.score ?? null,
+            url: entry.url ?? null,
+            presenter: entry.presenter ?? null,
+            links: entry.links ?? null,
+            updatedAt: entry.updatedAt ?? null,
+            metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
+          }))
+          setRows(mapped)
+          setError(data.error ?? null)
+        } catch (err: any) {
+          setError(err instanceof Error ? err.message : 'Vector index fetch failed')
+        }
       }
     } catch (err: any) {
       setError(err instanceof Error ? err.message : 'Vector reindex failed')

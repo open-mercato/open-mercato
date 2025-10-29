@@ -37,10 +37,11 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ ok: true })
   } catch (error: any) {
-    if (error instanceof Error && /Embedding service unavailable/i.test(error.message)) {
-      return NextResponse.json({ error: 'Embedding service unavailable. Configure OPENAI_API_KEY.' }, { status: 503 })
-    }
+    const message = typeof error?.message === 'string' ? error.message : 'Vector reindex failed'
+    const status = typeof error?.status === 'number'
+      ? error.status
+      : (typeof error?.statusCode === 'number' ? error.statusCode : undefined)
     console.error('[vector.reindex] failed', error)
-    return NextResponse.json({ error: 'Vector reindex failed' }, { status: 500 })
+    return NextResponse.json({ error: message }, { status: status && status >= 400 ? status : 500 })
   }
 }

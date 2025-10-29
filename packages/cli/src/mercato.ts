@@ -80,8 +80,17 @@ export async function run(argv = process.argv) {
           await client.connect()
           // Collect all user tables in public schema
           const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)
-          const tables: string[] = (res.rows || []).map((r: any) => String(r.tablename))
-          if (tables.length === 0) {
+          const dropTargets = new Set<string>((res.rows || []).map((r: any) => String(r.tablename)))
+          for (const forced of ['vector_search', 'vector_search_migrations']) {
+            const exists = await client.query<{ regclass: string | null }>(
+              `SELECT to_regclass($1) AS regclass`,
+              [`public.${forced}`],
+            )
+            if (exists.rows?.[0]?.regclass) {
+              dropTargets.add(forced)
+            }
+          }
+          if (dropTargets.size === 0) {
             console.log('   No tables found in public schema.')
           } else {
             // Drop all tables with CASCADE to remove constraints in one go
@@ -89,12 +98,14 @@ export async function run(argv = process.argv) {
             try {
               // Temporarily relax constraints to avoid dependency issues
               await client.query("SET session_replication_role = 'replica'")
-              for (const t of tables) {
+              let dropped = 0
+              for (const t of dropTargets) {
                 await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+                dropped += 1
               }
               await client.query("SET session_replication_role = 'origin'")
               await client.query('COMMIT')
-              console.log(`   Dropped ${tables.length} tables.`)
+              console.log(`   Dropped ${dropped} tables.`)
             } catch (e) {
               await client.query('ROLLBACK')
               throw e

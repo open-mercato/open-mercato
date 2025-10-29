@@ -8,24 +8,29 @@ export const metadata = {
 }
 
 function parseLimit(value: string | null): number {
-  if (!value) return 10
+  if (!value) return 50
   const parsed = Number.parseInt(value, 10)
-  if (Number.isNaN(parsed) || parsed <= 0) return 10
-  return Math.min(parsed, 50)
+  if (Number.isNaN(parsed) || parsed <= 0) return 50
+  return Math.min(parsed, 200)
+}
+
+function parseOffset(value: string | null): number {
+  if (!value) return 0
+  const parsed = Number.parseInt(value, 10)
+  if (Number.isNaN(parsed) || parsed < 0) return 0
+  return parsed
 }
 
 export async function GET(req: Request) {
-  const url = new URL(req.url)
-  const query = (url.searchParams.get('q') || '').trim()
-  const limit = parseLimit(url.searchParams.get('limit'))
-  if (!query) {
-    return NextResponse.json({ error: 'Missing query' }, { status: 400 })
-  }
-
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const url = new URL(req.url)
+  const entityIdParam = url.searchParams.get('entityId')
+  const limit = parseLimit(url.searchParams.get('limit'))
+  const offset = parseOffset(url.searchParams.get('offset'))
 
   const container = await createRequestContainer()
   let service: VectorIndexService
@@ -36,19 +41,20 @@ export async function GET(req: Request) {
   }
 
   try {
-    const results = await service.search({
-      query,
-      limit,
+    const entries = await service.listIndexEntries({
       tenantId: auth.tenantId,
       organizationId: auth.orgId ?? null,
+      entityId: entityIdParam ?? undefined,
+      limit,
+      offset,
     })
-    return NextResponse.json({ results })
+    return NextResponse.json({ entries, limit, offset })
   } catch (error: any) {
-    const message = typeof error?.message === 'string' ? error.message : 'Vector search failed'
+    const message = typeof error?.message === 'string' ? error.message : 'Vector index fetch failed'
     const status = typeof error?.status === 'number'
       ? error.status
       : (typeof error?.statusCode === 'number' ? error.statusCode : undefined)
-    console.error('[vector.search] failed', error)
+    console.error('[vector.index.list] failed', error)
     return NextResponse.json({ error: message }, { status: status && status >= 400 ? status : 500 })
   }
 }

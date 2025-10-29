@@ -1,8 +1,26 @@
-import { Pool, type PoolClient } from 'pg'
-import type { VectorDriver, VectorDriverDocument, VectorDriverQuery, VectorDriverQueryResult } from '../../types'
+import { Pool } from 'pg'
+
+type PgPoolQueryResult<T> = { rows: T[]; rowCount?: number }
+type PgPoolClient = {
+  query<T = any>(text: string, params?: any[]): Promise<PgPoolQueryResult<T>>
+  release(): void
+}
+type PgPool = {
+  connect(): Promise<PgPoolClient>
+  query<T = any>(text: string, params?: any[]): Promise<PgPoolQueryResult<T>>
+  end(): Promise<void>
+}
+import type {
+  VectorDriver,
+  VectorDriverDocument,
+  VectorDriverQuery,
+  VectorDriverQueryResult,
+  VectorDriverListParams,
+  VectorIndexEntry,
+} from '../../types'
 
 type PgVectorDriverOptions = {
-  pool?: Pool
+  pool?: PgPool
   connectionString?: string
   tableName?: string
   migrationsTable?: string
@@ -34,7 +52,22 @@ function toVectorLiteral(values: number[]): string {
   return `[${formatted.join(',')}]`
 }
 
-async function withClient<T>(pool: Pool, fn: (client: PoolClient) => Promise<T>): Promise<T> {
+function parseJsonColumn<T>(value: unknown): T | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as T
+    } catch {
+      return null
+    }
+  }
+  if (typeof value === 'object') {
+    return value as T
+  }
+  return null
+}
+
+async function withClient<T>(pool: PgPool, fn: (client: PgPoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect()
   try {
     return await fn(client)
@@ -51,14 +84,14 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
   const tableIdent = quoteIdent(tableName)
   const migrationsIdent = quoteIdent(migrationsTable)
 
-  const pool =
+  const pool: PgPool =
     opts.pool ??
     (() => {
       const conn = opts.connectionString ?? process.env.DATABASE_URL
       if (!conn) {
         throw new Error('[vector.pgvector] DATABASE_URL is not configured')
       }
-      return new Pool({ connectionString: conn })
+      return new Pool({ connectionString: conn }) as unknown as PgPool
     })()
 
   let ready: Promise<void> | null = null
@@ -195,7 +228,16 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       Array.isArray(filter.entityIds) && filter.entityIds.length ? filter.entityIds : null,
       input.limit ?? 20,
     ]
-    const res = await pool.query(
+    const res = await pool.query<{
+      entity_id: string
+      record_id: string
+      checksum: string
+      url: string | null
+      presenter: string | null
+      links: string | null
+      payload: string | null
+      distance: number
+    }>(
       `
         SELECT
           entity_id,
@@ -229,10 +271,92 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
         recordId: row.record_id,
         checksum: row.checksum,
         url: row.url ?? null,
-        presenter: row.presenter ? JSON.parse(row.presenter) : null,
-        links: row.links ? JSON.parse(row.links) : null,
-        payload: row.payload ? JSON.parse(row.payload) : null,
+        presenter: parseJsonColumn(row.presenter),
+        links: parseJsonColumn(row.links),
+        payload: parseJsonColumn(row.payload),
         score,
+      }
+    })
+  }
+
+  const list = async (params: VectorDriverListParams): Promise<VectorIndexEntry[]> => {
+    await ensureReady()
+    const limit = Math.max(1, Math.min(params.limit ?? 50, 200))
+    const offset = Math.max(0, params.offset ?? 0)
+    const orderColumn = params.orderBy === 'created' ? 'created_at' : 'updated_at'
+    const res = await pool.query<{
+      entity_id: string
+      record_id: string
+      tenant_id: string
+      organization_id: string | null
+      checksum: string
+      url: string | null
+      presenter: string | null
+      links: string | null
+      payload: string | null
+      created_at: Date | string
+      updated_at: Date | string
+    }>(
+      `
+        SELECT
+          entity_id,
+          record_id,
+          tenant_id,
+          organization_id,
+          checksum,
+          url,
+          presenter,
+          links,
+          payload,
+          created_at,
+          updated_at
+        FROM ${tableIdent}
+        WHERE driver_id = $1
+          AND tenant_id = $2::uuid
+          AND (
+            ($3::uuid IS NULL AND organization_id IS NULL)
+            OR ($3::uuid IS NOT NULL AND (organization_id = $3::uuid OR organization_id IS NULL))
+          )
+          AND ($4::text IS NULL OR entity_id = $4::text)
+        ORDER BY ${orderColumn} DESC
+        LIMIT $5 OFFSET $6
+      `,
+      [
+        DRIVER_ID,
+        params.tenantId,
+        params.organizationId ?? null,
+        params.entityId ?? null,
+        limit,
+        offset,
+      ],
+    )
+    return res.rows.map<VectorIndexEntry>((row) => {
+      const presenter = parseJsonColumn(row.presenter)
+      const links = parseJsonColumn(row.links)
+      const payload = parseJsonColumn(row.payload)
+      const createdAt =
+        row.created_at instanceof Date
+          ? row.created_at.toISOString()
+          : new Date(row.created_at ?? Date.now()).toISOString()
+      const updatedAt =
+        row.updated_at instanceof Date
+          ? row.updated_at.toISOString()
+          : new Date(row.updated_at ?? Date.now()).toISOString()
+      return {
+        entityId: row.entity_id,
+        recordId: row.record_id,
+        driverId: DRIVER_ID,
+        tenantId: row.tenant_id,
+        organizationId: row.organization_id ?? null,
+        checksum: row.checksum,
+        url: row.url ?? null,
+        presenter,
+        links,
+        payload,
+        metadata: payload,
+        createdAt,
+        updatedAt,
+        score: null,
       }
     })
   }
@@ -245,5 +369,6 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     getChecksum,
     purge,
     query,
+    list,
   }
 }

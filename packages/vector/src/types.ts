@@ -8,9 +8,20 @@ import type {
   VectorResultPresenter,
   VectorSearchHit,
   VectorQueryRequest,
+  VectorIndexEntry,
 } from '@open-mercato/shared/modules/vector'
 
-export type { VectorDriverId, VectorIndexSource, VectorModuleConfig, VectorEntityConfig, VectorLinkDescriptor, VectorResultPresenter, VectorSearchHit, VectorQueryRequest }
+export type {
+  VectorDriverId,
+  VectorIndexSource,
+  VectorModuleConfig,
+  VectorEntityConfig,
+  VectorLinkDescriptor,
+  VectorResultPresenter,
+  VectorSearchHit,
+  VectorQueryRequest,
+  VectorIndexEntry,
+}
 
 export type VectorDriverDocument = {
   entityId: EntityId
@@ -47,6 +58,15 @@ export type VectorDriverQueryResult = {
   payload?: Record<string, unknown> | null
 }
 
+export type VectorDriverListParams = {
+  tenantId: string
+  organizationId?: string | null
+  entityId?: EntityId
+  limit?: number
+  offset?: number
+  orderBy?: 'created' | 'updated'
+}
+
 export interface VectorDriver {
   readonly id: VectorDriverId
   ensureReady(): Promise<void>
@@ -55,4 +75,5 @@ export interface VectorDriver {
   query(input: VectorDriverQuery): Promise<VectorDriverQueryResult[]>
   getChecksum(entityId: EntityId, recordId: string, tenantId: string): Promise<string | null>
   purge?(entityId: EntityId, tenantId: string): Promise<void>
+  list?(params: VectorDriverListParams): Promise<VectorIndexEntry[]>
 }
