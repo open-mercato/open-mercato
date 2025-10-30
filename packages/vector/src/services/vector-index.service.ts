@@ -184,6 +184,11 @@ export class VectorIndexService {
       organizationId: args.organizationId ?? null,
     })
 
+    const normalizedPresenter = this.ensurePresenter(presenter, record, customFields, args.recordId, args.entityId)
+    const normalizedLinks = Array.isArray(links) && links.length ? links : null
+    const primaryLink = this.resolvePrimaryLink(normalizedLinks, url, normalizedPresenter.title)
+    const snapshot = this.deriveSnapshot(record, customFields)
+
     await driver.upsert({
       driverId: entry.driverId,
       entityId: args.entityId,
@@ -193,24 +198,44 @@ export class VectorIndexService {
       checksum,
       embedding,
       url: url ?? null,
-      presenter: presenter ?? null,
-      links: links ?? null,
+      presenter: normalizedPresenter,
+      links: normalizedLinks,
       payload: source.payload ?? null,
+      resultTitle: normalizedPresenter.title,
+      resultSubtitle: normalizedPresenter.subtitle ?? null,
+      resultIcon: normalizedPresenter.icon ?? null,
+      resultBadge: normalizedPresenter.badge ?? null,
+      resultSnapshot: snapshot,
+      primaryLinkHref: primaryLink?.href ?? null,
+      primaryLinkLabel: primaryLink?.label ?? null,
     })
+  }
+
+  private ensurePresenter(
+    presenter: VectorResultPresenter | null,
+    record: Record<string, any>,
+    customFields: Record<string, any>,
+    recordId: string,
+    entityId: EntityId,
+  ): VectorResultPresenter {
+    if (presenter?.title) return presenter
+    const fallback = this.buildFallbackPresenter(record, customFields, recordId, entityId)
+    return fallback
   }
 
   private buildFallbackPresenter(
     record: Record<string, any>,
     customFields: Record<string, any>,
-  ): VectorResultPresenter | null {
+    recordId: string,
+    entityId: EntityId,
+  ): VectorResultPresenter {
     const titleCandidate =
       record.display_name ??
       record.displayName ??
       record.name ??
       record.title ??
       record.subject ??
-      null
-    if (!titleCandidate) return null
+      recordId
     const subtitleCandidate =
       record.description ??
       record.summary ??
@@ -218,36 +243,54 @@ export class VectorIndexService {
       customFields.summary ??
       customFields.description ??
       null
+    const icon = typeof record.kind === 'string'
+      ? this.mapEntityIcon(record.kind)
+      : this.mapDefaultIcon(entityId)
     return {
       title: String(titleCandidate),
       subtitle: subtitleCandidate ? String(subtitleCandidate) : undefined,
+      icon: icon ?? undefined,
     }
   }
 
-  private resolveMetadata(
-    primary: Record<string, unknown> | null | undefined,
-    secondary: Record<string, unknown> | null | undefined,
-  ): Record<string, unknown> | null {
-    if (primary && typeof primary === 'object') return primary
-    if (secondary && typeof secondary === 'object') return secondary
+  private mapEntityIcon(kind?: string | null): string | null {
+    if (!kind) return null
+    const normalized = kind.toLowerCase()
+    if (normalized === 'person') return 'user'
+    if (normalized === 'company' || normalized === 'organization') return 'building'
     return null
   }
 
-  private mergeMetadata(
-    base: Record<string, unknown> | null,
-    fallback: Record<string, unknown> | null,
-  ): Record<string, unknown> | null {
-    if (!base && !fallback) return null
-    if (!base) return fallback
-    if (!fallback) return base
-    return { ...fallback, ...base }
+  private mapDefaultIcon(entityId: EntityId): string | null {
+    if (entityId.startsWith('customers:customer_deal')) return 'briefcase'
+    if (entityId.startsWith('customers:customer_comment')) return 'sticky-note'
+    if (entityId.startsWith('customers:customer_activity')) return 'bolt'
+    if (entityId.startsWith('customers:customer_todo')) return 'check-square'
+    return null
   }
 
-  private buildMetadataSnapshot(
+  private resolvePrimaryLink(
+    links: VectorLinkDescriptor[] | null,
+    url: string | null,
+    fallbackLabel: string,
+  ): { href: string; label: string } | null {
+    if (links?.length) {
+      const primary = links.find((link) => link.kind === 'primary') ?? links[0]
+      if (primary?.href) {
+        return { href: primary.href, label: primary.label ?? fallbackLabel }
+      }
+    }
+    if (url) {
+      return { href: url, label: fallbackLabel }
+    }
+    return null
+  }
+
+  private deriveSnapshot(
     record: Record<string, any>,
     customFields: Record<string, any>,
-  ): Record<string, unknown> | null {
-    const snapshotCandidates = [
+  ): string | null {
+    const candidates = [
       record.summary,
       record.description,
       record.body,
@@ -255,11 +298,13 @@ export class VectorIndexService {
       customFields.description,
       customFields.body,
     ]
-    const snapshot = snapshotCandidates.find((value) => typeof value === 'string' && value.trim().length > 0)
-    const result: Record<string, unknown> = {}
-    if (snapshot) result.snapshot = snapshot
-    if (!Object.keys(result).length) return null
-    return result
+    for (const value of candidates) {
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (trimmed.length) return trimmed
+      }
+    }
+    return null
   }
 
   private buildDefaultSource(entityId: EntityId, payload: { record: Record<string, any>; customFields: Record<string, any> }): VectorIndexSource {
@@ -533,109 +578,28 @@ export class VectorIndexService {
       return []
     }
 
-    const entityBuckets = new Map<EntityId, Set<string>>()
-    for (const entry of list) {
-      const cfg = this.entityConfig.get(entry.entityId)
-      if (!cfg) continue
-      if (!entityBuckets.has(entry.entityId)) {
-        entityBuckets.set(entry.entityId, new Set())
+    return list.map((entry) => {
+      const presenter = entry.presenter ?? {
+        title: entry.resultTitle,
+        subtitle: entry.resultSubtitle ?? undefined,
+        icon: entry.resultIcon ?? undefined,
+        badge: entry.resultBadge ?? undefined,
       }
-      entityBuckets.get(entry.entityId)!.add(entry.recordId)
-    }
-
-    const recordCache = new Map<EntityId, Map<string, { record: Record<string, any>; customFields: Record<string, any> }>>()
-    for (const [entityId, ids] of entityBuckets.entries()) {
-      const map = await this.fetchRecord(entityId, Array.from(ids), args.tenantId, args.organizationId ?? null)
-      const filtered = new Map<string, { record: Record<string, any>; customFields: Record<string, any> }>()
-      for (const id of ids) {
-        const raw = map.get(id)
-        if (!raw) continue
-        const payload = this.extractRecordPayload(raw)
-        filtered.set(id, payload)
+      const links = entry.links ?? (entry.primaryLinkHref
+        ? [{ href: entry.primaryLinkHref, label: entry.primaryLinkLabel ?? entry.resultTitle, kind: 'primary' as const }]
+        : null)
+      const url = entry.url ?? entry.primaryLinkHref ?? null
+      const metadata = entry.metadata ?? (entry.resultSnapshot ? { snapshot: entry.resultSnapshot } : null)
+      return {
+        ...entry,
+        driverId,
+        presenter,
+        links,
+        url,
+        metadata,
+        score: entry.score ?? null,
       }
-      recordCache.set(entityId, filtered)
-    }
-
-    const enriched = await Promise.all(
-      list.map(async (entry) => {
-        const cfgEntry = this.entityConfig.get(entry.entityId)
-        if (!cfgEntry) {
-          return {
-            ...entry,
-            driverId,
-            presenter: entry.presenter ?? null,
-            links: entry.links ?? null,
-            url: entry.url ?? null,
-            metadata: entry.payload ?? entry.metadata ?? null,
-            score: entry.score ?? null,
-          }
-        }
-
-        const records = recordCache.get(entry.entityId)
-        const payload = records?.get(entry.recordId)
-        if (!payload) {
-          return {
-            ...entry,
-            driverId,
-            presenter: entry.presenter ?? null,
-            links: entry.links ?? null,
-            url: entry.url ?? null,
-            metadata: entry.payload ?? entry.metadata ?? null,
-            score: entry.score ?? null,
-          }
-        }
-
-        const { record, customFields } = payload
-        const presenter = await this.resolvePresenter(
-          cfgEntry.config,
-          {
-            record,
-            customFields,
-            tenantId: args.tenantId,
-            organizationId: args.organizationId ?? null,
-          },
-          entry.presenter ?? null,
-        )
-        const links = await this.resolveLinks(
-          cfgEntry.config,
-          {
-            record,
-            customFields,
-            tenantId: args.tenantId,
-            organizationId: args.organizationId ?? null,
-          },
-          entry.links ?? null,
-        )
-        const url = await this.resolveUrl(
-          cfgEntry.config,
-          {
-            record,
-            customFields,
-            tenantId: args.tenantId,
-            organizationId: args.organizationId ?? null,
-          },
-          entry.url ?? null,
-        )
-
-        const normalizedPresenter = presenter ?? this.buildFallbackPresenter(record, customFields)
-        const normalizedLinks = links ?? null
-        const normalizedUrl = url ?? null
-        const baseMetadata = this.resolveMetadata(entry.payload, entry.metadata)
-        const metadata = this.mergeMetadata(baseMetadata, this.buildMetadataSnapshot(record, customFields))
-
-        return {
-          ...entry,
-          driverId,
-          presenter: normalizedPresenter,
-          links: normalizedLinks,
-          url: normalizedUrl,
-          metadata,
-          score: entry.score ?? null,
-        }
-      }),
-    )
-
-    return enriched
+    })
   }
 
   async search(request: VectorQueryRequest): Promise<VectorSearchHit[]> {
@@ -658,60 +622,28 @@ export class VectorIndexService {
 
     if (!hits.length) return []
 
-    const grouped = new Map<EntityId, Set<string>>()
-    for (const hit of hits) {
-      if (!grouped.has(hit.entityId)) grouped.set(hit.entityId, new Set())
-      grouped.get(hit.entityId)!.add(hit.recordId)
-    }
-
-    const recordCache = new Map<EntityId, Map<string, Record<string, any>>>()
-    for (const [entityId, ids] of grouped.entries()) {
-      const entry = this.entityConfig.get(entityId)
-      if (!entry) continue
-      const map = await this.fetchRecord(entityId, Array.from(ids), request.tenantId, request.organizationId ?? null)
-      recordCache.set(entityId, map)
-    }
-
-    const results: VectorSearchHit[] = []
-    for (const hit of hits) {
-      const entry = this.entityConfig.get(hit.entityId)
-      if (!entry) continue
-      const recordsForEntity = recordCache.get(hit.entityId)
-      const raw = recordsForEntity?.get(hit.recordId)
-      if (!raw) {
-        await driver.delete(hit.entityId, hit.recordId, request.tenantId)
-        continue
+    return hits.map((hit) => {
+      const presenter = hit.presenter ?? {
+        title: hit.resultTitle,
+        subtitle: hit.resultSubtitle ?? undefined,
+        icon: hit.resultIcon ?? undefined,
+        badge: hit.resultBadge ?? undefined,
       }
-      const { record, customFields } = this.extractRecordPayload(raw)
-      const presenter = await this.resolvePresenter(entry.config, {
-        record,
-        customFields,
-        tenantId: request.tenantId,
-        organizationId: request.organizationId ?? null,
-      }, hit.presenter ?? null)
-      const links = await this.resolveLinks(entry.config, {
-        record,
-        customFields,
-        tenantId: request.tenantId,
-        organizationId: request.organizationId ?? null,
-      }, hit.links ?? null)
-      const url = await this.resolveUrl(entry.config, {
-        record,
-        customFields,
-        tenantId: request.tenantId,
-        organizationId: request.organizationId ?? null,
-      }, hit.url ?? null)
-      results.push({
+      const links = hit.links ?? (hit.primaryLinkHref
+        ? [{ href: hit.primaryLinkHref, label: hit.primaryLinkLabel ?? hit.resultTitle, kind: 'primary' as const }]
+        : null)
+      const url = hit.url ?? hit.primaryLinkHref ?? null
+      const metadata = hit.payload ?? (hit.resultSnapshot ? { snapshot: hit.resultSnapshot } : null)
+      return {
         entityId: hit.entityId,
         recordId: hit.recordId,
         score: hit.score,
-        url: url ?? null,
-        presenter: presenter ?? null,
-        links: links ?? null,
+        url,
+        presenter,
+        links,
         driverId,
-        metadata: hit.payload ?? null,
-      })
-    }
-    return results
+        metadata,
+      }
+    })
   }
 }

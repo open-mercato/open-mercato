@@ -109,6 +109,13 @@ export type VectorIndexEntry = {
   links?: VectorLinkDescriptor[] | null
   payload?: Record<string, unknown> | null
   metadata?: Record<string, unknown> | null
+  resultTitle: string
+  resultSubtitle?: string | null
+  resultIcon?: string | null
+  resultBadge?: string | null
+  resultSnapshot?: string | null
+  primaryLinkHref?: string | null
+  primaryLinkLabel?: string | null
   createdAt: string
   updatedAt: string
   score?: number | null

@@ -35,6 +35,13 @@ export type VectorDriverDocument = {
   links?: VectorLinkDescriptor[] | null
   payload?: Record<string, unknown> | null
   driverId: VectorDriverId
+  resultTitle: string
+  resultSubtitle?: string | null
+  resultIcon?: string | null
+  resultBadge?: string | null
+  resultSnapshot?: string | null
+  primaryLinkHref?: string | null
+  primaryLinkLabel?: string | null
 }
 
 export type VectorDriverQuery = {
@@ -56,6 +63,13 @@ export type VectorDriverQueryResult = {
   presenter?: VectorResultPresenter | null
   links?: VectorLinkDescriptor[] | null
   payload?: Record<string, unknown> | null
+  resultTitle: string
+  resultSubtitle?: string | null
+  resultIcon?: string | null
+  resultBadge?: string | null
+  resultSnapshot?: string | null
+  primaryLinkHref?: string | null
+  primaryLinkLabel?: string | null
 }
 
 export type VectorDriverListParams = {

@@ -113,6 +113,19 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           ['0001_init'],
         )
 
+        const columnAlters = [
+          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_title text`,
+          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_subtitle text`,
+          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_icon text`,
+          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_badge text`,
+          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_snapshot text`,
+          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS primary_link_href text`,
+          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS primary_link_label text`,
+        ]
+        for (const statement of columnAlters) {
+          await client.query(statement)
+        }
+
         if (applied.rowCount === 0) {
           const initSql = `
             CREATE TABLE IF NOT EXISTS ${tableIdent} (
@@ -128,6 +141,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
               presenter jsonb null,
               links jsonb null,
               payload jsonb null,
+              result_title text null,
+              result_subtitle text null,
+              result_icon text null,
+              result_badge text null,
+              result_snapshot text null,
+              primary_link_href text null,
+              primary_link_label text null,
               created_at timestamptz not null default now(),
               updated_at timestamptz not null default now()
             );
@@ -161,9 +181,16 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       `
         INSERT INTO ${tableIdent} (
           driver_id, entity_id, record_id, tenant_id, organization_id, checksum,
-          embedding, url, presenter, links, payload, created_at, updated_at
+          embedding, url, presenter, links, payload,
+          result_title, result_subtitle, result_icon, result_badge, result_snapshot,
+          primary_link_href, primary_link_label,
+          created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7::vector, $8, $9::jsonb, $10::jsonb, $11::jsonb, now(), now())
+        VALUES (
+          $1, $2, $3, $4::uuid, $5::uuid, $6, $7::vector, $8, $9::jsonb, $10::jsonb, $11::jsonb,
+          $12, $13, $14, $15, $16, $17, $18,
+          now(), now()
+        )
         ON CONFLICT (driver_id, entity_id, record_id, tenant_id)
         DO UPDATE SET
           organization_id = EXCLUDED.organization_id,
@@ -173,6 +200,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           presenter = EXCLUDED.presenter,
           links = EXCLUDED.links,
           payload = EXCLUDED.payload,
+          result_title = EXCLUDED.result_title,
+          result_subtitle = EXCLUDED.result_subtitle,
+          result_icon = EXCLUDED.result_icon,
+          result_badge = EXCLUDED.result_badge,
+          result_snapshot = EXCLUDED.result_snapshot,
+          primary_link_href = EXCLUDED.primary_link_href,
+          primary_link_label = EXCLUDED.primary_link_label,
           updated_at = now()
       `,
       [
@@ -187,6 +221,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
         doc.presenter ? JSON.stringify(doc.presenter) : null,
         doc.links ? JSON.stringify(doc.links) : null,
         doc.payload ? JSON.stringify(doc.payload) : null,
+        doc.resultTitle,
+        doc.resultSubtitle ?? null,
+        doc.resultIcon ?? null,
+        doc.resultBadge ?? null,
+        doc.resultSnapshot ?? null,
+        doc.primaryLinkHref ?? null,
+        doc.primaryLinkLabel ?? null,
       ],
     )
   }
@@ -236,6 +277,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       presenter: string | null
       links: string | null
       payload: string | null
+      result_title: string | null
+      result_subtitle: string | null
+      result_icon: string | null
+      result_badge: string | null
+      result_snapshot: string | null
+      primary_link_href: string | null
+      primary_link_label: string | null
       distance: number
     }>(
       `
@@ -247,6 +295,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           presenter,
           links,
           payload,
+          result_title,
+          result_subtitle,
+          result_icon,
+          result_badge,
+          result_snapshot,
+          primary_link_href,
+          primary_link_label,
           embedding <=> $1::vector AS distance
         FROM ${tableIdent}
         WHERE driver_id = $2
@@ -274,6 +329,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
         presenter: parseJsonColumn(row.presenter),
         links: parseJsonColumn(row.links),
         payload: parseJsonColumn(row.payload),
+        resultTitle: row.result_title ?? '',
+        resultSubtitle: row.result_subtitle ?? null,
+        resultIcon: row.result_icon ?? null,
+        resultBadge: row.result_badge ?? null,
+        resultSnapshot: row.result_snapshot ?? null,
+        primaryLinkHref: row.primary_link_href ?? null,
+        primaryLinkLabel: row.primary_link_label ?? null,
         score,
       }
     })
@@ -294,6 +356,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       presenter: string | null
       links: string | null
       payload: string | null
+      result_title: string | null
+      result_subtitle: string | null
+      result_icon: string | null
+      result_badge: string | null
+      result_snapshot: string | null
+      primary_link_href: string | null
+      primary_link_label: string | null
       created_at: Date | string
       updated_at: Date | string
     }>(
@@ -308,6 +377,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           presenter,
           links,
           payload,
+          result_title,
+          result_subtitle,
+          result_icon,
+          result_badge,
+          result_snapshot,
+          primary_link_href,
+          primary_link_label,
           created_at,
           updated_at
         FROM ${tableIdent}
@@ -354,6 +430,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
         links,
         payload,
         metadata: payload,
+        resultTitle: row.result_title ?? '',
+        resultSubtitle: row.result_subtitle ?? null,
+        resultIcon: row.result_icon ?? null,
+        resultBadge: row.result_badge ?? null,
+        resultSnapshot: row.result_snapshot ?? null,
+        primaryLinkHref: row.primary_link_href ?? null,
+        primaryLinkLabel: row.primary_link_label ?? null,
         createdAt,
         updatedAt,
         score: null,
