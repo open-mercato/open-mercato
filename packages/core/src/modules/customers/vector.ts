@@ -88,6 +88,10 @@ function resolveEntityId(record: Record<string, any>): string | null {
   return record.id ?? record.entity_id ?? record.customer_entity_id ?? null
 }
 
+function resolveCustomerEntityId(record: Record<string, any>): string | null {
+  return record.entity_id ?? record.customer_entity_id ?? record.entityId ?? null
+}
+
 async function getPersonProfile(ctx: VectorContext) {
   if (personProfileCache.has(ctx.record)) {
     return personProfileCache.get(ctx.record)
@@ -262,6 +266,153 @@ export const vectorConfig: VectorModuleConfig = {
         } as VectorResultPresenter
       },
       resolveUrl: async ({ record }) => buildCustomerUrl(record.kind ?? record.customer_kind ?? null, record.id ?? record.entity_id),
+    },
+    {
+      entityId: 'customers:customer_person_profile',
+      buildSource: async (ctx) => {
+        const lines: string[] = []
+        const record = ctx.record
+        appendLine(lines, 'Preferred name', record.preferred_name ?? ctx.customFields.preferred_name)
+        appendLine(lines, 'First name', record.first_name ?? ctx.customFields.first_name)
+        appendLine(lines, 'Last name', record.last_name ?? ctx.customFields.last_name)
+        appendLine(lines, 'Job title', record.job_title ?? ctx.customFields.job_title)
+        appendLine(lines, 'Department', record.department ?? ctx.customFields.department)
+        appendLine(lines, 'Seniority', record.seniority ?? ctx.customFields.seniority)
+        appendLine(lines, 'Timezone', record.timezone ?? ctx.customFields.timezone)
+        appendLine(lines, 'LinkedIn', record.linked_in_url ?? ctx.customFields.linked_in_url)
+        appendLine(lines, 'Twitter', record.twitter_url ?? ctx.customFields.twitter_url)
+        appendCustomFieldLines(lines, ctx.customFields, 'Person custom')
+
+        const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(record))
+        if (entity) {
+          appendLine(lines, 'Customer', entity.display_name ?? entity.id)
+          appendLine(lines, 'Customer email', entity.primary_email)
+          appendLine(lines, 'Customer phone', entity.primary_phone)
+          appendLine(lines, 'Lifecycle stage', entity.lifecycle_stage)
+          appendLine(lines, 'Status', entity.status)
+        }
+
+        if (!lines.length) return null
+
+        const entityId = resolveCustomerEntityId(record)
+        const links: VectorLinkDescriptor[] = []
+        if (entityId) {
+          const href = buildCustomerUrl('person', entityId)
+          if (href) {
+            links.push({ href, label: entity?.display_name ?? record.preferred_name ?? 'Open person', kind: 'primary' })
+          }
+        }
+
+        const checksumSource = {
+          record: ctx.record,
+          customFields: ctx.customFields,
+          entity,
+        }
+
+        return {
+          input: lines,
+          presenter: null,
+          links,
+          checksumSource,
+        }
+      },
+      formatResult: async (ctx) => {
+        const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(ctx.record))
+        const nameParts = [ctx.record.first_name, ctx.record.last_name].filter(Boolean).join(' ')
+        const title =
+          entity?.display_name ??
+          ctx.record.preferred_name ??
+          (nameParts ? nameParts : undefined) ??
+          (ctx.record.id ? String(ctx.record.id) : undefined) ??
+          'Person'
+        const subtitleParts: string[] = []
+        if (ctx.record.job_title) subtitleParts.push(String(ctx.record.job_title))
+        if (ctx.record.department) subtitleParts.push(String(ctx.record.department))
+        if (entity?.primary_email) subtitleParts.push(String(entity.primary_email))
+        if (entity?.primary_phone) subtitleParts.push(String(entity.primary_phone))
+        const description = snippet(entity?.description)
+        if (description) subtitleParts.push(description)
+        const subtitleJoined = subtitleParts.filter(Boolean).join(' · ')
+        return {
+          title,
+          subtitle: subtitleJoined ? subtitleJoined : undefined,
+          icon: 'user',
+          badge: entity?.display_name ? 'Person' : undefined,
+        } satisfies VectorResultPresenter
+      },
+      resolveUrl: async ({ record }) => buildCustomerUrl('person', resolveCustomerEntityId(record)),
+    },
+    {
+      entityId: 'customers:customer_company_profile',
+      buildSource: async (ctx) => {
+        const lines: string[] = []
+        const record = ctx.record
+        appendLine(lines, 'Legal name', record.legal_name ?? ctx.customFields.legal_name)
+        appendLine(lines, 'Brand name', record.brand_name ?? ctx.customFields.brand_name)
+        appendLine(lines, 'Domain', record.domain ?? ctx.customFields.domain)
+        appendLine(lines, 'Website', record.website_url ?? ctx.customFields.website_url)
+        appendLine(lines, 'Industry', record.industry ?? ctx.customFields.industry)
+        appendLine(lines, 'Company size', record.size_bucket ?? ctx.customFields.size_bucket)
+        appendLine(lines, 'Annual revenue', record.annual_revenue ?? ctx.customFields.annual_revenue)
+        appendCustomFieldLines(lines, ctx.customFields, 'Company custom')
+
+        const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(record))
+        if (entity) {
+          appendLine(lines, 'Customer', entity.display_name ?? entity.id)
+          appendLine(lines, 'Status', entity.status)
+          appendLine(lines, 'Lifecycle stage', entity.lifecycle_stage)
+          appendLine(lines, 'Primary email', entity.primary_email)
+          appendLine(lines, 'Primary phone', entity.primary_phone)
+        }
+
+        if (!lines.length) return null
+
+        const entityId = resolveCustomerEntityId(record)
+        const links: VectorLinkDescriptor[] = []
+        if (entityId) {
+          const href = buildCustomerUrl('company', entityId)
+          if (href) {
+            links.push({ href, label: entity?.display_name ?? record.brand_name ?? 'Open company', kind: 'primary' })
+          }
+        }
+
+        const checksumSource = {
+          record: ctx.record,
+          customFields: ctx.customFields,
+          entity,
+        }
+
+        return {
+          input: lines,
+          presenter: null,
+          links,
+          checksumSource,
+        }
+      },
+      formatResult: async (ctx) => {
+        const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(ctx.record))
+        const title =
+          entity?.display_name ??
+          ctx.record.brand_name ??
+          ctx.record.legal_name ??
+          ctx.record.domain ??
+          (ctx.record.id ? String(ctx.record.id) : undefined) ??
+          'Company'
+        const subtitleParts: string[] = []
+        if (ctx.record.industry) subtitleParts.push(String(ctx.record.industry))
+        if (ctx.record.size_bucket) subtitleParts.push(String(ctx.record.size_bucket))
+        if (entity?.primary_email) subtitleParts.push(String(entity.primary_email))
+        const description = snippet(entity?.description ?? ctx.customFields.summary)
+        if (description) subtitleParts.push(description)
+        const subtitleJoined = subtitleParts.filter(Boolean).join(' · ')
+        return {
+          title,
+          subtitle: subtitleJoined ? subtitleJoined : undefined,
+          icon: 'building',
+          badge: entity?.display_name ? 'Company' : undefined,
+        } satisfies VectorResultPresenter
+      },
+      resolveUrl: async ({ record }) => buildCustomerUrl('company', resolveCustomerEntityId(record)),
     },
     {
       entityId: 'customers:customer_comment',

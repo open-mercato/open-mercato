@@ -3,7 +3,18 @@
 // Some commands (e.g., `init`) must run before generation occurs.
 // We'll lazy-load modules and DI only when required by a specific command.
 
+let envLoaded = false
+
+async function ensureEnvLoaded() {
+  if (envLoaded) return
+  try {
+    await import('dotenv/config')
+  } catch {}
+  envLoaded = true
+}
+
 export async function run(argv = process.argv) {
+  await ensureEnvLoaded()
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
   

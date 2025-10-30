@@ -2,6 +2,7 @@ import { recordIndexerError } from '@/lib/indexers/error-log'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
 import type { VectorIndexOperationResult, VectorIndexService } from '@open-mercato/vector'
+import { resolveVectorAutoIndexingEnabled } from '../lib/auto-indexing'
 
 export const metadata = { event: 'query_index.vectorize_one', persistent: false }
 
@@ -40,6 +41,9 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
   }
 
   if (!tenantId) return
+
+  const autoIndexingEnabled = await resolveVectorAutoIndexingEnabled(ctx, { defaultValue: true })
+  if (!autoIndexingEnabled) return
 
   let service: VectorIndexService
   try {
