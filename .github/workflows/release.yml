@@ -26,18 +26,11 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install semantic-release dependencies
-        run: >
-          npm install semantic-release
-          @semantic-release/exec
-          @semantic-release/commit-analyzer
-          @semantic-release/release-notes-generator
-          @semantic-release/changelog
-          @semantic-release/git
-          @semantic-release/github
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
 
       - name: Run semantic release
         id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
+        run: yarn semantic-release
