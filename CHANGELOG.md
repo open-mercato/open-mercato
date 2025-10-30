@@ -1,3 +1,22 @@
+# [1.1.0](https://github.com/open-mercato/open-mercato/compare/v1.0.0...v1.1.0) (2025-10-30)
+
+
+### Bug Fixes
+
+* dictionary filters fixed on company page, coverage updates and backward compatibility ([8c3ad2b](https://github.com/open-mercato/open-mercato/commit/8c3ad2b4664ccb7f7dbce9735404b181a0b8d826))
+
+
+### Features
+
+* customer page profilter + eav indexes ([855b5ab](https://github.com/open-mercato/open-mercato/commit/855b5abf83bf878a9dc1928ef899a480dc6b29ee))
+* indexer optimization + crud events centralized ([97df83c](https://github.com/open-mercato/open-mercato/commit/97df83c5cbf62ae54e9c966f06e9970494b21cb4))
+* indexer patrtitioning ([2885bb0](https://github.com/open-mercato/open-mercato/commit/2885bb0a02a4edc0409b85c8a0f756552ba13570))
+* missing api endpoints ([bacdca7](https://github.com/open-mercato/open-mercato/commit/bacdca782b6e2059fa9a6d26dc1e238e18b61355))
+* new partial indexes for performance opt ([f8ad190](https://github.com/open-mercato/open-mercato/commit/f8ad19076395ce5ca83d2f80815bba0101603fbb))
+* parallels indexing ([f3891a2](https://github.com/open-mercato/open-mercato/commit/f3891a22bc25a07446a68ea52fd45b1093e15e73))
+* performacne optimiation + profiling, indexer covarage ([d6eafb8](https://github.com/open-mercato/open-mercato/commit/d6eafb8f5e4a96d6b9418f0c6f183bcd84493095))
+* profilers, index coverage stats instead of making counts ([ecfc3b6](https://github.com/open-mercato/open-mercato/commit/ecfc3b678702fbd1718177878f17fde14d4e1700))
+
 # 1.0.0 (2025-10-30)
 
 
