@@ -6,10 +6,25 @@ export const queryIndexErrorSchema = z.object({
   error: z.string(),
 }).passthrough()
 
-export const queryIndexJobSchema = z.object({
-  status: z.enum(['idle', 'reindexing', 'purging']),
+export const queryIndexPartitionSchema = z.object({
+  partitionIndex: z.number().int().nonnegative().nullable().optional(),
+  partitionCount: z.number().int().positive().nullable().optional(),
+  status: z.enum(['reindexing', 'purging', 'stalled', 'completed']),
   startedAt: z.string().nullable().optional(),
   finishedAt: z.string().nullable().optional(),
+  heartbeatAt: z.string().nullable().optional(),
+  processedCount: z.number().int().nonnegative().nullable().optional(),
+  totalCount: z.number().int().nonnegative().nullable().optional(),
+})
+
+export const queryIndexJobSchema = z.object({
+  status: z.enum(['idle', 'reindexing', 'purging', 'stalled']),
+  startedAt: z.string().nullable().optional(),
+  finishedAt: z.string().nullable().optional(),
+  heartbeatAt: z.string().nullable().optional(),
+  processedCount: z.number().int().nonnegative().nullable().optional(),
+  totalCount: z.number().int().nonnegative().nullable().optional(),
+  partitions: z.array(queryIndexPartitionSchema).optional(),
 })
 
 export const queryIndexStatusItemSchema = z.object({
@@ -28,6 +43,9 @@ export const queryIndexStatusResponseSchema = z.object({
 export const queryIndexReindexRequestSchema = z.object({
   entityType: z.string().min(1),
   force: z.boolean().optional(),
+  batchSize: z.number().int().positive().optional(),
+  partitionCount: z.number().int().positive().optional(),
+  partitionIndex: z.number().int().nonnegative().optional(),
 })
 
 export const queryIndexPurgeRequestSchema = z.object({
@@ -37,4 +55,3 @@ export const queryIndexPurgeRequestSchema = z.object({
 export const queryIndexOkSchema = z.object({
   ok: z.literal(true),
 })
-

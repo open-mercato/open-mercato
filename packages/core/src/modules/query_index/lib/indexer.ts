@@ -49,16 +49,48 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   return doc
 }
 
-export async function upsertIndexRow(em: EntityManager, args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }): Promise<void> {
-  const doc = await buildIndexDoc(em, args)
+export type UpsertIndexResult = {
+  doc: Record<string, any> | null
+  existed: boolean
+  wasDeleted: boolean
+  created: boolean
+  revived: boolean
+}
+
+export async function upsertIndexRow(
+  em: EntityManager,
+  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
+): Promise<UpsertIndexResult> {
   const knex = (em as any).getConnection().getKnex()
+  const baseScopeQuery = knex('entity_indexes')
+    .select(['id', 'deleted_at'])
+    .where({
+      entity_type: args.entityType,
+      entity_id: String(args.recordId),
+      organization_id: args.organizationId ?? null,
+    })
+    .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
+    .first<{ id: string; deleted_at: Date | null } | undefined>()
+
+  const existing = await baseScopeQuery
+  const existed = !!existing
+  const wasDeleted = existed && existing!.deleted_at != null
+
+  const doc = await buildIndexDoc(em, args)
   if (!doc) {
-    // If base row missing, mark index row as deleted if present
-    await knex('entity_indexes')
-      .where({ entity_type: args.entityType, entity_id: String(args.recordId), organization_id: args.organizationId ?? null })
-      .update({ deleted_at: knex.fn.now(), updated_at: knex.fn.now() })
-    return
+    if (existed && existing!.deleted_at == null) {
+      await knex('entity_indexes')
+        .where({
+          entity_type: args.entityType,
+          entity_id: String(args.recordId),
+          organization_id: args.organizationId ?? null,
+        })
+        .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
+        .update({ deleted_at: knex.fn.now(), updated_at: knex.fn.now() })
+    }
+    return { doc: null, existed, wasDeleted, created: false, revived: false }
   }
+
   const payload = {
     entity_type: args.entityType,
     entity_id: String(args.recordId),
@@ -72,21 +104,54 @@ export async function upsertIndexRow(em: EntityManager, args: { entityType: stri
   // Prefer modern upsert keyed by coalesced org id when available; fallback to update-then-insert
   try {
     const insertQ = knex('entity_indexes').insert({ ...payload, created_at: knex.fn.now() })
-    await insertQ.onConflict(['entity_type', 'entity_id', 'organization_id_coalesced']).merge(payload)
+    await insertQ
+      .onConflict(['entity_type', 'entity_id', 'organization_id_coalesced'])
+      .merge(payload)
   } catch {
     // Fallback for schemas without organization_id_coalesced column/index
     const updated = await knex('entity_indexes')
-      .where({ entity_type: args.entityType, entity_id: String(args.recordId), organization_id: args.organizationId ?? null })
+      .where({
+        entity_type: args.entityType,
+        entity_id: String(args.recordId),
+        organization_id: args.organizationId ?? null,
+      })
+      .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
       .update(payload)
     if (!updated) {
       try { await knex('entity_indexes').insert({ ...payload, created_at: knex.fn.now() }) } catch {}
     }
   }
+
+  const created = !existed
+  const revived = existed && wasDeleted
+  return { doc, existed, wasDeleted, created, revived }
 }
 
-export async function markDeleted(em: EntityManager, args: { entityType: string; recordId: string; organizationId?: string | null }): Promise<void> {
+export async function markDeleted(
+  em: EntityManager,
+  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
+): Promise<{ wasActive: boolean }> {
   const knex = (em as any).getConnection().getKnex()
+  const existing = await knex('entity_indexes')
+    .select(['deleted_at'])
+    .where({
+      entity_type: args.entityType,
+      entity_id: String(args.recordId),
+      organization_id: args.organizationId ?? null,
+    })
+    .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
+    .first<{ deleted_at: Date | null } | undefined>()
+
+  const wasActive = !!existing && existing.deleted_at == null
+
   await knex('entity_indexes')
-    .where({ entity_type: args.entityType, entity_id: String(args.recordId), organization_id: args.organizationId ?? null })
+    .where({
+      entity_type: args.entityType,
+      entity_id: String(args.recordId),
+      organization_id: args.organizationId ?? null,
+    })
+    .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
     .update({ deleted_at: knex.fn.now(), updated_at: knex.fn.now() })
+
+  return { wasActive }
 }

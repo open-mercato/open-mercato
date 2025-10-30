@@ -8,13 +8,34 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
+type PartitionStatus = {
+  partitionIndex: number | null
+  partitionCount: number | null
+  status: 'reindexing' | 'purging' | 'stalled' | 'completed'
+  processedCount?: number | null
+  totalCount?: number | null
+  heartbeatAt?: string | null
+  startedAt?: string | null
+  finishedAt?: string | null
+}
+
+type JobStatus = {
+  status: 'idle' | 'reindexing' | 'purging' | 'stalled'
+  startedAt?: string | null
+  finishedAt?: string | null
+  heartbeatAt?: string | null
+  processedCount?: number | null
+  totalCount?: number | null
+  partitions?: PartitionStatus[]
+}
+
 type Row = {
   entityId: string
   label: string
   baseCount: number
   indexCount: number
   ok: boolean
-  job?: { status: 'idle'|'reindexing'|'purging'; startedAt?: string|null; finishedAt?: string|null }
+  job?: JobStatus
 }
 
 type Resp = { items: Row[] }
@@ -29,12 +50,69 @@ const columns: ColumnDef<Row>[] = [
     header: 'Status',
     cell: ({ row }) => {
       const r = row.original as Row
-      const working = r.job && (r.job.status === 'reindexing' || r.job.status === 'purging') && !r.job.finishedAt
-      const ok = r.ok && !working
+      const job = r.job
+      const partitions = job?.partitions ?? []
+      const activePartitions = partitions.filter((p) => !p.finishedAt)
+      const ok = r.ok && (!job || job.status === 'idle')
+      const showJobProgress = job?.processedCount != null && job?.totalCount != null && job.totalCount > 0 && partitions.length <= 1
+      const progressLabel = showJobProgress
+        ? ` (${job.processedCount!.toLocaleString()}/${job.totalCount!.toLocaleString()})`
+        : ''
+      let label = ok ? 'In sync' : 'Out of sync'
+      if (job) {
+        if (job.status === 'reindexing') label = `Reindexing${progressLabel}`
+        else if (job.status === 'purging') label = `Purging${progressLabel}`
+        else if (job.status === 'stalled') label = `Stalled${progressLabel || ''}`
+        else if (!ok) label = 'Out of sync'
+      }
+      const className = job
+        ? job.status === 'stalled'
+          ? 'text-red-600'
+          : job.status === 'reindexing' || job.status === 'purging'
+            ? 'text-orange-600'
+            : ok
+              ? 'text-green-600'
+              : 'text-muted-foreground'
+        : ok
+          ? 'text-green-600'
+          : 'text-muted-foreground'
+
+      const partitionSummaries =
+        partitions.length > 1
+          ? partitions.map((part) => {
+              const partLabel =
+                part.partitionIndex != null
+                  ? `P${Number(part.partitionIndex) + 1}`
+                  : 'Scope'
+              const partProgress =
+                part.totalCount && part.processedCount != null
+                  ? `${part.processedCount.toLocaleString()}/${part.totalCount.toLocaleString()}`
+                  : part.processedCount != null
+                    ? `${part.processedCount.toLocaleString()}`
+                    : null
+              const stateLabel =
+                part.status === 'reindexing'
+                  ? 'Running'
+                  : part.status === 'purging'
+                    ? 'Purging'
+                    : part.status === 'stalled'
+                      ? 'Stalled'
+                      : 'Done'
+              return `${partLabel}: ${stateLabel}${partProgress ? ` (${partProgress})` : ''}`
+            })
+          : []
+
       return (
-        <span className={working ? 'text-orange-600' : ok ? 'text-green-600' : 'text-muted-foreground'}>
-          {working ? r.job!.status : ok ? 'In sync' : 'Out of sync'}
-        </span>
+        <div className="space-y-1">
+          <span className={className}>{label}</span>
+          {partitionSummaries.length > 0 && (
+            <div className="text-xs text-muted-foreground">
+              {partitionSummaries.map((line, idx) => (
+                <div key={idx}>{line}</div>
+              ))}
+            </div>
+          )}
+        </div>
       )
     },
     meta: { priority: 1 },
@@ -47,11 +125,14 @@ export default function QueryIndexesTable() {
   const [search, setSearch] = React.useState('')
   const qc = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
+  const [refreshSeq, setRefreshSeq] = React.useState(0)
 
   const { data, isLoading } = useQuery<Resp>({
-    queryKey: ['query-index-status', scopeVersion],
+    queryKey: ['query-index-status', scopeVersion, refreshSeq],
     queryFn: async () => {
-      const res = await apiFetch('/api/query_index/status')
+      const baseUrl = '/api/query_index/status'
+      const url = refreshSeq > 0 ? `${baseUrl}?refresh=${refreshSeq}` : baseUrl
+      const res = await apiFetch(url)
       if (!res.ok) throw new Error('Failed to load status')
       return res.json()
     },
@@ -78,7 +159,15 @@ export default function QueryIndexesTable() {
       title="Query Indexes"
       actions={(
         <>
-          <Button variant="outline" onClick={() => qc.invalidateQueries({ queryKey: ['query-index-status'] })}>Refresh</Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setRefreshSeq((v) => v + 1)
+              qc.invalidateQueries({ queryKey: ['query-index-status'] })
+            }}
+          >
+            Refresh
+          </Button>
         </>
       )}
       columns={columns}

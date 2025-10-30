@@ -4,7 +4,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
-import { buildIndexDocument, type IndexCustomFieldValue } from './lib/document'
+import { upsertIndexBatch, type AnyRow } from './lib/batch'
+import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
+import { purgeIndexScope } from './lib/purge'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -81,25 +83,6 @@ function toNonNegativeInt(value: number | undefined, fallback = 0): number {
 
 const DEFAULT_BATCH_SIZE = 200
 
-type AnyRow = Record<string, any> & { id: string | number }
-
-type ScopeOverrides = {
-  orgId?: string
-  tenantId?: string
-}
-
-type CustomFieldRow = {
-  record_id: string
-  field_key: string
-  value_text: string | null
-  value_multiline: string | null
-  value_int: number | null
-  value_float: number | null
-  value_bool: boolean | null
-  organization_id: string | null
-  tenant_id: string | null
-}
-
 type RebuildExecutionOptions = {
   knex: Knex
   entityType: string
@@ -122,129 +105,6 @@ type RebuildResult = {
   processed: number
   matched: number
 }
-
-function normalizeId(value: unknown): string {
-  return String(value)
-}
-
-function normalizeScopedValue(value: unknown): string | null {
-  if (value === undefined || value === null || value === '') return null
-  return String(value)
-}
-
-async function upsertIndexBatch(knex: Knex, entityType: string, rows: AnyRow[], scope: ScopeOverrides): Promise<void> {
-  if (!rows.length) return
-  const recordIds = rows.map((row) => normalizeId(row.id))
-  const customFieldRows = await knex<CustomFieldRow>('custom_field_values')
-    .select([
-      'record_id',
-      'field_key',
-      'value_text',
-      'value_multiline',
-      'value_int',
-      'value_float',
-      'value_bool',
-      'organization_id',
-      'tenant_id',
-    ])
-    .where({ entity_id: entityType })
-    .whereIn('record_id', recordIds)
-
-  const customFieldMap = new Map<string, CustomFieldRow[]>()
-  for (const fieldRow of customFieldRows) {
-    const key = normalizeId(fieldRow.record_id)
-    const bucket = customFieldMap.get(key)
-    if (bucket) bucket.push(fieldRow)
-    else customFieldMap.set(key, [fieldRow])
-  }
-
-  const basePayloads = rows.map((row) => {
-    const recordId = normalizeId(row.id)
-    const baseOrg = normalizeScopedValue((row as AnyRow).organization_id)
-    const baseTenant = normalizeScopedValue((row as AnyRow).tenant_id)
-    const scopeOrg = scope.orgId !== undefined ? scope.orgId : baseOrg
-    const scopeTenant = scope.tenantId !== undefined ? scope.tenantId : baseTenant
-    const inputRows = customFieldMap.get(recordId) ?? []
-    const values: IndexCustomFieldValue[] = inputRows.map((fieldRow) => ({
-      key: fieldRow.field_key,
-      value:
-        fieldRow.value_bool ??
-        fieldRow.value_int ??
-        fieldRow.value_float ??
-        fieldRow.value_text ??
-        fieldRow.value_multiline ??
-        null,
-      organizationId: normalizeScopedValue(fieldRow.organization_id),
-      tenantId: normalizeScopedValue(fieldRow.tenant_id),
-    }))
-    const doc = buildIndexDocument(row, values, {
-      organizationId: scopeOrg ?? null,
-      tenantId: scopeTenant ?? null,
-    })
-    return {
-      entity_type: entityType,
-      entity_id: recordId,
-      organization_id: scopeOrg ?? null,
-      tenant_id: scopeTenant ?? null,
-      doc,
-      index_version: 1,
-    }
-  })
-
-  const insertRows = basePayloads.map((payload) => ({
-    ...payload,
-    created_at: knex.fn.now(),
-    updated_at: knex.fn.now(),
-    deleted_at: null,
-  }))
-
-  try {
-    await knex('entity_indexes')
-      .insert(insertRows)
-      .onConflict(['entity_type', 'entity_id', 'organization_id_coalesced'])
-      .merge({
-        doc: knex.raw('excluded.doc'),
-        index_version: knex.raw('excluded.index_version'),
-        organization_id: knex.raw('excluded.organization_id'),
-        tenant_id: knex.raw('excluded.tenant_id'),
-        deleted_at: knex.raw('excluded.deleted_at'),
-        updated_at: knex.fn.now(),
-      })
-    return
-  } catch {
-    await knex.transaction(async (trx) => {
-      const now = trx.fn.now()
-      for (const payload of basePayloads) {
-        const updated = await trx('entity_indexes')
-          .where({
-            entity_type: payload.entity_type,
-            entity_id: payload.entity_id,
-            organization_id: payload.organization_id ?? null,
-          })
-          .update({
-            doc: payload.doc,
-            index_version: payload.index_version,
-            organization_id: payload.organization_id ?? null,
-            tenant_id: payload.tenant_id ?? null,
-            updated_at: now,
-            deleted_at: null,
-          })
-        if (updated) continue
-        try {
-          await trx('entity_indexes').insert({
-            ...payload,
-            created_at: now,
-            updated_at: now,
-            deleted_at: null,
-          })
-        } catch {
-          // ignore duplicate insert race; another concurrent worker updated the row
-        }
-      }
-    })
-  }
-}
-
 async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<RebuildResult> {
   const {
     knex,
@@ -536,19 +396,109 @@ const reindex: ModuleCli = {
     const entity = stringOption(args, 'entity', 'e')
     const tenantId = stringOption(args, 'tenant', 'tenantId')
     const force = flagEnabled(args, 'force', 'full')
+    const batchSize = toPositiveInt(numberOption(args, 'batch', 'chunk', 'size'))
+    const partitionsOption = toPositiveInt(numberOption(args, 'partitions', 'partitionCount', 'parallel'))
+    const partitionIndexOptionRaw = numberOption(args, 'partition', 'partitionIndex')
+    const resetCoverageFlag = flagEnabled(args, 'resetCoverage')
+    const skipResetCoverageFlag = flagEnabled(args, 'skipResetCoverage', 'noResetCoverage')
+    const skipPurge = flagEnabled(args, 'skipPurge', 'noPurge')
 
     const container = await createRequestContainer()
-    const bus = container.resolve('eventBus') as {
-      emitEvent(event: string, payload: any, options?: any): Promise<void>
+    const baseEm = container.resolve<EntityManager>('em')
+    const partitionIndexOption =
+      partitionIndexOptionRaw === undefined ? undefined : toNonNegativeInt(partitionIndexOptionRaw, 0)
+    const partitionCount = Math.max(
+      1,
+      partitionsOption ?? DEFAULT_REINDEX_PARTITIONS,
+    )
+
+    if (partitionIndexOption !== undefined && partitionIndexOption >= partitionCount) {
+      console.error(`partitionIndex (${partitionIndexOption}) must be < partitionCount (${partitionCount})`)
+      return
+    }
+
+    const partitionTargets =
+      partitionIndexOption !== undefined
+        ? [partitionIndexOption]
+        : Array.from({ length: partitionCount }, (_, idx) => idx)
+
+    const shouldResetCoverage = (partition: number): boolean => {
+      if (resetCoverageFlag) return true
+      if (skipResetCoverageFlag) return false
+      if (partitionIndexOption !== undefined) return partitionIndexOption === 0
+      return partition === partitionTargets[0]
     }
 
     if (entity) {
-      await bus.emitEvent(
-        'query_index.reindex',
-        { entityType: entity, tenantId, force },
-        { persistent: true },
+      if (!skipPurge) {
+        console.log(`Purging existing index rows for ${entity}...`)
+        await purgeIndexScope(baseEm, { entityType: entity, organizationId: null, tenantId })
+      }
+      console.log(`Reindexing ${entity}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`)
+      const progressState = new Map<number, { last: number }>()
+      const renderProgress = (part: number, entityId: string, info: { processed: number; total: number }) => {
+        const state = progressState.get(part) ?? { last: 0 }
+        const now = Date.now()
+        if (now - state.last < 1000 && info.processed < info.total) return
+        state.last = now
+        progressState.set(part, state)
+        const percent = info.total > 0 ? ((info.processed / info.total) * 100).toFixed(2) : '0.00'
+        console.log(
+          `     [${entityId}] partition ${part + 1}/${partitionCount}: ${info.processed.toLocaleString()} / ${info.total.toLocaleString()} (${percent}%)`,
+        )
+      }
+
+      const stats = await Promise.all(
+        partitionTargets.map(async (part, idx) => {
+          const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
+          if (partitionTargets.length === 1) {
+            console.log(`  -> processing${label}`)
+          } else if (idx === 0) {
+            console.log(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
+          }
+          const partitionContainer = await createRequestContainer()
+          const partitionEm = partitionContainer.resolve<EntityManager>('em')
+          try {
+            let progressBar: ReturnType<typeof createProgressBar> | null = null
+            const useBar = partitionTargets.length === 1
+            const partitionStats = await reindexEntity(partitionEm, {
+              entityType: entity,
+              tenantId,
+              force,
+              batchSize,
+              emitVectorizeEvents: false,
+              partitionCount,
+              partitionIndex: part,
+              resetCoverage: shouldResetCoverage(part),
+              onProgress(info) {
+                if (useBar) {
+                  if (info.total > 0 && !progressBar) {
+                    progressBar = createProgressBar(`Reindexing ${entity}${label}`, info.total)
+                  }
+                  progressBar?.update(info.processed)
+                } else {
+                  renderProgress(part, entity, info)
+                }
+              },
+            })
+            progressBar?.complete()
+            if (!useBar) {
+              renderProgress(part, entity, { processed: partitionStats.processed, total: partitionStats.total })
+            } else {
+              console.log(
+                `     processed ${partitionStats.processed} row(s)${partitionStats.total ? ` (base ${partitionStats.total})` : ''}`,
+              )
+            }
+            return partitionStats.processed
+          } finally {
+            if (typeof (partitionContainer as any)?.dispose === 'function') {
+              await (partitionContainer as any).dispose()
+            }
+          }
+        }),
       )
-      console.log(`Scheduled${force ? ' forced full' : ''} reindex for ${entity}`)
+      const totalProcessed = stats.reduce((acc, value) => acc + value, 0)
+      console.log(`Finished ${entity}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
       return
     }
 
@@ -556,14 +506,85 @@ const reindex: ModuleCli = {
       E: Record<string, Record<string, string>>
     }
     const entityIds: string[] = Object.values(All).flatMap((bucket) => Object.values(bucket ?? {}))
-    for (const id of entityIds) {
-      await bus.emitEvent(
-        'query_index.reindex',
-        { entityType: id, tenantId, force },
-        { persistent: true },
-      )
+    if (!entityIds.length) {
+      console.log('No entity definitions registered for query indexing.')
+      return
     }
-    console.log(`Scheduled${force ? ' forced full' : ''} reindex for ${entityIds.length} entities`)
+    for (let idx = 0; idx < entityIds.length; idx += 1) {
+      const id = entityIds[idx]!
+      if (!skipPurge) {
+        console.log(`[${idx + 1}/${entityIds.length}] Purging existing index rows for ${id}...`)
+        await purgeIndexScope(baseEm, { entityType: id, organizationId: null, tenantId })
+      }
+      console.log(
+        `[${idx + 1}/${entityIds.length}] Reindexing ${id}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`,
+      )
+      const progressState = new Map<number, { last: number }>()
+      const renderProgress = (part: number, entityId: string, info: { processed: number; total: number }) => {
+        const state = progressState.get(part) ?? { last: 0 }
+        const now = Date.now()
+        if (now - state.last < 1000 && info.processed < info.total) return
+        state.last = now
+        progressState.set(part, state)
+        const percent = info.total > 0 ? ((info.processed / info.total) * 100).toFixed(2) : '0.00'
+        console.log(
+          `     [${entityId}] partition ${part + 1}/${partitionCount}: ${info.processed.toLocaleString()} / ${info.total.toLocaleString()} (${percent}%)`,
+        )
+      }
+
+      const partitionResults = await Promise.all(
+        partitionTargets.map(async (part, partitionIdx) => {
+          const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
+          if (partitionTargets.length === 1) {
+            console.log(`  -> processing${label}`)
+          } else if (partitionIdx === 0) {
+            console.log(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
+          }
+          const partitionContainer = await createRequestContainer()
+          const partitionEm = partitionContainer.resolve<EntityManager>('em')
+          try {
+            let progressBar: ReturnType<typeof createProgressBar> | null = null
+            const useBar = partitionTargets.length === 1
+            const result = await reindexEntity(partitionEm, {
+              entityType: id,
+              tenantId,
+              force,
+              batchSize,
+              emitVectorizeEvents: false,
+              partitionCount,
+              partitionIndex: part,
+              resetCoverage: shouldResetCoverage(part),
+              onProgress(info) {
+                if (useBar) {
+                  if (info.total > 0 && !progressBar) {
+                    progressBar = createProgressBar(`Reindexing ${id}${label}`, info.total)
+                  }
+                  progressBar?.update(info.processed)
+                } else {
+                  renderProgress(part, id, info)
+                }
+              },
+            })
+            progressBar?.complete()
+            if (!useBar) {
+              renderProgress(part, id, { processed: result.processed, total: result.total })
+            } else {
+              console.log(
+                `     processed ${result.processed} row(s)${result.total ? ` (base ${result.total})` : ''}`,
+              )
+            }
+            return result.processed
+          } finally {
+            if (typeof (partitionContainer as any)?.dispose === 'function') {
+              await (partitionContainer as any).dispose()
+            }
+          }
+        }),
+      )
+      const totalProcessed = partitionResults.reduce((acc, value) => acc + value, 0)
+      console.log(`  -> ${id} complete: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+    }
+    console.log(`Finished reindexing ${entityIds.length} entities`)
   },
 }
 

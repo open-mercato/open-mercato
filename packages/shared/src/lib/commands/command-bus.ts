@@ -11,6 +11,8 @@ import type {
 } from './types'
 import { defaultUndoToken } from './types'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import type { AwilixContainer } from 'awilix'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import {
   deriveResourceFromCommandId,
   invalidateCrudCache,
@@ -74,6 +76,7 @@ export class CommandBus {
     }
     const logEntry = await this.persistLog(commandId, options, mergedMeta)
     await this.invalidateCacheAfterExecute(commandId, options, result, mergedMeta)
+    await this.flushCrudSideEffects(options.ctx.container)
     return { result, logEntry }
   }
 
@@ -92,6 +95,7 @@ export class CommandBus {
     })
     await service.markUndone(log.id)
     await this.invalidateCacheAfterUndo(log, ctx)
+    await this.flushCrudSideEffects(ctx.container)
   }
 
   private resolveHandler<TInput, TResult>(commandId: string): CommandHandler<TInput, TResult> {
@@ -307,6 +311,15 @@ export class CommandBus {
           console.debug('[crud][cache] undo-invalidation failed', { commandId: log.commandId, err })
         } catch {}
       }
+    }
+  }
+
+  private async flushCrudSideEffects(container: AwilixContainer): Promise<void> {
+    try {
+      const dataEngine = container.resolve<DataEngine>('dataEngine')
+      await dataEngine.flushOrmEntityChanges()
+    } catch {
+      // best-effort: failures should not block command execution
     }
   }
 }

@@ -11,6 +11,14 @@ import { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildC
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import type { CustomFieldSet } from '@open-mercato/shared/modules/entities'
 import { todoCrudEvents, todoCrudIndexer } from '@open-mercato/example/modules/example/commands/todos'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  createExampleCrudOpenApi,
+  createExamplePagedListResponseSchema,
+  exampleCreatedSchema,
+  exampleOkSchema,
+  todoListItemSchema as todoListItemDocSchema,
+} from '../openapi'
 
 // Query (list) schema
 const querySchema = z
@@ -236,5 +244,31 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       commandId: 'example.todos.delete',
       response: () => ({ ok: true }),
     },
+  },
+})
+
+const todoDeleteSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const openApi: OpenApiRouteDoc = createExampleCrudOpenApi({
+  resourceName: 'Todo',
+  pluralName: 'Todos',
+  querySchema,
+  listResponseSchema: createExamplePagedListResponseSchema(todoListItemDocSchema),
+  create: {
+    schema: rawBodySchema,
+    description: 'Creates a todo record. Supports additional custom field keys prefixed with `cf_`.',
+    responseSchema: exampleCreatedSchema,
+  },
+  update: {
+    schema: rawBodySchema,
+    description: 'Updates an existing todo record by id. Accepts base fields and optional `cf_` custom fields.',
+    responseSchema: exampleOkSchema,
+  },
+  del: {
+    schema: todoDeleteSchema,
+    description: 'Deletes a todo by id. Provide the identifier in the request body.',
+    responseSchema: exampleOkSchema,
   },
 })

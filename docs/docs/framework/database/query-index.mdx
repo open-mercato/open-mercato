@@ -55,7 +55,12 @@ Backfill
   - Single record: `mercato query_index rebuild --entity example:todo --record <entityId>`
   - Options: `--withDeleted` `--limit <n>` `--offset <n>` `--batch <size>`
 - CLI: `mercato query_index rebuild-all` walks every registered entity index using the same flags as `rebuild`, making it easy to refresh the entire corpus in one go.
-- Scheduling via events remains available: `mercato query_index reindex [--entity <module:entity>] [--tenant <tenantId>] [--force]` and `mercato query_index purge [...]` enqueue background jobs when you don’t need immediate writes.
+- CLI: `mercato query_index reindex [--entity <module:entity>] [--tenant <tenantId>] [--force]` (shorthand: `yarn mercato reindex`) now splits work into five partitions by default. Override the granularity with `--partitions <n>` or target a single shard with `--partition-index <i>`. Combine with `--skipResetCoverage` on partitions >0 when running several workers concurrently. The command continues to honour `--batch <size>` for the inner chunk size (defaults to 500 rows).
+  - Parallel run: start five terminals with `mercato query_index reindex --entity example:todo --partitions 5 --partition-index <0-4>`; the partition `0` process resets coverage, so the remaining workers should pass `--skipResetCoverage`.
+  - Single worker: omit `--partition-index` and the CLI will iterate every partition sequentially.
+- Each CLI run purges existing index rows before reindexing unless `--skipPurge` is provided, ensuring a clean rebuild.
+- The admin status view now tracks per-partition progress and marks jobs as **stalled** when no heartbeat is recorded for 60 seconds, making it easier to spot a wedged worker.
+- Scheduling via events remains available: `mercato query_index reindex [...]` and `mercato query_index purge [...]` enqueue background jobs when you don’t need immediate writes. API callers can pass `partitionCount`, `partitionIndex`, and `batchSize` to mirror the CLI behaviour; omitting `partitionIndex` emits one event per partition automatically.
 - Bulk imports: build and insert index payloads alongside your ETL transaction with the `buildIndexDocument` helper (`packages/core/src/modules/query_index/lib/document.ts`) so large seeders can skip the post-import reindex sweep. The CRM stress-test seeder now follows this pattern.
 
 Performance tips
@@ -67,8 +72,10 @@ Performance tips
 Limitations and notes
 - The index row appears after create/update events or backfill. Queries still work via fallback when the index is missing.
 - Cross-module relations remain by foreign key id only; no cross-module joins.
-- When the hybrid engine falls back because of partial index coverage it emits a warning and, by default, schedules an asynchronous reindex for the affected entity/tenant scope. Toggle this with `QUERY_INDEX_AUTO_REINDEX` (defaults to `true`) if you prefer to manage reindex jobs manually.
+- When the hybrid engine falls back because of partial index coverage it emits a warning and, by default, schedules an asynchronous reindex for the affected entity/tenant scope. Toggle this with `SCHEDULE_AUTO_REINDEX` (defaults to `true`) if you prefer to manage reindex jobs manually. For smaller datasets (≤10k customers) keep this flag enabled together with `OPTIMIZE_INDEX_COVERAGE_STATS=false` so coverage updates remain instant.
+- `OPTIMIZE_INDEX_COVERAGE_STATS=true` enables cached coverage snapshots. Leave it `false` to recalculate counts on every read, which is ideal for fast feedback during development or on small installations.
 - Keep the indexed path even when gaps are detected by setting `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES=true` (enabled by default). When active, list responses include an `x-om-partial-index` response header (with `entity`, `baseCount`, `indexedCount`, and `scope`) so the admin UI can surface a banner prompting the user to reindex via `/backend/query-indexes`.
+- Coverage statistics are tracked per tenant to avoid cross-organization leakage. Admin views surface the tenant snapshot directly and never blend organization-level scopes.
 
 ## Debugging SQL output
 

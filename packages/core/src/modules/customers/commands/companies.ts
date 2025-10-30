@@ -44,8 +44,14 @@ import {
   diffCustomFieldChanges,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
+
+const companyCrudIndexer: CrudIndexerConfig<CustomerEntity> = {
+  entityType: E.customers.customer_company_profile,
+}
 
 type CompanyAddressSnapshot = {
   id: string
@@ -374,6 +380,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
         organizationId: entity.organizationId,
         tenantId: entity.tenantId,
       },
+      indexer: companyCrudIndexer,
     })
 
     return { entityId: entity.id, companyId: profile.id }
@@ -480,6 +487,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      indexer: companyCrudIndexer,
     })
 
     return { entityId: record.id }
@@ -656,6 +664,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         organizationId: entity.organizationId,
         tenantId: entity.tenantId,
       },
+      indexer: companyCrudIndexer,
     })
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
@@ -702,6 +711,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         },
+        indexer: companyCrudIndexer,
       })
       return { entityId: record.id }
     },
@@ -944,6 +954,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: entity.organizationId,
           tenantId: entity.tenantId,
         },
+        indexer: companyCrudIndexer,
       })
 
       const resetValues = buildCustomFieldResetMap(before.custom, null)

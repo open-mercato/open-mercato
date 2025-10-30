@@ -2,8 +2,17 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
-import { upsertDictionarySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  dictionariesErrorSchema,
+  dictionariesOkSchema,
+  dictionariesTag,
+  dictionaryDetailSchema,
+  dictionaryIdParamsSchema,
+  dictionaryUpdateSchema,
+  upsertDictionarySchema,
+} from '../openapi'
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
 const updateSchema = upsertDictionarySchema
@@ -160,4 +169,66 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     console.error('[dictionaries/:id.DELETE] Unexpected error', err)
     return NextResponse.json({ error: 'Failed to delete dictionary' }, { status: 500 })
   }
+}
+
+const dictionaryGetDoc: OpenApiMethodDoc = {
+  summary: 'Get dictionary',
+  description: 'Returns details for the specified dictionary, including inheritance flags.',
+  tags: [dictionariesTag],
+  responses: [
+    { status: 200, description: 'Dictionary details.', schema: dictionaryDetailSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid parameters', schema: dictionariesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dictionariesErrorSchema },
+    { status: 404, description: 'Dictionary not found', schema: dictionariesErrorSchema },
+    { status: 500, description: 'Failed to load dictionary', schema: dictionariesErrorSchema },
+  ],
+}
+
+const dictionaryPatchDoc: OpenApiMethodDoc = {
+  summary: 'Update dictionary',
+  description: 'Updates mutable attributes of the dictionary. Currency dictionaries are protected from modification.',
+  tags: [dictionariesTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: dictionaryUpdateSchema,
+    description: 'Fields to update on the dictionary.',
+  },
+  responses: [
+    { status: 200, description: 'Dictionary updated.', schema: dictionaryDetailSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed or protected dictionary', schema: dictionariesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dictionariesErrorSchema },
+    { status: 404, description: 'Dictionary not found', schema: dictionariesErrorSchema },
+    { status: 409, description: 'Dictionary key already exists', schema: dictionariesErrorSchema },
+    { status: 500, description: 'Failed to update dictionary', schema: dictionariesErrorSchema },
+  ],
+}
+
+const dictionaryDeleteDoc: OpenApiMethodDoc = {
+  summary: 'Delete dictionary',
+  description: 'Soft deletes the dictionary unless it is the protected currency dictionary.',
+  tags: [dictionariesTag],
+  responses: [
+    { status: 200, description: 'Dictionary archived.', schema: dictionariesOkSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Protected dictionary cannot be deleted', schema: dictionariesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dictionariesErrorSchema },
+    { status: 404, description: 'Dictionary not found', schema: dictionariesErrorSchema },
+    { status: 500, description: 'Failed to delete dictionary', schema: dictionariesErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: dictionariesTag,
+  summary: 'Dictionary resource',
+  pathParams: dictionaryIdParamsSchema,
+  methods: {
+    GET: dictionaryGetDoc,
+    PATCH: dictionaryPatchDoc,
+    DELETE: dictionaryDeleteDoc,
+  },
 }

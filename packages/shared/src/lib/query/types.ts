@@ -1,4 +1,5 @@
 import type { EntityId } from '@/modules/entities'
+import type { Profiler } from '../profiler'
 
 export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists'
 
@@ -92,6 +93,7 @@ export type QueryOptions = {
   withDeleted?: boolean
   customFieldSources?: QueryCustomFieldSource[]
   joins?: QueryJoinEdge[]
+  profiler?: Profiler
 }
 
 export type PartialIndexWarning = {

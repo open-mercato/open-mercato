@@ -142,6 +142,18 @@ export default function CustomersCompaniesPage() {
     return entries.map((entry) => ({ value: entry.value, label: entry.label }))
   }, [fetchDictionaryEntries])
 
+  const dictionaryOptions = React.useMemo(() => {
+    const toOptions = (map?: DictionaryMap | null): FilterOption[] =>
+      Object.values(map ?? {})
+        .map((entry) => ({ value: entry.value, label: entry.label }))
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+    return {
+      statuses: toOptions(dictionaryMaps.statuses),
+      sources: toOptions(dictionaryMaps.sources),
+      lifecycleStages: toOptions(dictionaryMaps['lifecycle-stages']),
+    }
+  }, [dictionaryMaps])
+
   const loadTagOptions = React.useCallback(async (query?: string): Promise<FilterOption[]> => {
     try {
       const params = new URLSearchParams({ pageSize: '100' })
@@ -229,18 +241,21 @@ export default function CustomersCompaniesPage() {
       id: 'status',
       label: t('customers.companies.list.filters.status'),
       type: 'select',
+      options: dictionaryOptions.statuses,
       loadOptions: () => loadDictionaryOptions('statuses'),
     },
     {
       id: 'source',
       label: t('customers.companies.list.filters.source'),
       type: 'select',
+      options: dictionaryOptions.sources,
       loadOptions: () => loadDictionaryOptions('sources'),
     },
     {
       id: 'lifecycleStage',
       label: t('customers.companies.list.filters.lifecycleStage'),
       type: 'select',
+      options: dictionaryOptions.lifecycleStages,
       loadOptions: () => loadDictionaryOptions('lifecycle-stages'),
     },
     {
@@ -275,7 +290,7 @@ export default function CustomersCompaniesPage() {
       label: t('customers.companies.list.filters.hasNextInteraction'),
       type: 'checkbox',
     },
-  ], [loadDictionaryOptions, loadTagOptions, t])
+  ], [dictionaryOptions.lifecycleStages, dictionaryOptions.sources, dictionaryOptions.statuses, loadDictionaryOptions, loadTagOptions, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()

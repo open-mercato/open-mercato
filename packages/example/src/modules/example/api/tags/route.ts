@@ -1,6 +1,12 @@
 import { getAuthFromCookies } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { CustomFieldDef, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  exampleErrorSchema,
+  exampleTag,
+  optionsResponseSchema,
+} from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
@@ -45,4 +51,24 @@ export async function GET(request: Request) {
   } catch (e) {
     return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
+}
+
+const tagsGetDoc: OpenApiMethodDoc = {
+  summary: 'List example tags',
+  description: 'Returns tag options collected from custom field values and dictionary configuration.',
+  tags: [exampleTag],
+  responses: [
+    { status: 200, description: 'Available tag options.', schema: optionsResponseSchema },
+  ],
+  errors: [
+    { status: 500, description: 'Failed to resolve tags', schema: exampleErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: exampleTag,
+  summary: 'Example tag suggestions',
+  methods: {
+    GET: tagsGetDoc,
+  },
 }

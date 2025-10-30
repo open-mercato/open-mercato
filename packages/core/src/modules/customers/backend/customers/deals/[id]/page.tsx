@@ -354,7 +354,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     [t],
   )
 
-  const sectionLoaderLabel = activeTab === 'activities'
+  const isActivitiesTab = activeTab === 'activities'
+  const sectionLoaderLabel = isActivitiesTab
     ? t('customers.deals.detail.activitiesLoading', 'Loading activities…')
     : t('customers.deals.detail.notesLoading', 'Loading notes…')
 
@@ -515,10 +516,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     </Button>
                   ) : null}
                 </div>
-                <SectionLoader
-                  isLoading={sectionPending[activeTab]}
-                  label={sectionLoaderLabel}
-                />
+                {isActivitiesTab ? (
+                  <SectionLoader
+                    isLoading={sectionPending.activities}
+                    label={sectionLoaderLabel}
+                  />
+                ) : null}
                 {activeTab === 'notes' ? (
                   <NotesSection
                     entityId={null}

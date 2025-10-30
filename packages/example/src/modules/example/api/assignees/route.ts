@@ -1,4 +1,11 @@
 import { getAuthFromCookies } from '@/lib/auth/server'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  assigneeQuerySchema,
+  exampleErrorSchema,
+  exampleTag,
+  optionsResponseSchema,
+} from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
@@ -42,3 +49,24 @@ export async function GET(request: Request) {
   }
 }
 
+const assigneesGetDoc: OpenApiMethodDoc = {
+  summary: 'List example assignees',
+  description: 'Returns mock assignee options filtered by the optional `q` query parameter.',
+  tags: [exampleTag],
+  query: assigneeQuerySchema,
+  responses: [
+    { status: 200, description: 'Assignable users.', schema: optionsResponseSchema },
+  ],
+  errors: [
+    { status: 401, description: 'Authentication required', schema: exampleErrorSchema },
+    { status: 500, description: 'Unexpected server error', schema: exampleErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: exampleTag,
+  summary: 'Example assignee options',
+  methods: {
+    GET: assigneesGetDoc,
+  },
+}

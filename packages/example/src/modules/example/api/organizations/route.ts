@@ -3,6 +3,13 @@ import { getAuthFromCookies } from '@/lib/auth/server'
 import { E } from '@open-mercato/core/datamodel/entities'
 import { id, name } from '@open-mercato/core/datamodel/entities/organization'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  exampleErrorSchema,
+  exampleOrganizationResponseSchema,
+  exampleTag,
+  organizationQuerySchema,
+} from '../openapi'
 
 export const metadata = {
   GET: {
@@ -70,4 +77,26 @@ export async function GET(request: Request) {
       headers: { 'content-type': 'application/json' },
     })
   }
+}
+
+const organizationsGetDoc: OpenApiMethodDoc = {
+  summary: 'Resolve organization labels',
+  description: 'Fetches organization names for the provided identifiers within the current tenant scope.',
+  tags: [exampleTag],
+  query: organizationQuerySchema,
+  responses: [
+    { status: 200, description: 'Resolved organizations.', schema: exampleOrganizationResponseSchema },
+  ],
+  errors: [
+    { status: 401, description: 'Authentication required', schema: exampleErrorSchema },
+    { status: 500, description: 'Unexpected server error', schema: exampleErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: exampleTag,
+  summary: 'Example organizations lookup',
+  methods: {
+    GET: organizationsGetDoc,
+  },
 }

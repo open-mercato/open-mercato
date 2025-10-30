@@ -1,8 +1,16 @@
 import { NextResponse } from 'next/server'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
-import { upsertDictionarySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  dictionariesErrorSchema,
+  dictionariesTag,
+  dictionaryDetailSchema,
+  dictionaryListQuerySchema,
+  dictionaryListResponseSchema,
+  upsertDictionarySchema,
+} from './openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['dictionaries.view'] },
@@ -96,4 +104,47 @@ export async function POST(req: Request) {
     console.error('[dictionaries.POST] Unexpected error', err)
     return NextResponse.json({ error: 'Failed to create dictionary' }, { status: 500 })
   }
+}
+
+const dictionariesGetDoc: OpenApiMethodDoc = {
+  summary: 'List dictionaries',
+  description: 'Returns dictionaries accessible to the current organization, optionally including inactive records.',
+  tags: [dictionariesTag],
+  query: dictionaryListQuerySchema,
+  responses: [
+    { status: 200, description: 'Dictionary collection.', schema: dictionaryListResponseSchema },
+  ],
+  errors: [
+    { status: 401, description: 'Authentication required', schema: dictionariesErrorSchema },
+    { status: 500, description: 'Failed to load dictionaries', schema: dictionariesErrorSchema },
+  ],
+}
+
+const dictionariesPostDoc: OpenApiMethodDoc = {
+  summary: 'Create dictionary',
+  description: 'Registers a dictionary scoped to the current organization.',
+  tags: [dictionariesTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: upsertDictionarySchema,
+    description: 'Dictionary definition including unique key and display name.',
+  },
+  responses: [
+    { status: 201, description: 'Dictionary created.', schema: dictionaryDetailSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: dictionariesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dictionariesErrorSchema },
+    { status: 409, description: 'Dictionary key already exists', schema: dictionariesErrorSchema },
+    { status: 500, description: 'Failed to create dictionary', schema: dictionariesErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: dictionariesTag,
+  summary: 'Dictionaries collection',
+  methods: {
+    GET: dictionariesGetDoc,
+    POST: dictionariesPostDoc,
+  },
 }

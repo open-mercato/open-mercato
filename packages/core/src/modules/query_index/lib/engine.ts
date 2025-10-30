@@ -5,6 +5,32 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import type { Knex } from 'knex'
 import type { EventBus } from '@open-mercato/events'
+import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
+import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
+
+function parseBooleanToken(value: string | null | undefined, defaultValue: boolean): boolean {
+  if (value == null) return defaultValue
+  const token = value.trim().toLowerCase()
+  if (!token.length) return defaultValue
+  if (['1', 'true', 'yes', 'on'].includes(token)) return true
+  if (['0', 'false', 'no', 'off'].includes(token)) return false
+  return defaultValue
+}
+
+function resolveBooleanEnv(names: readonly string[], defaultValue: boolean): boolean {
+  for (const name of names) {
+    const raw = process.env[name]
+    if (raw !== undefined) return parseBooleanToken(raw, defaultValue)
+  }
+  return defaultValue
+}
+
+function resolveDebugVerbosity(): boolean {
+  const level = (process.env.LOG_VERBOSITY ?? process.env.LOG_LEVEL ?? '').toLowerCase()
+  if (['debug', 'trace', 'silly'].includes(level)) return true
+  const nodeEnv = (process.env.NODE_ENV ?? '').toLowerCase()
+  return nodeEnv === 'development'
+}
 
 type ResultRow = Record<string, unknown>
 type ResultBuilder<TResult = ResultRow[]> = Knex.QueryBuilder<ResultRow, TResult>
@@ -20,97 +46,183 @@ type PreparedCustomFieldSource = {
   table: string
 }
 
+function createQueryProfiler(entity: string): Profiler {
+  const enabled = shouldEnableProfiler(entity)
+  return createProfiler({
+    scope: 'query_engine',
+    target: entity,
+    label: `query_engine:${entity}`,
+    loggerLabel: '[qe:profile]',
+    enabled,
+  })
+}
+
 export class HybridQueryEngine implements QueryEngine {
+  private coverageStatsTtlMs: number
+  private customFieldKeysCache = new Map<string, { expiresAt: number; value: string[] }>()
+  private customFieldKeysTtlMs: number
   private columnCache = new Map<string, boolean>()
   private debugVerbosity: boolean | null = null
   private sqlDebugEnabled: boolean | null = null
   private forcePartialIndexEnabled: boolean | null = null
   private autoReindexEnabled: boolean | null = null
-  private pendingAutoReindexKeys = new Set<string>()
+  private coverageOptimizationEnabled: boolean | null = null
+  private pendingCoverageRefreshKeys = new Set<string>()
 
   constructor(
     private em: EntityManager,
     private fallback: BasicQueryEngine,
     private eventBusResolver?: () => Pick<EventBus, 'emitEvent'> | null | undefined
-  ) {}
+  ) {
+    const coverageTtl = Number.parseInt(process.env.QUERY_INDEX_COVERAGE_CACHE_MS ?? '', 10)
+    this.coverageStatsTtlMs = Number.isFinite(coverageTtl) && coverageTtl >= 0 ? coverageTtl : 5 * 60 * 1000
+    const cfTtl = Number.parseInt(process.env.QUERY_INDEX_CF_KEYS_CACHE_MS ?? '', 10)
+    this.customFieldKeysTtlMs = Number.isFinite(cfTtl) && cfTtl >= 0 ? cfTtl : 5 * 60 * 1000
+  }
 
   async query<T = unknown>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
-    const debugEnabled = this.isDebugVerbosity()
-    if (debugEnabled) this.debug('query:start', { entity })
-
-    if (await this.isCustomEntity(entity)) {
-      if (debugEnabled) this.debug('query:custom-entity', { entity })
-      return this.queryCustomEntity<T>(entity, opts)
+    const providedProfiler = opts.profiler
+    const profiler = providedProfiler && providedProfiler.enabled
+      ? providedProfiler
+      : createQueryProfiler(String(entity))
+    profiler.mark('query:init')
+    let profileClosed = false
+    const finishProfile = (meta?: Record<string, unknown>) => {
+      if (!profiler.enabled || profileClosed) return
+      profileClosed = true
+      profiler.end(meta)
     }
 
-    const knex = this.getKnex()
-    const baseTable = resolveEntityTableName(this.em, entity)
+    try {
+      const debugEnabled = this.isDebugVerbosity()
+      if (debugEnabled) this.debug('query:start', { entity })
 
-    const baseExists = await this.tableExists(baseTable)
-    if (!baseExists) {
-      if (debugEnabled) this.debug('query:fallback:missing-base', { entity, baseTable })
-      return this.fallback.query(entity, opts)
-    }
+      if (await this.isCustomEntity(entity)) {
+        if (debugEnabled) this.debug('query:custom-entity', { entity })
+        const section = profiler.section('custom_entity')
+        try {
+          const result = await this.queryCustomEntity<T>(entity, opts)
+          section.end({ mode: 'custom_entity' })
+          finishProfile({
+            result: 'custom_entity',
+            total: Array.isArray(result.items) ? result.items.length : undefined,
+          })
+          return result
+        } catch (err) {
+          section.end({ error: err instanceof Error ? err.message : String(err) })
+          throw err
+        }
+      }
 
-    const normalizedFilters = this.normalizeFilters(opts.filters)
-    const orgScope = this.resolveOrganizationScope(opts)
-    const wantsCf = (
-      (opts.fields || []).some((field) => typeof field === 'string' && field.startsWith('cf:')) ||
-      normalizedFilters.some((filter) => filter.field.startsWith('cf:')) ||
-      opts.includeCustomFields === true ||
-      (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.length > 0)
-    )
+      const knex = this.getKnex()
+      profiler.mark('query:knex_ready')
+      const baseTable = resolveEntityTableName(this.em, entity)
+      profiler.mark('query:base_table_resolved')
 
-    if (debugEnabled) {
-      this.debug('query:config', {
-        entity,
-        wantsCustomFields: wantsCf,
-        customFieldSources: Array.isArray(opts.customFieldSources) ? opts.customFieldSources.map((src) => src?.entityId) : undefined,
-        fields: opts.fields,
-      })
-    }
+      const baseExists = await profiler.measure('base_table_exists', () => this.tableExists(baseTable))
+      if (!baseExists) {
+        if (debugEnabled) this.debug('query:fallback:missing-base', { entity, baseTable })
+        const fallbackResult = await this.fallback.query(entity, opts)
+        finishProfile({ result: 'fallback', reason: 'missing_base' })
+        return fallbackResult
+      }
 
-    let partialIndexWarning: PartialIndexWarning | null = null
+      const normalizedFilters = this.normalizeFilters(opts.filters)
+      const orgScope = this.resolveOrganizationScope(opts)
+      const wantsCf = (
+        (opts.fields || []).some((field) => typeof field === 'string' && field.startsWith('cf:')) ||
+        normalizedFilters.some((filter) => filter.field.startsWith('cf:')) ||
+        opts.includeCustomFields === true ||
+        (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.length > 0)
+      )
+
+      if (debugEnabled) {
+        this.debug('query:config', {
+          entity,
+          wantsCustomFields: wantsCf,
+          customFieldSources: Array.isArray(opts.customFieldSources) ? opts.customFieldSources.map((src) => src?.entityId) : undefined,
+          fields: opts.fields,
+        })
+      }
+
+      let partialIndexWarning: PartialIndexWarning | null = null
 
     if (wantsCf) {
-      const hasIndexRows = await this.indexAnyRows(entity)
-      if (!hasIndexRows) {
-        if (debugEnabled) this.debug('query:fallback:no-index', { entity })
-        return this.fallback.query(entity, opts)
-      }
-      const gap = await this.resolveCoverageGap(entity, baseTable, opts)
-      if (gap) {
-        this.scheduleAutoReindex(entity, opts, gap.stats)
-        const force = this.isForcePartialIndexEnabled()
-        if (!force) {
-          if (gap.stats) {
-            console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
-            if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
-          } else {
-            console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
-            if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
+      const hasIndexRows = await profiler.measure(
+        'index_any_rows',
+        () => this.indexAnyRows(entity),
+        (value) => ({ hasIndexRows: value })
+      )
+        if (!hasIndexRows) {
+          if (debugEnabled) this.debug('query:fallback:no-index', { entity })
+          const fallbackResult = await this.fallback.query(entity, opts)
+          finishProfile({ result: 'fallback', reason: 'no_index_rows' })
+          return fallbackResult
+        }
+        const gap = await profiler.measure(
+          'resolve_coverage_gap',
+          () => this.resolveCoverageGap(entity, opts),
+          (value) => (value
+            ? {
+                scope: value.scope,
+                baseCount: value.stats?.baseCount ?? null,
+                indexedCount: value.stats?.indexedCount ?? null,
+              }
+            : { scope: null })
+        )
+        if (gap) {
+          this.scheduleAutoReindex(entity, opts, gap.stats)
+          const force = this.isForcePartialIndexEnabled()
+          if (!force) {
+            if (gap.stats) {
+              console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+              if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+            } else {
+              console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
+              if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
+            }
+            const fallbackResult = await this.fallback.query(entity, opts)
+            const resultWithWarning: QueryResult<T> = {
+              ...fallbackResult,
+              meta: {
+                ...(fallbackResult.meta ?? {}),
+                partialIndexWarning: {
+                  entity,
+                  baseCount: gap.stats?.baseCount ?? null,
+                  indexedCount: gap.stats?.indexedCount ?? null,
+                  scope: gap.stats ? gap.scope : undefined,
+                },
+              },
+            }
+            finishProfile({
+              result: 'fallback',
+              reason: 'partial_index',
+              scope: gap.scope,
+              baseCount: gap.stats?.baseCount ?? null,
+              indexedCount: gap.stats?.indexedCount ?? null,
+            })
+            return resultWithWarning
           }
-          return this.fallback.query(entity, opts)
-        }
-        if (gap.stats) {
-          console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
-          if (debugEnabled) this.debug('query:partial-coverage:forced', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
-        } else {
-          console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity })
-          if (debugEnabled) this.debug('query:partial-coverage:forced', { entity })
-        }
-        partialIndexWarning = {
-          entity,
-          baseCount: gap.stats?.baseCount ?? null,
-          indexedCount: gap.stats?.indexedCount ?? null,
-          scope: gap.stats ? gap.scope : undefined,
+          if (gap.stats) {
+            console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+            if (debugEnabled) this.debug('query:partial-coverage:forced', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+          } else {
+            console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity })
+            if (debugEnabled) this.debug('query:partial-coverage:forced', { entity })
+          }
+          partialIndexWarning = {
+            entity,
+            baseCount: gap.stats?.baseCount ?? null,
+            indexedCount: gap.stats?.indexedCount ?? null,
+            scope: gap.stats ? gap.scope : undefined,
+          }
         }
       }
-    }
 
-    const qualify = (col: string) => `b.${col}`
+      const qualify = (col: string) => `b.${col}`
     let builder: ResultBuilder = knex({ b: baseTable })
-    const canOptimizeCount = !normalizedFilters.some((filter) => filter.field.startsWith('cf:')) && (!Array.isArray(opts.customFieldSources) || opts.customFieldSources.length === 0)
+    const hasCustomFieldFilters = normalizedFilters.some((filter) => filter.field.startsWith('cf:'))
+    const canOptimizeCount = !hasCustomFieldFilters
     let optimizedCountBuilder: ResultBuilder | null = canOptimizeCount ? knex({ b: baseTable }) : null
 
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
@@ -191,7 +303,18 @@ export class HybridQueryEngine implements QueryEngine {
         seen.add(targetEntity)
         const sourceTable = source.table ?? resolveEntityTableName(this.em, targetEntity)
         try {
-          const gap = await this.resolveCoverageGap(targetEntity, sourceTable, opts)
+          const gap = await profiler.measure(
+            'resolve_coverage_gap',
+            () => this.resolveCoverageGap(targetEntity, opts, sourceTable),
+            (value) => (value
+              ? {
+                  entity: targetEntity,
+                  scope: value.scope,
+                  baseCount: value.stats?.baseCount ?? null,
+                  indexedCount: value.stats?.indexedCount ?? null,
+                }
+              : { entity: targetEntity, scope: null })
+          )
           if (!gap) continue
           this.scheduleAutoReindex(targetEntity, opts, gap.stats)
           partialIndexWarning = {
@@ -286,7 +409,13 @@ export class HybridQueryEngine implements QueryEngine {
         const { sql, bindings } = countQuery.clone().toSQL()
         this.debug('query:sql:count', { entity, sql, bindings })
       }
-      const countRow = await this.captureSqlTiming('query:sql:count', entity, () => countQuery.first())
+      const countRow = await this.captureSqlTiming(
+        'query:sql:count',
+        entity,
+        () => countQuery.first(),
+        { optimized: true },
+        profiler
+      )
       total = this.parseCount(countRow)
     } else {
       const countBuilder = builder.clone().clearSelect().clearOrder().countDistinct(`${qualify('id')} as count`)
@@ -294,7 +423,13 @@ export class HybridQueryEngine implements QueryEngine {
         const { sql, bindings } = countBuilder.clone().toSQL()
         this.debug('query:sql:count', { entity, sql, bindings })
       }
-      const countRow = await this.captureSqlTiming('query:sql:count', entity, () => countBuilder.first())
+      const countRow = await this.captureSqlTiming(
+        'query:sql:count',
+        entity,
+        () => countBuilder.first(),
+        { optimized: false },
+        profiler
+      )
       total = this.parseCount(countRow)
     }
 
@@ -303,14 +438,32 @@ export class HybridQueryEngine implements QueryEngine {
       const { sql, bindings } = dataBuilder.clone().toSQL()
       this.debug('query:sql:data', { entity, sql, bindings, page, pageSize })
     }
-    const items = await this.captureSqlTiming('query:sql:data', entity, () => dataBuilder, { page, pageSize })
+    const items = await this.captureSqlTiming(
+      'query:sql:data',
+      entity,
+      () => dataBuilder,
+      { page, pageSize },
+      profiler
+    )
     if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(items) ? items.length : 0 })
 
     const result: QueryResult<T> = { items, page, pageSize, total }
     if (partialIndexWarning) {
       result.meta = { partialIndexWarning }
     }
+    finishProfile({
+      result: 'ok',
+      total,
+      page,
+      pageSize,
+      itemCount: Array.isArray(items) ? items.length : undefined,
+      partialIndexWarning: partialIndexWarning ? true : false,
+    })
     return result
+  } catch (err) {
+    finishProfile({ result: 'error', error: err instanceof Error ? err.message : String(err) })
+    throw err
+  }
   }
 
   private getKnex(): Knex {
@@ -624,6 +777,13 @@ export class HybridQueryEngine implements QueryEngine {
 
   private async resolveAvailableCustomFieldKeys(entityIds: string[], tenantId: string | null): Promise<string[]> {
     if (!entityIds.length) return []
+    const cacheKey = this.customFieldKeysCacheKey(entityIds, tenantId)
+    const now = Date.now()
+    const cached = this.customFieldKeysCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) {
+      return cached.value.slice()
+    }
+
     const knex = this.getKnex()
     const rows = await knex('custom_field_defs')
       .select('key')
@@ -640,60 +800,72 @@ export class HybridQueryEngine implements QueryEngine {
       if (typeof key === 'string' && key.trim().length) keys.add(key.trim())
       else if (key != null) keys.add(String(key))
     }
-    return Array.from(keys)
+    const result = Array.from(keys)
+    if (this.customFieldKeysTtlMs > 0) {
+      this.customFieldKeysCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: result })
+    }
+    return result.slice()
+  }
+
+  private customFieldKeysCacheKey(entityIds: string[], tenantId: string | null): string {
+    const sorted = entityIds.slice().sort().join(',')
+    return `${tenantId ?? '__none__'}|${sorted}`
   }
 
   private async indexAnyRows(entity: string): Promise<boolean> {
     const knex = this.getKnex()
-    const exists = await knex('entity_indexes').where({ entity_type: entity }).first()
+    // Prefer coverage snapshots – cheap and already scoped by maintenance jobs.
+    const coverage = await knex('entity_index_coverage')
+      .select(1)
+      .where('entity_type', entity)
+      .where('indexed_count', '>', 0)
+      .first()
+    if (coverage) return true
+    const exists = await knex('entity_indexes').select('entity_id').where({ entity_type: entity }).first()
     return !!exists
   }
-
-  private async indexCoverageComplete(entity: string, baseTable: string, opts: QueryOptions): Promise<boolean> {
-    const { baseCount, indexedCount } = await this.indexCoverageStats(entity, baseTable, opts)
-    if (baseCount === 0) return indexedCount === 0
-    return indexedCount === baseCount
-  }
-
-  private async indexCoverageStats(entity: string, baseTable: string, opts: QueryOptions): Promise<{ baseCount: number; indexedCount: number }> {
-    const knex = this.getKnex()
-
-    // Base count within scope (org/tenant/soft-delete)
-    const orgScope = this.resolveOrganizationScope(opts)
-
-    let bq = knex({ b: baseTable }).clearSelect().clearOrder()
-    if (orgScope && (await this.columnExists(baseTable, 'organization_id'))) {
-      bq = this.applyOrganizationScope(bq, 'b.organization_id', orgScope)
+  private async getStoredCoverageSnapshot(
+    entity: string,
+    tenantId: string | null,
+    organizationId: string | null,
+    withDeleted: boolean
+  ): Promise<{ baseCount: number; indexedCount: number } | null> {
+    try {
+      if (!this.isCoverageOptimizationEnabled()) {
+        await refreshCoverageSnapshot(this.em, {
+          entityType: entity,
+          tenantId,
+          organizationId,
+          withDeleted,
+        })
+      }
+      const knex = this.getKnex()
+      const row = await readCoverageSnapshot(knex, {
+        entityType: entity,
+        tenantId,
+        organizationId,
+        withDeleted,
+      })
+      if (!row) return null
+      return { baseCount: row.baseCount, indexedCount: row.indexedCount }
+    } catch (err) {
+      if (this.isDebugVerbosity()) {
+        this.debug('coverage:snapshot:read-error', {
+          entity,
+          tenantId,
+          organizationId,
+          withDeleted,
+          error: err instanceof Error ? err.message : err,
+        })
+      }
+      return null
     }
-    if (opts.tenantId && (await this.columnExists(baseTable, 'tenant_id'))) {
-      bq = bq.where('b.tenant_id', opts.tenantId)
-    }
-    if (!opts.withDeleted && (await this.columnExists(baseTable, 'deleted_at'))) {
-      bq = bq.whereNull('b.deleted_at')
-    }
-    const baseRow = await bq.countDistinct('b.id as count').first()
-    const baseCount = this.parseCount(baseRow)
-
-    // Index count within same scope
-    let iq = knex({ ei: 'entity_indexes' }).clearSelect().clearOrder().where('ei.entity_type', entity)
-    if (!opts.withDeleted) iq = iq.whereNull('ei.deleted_at')
-    if (orgScope) iq = this.applyOrganizationScope(iq, 'ei.organization_id', orgScope)
-    if (opts.tenantId) iq = iq.where('ei.tenant_id', opts.tenantId)
-    const idxRow = await iq.countDistinct('ei.entity_id as count').first()
-    const indexedCount = this.parseCount(idxRow)
-
-    return { baseCount, indexedCount }
   }
 
   private scheduleAutoReindex(entity: string, opts: QueryOptions, stats?: { baseCount: number; indexedCount: number }) {
     if (!this.isAutoReindexEnabled()) return
     const bus = this.resolveEventBus()
     if (!bus) return
-    const tenantKey = opts.tenantId ?? '__global__'
-    const cacheKey = `${entity}::${tenantKey}`
-    if (this.pendingAutoReindexKeys.has(cacheKey)) return
-    this.pendingAutoReindexKeys.add(cacheKey)
-
     const payload = { entityType: entity, tenantId: opts.tenantId ?? null, force: false }
     const context = stats
       ? { entity, tenantId: payload.tenantId, baseCount: stats.baseCount, indexedCount: stats.indexedCount }
@@ -711,8 +883,56 @@ export class HybridQueryEngine implements QueryEngine {
           })
         }
       })
+  }
+
+  private scheduleCoverageRefresh(
+    entity: string,
+    tenantId: string | null | undefined,
+    organizationId: string | null | undefined,
+    withDeleted: boolean
+  ): void {
+    const bus = this.resolveEventBus()
+    if (!bus) return
+    const key = [
+      entity,
+      tenantId ?? '__tenant__',
+      organizationId ?? '__org__',
+      withDeleted ? '1' : '0',
+    ].join('|')
+    if (this.pendingCoverageRefreshKeys.has(key)) return
+    this.pendingCoverageRefreshKeys.add(key)
+    void Promise.resolve()
+      .then(async () => {
+        try {
+          await bus.emitEvent('query_index.coverage.refresh', {
+            entityType: entity,
+            tenantId: tenantId ?? null,
+            organizationId: organizationId ?? null,
+            withDeleted,
+            delayMs: 0,
+          })
+          if (this.isDebugVerbosity()) {
+            this.debug('coverage:refresh:scheduled', {
+              entity,
+              tenantId: tenantId ?? null,
+              organizationId: organizationId ?? null,
+              withDeleted,
+            })
+          }
+        } catch (err) {
+          if (this.isDebugVerbosity()) {
+            this.debug('coverage:refresh:failed', {
+              entity,
+              tenantId: tenantId ?? null,
+              organizationId: organizationId ?? null,
+              withDeleted,
+              error: err instanceof Error ? err.message : err,
+            })
+          }
+        }
+      })
       .finally(() => {
-        this.pendingAutoReindexKeys.delete(cacheKey)
+        this.pendingCoverageRefreshKeys.delete(key)
       })
   }
 
@@ -728,13 +948,30 @@ export class HybridQueryEngine implements QueryEngine {
 
   private isAutoReindexEnabled(): boolean {
     if (this.autoReindexEnabled != null) return this.autoReindexEnabled
-    const raw = (process.env.QUERY_INDEX_AUTO_REINDEX ?? '').trim().toLowerCase()
+    const raw = (
+      process.env.SCHEDULE_AUTO_REINDEX ??
+      process.env.QUERY_INDEX_AUTO_REINDEX ??
+      ''
+    )
+      .trim()
+      .toLowerCase()
     if (!raw) {
       this.autoReindexEnabled = true
       return true
     }
     this.autoReindexEnabled = !['0', 'false', 'no', 'off'].includes(raw)
     return this.autoReindexEnabled
+  }
+
+  private isCoverageOptimizationEnabled(): boolean {
+    if (this.coverageOptimizationEnabled != null) return this.coverageOptimizationEnabled
+    const raw = (process.env.OPTIMIZE_INDEX_COVERAGE_STATS ?? '').trim().toLowerCase()
+    if (!raw) {
+      this.coverageOptimizationEnabled = false
+      return false
+    }
+    this.coverageOptimizationEnabled = ['1', 'true', 'yes', 'on'].includes(raw)
+    return this.coverageOptimizationEnabled
   }
 
   private async columnExists(table: string, column: string): Promise<boolean> {
@@ -907,60 +1144,41 @@ export class HybridQueryEngine implements QueryEngine {
 
   private isDebugVerbosity(): boolean {
     if (this.debugVerbosity != null) return this.debugVerbosity
-    const level = (process.env.LOG_VERBOSITY ?? process.env.LOG_LEVEL ?? '').toLowerCase()
-    const nodeEnv = (process.env.NODE_ENV ?? '').toLowerCase()
-    this.debugVerbosity = level === 'debug' || level === 'trace' || level === 'silly' || nodeEnv === 'development'
+    this.debugVerbosity = resolveDebugVerbosity()
     return this.debugVerbosity
   }
 
   private isSqlDebugEnabled(): boolean {
     if (this.sqlDebugEnabled != null) return this.sqlDebugEnabled
-    const raw = (process.env.QUERY_ENGINE_DEBUG_SQL ?? '').toLowerCase()
-    this.sqlDebugEnabled = raw === '1' || raw === 'true' || raw === 'yes'
+    this.sqlDebugEnabled = resolveBooleanEnv(['QUERY_ENGINE_DEBUG_SQL'], false)
     return this.sqlDebugEnabled
   }
 
   private isForcePartialIndexEnabled(): boolean {
     if (this.forcePartialIndexEnabled != null) return this.forcePartialIndexEnabled
-    const raw = (process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES ?? 'true').toLowerCase()
-    this.forcePartialIndexEnabled = raw === '1' || raw === 'true' || raw === 'yes'
+    this.forcePartialIndexEnabled = resolveBooleanEnv(['FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES'], true)
     return this.forcePartialIndexEnabled
   }
 
   private async resolveCoverageGap(
     entity: string,
-    baseTable: string,
-    opts: QueryOptions
+    opts: QueryOptions,
+    _sourceTable?: string
   ): Promise<{ stats?: { baseCount: number; indexedCount: number }; scope: 'scoped' | 'global' } | null> {
-    let stats: { baseCount: number; indexedCount: number } | undefined
-    let scope: 'scoped' | 'global' = 'scoped'
-    let coverageOk = await this.indexCoverageComplete(entity, baseTable, opts)
-    if (coverageOk && this.isForcePartialIndexEnabled()) {
-      try {
-        const globalStats = await this.indexCoverageStats(entity, baseTable, {
-          ...opts,
-          organizationId: undefined,
-          organizationIds: undefined,
-        })
-        if (globalStats.baseCount > 0 && globalStats.indexedCount < globalStats.baseCount) {
-          coverageOk = false
-          stats = globalStats
-          scope = 'global'
-        }
-      } catch {
-        // ignore global stats failure
-      }
+    const tenantId = opts.tenantId ?? null
+    const withDeleted = !!opts.withDeleted
+
+    const snapshot = await this.getStoredCoverageSnapshot(entity, tenantId, null, withDeleted)
+    if (!snapshot) {
+      this.scheduleCoverageRefresh(entity, tenantId, null, withDeleted)
+      return { stats: undefined, scope: 'scoped' }
     }
-    if (!coverageOk) {
-      if (!stats) {
-        try {
-          stats = await this.indexCoverageStats(entity, baseTable, opts)
-        } catch {
-          stats = undefined
-        }
-      }
-      return { stats, scope: stats ? scope : 'scoped' }
+
+    const hasGap = snapshot.baseCount > 0 && snapshot.indexedCount < snapshot.baseCount
+    if (hasGap) {
+      return { stats: snapshot, scope: 'scoped' }
     }
+
     return null
   }
 
@@ -968,9 +1186,12 @@ export class HybridQueryEngine implements QueryEngine {
     label: string,
     entity: EntityId,
     execute: () => Promise<TResult> | TResult,
-    extra?: Record<string, unknown>
+    extra?: Record<string, unknown>,
+    profiler?: Profiler
   ): Promise<TResult> {
-    if (!this.isSqlDebugEnabled() || !this.isDebugVerbosity()) {
+    const shouldDebug = this.isSqlDebugEnabled() && this.isDebugVerbosity()
+    const shouldProfile = profiler?.enabled === true
+    if (!shouldDebug && !shouldProfile) {
       return Promise.resolve(execute())
     }
     const startedAt = process.hrtime.bigint()
@@ -983,7 +1204,8 @@ export class HybridQueryEngine implements QueryEngine {
         durationMs: Math.round(elapsedMs * 1000) / 1000,
       }
       if (extra) Object.assign(context, extra)
-      this.debug(`${label}:timing`, context)
+      if (shouldProfile) profiler!.record(label, context.durationMs as number, extra)
+      if (shouldDebug) this.debug(`${label}:timing`, context)
     }
   }
 

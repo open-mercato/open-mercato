@@ -72,3 +72,19 @@ export const openApi: OpenApiRouteDoc = {
 ```
 
 Leaving `openApi` undefined still emits an operation, but providing schemas unlocks typed examples, Markdown tables, and better client generation.
+
+## Profiling CRUD latency
+
+You can inspect where time is spent inside CRUD routes (including query engine calls and custom-field decoration) by enabling the built-in profiler:
+
+- Set `OM_PROFILE` (or `NEXT_PUBLIC_OM_PROFILE` when debugging from the browser) to a comma-separated list that matches resource names or entity ids. Use `*`/`all` for everything, or prefixes like `customers.*`. Legacy flags (`OM_CRUD_PROFILE`, `OM_QE_PROFILE`) remain supported but are no longer required.
+- Run the server (`npm run dev`, `npm run start`, etc.) with the variable exported, then trigger the slow request.
+- The server logs emit a single `[crud:profile]` JSON snapshot at the end of each profiled request. It now includes a `tree` array so nested operations (like the query engine) appear under their parent step. Typical nodes include `request_received`, `query_engine`, `custom_fields_complete`, and `after_list_hook`.
+- When the hybrid query engine runs outside of CRUD (e.g., via CLI usage) it continues to log `[qe:profile]` entries using the same filters. Inside CRUD it attaches its timings to the parent snapshot so you can inspect the whole request in one place.
+
+## Performance notes
+
+- **Hybrid query indexes**: CRUD list routes that declare `entityId`/`fields` automatically hit the query index engine. Keep indexes fresh via `QUERY_INDEX_AUTO_REINDEX=true`, and monitor partial coverage warnings (`FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES`) to avoid falling back to slower base queries.
+- **Scope-aware filtering**: Most bottlenecks come from wide org/tenant scopes. Narrow filters (date ranges, search terms, tag constraints) before exporting large datasets to limit the amount of data the engine hydrates.
+- **Custom fields**: Every list request decorates records by loading field definitions per entity/tenant/org. Large custom field catalogs or high cardinality definitions can add ~10–50 ms per batch. Prefer targeted `customFieldSources` and archive unused definitions to keep lookups lean. For heavy exports, consider omitting `customFields` or caching the derived values in your module.
+- **Instrumentation first**: Enable `OM_PROFILE` to identify the slow step (query execution, transformation, custom field decoration, hooks). Address the specific hot spot rather than applying blanket optimisations.

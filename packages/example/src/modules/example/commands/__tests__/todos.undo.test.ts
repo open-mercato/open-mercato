@@ -34,8 +34,9 @@ function getCommand(id: string): CommandHandler<any, any> {
 
 function createCtx(
   overrides: Partial<CommandRuntimeContext> = {}
-): { ctx: CommandRuntimeContext; dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent'> } {
-  const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent'> = {
+): { ctx: CommandRuntimeContext; dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent' | 'markOrmEntityChange' | 'flushOrmEntityChanges'> } {
+  const pending: any[] = []
+  const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent' | 'markOrmEntityChange' | 'flushOrmEntityChanges'> = {
     updateOrmEntity: jest.fn(async ({ apply }) => {
       const entity = {
         id: 'todo-1',
@@ -51,6 +52,16 @@ function createCtx(
     deleteOrmEntity: jest.fn(async () => null),
     setCustomFields: jest.fn(async () => {}),
     emitOrmEntityEvent: jest.fn(async () => {}),
+    markOrmEntityChange: jest.fn((entry: any) => {
+      if (!entry || !entry.entity) return
+      pending.push(entry)
+    }),
+    flushOrmEntityChanges: jest.fn(async () => {
+      while (pending.length > 0) {
+        const next = pending.shift()
+        await dataEngine.emitOrmEntityEvent(next as any)
+      }
+    }),
   }
 
   const container = {

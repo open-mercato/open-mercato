@@ -6,6 +6,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { signJwt } from '@/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { EventBus } from '@open-mercato/events/types'
 
 // validation comes from userLoginSchema
 
@@ -41,6 +42,14 @@ export async function POST(req: Request) {
   }
   await auth.updateLastLoginAt(user)
   const userRoleNames = await auth.getUserRoles(user)
+  try {
+    const eventBus = container.resolve<EventBus>('eventBus')
+    void eventBus.emitEvent('query_index.coverage.warmup', {
+      tenantId: user.tenantId ? String(user.tenantId) : null,
+    }).catch(() => undefined)
+  } catch {
+    // optional warmup
+  }
   const token = signJwt({ 
     sub: String(user.id), 
     tenantId: user.tenantId ? String(user.tenantId) : null, 

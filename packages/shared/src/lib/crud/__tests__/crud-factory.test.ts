@@ -42,6 +42,7 @@ const queryEngine = {
 }
 
 const mockDataEngine = {
+  __pendingSideEffects: [] as any[],
   createOrmEntity: jest.fn(async ({ entity, data }: any) => {
     const created = em.create(entity, data)
     await em.persistAndFlush(created as any)
@@ -66,6 +67,16 @@ const mockDataEngine = {
     await (setRecordCustomFields as any)(em, args)
   }),
   emitOrmEntityEvent: jest.fn(async () => {}),
+  markOrmEntityChange: jest.fn(function (this: any, entry: any) {
+    if (!entry || !entry.entity) return
+    this.__pendingSideEffects.push(entry)
+  }),
+  flushOrmEntityChanges: jest.fn(async function (this: any) {
+    while (this.__pendingSideEffects.length > 0) {
+      const next = this.__pendingSideEffects.shift()
+      await this.emitOrmEntityEvent(next)
+    }
+  }),
 }
 
 const accessLogService = {
@@ -102,6 +113,7 @@ describe('CRUD Factory', () => {
     idSeq = 1
     jest.clearAllMocks()
     accessLogService.log.mockClear()
+    mockDataEngine.__pendingSideEffects = []
   })
 
   const querySchema = z.object({
