@@ -16,6 +16,7 @@ import type {
   VectorDriverQuery,
   VectorDriverQueryResult,
   VectorDriverListParams,
+  VectorDriverCountParams,
   VectorIndexEntry,
 } from '../../types'
 
@@ -441,6 +442,33 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     })
   }
 
+  const count = async (params: VectorDriverCountParams): Promise<number> => {
+    await ensureReady()
+    const res = await pool.query<{ total: string }>(
+      `
+        SELECT count(*)::bigint AS total
+        FROM ${tableIdent}
+        WHERE driver_id = $1
+          AND tenant_id = $2::uuid
+          AND (
+            ($3::uuid IS NULL AND organization_id IS NULL)
+            OR ($3::uuid IS NOT NULL AND (organization_id = $3::uuid OR organization_id IS NULL))
+          )
+          AND ($4::text IS NULL OR entity_id = $4::text)
+      `,
+      [
+        DRIVER_ID,
+        params.tenantId,
+        params.organizationId ?? null,
+        params.entityId ?? null,
+      ],
+    )
+    const raw = res.rows?.[0]?.total
+    if (!raw) return 0
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
   return {
     id: 'pgvector',
     ensureReady,
@@ -450,5 +478,6 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     purge,
     query,
     list,
+    count,
   }
 }

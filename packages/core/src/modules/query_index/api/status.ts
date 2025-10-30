@@ -36,13 +36,19 @@ export async function GET(req: Request) {
 
   let entityIds = generatedIds.slice()
 
-  let vectorEnabledEntities = new Set<string>()
+  let vectorService: VectorIndexService | null = null
   try {
-    const vectorService = resolve('vectorIndexService') as VectorIndexService
-    if (vectorService && typeof vectorService.listEnabledEntities === 'function') {
+    vectorService = resolve('vectorIndexService') as VectorIndexService
+  } catch {
+    vectorService = null
+  }
+
+  let vectorEnabledEntities = new Set<string>()
+  if (vectorService && typeof vectorService.listEnabledEntities === 'function') {
+    try {
       vectorEnabledEntities = new Set(vectorService.listEnabledEntities())
-    }
-  } catch {}
+    } catch {}
+  }
 
   // Limit to entities that have active custom field definitions in current scope
   try {
@@ -205,7 +211,7 @@ export async function GET(req: Request) {
           : null
       const stale = !snapshot || !refreshedAt || (Date.now() - refreshedAt.getTime() > COVERAGE_STALE_MS)
       if (forceRefresh || stale) {
-        await refreshCoverageSnapshot(em, scope).catch(() => undefined)
+        await refreshCoverageSnapshot(em, scope, { vectorService }).catch(() => undefined)
         snapshot = await readCoverageSnapshot(knex, scope)
       }
       const finalRefreshed = snapshot?.refreshed_at instanceof Date
@@ -310,8 +316,45 @@ export async function GET(req: Request) {
     }
   })
 
-  const response = NextResponse.json({ items, errors })
-  const partial = items.find((item) => item.ok === false)
+  const logRows = await knex('indexer_status_logs')
+    .modify((qb) => {
+      if (tenantId != null) {
+        qb.where((inner) => {
+          inner.where('tenant_id', tenantId).orWhereNull('tenant_id')
+        })
+      } else {
+        qb.whereNull('tenant_id')
+      }
+    })
+    .andWhere((qb) => {
+      qb.whereNull('organization_id').orWhere('organization_id', orgId)
+    })
+    .orderBy('occurred_at', 'desc')
+    .limit(100)
+
+  const logs = logRows.map((row: any) => {
+    const occurredAt = row.occurred_at instanceof Date ? row.occurred_at : row.occurred_at ? new Date(row.occurred_at) : null
+    const level = row.level === 'warn' ? 'warn' : 'info'
+    return {
+      id: String(row.id),
+      source: String(row.source ?? ''),
+      handler: String(row.handler ?? ''),
+      level,
+      entityType: row.entity_type ?? null,
+      recordId: row.record_id ?? null,
+      tenantId: row.tenant_id ?? null,
+      organizationId: row.organization_id ?? null,
+      message: String(row.message ?? ''),
+      details: row.details ?? null,
+      occurredAt: occurredAt ? occurredAt.toISOString() : new Date().toISOString(),
+    }
+  })
+
+  const response = NextResponse.json({ items, errors, logs })
+  const partial = items.find((item) => {
+    if (item.baseCount == null || item.indexCount == null) return true
+    return item.baseCount !== item.indexCount
+  })
   if (partial) {
     response.headers.set(
       'x-om-partial-index',

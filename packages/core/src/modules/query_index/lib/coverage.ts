@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import type { VectorIndexService } from '@open-mercato/vector'
 
 export type CoverageScope = {
   entityType: string
@@ -210,7 +211,31 @@ async function tableHasColumn(knex: Knex, table: string, column: string): Promis
   return present
 }
 
-export async function refreshCoverageSnapshot(em: EntityManager, scope: CoverageScope): Promise<void> {
+type CoverageDependencies = {
+  vectorService?: VectorIndexService | null
+  resolve?: <T = any>(name: string) => T
+}
+
+function resolveVectorService(
+  deps: CoverageDependencies | undefined,
+): VectorIndexService | null {
+  if (!deps) return null
+  if (deps.vectorService !== undefined) return deps.vectorService ?? null
+  if (typeof deps.resolve === 'function') {
+    try {
+      return deps.resolve<VectorIndexService>('vectorIndexService') ?? null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+export async function refreshCoverageSnapshot(
+  em: EntityManager,
+  scope: CoverageScope,
+  deps?: CoverageDependencies,
+): Promise<void> {
   const entityType = String(scope.entityType || '')
   if (!entityType) return
   const tenantId = scope.tenantId ?? null
@@ -245,9 +270,30 @@ export async function refreshCoverageSnapshot(em: EntityManager, scope: Coverage
   const indexRow = await indexQuery.first()
   const indexCount = toCount(indexRow?.count)
 
+  let vectorCount: number | undefined
+  const vectorService = resolveVectorService(deps)
+  if (vectorService && typeof tenantId === 'string' && tenantId.length > 0) {
+    try {
+      vectorCount = await vectorService.countIndexEntries({
+        tenantId,
+        organizationId: organizationId ?? null,
+        entityId: entityType,
+      })
+    } catch (err) {
+      console.warn('[query_index] Failed to resolve vector count for coverage snapshot', {
+        entityType,
+        tenantId,
+        organizationId,
+        error: err instanceof Error ? err.message : err,
+      })
+      vectorCount = undefined
+    }
+  }
+
   await writeCoverageCounts(em, { entityType, tenantId, organizationId, withDeleted }, {
     baseCount,
     indexedCount: indexCount,
+    vectorCount,
   })
 }
 

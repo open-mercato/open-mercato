@@ -1,10 +1,13 @@
 {
   "vector.nav.vectorSearch": "Vector Search",
+  "vector.config.nav.vectorSearch": "Vector Search",
   "vector.messages.missingKey": "Vector search requires configuring OPENAI_API_KEY.",
   "vector.table.title": "Vector Search Index",
   "vector.table.columns.result": "Result",
   "vector.table.columns.score": "Score",
   "vector.table.columns.updated": "Updated",
+  "vector.table.labels.customerPerson": "Customers - Person",
+  "vector.table.labels.customerCompany": "Customers - Company",
   "vector.table.searchPlaceholder": "Search vector index",
   "vector.table.actions.reindex": "Reindex vectors",
   "vector.table.actions.reindexing": "Reindexing…",

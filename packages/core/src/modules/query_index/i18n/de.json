@@ -33,6 +33,9 @@
   "query_index.table.actions.reindex": "Reindizieren",
   "query_index.table.actions.reindexForce": "Vollständig neu indizieren",
   "query_index.table.actions.purge": "Bereinigen",
+  "query_index.table.actions.vectorReindex": "Vektorsuche neu indizieren",
+  "query_index.table.actions.vectorPurge": "Vektorsuche bereinigen",
+  "query_index.table.confirm.vectorPurge": "Vektor-Einträge für diese Entität entfernen? Dies kann nicht rückgängig gemacht werden.",
   "query_index.table.errors.loadFailed": "Status des Query-Index konnte nicht geladen werden.",
   "query_index.table.errors.actionFailed": "{{action}} konnte nicht ausgeführt werden.",
   "query_index.table.errors.title": "Aktuelle Indexer-Fehler",
@@ -43,5 +46,14 @@
   "query_index.table.errors.columns.details": "Details",
   "query_index.table.errors.viewDetails": "Technische Details anzeigen",
   "query_index.table.errors.scope.tenant": "Mandant {{tenantId}}",
-  "query_index.table.errors.scope.organization": "Organisation {{organizationId}}"
+  "query_index.table.errors.scope.organization": "Organisation {{organizationId}}",
+  "query_index.table.logs.title": "Aktuelle Indexer-Aktivität",
+  "query_index.table.logs.subtitle": "Die letzten 100 Statusprotokolle für Query- und Vektor-Indexer in diesem Bereich.",
+  "query_index.table.logs.empty": "Keine aktuelle Aktivität.",
+  "query_index.table.logs.columns.timestamp": "Zeitstempel",
+  "query_index.table.logs.columns.source": "Quelle",
+  "query_index.table.logs.columns.message": "Nachricht",
+  "query_index.table.logs.viewDetails": "Details anzeigen",
+  "query_index.table.logs.level.info": "Info",
+  "query_index.table.logs.level.warn": "Warnung"
 }

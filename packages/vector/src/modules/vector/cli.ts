@@ -1,6 +1,7 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import { recordIndexerError } from '@/lib/indexers/error-log'
+import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import type { VectorIndexService } from '@open-mercato/vector'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -108,28 +109,43 @@ async function reindexCommand(rest: string[]): Promise<void> {
     }
   }
 
-  const recordError = async (error: Error) => recordIndexerError(
-    { em: baseEm ?? undefined },
-    {
-      source: 'vector',
-      handler: 'cli:vector.reindex',
-      error,
-      entityType: entityId ?? null,
-      tenantId: tenantId ?? null,
-      organizationId: organizationId ?? null,
-      payload: {
-        args,
-        force,
-        batchSize,
-        partitionsOption,
-        partitionIndexOption,
-        resetCoverageFlag,
-        skipResetCoverageFlag,
-        skipPurgeFlag,
-        purgeFlag,
+  const recordError = async (error: Error) => {
+    await recordIndexerLog(
+      { em: baseEm ?? undefined },
+      {
+        source: 'vector',
+        handler: 'cli:vector.reindex',
+        level: 'warn',
+        message: `Reindex failed${entityId ? ` for ${entityId}` : ''}`,
+        entityType: entityId ?? null,
+        tenantId: tenantId ?? null,
+        organizationId: organizationId ?? null,
+        details: { error: error.message },
       },
-    },
-  )
+    ).catch(() => undefined)
+    await recordIndexerError(
+      { em: baseEm ?? undefined },
+      {
+        source: 'vector',
+        handler: 'cli:vector.reindex',
+        error,
+        entityType: entityId ?? null,
+        tenantId: tenantId ?? null,
+        organizationId: organizationId ?? null,
+        payload: {
+          args,
+          force,
+          batchSize,
+          partitionsOption,
+          partitionIndexOption,
+          resetCoverageFlag,
+          skipResetCoverageFlag,
+          skipPurgeFlag,
+          purgeFlag,
+        },
+      },
+    )
+  }
 
   try {
     const service = container.resolve<VectorIndexService>('vectorIndexService')
@@ -170,6 +186,24 @@ async function reindexCommand(rest: string[]): Promise<void> {
         ? `tenant=${tenantId}${organizationId ? `, org=${organizationId}` : ''}`
         : 'all tenants'
       console.log(`Reindexing vectors for ${entityType} (${scopeLabel})${purgeFirst ? ' [purge]' : ''}`)
+      await recordIndexerLog(
+        { em: baseEm ?? undefined },
+        {
+          source: 'vector',
+          handler: 'cli:vector.reindex',
+          message: `Reindex started for ${entityType}`,
+          entityType,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          details: {
+            purgeFirst,
+            partitions: partitionTargets.length,
+            partitionCount,
+            partitionIndex: partitionIndexOption ?? null,
+            batchSize,
+          },
+        },
+      ).catch(() => undefined)
 
       if (purgeFirst && tenantId) {
         try {
@@ -212,7 +246,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
             const stats = await reindexEntity(partitionEm, {
               entityType,
               tenantId: tenantId ?? undefined,
-              organizationId: organizationId ?? null,
+              organizationId: organizationId ?? undefined,
               force,
               batchSize,
               eventBus: baseEventBus ?? undefined,
@@ -250,6 +284,24 @@ async function reindexCommand(rest: string[]): Promise<void> {
 
       const totalProcessed = processed.reduce((acc, value) => acc + value, 0)
       console.log(`Finished ${entityType}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+      await recordIndexerLog(
+        { em: baseEm ?? undefined },
+        {
+          source: 'vector',
+          handler: 'cli:vector.reindex',
+          message: `Reindex completed for ${entityType}`,
+          entityType,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          details: {
+            processed: totalProcessed,
+            partitions: partitionTargets.length,
+            partitionCount,
+            partitionIndex: partitionIndexOption ?? null,
+            batchSize,
+          },
+        },
+      ).catch(() => undefined)
       return totalProcessed
     }
 

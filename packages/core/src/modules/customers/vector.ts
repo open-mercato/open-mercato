@@ -196,8 +196,11 @@ export const vectorConfig: VectorModuleConfig = {
         appendLine(lines, 'Primary phone', record.primary_phone)
         appendCustomFieldLines(lines, ctx.customFields, 'Customer custom')
 
+        const rawKind = record.kind ?? record.customer_kind ?? null
+        const normalizedKind = typeof rawKind === 'string' ? rawKind.toLowerCase() : null
+
         let profileDetails: ProfileDetails | null = null
-        if ((record.kind ?? record.customer_kind) === 'person') {
+        if (normalizedKind === 'person') {
           profileDetails = await getPersonProfile(ctx)
           if (profileDetails) {
             const base = profileDetails.base
@@ -235,6 +238,7 @@ export const vectorConfig: VectorModuleConfig = {
             customFields: ctx.customFields,
             profile: profileDetails,
           },
+          payload: normalizedKind ? { kind: normalizedKind } : null,
         }
       },
       formatResult: async (ctx) => {
@@ -314,6 +318,7 @@ export const vectorConfig: VectorModuleConfig = {
           presenter: null,
           links,
           checksumSource,
+          payload: { kind: 'person' },
         }
       },
       formatResult: async (ctx) => {
@@ -387,6 +392,7 @@ export const vectorConfig: VectorModuleConfig = {
           presenter: null,
           links,
           checksumSource,
+          payload: { kind: 'company' },
         }
       },
       formatResult: async (ctx) => {

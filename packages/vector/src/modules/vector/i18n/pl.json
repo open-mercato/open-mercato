@@ -1,10 +1,13 @@
 {
   "vector.nav.vectorSearch": "Wyszukiwanie wektorowe",
+  "vector.config.nav.vectorSearch": "Wyszukiwanie wektorowe",
   "vector.messages.missingKey": "Wyszukiwanie wektorowe wymaga skonfigurowania OPENAI_API_KEY.",
   "vector.table.title": "Indeks wyszukiwania wektorowego",
   "vector.table.columns.result": "Wynik",
   "vector.table.columns.score": "Wynik punktowy",
   "vector.table.columns.updated": "Zaktualizowano",
+  "vector.table.labels.customerPerson": "Klienci - Osoba",
+  "vector.table.labels.customerCompany": "Klienci - Firma",
   "vector.table.searchPlaceholder": "Szukaj w indeksie wektorowym",
   "vector.table.actions.reindex": "Ponownie indeksuj wektory",
   "vector.table.actions.reindexing": "Indeksowanie…",

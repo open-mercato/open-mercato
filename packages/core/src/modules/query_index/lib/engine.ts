@@ -866,10 +866,21 @@ export class HybridQueryEngine implements QueryEngine {
     if (!this.isAutoReindexEnabled()) return
     const bus = this.resolveEventBus()
     if (!bus) return
-    const payload = { entityType: entity, tenantId: opts.tenantId ?? null, force: false }
+    const payload = {
+      entityType: entity,
+      tenantId: opts.tenantId ?? null,
+      organizationId: opts.organizationId ?? null,
+      force: false,
+    }
     const context = stats
-      ? { entity, tenantId: payload.tenantId, baseCount: stats.baseCount, indexedCount: stats.indexedCount }
-      : { entity, tenantId: payload.tenantId }
+      ? {
+          entity,
+          tenantId: payload.tenantId,
+          organizationId: payload.organizationId,
+          baseCount: stats.baseCount,
+          indexedCount: stats.indexedCount,
+        }
+      : { entity, tenantId: payload.tenantId, organizationId: payload.organizationId }
 
     void Promise.resolve()
       .then(async () => {

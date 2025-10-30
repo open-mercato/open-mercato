@@ -36,9 +36,10 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
     header: () => t('vector.table.columns.result'),
     cell: ({ row }) => {
       const item = row.original
+      const title = resolveRowTitle(item)
       const iconName = item.presenter?.icon
       const Icon = iconName ? resolveIcon(iconName) : null
-      const typeLabel = formatEntityId(item.entityId)
+      const typeLabel = formatEntityLabel(item, t)
       const snapshot = item.presenter?.subtitle ?? extractSnapshot(item.metadata)
       const links = normalizeLinks(item.links)
       return (
@@ -47,7 +48,7 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
             {Icon ? <Icon className="mt-0.5 h-5 w-5 text-muted-foreground" /> : null}
             <div className="flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{item.presenter?.title ?? item.recordId}</span>
+                <span className="font-medium">{title}</span>
                 <span className="rounded border border-muted-foreground/40 px-2 py-0.5 text-xs text-muted-foreground">
                   {typeLabel}
                 </span>
@@ -136,6 +137,47 @@ function formatEntityId(entityId: string): string {
   const moduleLabel = humanizeSegment(module)
   const entityLabel = humanizeSegment(entity)
   return `${moduleLabel} · ${entityLabel}`
+}
+
+function deriveCustomerEntityKind(row: Row): 'person' | 'company' | null {
+  const metadataKindRaw = row.metadata?.kind
+  if (typeof metadataKindRaw === 'string') {
+    const normalized = metadataKindRaw.toLowerCase()
+    if (normalized === 'person' || normalized === 'company') return normalized
+  }
+  const badgeRaw = row.presenter?.badge
+  if (typeof badgeRaw === 'string') {
+    const normalized = badgeRaw.toLowerCase()
+    if (normalized === 'person' || normalized === 'company') return normalized
+  }
+  const icon = row.presenter?.icon
+  if (icon === 'user') return 'person'
+  if (icon === 'building') return 'company'
+  return null
+}
+
+function formatEntityLabel(row: Row, t: Translator): string {
+  if (row.entityId === 'customers:customer_entity') {
+    const kind = deriveCustomerEntityKind(row)
+    if (kind === 'person') return t('vector.table.labels.customerPerson', 'Customers - Person')
+    if (kind === 'company') return t('vector.table.labels.customerCompany', 'Customers - Company')
+  }
+  return formatEntityId(row.entityId)
+}
+
+function resolveRowTitle(row: Row): string {
+  const metadata = row.metadata as { taskTitle?: unknown } | null
+  const taskTitle = metadata?.taskTitle
+  if (typeof taskTitle === 'string') {
+    const trimmed = taskTitle.trim()
+    if (trimmed.length) return trimmed
+  }
+  const presenterTitle = row.presenter?.title
+  if (typeof presenterTitle === 'string') {
+    const trimmed = presenterTitle.trim()
+    if (trimmed.length) return trimmed
+  }
+  return row.recordId
 }
 
 function extractSnapshot(metadata: Record<string, unknown> | null): string | null {
@@ -240,7 +282,8 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (item.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(normalizeErrorMessage(data.error, t('vector.table.errors.searchFailed')) ?? null)
+          const message = data.error ? normalizeErrorMessage(data.error, t('vector.table.errors.searchFailed')) : null
+          setError(message ?? null)
         } else {
           const data = await fetchVectorIndexEntries({ limit: 50, signal: controller.signal })
           const mapped = data.entries.map<Row>((entry: VectorIndexEntry) => ({
@@ -255,7 +298,8 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(normalizeErrorMessage(data.error, t('vector.table.errors.indexFetchFailed')) ?? null)
+          const message = data.error ? normalizeErrorMessage(data.error, t('vector.table.errors.indexFetchFailed')) : null
+          setError(message ?? null)
         }
         setPage(1)
       } catch (err: any) {
@@ -306,7 +350,8 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (item.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(normalizeErrorMessage(data.error, t('vector.table.errors.searchFailed')) ?? null)
+          const message = data.error ? normalizeErrorMessage(data.error, t('vector.table.errors.searchFailed')) : null
+          setError(message ?? null)
         } catch (err: any) {
           setError(normalizeErrorMessage(err, t('vector.table.errors.searchFailed')))
         }
@@ -325,7 +370,8 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(normalizeErrorMessage(data.error, t('vector.table.errors.indexFetchFailed')) ?? null)
+          const message = data.error ? normalizeErrorMessage(data.error, t('vector.table.errors.indexFetchFailed')) : null
+          setError(message ?? null)
         } catch (err: any) {
           setError(normalizeErrorMessage(err, t('vector.table.errors.indexFetchFailed')))
         }
@@ -335,7 +381,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
     } finally {
       setReindexing(false)
     }
-  }, [apiKeyAvailable, reindexing, purging, searchValue])
+  }, [apiKeyAvailable, reindexing, purging, searchValue, t])
 
   const handlePurge = React.useCallback(async () => {
     if (!apiKeyAvailable || purging || reindexing) return
@@ -362,7 +408,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
     } finally {
       setPurging(false)
     }
-  }, [apiKeyAvailable, purging, reindexing])
+  }, [apiKeyAvailable, purging, reindexing, t])
 
   React.useEffect(() => {
     if (!error) return

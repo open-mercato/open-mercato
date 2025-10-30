@@ -1,10 +1,13 @@
 {
   "vector.nav.vectorSearch": "Búsqueda vectorial",
+  "vector.config.nav.vectorSearch": "Búsqueda vectorial",
   "vector.messages.missingKey": "La búsqueda vectorial requiere configurar OPENAI_API_KEY.",
   "vector.table.title": "Índice de búsqueda vectorial",
   "vector.table.columns.result": "Resultado",
   "vector.table.columns.score": "Puntuación",
   "vector.table.columns.updated": "Actualizado",
+  "vector.table.labels.customerPerson": "Clientes - Persona",
+  "vector.table.labels.customerCompany": "Clientes - Empresa",
   "vector.table.searchPlaceholder": "Buscar en el índice vectorial",
   "vector.table.actions.reindex": "Reindexar vectores",
   "vector.table.actions.reindexing": "Reindexando…",

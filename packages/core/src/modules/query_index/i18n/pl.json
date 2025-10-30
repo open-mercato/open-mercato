@@ -33,6 +33,9 @@
   "query_index.table.actions.reindex": "Indeksuj ponownie",
   "query_index.table.actions.reindexForce": "Wymuś pełne ponowne indeksowanie",
   "query_index.table.actions.purge": "Wyczyść",
+  "query_index.table.actions.vectorReindex": "Przeindeksuj wyszukiwarkę wektorową",
+  "query_index.table.actions.vectorPurge": "Wyczyść wyszukiwarkę wektorową",
+  "query_index.table.confirm.vectorPurge": "Usunąć wektorowe embeddingi dla tej encji? Operacji nie można cofnąć.",
   "query_index.table.errors.loadFailed": "Nie udało się wczytać statusu indeksu zapytań.",
   "query_index.table.errors.actionFailed": "Nie udało się wykonać: {{action}}.",
   "query_index.table.errors.title": "Ostatnie błędy indeksowania",
@@ -43,5 +46,14 @@
   "query_index.table.errors.columns.details": "Szczegóły",
   "query_index.table.errors.viewDetails": "Pokaż szczegóły techniczne",
   "query_index.table.errors.scope.tenant": "Najemca {{tenantId}}",
-  "query_index.table.errors.scope.organization": "Organizacja {{organizationId}}"
+  "query_index.table.errors.scope.organization": "Organizacja {{organizationId}}",
+  "query_index.table.logs.title": "Ostatnia aktywność indeksowania",
+  "query_index.table.logs.subtitle": "Ostatnie 100 logów statusów dla zadań indeksu zapytań i indeksu wektorowego w tym zakresie.",
+  "query_index.table.logs.empty": "Brak ostatniej aktywności.",
+  "query_index.table.logs.columns.timestamp": "Znacznik czasu",
+  "query_index.table.logs.columns.source": "Źródło",
+  "query_index.table.logs.columns.message": "Komunikat",
+  "query_index.table.logs.viewDetails": "Pokaż szczegóły",
+  "query_index.table.logs.level.info": "Info",
+  "query_index.table.logs.level.warn": "Ostrzeżenie"
 }

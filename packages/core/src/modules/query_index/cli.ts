@@ -5,6 +5,7 @@ import type { Knex } from 'knex'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { recordIndexerError } from '@/lib/indexers/error-log'
+import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { upsertIndexBatch, type AnyRow } from './lib/batch'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import { purgeIndexScope } from './lib/purge'
@@ -436,6 +437,7 @@ const reindex: ModuleCli = {
   async run(rest) {
     const args = parseArgs(rest)
     const entity = stringOption(args, 'entity', 'e')
+    const orgId = stringOption(args, 'org', 'organizationId')
     const tenantId = stringOption(args, 'tenant', 'tenantId')
     const force = flagEnabled(args, 'force', 'full')
     const batchSize = toPositiveInt(numberOption(args, 'batch', 'chunk', 'size'))
@@ -476,9 +478,27 @@ const reindex: ModuleCli = {
 
     try {
       if (entity) {
+        await recordIndexerLog(
+          { em: baseEm },
+          {
+            source: 'query_index',
+            handler: 'cli:query_index.reindex',
+            message: `Reindex started for ${entity}`,
+            entityType: entity,
+            tenantId: tenantId ?? null,
+            organizationId: orgId ?? null,
+            details: {
+              force,
+              partitions: partitionTargets.length,
+              partitionCount,
+              partitionIndex: partitionIndexOption ?? null,
+              skipPurge,
+            },
+          },
+        ).catch(() => undefined)
         if (!skipPurge) {
           console.log(`Purging existing index rows for ${entity}...`)
-          await purgeIndexScope(baseEm, { entityType: entity, organizationId: null, tenantId })
+          await purgeIndexScope(baseEm, { entityType: entity, organizationId: orgId, tenantId })
         }
         console.log(`Reindexing ${entity}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`)
         const progressState = new Map<number, { last: number }>()
@@ -510,6 +530,7 @@ const reindex: ModuleCli = {
               const partitionStats = await reindexEntity(partitionEm, {
                 entityType: entity,
                 tenantId,
+                organizationId: orgId,
                 force,
                 batchSize,
                 emitVectorizeEvents: false,
@@ -545,6 +566,23 @@ const reindex: ModuleCli = {
         )
         const totalProcessed = stats.reduce((acc, value) => acc + value, 0)
         console.log(`Finished ${entity}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+        await recordIndexerLog(
+          { em: baseEm },
+          {
+            source: 'query_index',
+            handler: 'cli:query_index.reindex',
+            message: `Reindex completed for ${entity}`,
+            entityType: entity,
+            tenantId: tenantId ?? null,
+            organizationId: orgId ?? null,
+            details: {
+              processed: totalProcessed,
+              partitions: partitionTargets.length,
+              partitionCount,
+              partitionIndex: partitionIndexOption ?? null,
+            },
+          },
+        ).catch(() => undefined)
         return
       }
 
@@ -558,9 +596,27 @@ const reindex: ModuleCli = {
       }
       for (let idx = 0; idx < entityIds.length; idx += 1) {
         const id = entityIds[idx]!
+        await recordIndexerLog(
+          { em: baseEm },
+          {
+            source: 'query_index',
+            handler: 'cli:query_index.reindex',
+            message: `Reindex started for ${id}`,
+            entityType: id,
+            tenantId: tenantId ?? null,
+            organizationId: orgId ?? null,
+            details: {
+              force,
+              partitions: partitionTargets.length,
+              partitionCount,
+              partitionIndex: partitionIndexOption ?? null,
+              skipPurge,
+            },
+          },
+        ).catch(() => undefined)
         if (!skipPurge) {
           console.log(`[${idx + 1}/${entityIds.length}] Purging existing index rows for ${id}...`)
-          await purgeIndexScope(baseEm, { entityType: id, organizationId: null, tenantId })
+          await purgeIndexScope(baseEm, { entityType: id, organizationId: orgId, tenantId })
         }
         console.log(
           `[${idx + 1}/${entityIds.length}] Reindexing ${id}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`,
@@ -594,6 +650,7 @@ const reindex: ModuleCli = {
               const result = await reindexEntity(partitionEm, {
                 entityType: id,
                 tenantId,
+                organizationId: orgId,
                 force,
                 batchSize,
                 emitVectorizeEvents: false,
@@ -629,9 +686,42 @@ const reindex: ModuleCli = {
         )
         const totalProcessed = partitionResults.reduce((acc, value) => acc + value, 0)
         console.log(`  -> ${id} complete: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+        await recordIndexerLog(
+          { em: baseEm },
+          {
+            source: 'query_index',
+            handler: 'cli:query_index.reindex',
+            message: `Reindex completed for ${id}`,
+            entityType: id,
+            tenantId: tenantId ?? null,
+            organizationId: orgId ?? null,
+            details: {
+              processed: totalProcessed,
+              partitions: partitionTargets.length,
+              partitionCount,
+              partitionIndex: partitionIndexOption ?? null,
+            },
+          },
+        ).catch(() => undefined)
       }
       console.log(`Finished reindexing ${entityIds.length} entities`)
     } catch (error) {
+      const targetLabel = entity ?? 'multiple entities'
+      await recordIndexerLog(
+        { em: baseEm },
+        {
+          source: 'query_index',
+          handler: 'cli:query_index.reindex',
+          level: 'warn',
+          message: `Reindex failed for ${targetLabel}`,
+          entityType: entity ?? null,
+          tenantId: tenantId ?? null,
+          organizationId: orgId ?? null,
+          details: {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        },
+      ).catch(() => undefined)
       await recordIndexerError(
         { em: baseEm },
         {
@@ -640,6 +730,7 @@ const reindex: ModuleCli = {
           error,
           entityType: entity ?? null,
           tenantId,
+          organizationId: orgId ?? null,
           payload: {
             args,
             partitionTargets,
@@ -685,6 +776,17 @@ const purge: ModuleCli = {
           { entityType: entity, organizationId: orgId, tenantId },
           { persistent: true },
         )
+        await recordIndexerLog(
+          { em: em ?? undefined },
+          {
+            source: 'query_index',
+            handler: 'cli:query_index.purge',
+            message: `Purge requested for ${entity}`,
+            entityType: entity,
+            tenantId: tenantId ?? null,
+            organizationId: orgId ?? null,
+          },
+        ).catch(() => undefined)
         console.log(`Scheduled purge for ${entity}`)
         return
       }
@@ -699,9 +801,34 @@ const purge: ModuleCli = {
           { entityType: id, organizationId: orgId, tenantId },
           { persistent: true },
         )
+        await recordIndexerLog(
+          { em: em ?? undefined },
+          {
+            source: 'query_index',
+            handler: 'cli:query_index.purge',
+            message: `Purge requested for ${id}`,
+            entityType: id,
+            tenantId: tenantId ?? null,
+            organizationId: orgId ?? null,
+            details: { mode: 'bulk' },
+          },
+        ).catch(() => undefined)
       }
       console.log(`Scheduled purge for ${entityIds.length} entities`)
     } catch (error) {
+      await recordIndexerLog(
+        { em: em ?? undefined },
+        {
+          source: 'query_index',
+          handler: 'cli:query_index.purge',
+          level: 'warn',
+          message: `Purge scheduling failed${entity ? ` for ${entity}` : ''}`,
+          entityType: entity ?? null,
+          tenantId: tenantId ?? null,
+          organizationId: orgId ?? null,
+          details: { error: error instanceof Error ? error.message : String(error) },
+        },
+      ).catch(() => undefined)
       await recordIndexerError(
         { em: em ?? undefined },
         {

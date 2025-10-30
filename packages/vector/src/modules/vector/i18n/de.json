@@ -1,10 +1,13 @@
 {
   "vector.nav.vectorSearch": "Vektorsuche",
+  "vector.config.nav.vectorSearch": "Vektorsuche",
   "vector.messages.missingKey": "Die Vektorsuche erfordert die Konfiguration von OPENAI_API_KEY.",
   "vector.table.title": "Vektorsuch-Index",
   "vector.table.columns.result": "Ergebnis",
   "vector.table.columns.score": "Bewertung",
   "vector.table.columns.updated": "Aktualisiert",
+  "vector.table.labels.customerPerson": "Kunden - Person",
+  "vector.table.labels.customerCompany": "Kunden - Unternehmen",
   "vector.table.searchPlaceholder": "Vektorindex durchsuchen",
   "vector.table.actions.reindex": "Vektoren neu indizieren",
   "vector.table.actions.reindexing": "Reindizierung…",

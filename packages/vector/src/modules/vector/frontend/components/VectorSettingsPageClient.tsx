@@ -7,7 +7,6 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { VectorSearchTable } from './VectorSearchTable'
 
 type VectorSettings = {
   openaiConfigured: boolean
@@ -17,7 +16,6 @@ type VectorSettings = {
 }
 
 type Props = {
-  missingKeyMessage: string
   statusTitle: string
   statusEnabledMessage: string
   statusDisabledMessage: string
@@ -42,7 +40,7 @@ const normalizeErrorMessage = (error: unknown, fallback: string): string => {
   return fallback
 }
 
-export function VectorSearchPageClient(props: Props) {
+export function VectorSettingsPageClient(props: Props) {
   const [settings, setSettings] = React.useState<VectorSettings | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
@@ -74,7 +72,7 @@ export function VectorSearchPageClient(props: Props) {
     } catch (err) {
       const message = normalizeErrorMessage(err, props.toggleErrorMessage)
       setError(message)
-      flash({ type: 'error', message })
+      flash(message, 'error')
     } finally {
       setLoading(false)
     }
@@ -112,10 +110,10 @@ export function VectorSearchPageClient(props: Props) {
           setSettings(body.settings)
           previousValueRef.current = body.settings.autoIndexingEnabled
         }
-        flash({ type: 'success', message: props.toggleSuccessMessage })
+        flash(props.toggleSuccessMessage, 'success')
       } catch (err) {
         const message = normalizeErrorMessage(err, props.toggleErrorMessage)
-        flash({ type: 'error', message })
+        flash(message, 'error')
         setSettings((prev) => (prev ? { ...prev, autoIndexingEnabled: previousValueRef.current } : prev))
       } finally {
         setSaving(false)
@@ -185,11 +183,7 @@ export function VectorSearchPageClient(props: Props) {
           {error ? <span className="text-sm text-destructive">{error}</span> : null}
         </div>
       </div>
-
-      <VectorSearchTable
-        apiKeyAvailable={settings ? settings.openaiConfigured : true}
-        missingKeyMessage={props.missingKeyMessage}
-      />
     </div>
   )
 }
+

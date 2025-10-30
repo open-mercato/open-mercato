@@ -24,8 +24,12 @@ export async function purgeIndexScope(
   const countQuery = knex('entity_indexes')
     .where({ entity_type: options.entityType })
     .modify((qb) => {
-      qb.andWhereRaw('organization_id is not distinct from ?', [options.organizationId ?? null])
-      qb.andWhereRaw('tenant_id is not distinct from ?', [options.tenantId ?? null])
+      if (options.organizationId !== undefined) {
+        qb.andWhereRaw('organization_id is not distinct from ?', [options.organizationId ?? null])
+      }
+      if (options.tenantId !== undefined) {
+        qb.andWhereRaw('tenant_id is not distinct from ?', [options.tenantId ?? null])
+      }
     })
 
   const totalRow = await countQuery.clone().count<{ count: unknown }>({ count: '*' }).first()
@@ -44,4 +48,3 @@ export async function purgeIndexScope(
 
   await finalizeJob(knex, scope)
 }
-

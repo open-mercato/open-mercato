@@ -29,7 +29,7 @@ The vector module introduces an AI-powered search surface that spans customers, 
 
 ## Settings & auto-indexing
 
-- Head to **Backend → Settings → Vector Search** to review the OpenAI status and control auto-indexing.
+- Head to **Backend → Configuration → Vector Search** to review the OpenAI status and control auto-indexing.
 - The checkbox `Index database changes automatically` is powered by the shared configs module (`vector.auto_index_enabled`). Turning it off pauses the background subscribers that feed new/updated rows into the vector index.
 - Updates go through `/api/vector/settings` so you can apply the same change from automations or custom tooling. The endpoint requires the `vector.manage` feature.
 - When `DISABLE_VECTOR_SEARCH_AUTOINDEXING` is set, the toggle is locked in the off position and the API returns a `409` response if you try to re-enable it.

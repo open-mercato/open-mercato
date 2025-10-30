@@ -33,6 +33,9 @@
   "query_index.table.actions.reindex": "Reindex",
   "query_index.table.actions.reindexForce": "Force full reindex",
   "query_index.table.actions.purge": "Purge",
+  "query_index.table.actions.vectorReindex": "Vector search reindex",
+  "query_index.table.actions.vectorPurge": "Vector search purge",
+  "query_index.table.confirm.vectorPurge": "Remove vector embeddings for this entity? This cannot be undone.",
   "query_index.table.errors.loadFailed": "Failed to load query index status.",
   "query_index.table.errors.actionFailed": "Failed to run {{action}}.",
   "query_index.table.errors.title": "Recent indexer errors",
@@ -43,5 +46,14 @@
   "query_index.table.errors.columns.details": "Details",
   "query_index.table.errors.viewDetails": "View technical details",
   "query_index.table.errors.scope.tenant": "Tenant {{tenantId}}",
-  "query_index.table.errors.scope.organization": "Organization {{organizationId}}"
+  "query_index.table.errors.scope.organization": "Organization {{organizationId}}",
+  "query_index.table.logs.title": "Recent indexer activity",
+  "query_index.table.logs.subtitle": "Last 100 status logs recorded for query index and vector index jobs in this scope.",
+  "query_index.table.logs.empty": "No recent activity.",
+  "query_index.table.logs.columns.timestamp": "Timestamp",
+  "query_index.table.logs.columns.source": "Source",
+  "query_index.table.logs.columns.message": "Message",
+  "query_index.table.logs.viewDetails": "View details",
+  "query_index.table.logs.level.info": "Info",
+  "query_index.table.logs.level.warn": "Warn"
 }

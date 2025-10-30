@@ -81,6 +81,12 @@ export type VectorDriverListParams = {
   orderBy?: 'created' | 'updated'
 }
 
+export type VectorDriverCountParams = {
+  tenantId: string
+  organizationId?: string | null
+  entityId?: EntityId
+}
+
 export interface VectorDriver {
   readonly id: VectorDriverId
   ensureReady(): Promise<void>
@@ -90,4 +96,5 @@ export interface VectorDriver {
   getChecksum(entityId: EntityId, recordId: string, tenantId: string): Promise<string | null>
   purge?(entityId: EntityId, tenantId: string): Promise<void>
   list?(params: VectorDriverListParams): Promise<VectorIndexEntry[]>
+  count?(params: VectorDriverCountParams): Promise<number>
 }

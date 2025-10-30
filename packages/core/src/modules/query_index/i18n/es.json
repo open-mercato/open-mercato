@@ -33,6 +33,9 @@
   "query_index.table.actions.reindex": "Reindexar",
   "query_index.table.actions.reindexForce": "Forzar reindexación completa",
   "query_index.table.actions.purge": "Purgar",
+  "query_index.table.actions.vectorReindex": "Reindexar búsqueda vectorial",
+  "query_index.table.actions.vectorPurge": "Purgar búsqueda vectorial",
+  "query_index.table.confirm.vectorPurge": "¿Eliminar los embeddings vectoriales de esta entidad? Esta acción no se puede deshacer.",
   "query_index.table.errors.loadFailed": "No se pudo cargar el estado del índice de consultas.",
   "query_index.table.errors.actionFailed": "No se pudo ejecutar {{action}}.",
   "query_index.table.errors.title": "Errores recientes del indexador",
@@ -43,5 +46,14 @@
   "query_index.table.errors.columns.details": "Detalles",
   "query_index.table.errors.viewDetails": "Ver detalles técnicos",
   "query_index.table.errors.scope.tenant": "Inquilino {{tenantId}}",
-  "query_index.table.errors.scope.organization": "Organización {{organizationId}}"
+  "query_index.table.errors.scope.organization": "Organización {{organizationId}}",
+  "query_index.table.logs.title": "Actividad reciente del indexador",
+  "query_index.table.logs.subtitle": "Últimos 100 registros de estado para trabajos del índice de consultas y vector en este ámbito.",
+  "query_index.table.logs.empty": "Sin actividad reciente.",
+  "query_index.table.logs.columns.timestamp": "Marca de tiempo",
+  "query_index.table.logs.columns.source": "Origen",
+  "query_index.table.logs.columns.message": "Mensaje",
+  "query_index.table.logs.viewDetails": "Ver detalles",
+  "query_index.table.logs.level.info": "Info",
+  "query_index.table.logs.level.warn": "Advertencia"
 }
