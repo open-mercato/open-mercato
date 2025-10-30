@@ -26,8 +26,14 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install semantic-release dependencies
+        run: npm install semantic-release \
+                        @semantic-release/exec \
+                        @semantic-release/commit-analyzer \
+                        @semantic-release/release-notes-generator \
+                        @semantic-release/changelog \
+                        @semantic-release/git \
+                        @semantic-release/github
 
       - name: Run semantic release
         id: release
