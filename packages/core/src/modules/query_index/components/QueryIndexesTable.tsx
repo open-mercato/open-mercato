@@ -52,9 +52,9 @@ const columns: ColumnDef<Row>[] = [
       const r = row.original as Row
       const job = r.job
       const partitions = job?.partitions ?? []
-      const activePartitions = partitions.filter((p) => !p.finishedAt)
       const ok = r.ok && (!job || job.status === 'idle')
-      const showJobProgress = job?.processedCount != null && job?.totalCount != null && job.totalCount > 0 && partitions.length <= 1
+      const showJobProgress =
+        job?.processedCount != null && job?.totalCount != null && job.totalCount > 0
       const progressLabel = showJobProgress
         ? ` (${job.processedCount!.toLocaleString()}/${job.totalCount!.toLocaleString()})`
         : ''
@@ -77,13 +77,29 @@ const columns: ColumnDef<Row>[] = [
           ? 'text-green-600'
           : 'text-muted-foreground'
 
+      const scopeLine =
+        job?.scope && partitions.length <= 1
+          ? [
+              `Scope: ${
+                job.scope.status === 'reindexing'
+                  ? 'Running'
+                  : job.scope.status === 'purging'
+                    ? 'Purging'
+                    : job.scope.status === 'stalled'
+                      ? 'Stalled'
+                      : 'Done'
+              }${
+                job.scope.processedCount != null && job.scope.totalCount
+                  ? ` (${job.scope.processedCount.toLocaleString()}/${job.scope.totalCount.toLocaleString()})`
+                  : ''
+              }`,
+            ]
+          : []
+
       const partitionSummaries =
         partitions.length > 1
           ? partitions.map((part) => {
-              const partLabel =
-                part.partitionIndex != null
-                  ? `P${Number(part.partitionIndex) + 1}`
-                  : 'Scope'
+              const partLabel = part.partitionIndex != null ? `P${Number(part.partitionIndex) + 1}` : 'Scope'
               const partProgress =
                 part.totalCount && part.processedCount != null
                   ? `${part.processedCount.toLocaleString()}/${part.totalCount.toLocaleString()}`
@@ -102,12 +118,14 @@ const columns: ColumnDef<Row>[] = [
             })
           : []
 
+      const lines = [...scopeLine, ...partitionSummaries]
+
       return (
         <div className="space-y-1">
           <span className={className}>{label}</span>
-          {partitionSummaries.length > 0 && (
+          {lines.length > 0 && (
             <div className="text-xs text-muted-foreground">
-              {partitionSummaries.map((line, idx) => (
+              {lines.map((line, idx) => (
                 <div key={idx}>{line}</div>
               ))}
             </div>

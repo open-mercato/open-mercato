@@ -74,10 +74,17 @@ export async function GET(req: Request) {
       }
 
       const partitionRows = new Map<string, { row: any; startedTs: number; tenantMatch: boolean }>()
+      let scopeRow: { row: any; startedTs: number } | null = null
       for (const row of rows) {
         const key = String(row.partition_index ?? '__null__')
         const startedTs = row.started_at ? new Date(row.started_at).getTime() : 0
         const tenantMatch = tenantIdParam != null ? row.tenant_id === tenantIdParam : true
+        if (row.partition_index == null) {
+          if (!scopeRow || startedTs > scopeRow.startedTs) {
+            scopeRow = { row, startedTs }
+          }
+          continue
+        }
         const existing = partitionRows.get(key)
         if (!existing) {
           partitionRows.set(key, { row, startedTs, tenantMatch })
@@ -133,19 +140,36 @@ export async function GET(req: Request) {
       const startedAt = activePartitions[0]?.startedAt ?? partitions[0]?.startedAt ?? null
       const finishedAt = status === 'idle' ? (partitions.find((p) => p.finishedAt)?.finishedAt ?? null) : null
       const heartbeatAt = activePartitions[0]?.heartbeatAt ?? partitions[0]?.heartbeatAt ?? null
-      const jobTotalCount = partitions.reduce((max, p) => Math.max(max, p.totalCount ?? 0), 0)
-      const maxProcessed = partitions.reduce((max, p) => Math.max(max, p.processedCount ?? 0), 0)
-      const processedCount = jobTotalCount ? Math.min(jobTotalCount, maxProcessed) : null
-      const totalCount = jobTotalCount || null
+      const jobTotalCount = partitions.reduce((sum, p) => sum + (p.totalCount ?? 0), 0)
+      const processedSum = partitions.reduce((sum, p) => sum + (p.processedCount ?? 0), 0)
+      const processedCount = jobTotalCount ? Math.min(jobTotalCount, processedSum) : processedSum || null
 
       return {
         status,
         startedAt,
         finishedAt,
         heartbeatAt,
-        processedCount,
-        totalCount,
+        processedCount: jobTotalCount ? processedCount : scopeRow?.row?.processed_count ?? null,
+        totalCount: jobTotalCount ? jobTotalCount : scopeRow?.row?.total_count ?? null,
         partitions,
+        scope: scopeRow
+          ? {
+              status: (() => {
+                const heartbeatDate = scopeRow!.row.heartbeat_at ? new Date(scopeRow!.row.heartbeat_at) : null
+                const finishedDate = scopeRow!.row.finished_at ? new Date(scopeRow!.row.finished_at) : null
+                if (finishedDate) return 'completed'
+                if (
+                  !heartbeatDate ||
+                  Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS
+                ) {
+                  return 'stalled'
+                }
+                return (scopeRow!.row.status as string) || 'reindexing'
+              })(),
+              processedCount: scopeRow.row.processed_count ?? null,
+              totalCount: scopeRow.row.total_count ?? null,
+            }
+          : null,
       }
     } catch {
       return { status: 'idle' as const, partitions: [] as any[] }

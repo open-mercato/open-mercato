@@ -25,6 +25,13 @@ export const queryIndexJobSchema = z.object({
   processedCount: z.number().int().nonnegative().nullable().optional(),
   totalCount: z.number().int().nonnegative().nullable().optional(),
   partitions: z.array(queryIndexPartitionSchema).optional(),
+  scope: queryIndexPartitionSchema.pick({
+    status: true,
+    processedCount: true,
+    totalCount: true,
+  })
+    .nullable()
+    .optional(),
 })
 
 export const queryIndexStatusItemSchema = z.object({

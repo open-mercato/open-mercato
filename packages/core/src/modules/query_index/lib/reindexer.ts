@@ -4,6 +4,7 @@ import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { upsertIndexBatch, type AnyRow } from './batch'
 import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments } from './coverage'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
+import { purgeStalePartitionIndexes, purgeUnprocessedPartitionIndexes } from './stale'
 
 export type ReindexJobOptions = {
   entityType: string
@@ -141,6 +142,15 @@ export async function reindexEntity(
 
   const total = Array.from(baseCounts.values()).reduce((acc, value) => acc + (Number.isFinite(value) ? value : 0), 0)
   await prepareJob(knex, jobScope, 'reindexing', { totalCount: total })
+  const jobRow = await knex('entity_index_jobs')
+    .where({ entity_type: entityType })
+    .whereNull('organization_id')
+    .andWhereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
+    .andWhereRaw('partition_index is not distinct from ?', [partitionIndex])
+    .andWhereRaw('partition_count is not distinct from ?', [usingPartitions ? partitionCountRaw : null])
+    .orderBy('started_at', 'desc')
+    .first<{ started_at: Date }>()
+  const jobStartedAt = jobRow?.started_at ? new Date(jobRow.started_at) : new Date()
   const deriveOrg = deriveOrgFromId.has(entityType)
     ? (row: AnyRow) => String(row.id)
     : undefined
@@ -175,6 +185,15 @@ export async function reindexEntity(
   }
 
   try {
+    if (usingPartitions && partitionIndex !== null) {
+      await purgeStalePartitionIndexes(knex, {
+        entityType,
+        table,
+        tenantId: tenantId ?? null,
+        partitionIndex,
+        partitionCount: partitionCountRaw,
+      })
+    }
     while (true) {
       let query = knex({ b: table })
         .modify(baseWhere)
@@ -239,6 +258,14 @@ export async function reindexEntity(
       options?.onProgress?.({ processed, total, chunkSize: rows.length })
       await updateJobProgress(knex, jobScope, rows.length)
     }
+
+    await purgeUnprocessedPartitionIndexes(knex, {
+      entityType,
+      tenantId: tenantId ?? null,
+      partitionIndex: usingPartitions ? partitionIndex : null,
+      partitionCount: usingPartitions ? partitionCountRaw : null,
+      startedAt: jobStartedAt,
+    })
 
     for (const tenantValue of tenantScopes) {
       await refreshCoverageSnapshot(em, {
