@@ -51,31 +51,68 @@ const columns: ColumnDef<Row>[] = [
     cell: ({ row }) => {
       const r = row.original as Row
       const job = r.job
-      const activePartitions = job?.partitions ?? []
-      const isWorking = job && job.status !== 'idle'
-      const isStalled = job?.status === 'stalled'
-      const ok = r.ok && !isWorking
-      const processed = activePartitions.reduce((acc, part) => acc + (part.processedCount ?? 0), 0)
-      const total = activePartitions.reduce((acc, part) => acc + (part.totalCount ?? 0), 0)
-      const progressLabel = total > 0 ? ` (${processed.toLocaleString()}/${total.toLocaleString()})` : ''
+      const partitions = job?.partitions ?? []
+      const activePartitions = partitions.filter((p) => !p.finishedAt)
+      const ok = r.ok && (!job || job.status === 'idle')
+      const showJobProgress = job?.processedCount != null && job?.totalCount != null && job.totalCount > 0 && partitions.length <= 1
+      const progressLabel = showJobProgress
+        ? ` (${job.processedCount!.toLocaleString()}/${job.totalCount!.toLocaleString()})`
+        : ''
       let label = ok ? 'In sync' : 'Out of sync'
       if (job) {
         if (job.status === 'reindexing') label = `Reindexing${progressLabel}`
         else if (job.status === 'purging') label = `Purging${progressLabel}`
         else if (job.status === 'stalled') label = `Stalled${progressLabel || ''}`
-        else if (job.status === 'idle' && !ok) label = 'Out of sync'
+        else if (!ok) label = 'Out of sync'
       }
-      const className = isStalled
-        ? 'text-red-600'
-        : isWorking
-          ? 'text-orange-600'
-          : ok
-            ? 'text-green-600'
-            : 'text-muted-foreground'
+      const className = job
+        ? job.status === 'stalled'
+          ? 'text-red-600'
+          : job.status === 'reindexing' || job.status === 'purging'
+            ? 'text-orange-600'
+            : ok
+              ? 'text-green-600'
+              : 'text-muted-foreground'
+        : ok
+          ? 'text-green-600'
+          : 'text-muted-foreground'
+
+      const partitionSummaries =
+        partitions.length > 1
+          ? partitions.map((part) => {
+              const partLabel =
+                part.partitionIndex != null
+                  ? `P${Number(part.partitionIndex) + 1}`
+                  : 'Scope'
+              const partProgress =
+                part.totalCount && part.processedCount != null
+                  ? `${part.processedCount.toLocaleString()}/${part.totalCount.toLocaleString()}`
+                  : part.processedCount != null
+                    ? `${part.processedCount.toLocaleString()}`
+                    : null
+              const stateLabel =
+                part.status === 'reindexing'
+                  ? 'Running'
+                  : part.status === 'purging'
+                    ? 'Purging'
+                    : part.status === 'stalled'
+                      ? 'Stalled'
+                      : 'Done'
+              return `${partLabel}: ${stateLabel}${partProgress ? ` (${partProgress})` : ''}`
+            })
+          : []
+
       return (
-        <span className={className}>
-          {label}
-        </span>
+        <div className="space-y-1">
+          <span className={className}>{label}</span>
+          {partitionSummaries.length > 0 && (
+            <div className="text-xs text-muted-foreground">
+              {partitionSummaries.map((line, idx) => (
+                <div key={idx}>{line}</div>
+              ))}
+            </div>
+          )}
+        </div>
       )
     },
     meta: { priority: 1 },

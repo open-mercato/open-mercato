@@ -6,6 +6,7 @@ import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/l
 import type { Knex } from 'knex'
 import type { EventBus } from '@open-mercato/events'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
+import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 
 function parseBooleanToken(value: string | null | undefined, defaultValue: boolean): boolean {
   if (value == null) return defaultValue
@@ -45,137 +46,15 @@ type PreparedCustomFieldSource = {
   table: string
 }
 
-type QueryProfilerStep = {
-  step: string
-  durationMs: number
-  extra?: Record<string, unknown>
-}
-
-type QueryProfilerSection = {
-  end: (extra?: Record<string, unknown>) => void
-}
-
-type QueryProfiler = {
-  enabled: boolean
-  mark: (label: string, extra?: Record<string, unknown>) => void
-  section: (label: string) => QueryProfilerSection
-  measure: <T>(
-    label: string,
-    fn: () => Promise<T> | T,
-    extra?: ((result: T) => Record<string, unknown> | undefined) | Record<string, unknown>
-  ) => Promise<T>
-  record: (label: string, durationMs: number, extra?: Record<string, unknown>) => void
-  end: (meta?: Record<string, unknown>) => void
-}
-
-const disabledProfiler: QueryProfiler = {
-  enabled: false,
-  mark: () => {},
-  section: () => ({ end: () => {} }),
-  measure: async (_label, fn) => Promise.resolve(fn()).then((res) => res),
-  record: () => {},
-  end: () => {},
-}
-
-function normalizeProfilerTokens(input: string | null | undefined): string[] {
-  if (!input) return []
-  return input
-    .split(',')
-    .map((token) => token.trim().toLowerCase())
-    .filter((token) => token.length > 0)
-}
-
-function profilerMatches(target: string, tokens: string[]): boolean {
-  if (!tokens.length) return false
-  const lower = target.toLowerCase()
-  return tokens.some((token) => {
-    if (token === '*' || token === 'all' || token === '1' || token === 'true') return true
-    if (token.endsWith('*')) {
-      const prefix = token.slice(0, -1)
-      return prefix.length === 0 ? true : lower.startsWith(prefix)
-    }
-    return token === lower
+function createQueryProfiler(entity: string): Profiler {
+  const enabled = shouldEnableProfiler(entity)
+  return createProfiler({
+    scope: 'query_engine',
+    target: entity,
+    label: `query_engine:${entity}`,
+    loggerLabel: '[qe:profile]',
+    enabled,
   })
-}
-
-function isQueryEngineProfilingEnabled(entity: string): boolean {
-  const envCandidates = [
-    process.env.OM_QE_PROFILE,
-    process.env.NEXT_PUBLIC_OM_QE_PROFILE,
-    process.env.OM_CRUD_PROFILE,
-    process.env.NEXT_PUBLIC_OM_CRUD_PROFILE,
-  ]
-  for (const raw of envCandidates) {
-    if (!raw) continue
-    const tokens = normalizeProfilerTokens(raw)
-    if (profilerMatches(entity, tokens)) return true
-  }
-  return false
-}
-
-function createQueryProfiler(entity: string): QueryProfiler {
-  if (!isQueryEngineProfilingEnabled(entity)) return disabledProfiler
-  const steps: QueryProfilerStep[] = []
-  const startTime = process.hrtime.bigint()
-  const round = (value: number) => Math.round(value * 1000) / 1000
-  const pushStep = (step: string, durationNs: bigint, extra?: Record<string, unknown>) => {
-    const durationMs = Number(durationNs) / 1_000_000
-    steps.push({
-      step,
-      durationMs: round(durationMs),
-      ...(extra ? { extra } : {}),
-    })
-  }
-  return {
-    enabled: true,
-    mark(label, extra) {
-      const now = process.hrtime.bigint()
-      pushStep(label, now - startTime, extra)
-    },
-    section(label) {
-      const sectionStart = process.hrtime.bigint()
-      let closed = false
-      return {
-        end(extra?: Record<string, unknown>) {
-          if (closed) return
-          closed = true
-          const now = process.hrtime.bigint()
-          pushStep(label, now - sectionStart, extra)
-        },
-      }
-    },
-    async measure(label, fn, extra) {
-      if (!this.enabled) return Promise.resolve(fn()).then((res) => res)
-      const section = this.section(label)
-      try {
-        const result = await Promise.resolve(fn())
-        const extraPayload =
-          typeof extra === 'function'
-            ? extra(result)
-            : (extra as Record<string, unknown> | undefined)
-        section.end(extraPayload)
-        return result
-      } catch (err) {
-        section.end({ error: err instanceof Error ? err.message : String(err) })
-        throw err
-      }
-    },
-    record(label, durationMs, extra) {
-      const ns = BigInt(Math.round(durationMs * 1_000_000))
-      pushStep(label, ns, extra)
-    },
-    end(meta) {
-      const totalNs = process.hrtime.bigint() - startTime
-      const totalMs = Number(totalNs) / 1_000_000
-      const payload: Record<string, unknown> = {
-        entity,
-        totalMs: round(totalMs),
-        steps,
-      }
-      if (meta && Object.keys(meta).length > 0) payload.meta = meta
-      console.info('[qe:profile]', payload)
-    },
-  }
 }
 
 export class HybridQueryEngine implements QueryEngine {
@@ -202,7 +81,10 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   async query<T = unknown>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
-    const profiler = createQueryProfiler(String(entity))
+    const providedProfiler = opts.profiler
+    const profiler = providedProfiler && providedProfiler.enabled
+      ? providedProfiler
+      : createQueryProfiler(String(entity))
     profiler.mark('query:init')
     let profileClosed = false
     const finishProfile = (meta?: Record<string, unknown>) => {
@@ -1305,7 +1187,7 @@ export class HybridQueryEngine implements QueryEngine {
     entity: EntityId,
     execute: () => Promise<TResult> | TResult,
     extra?: Record<string, unknown>,
-    profiler?: QueryProfiler
+    profiler?: Profiler
   ): Promise<TResult> {
     const shouldDebug = this.isSqlDebugEnabled() && this.isDebugVerbosity()
     const shouldProfile = profiler?.enabled === true

@@ -38,6 +38,7 @@ import {
   normalizeTagSegment,
   resolveCrudCache,
 } from './cache'
+import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -471,93 +472,15 @@ function determineAccessType(query: unknown, total: number, idField: string): st
   return total > 1 ? 'read:list' : 'read'
 }
 
-type CrudProfilerMark = {
-  label: string
-  time: bigint
-  extra?: Record<string, unknown>
-}
-
-type CrudProfiler = {
-  enabled: boolean
-  mark: (label: string, extra?: Record<string, unknown>) => void
-  end: (extra?: Record<string, unknown>) => void
-}
-
-function normalizeProfilerTokens(input: string | null | undefined): string[] {
-  if (!input) return []
-  return input
-    .split(',')
-    .map((token) => token.trim().toLowerCase())
-    .filter((token) => token.length > 0)
-}
-
-function profilerMatches(resource: string, tokens: string[]): boolean {
-  if (!tokens.length) return false
-  const target = resource.toLowerCase()
-  return tokens.some((token) => {
-    if (token === '*' || token === 'all' || token === '1' || token === 'true') return true
-    if (token.endsWith('*')) {
-      const prefix = token.slice(0, -1)
-      return prefix.length === 0 ? true : target.startsWith(prefix)
-    }
-    return token === target
+function createCrudProfiler(resource: string, operation: string): Profiler {
+  const enabled = shouldEnableProfiler(resource)
+  return createProfiler({
+    scope: `crud:${operation}`,
+    target: resource,
+    label: `${resource}:${operation}`,
+    loggerLabel: '[crud:profile]',
+    enabled,
   })
-}
-
-function isCrudProfilingEnabled(resource: string): boolean {
-  const raw = process.env.OM_CRUD_PROFILE ?? process.env.NEXT_PUBLIC_OM_CRUD_PROFILE
-  if (!raw) return false
-  const tokens = normalizeProfilerTokens(raw)
-  return profilerMatches(resource, tokens)
-}
-
-function createCrudProfiler(resource: string, operation: string): CrudProfiler {
-  const scope = `${resource}:${operation}`
-  if (!isCrudProfilingEnabled(resource)) {
-    return {
-      enabled: false,
-      mark: () => {},
-      end: () => {},
-    }
-  }
-  const marks: CrudProfilerMark[] = [{ label: 'start', time: process.hrtime.bigint() }]
-  const round = (value: number) => Math.round(value * 1000) / 1000
-  return {
-    enabled: true,
-    mark: (label: string, extra?: Record<string, unknown>) => {
-      marks.push({ label, time: process.hrtime.bigint(), extra })
-    },
-    end: (extra?: Record<string, unknown>) => {
-      marks.push({ label: 'end', time: process.hrtime.bigint(), extra })
-      const segments: Array<{ step: string; durationMs: number; extra?: Record<string, unknown> }> = []
-      for (let idx = 1; idx < marks.length; idx += 1) {
-        const current = marks[idx]
-        const previous = marks[idx - 1]
-        const durationMs = Number(current.time - previous.time) / 1_000_000
-        const step = current.label
-        if (step === 'end') continue
-        segments.push({
-          step,
-          durationMs: round(durationMs),
-          extra: current.extra,
-        })
-      }
-      const totalNs = marks[marks.length - 1].time - marks[0].time
-      const payload: Record<string, unknown> = {
-        scope,
-        totalMs: round(Number(totalNs) / 1_000_000),
-        steps: segments,
-      }
-      if (extra && Object.keys(extra).length) {
-        payload.meta = extra
-      }
-      try {
-        console.info('[crud:profile]', payload)
-      } catch {
-        // ignore logging failures
-      }
-    },
-  }
 }
 
 export type LogCrudAccessOptions = {
@@ -873,12 +796,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   async function GET(request: Request) {
     const profiler = createCrudProfiler(resourceKind, 'list')
-    profiler.mark('request_received')
+    const requestMeta: Record<string, unknown> = { method: request.method }
+    try {
+      const urlObj = new URL(request.url)
+      requestMeta.path = urlObj.pathname
+      requestMeta.url = request.url
+      if (urlObj.search) requestMeta.query = urlObj.search
+    } catch {
+      requestMeta.url = request.url
+    }
+    profiler.mark('request_received', requestMeta)
     let profileClosed = false
     const finishProfile = (extra?: Record<string, unknown>) => {
       if (!profiler.enabled || profileClosed) return
       profileClosed = true
-      profiler.end(extra)
+      const meta = extra ? { ...requestMeta, ...extra } : { ...requestMeta }
+      profiler.end(meta)
     }
     try {
       profiler.mark('resolve_context')
@@ -1076,12 +1009,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           queryOpts.organizationId = ctx.selectedOrganizationId ?? undefined
           queryOpts.organizationIds = ctx.organizationIds ?? undefined
         }
+        const queryEntity = String(opts.list.entityId)
         profiler.mark('query_options_ready')
-        const res = await qe.query(opts.list.entityId as any, queryOpts)
-        profiler.mark('query_engine_complete', {
-          itemCount: Array.isArray(res.items) ? res.items.length : 0,
-          total: typeof res.total === 'number' ? res.total : null,
-        })
+        const queryProfiler = profiler.child('query_engine', { entity: queryEntity })
+        const res = await qe.query(opts.list.entityId as any, { ...queryOpts, profiler: queryProfiler })
         const rawItems = res.items || []
         let transformedItems = rawItems.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
         profiler.mark('transform_complete', { itemCount: transformedItems.length })
@@ -1117,6 +1048,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               const nextRes = await qe.query(opts.list.entityId as any, {
                 ...queryBase,
                 page: { page: nextPage, pageSize: exportPageSizeNumber },
+                profiler: profiler.child('query_engine', { entity: queryEntity, page: nextPage, mode: 'export' }),
               })
               const nextItemsRaw = nextRes.items || []
               if (!nextItemsRaw.length) break

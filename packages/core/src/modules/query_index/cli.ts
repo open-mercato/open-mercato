@@ -404,7 +404,7 @@ const reindex: ModuleCli = {
     const skipPurge = flagEnabled(args, 'skipPurge', 'noPurge')
 
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
+    const baseEm = container.resolve<EntityManager>('em')
     const partitionIndexOption =
       partitionIndexOptionRaw === undefined ? undefined : toNonNegativeInt(partitionIndexOptionRaw, 0)
     const partitionCount = Math.max(
@@ -432,36 +432,72 @@ const reindex: ModuleCli = {
     if (entity) {
       if (!skipPurge) {
         console.log(`Purging existing index rows for ${entity}...`)
-        await purgeIndexScope(em, { entityType: entity, organizationId: null, tenantId })
+        await purgeIndexScope(baseEm, { entityType: entity, organizationId: null, tenantId })
       }
       console.log(`Reindexing ${entity}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`)
-      let totalProcessed = 0
-      for (const part of partitionTargets) {
-        const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
-        console.log(`  -> processing${label}`)
-        let progressBar: ReturnType<typeof createProgressBar> | null = null
-        const stats = await reindexEntity(em, {
-          entityType: entity,
-          tenantId,
-          force,
-          batchSize,
-          emitVectorizeEvents: false,
-          partitionCount,
-          partitionIndex: part,
-          resetCoverage: shouldResetCoverage(part),
-          onProgress(info) {
-            if (info.total > 0 && !progressBar) {
-              progressBar = createProgressBar(`Reindexing ${entity}${label}`, info.total)
-            }
-            progressBar?.update(info.processed)
-          },
-        })
-        totalProcessed += stats.processed
-        progressBar?.complete()
+      const progressState = new Map<number, { last: number }>()
+      const renderProgress = (part: number, entityId: string, info: { processed: number; total: number }) => {
+        const state = progressState.get(part) ?? { last: 0 }
+        const now = Date.now()
+        if (now - state.last < 1000 && info.processed < info.total) return
+        state.last = now
+        progressState.set(part, state)
+        const percent = info.total > 0 ? ((info.processed / info.total) * 100).toFixed(2) : '0.00'
         console.log(
-          `     processed ${stats.processed} row(s)${stats.total ? ` (base ${stats.total})` : ''}`,
+          `     [${entityId}] partition ${part + 1}/${partitionCount}: ${info.processed.toLocaleString()} / ${info.total.toLocaleString()} (${percent}%)`,
         )
       }
+
+      const stats = await Promise.all(
+        partitionTargets.map(async (part, idx) => {
+          const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
+          if (partitionTargets.length === 1) {
+            console.log(`  -> processing${label}`)
+          } else if (idx === 0) {
+            console.log(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
+          }
+          const partitionContainer = await createRequestContainer()
+          const partitionEm = partitionContainer.resolve<EntityManager>('em')
+          try {
+            let progressBar: ReturnType<typeof createProgressBar> | null = null
+            const useBar = partitionTargets.length === 1
+            const partitionStats = await reindexEntity(partitionEm, {
+              entityType: entity,
+              tenantId,
+              force,
+              batchSize,
+              emitVectorizeEvents: false,
+              partitionCount,
+              partitionIndex: part,
+              resetCoverage: shouldResetCoverage(part),
+              onProgress(info) {
+                if (useBar) {
+                  if (info.total > 0 && !progressBar) {
+                    progressBar = createProgressBar(`Reindexing ${entity}${label}`, info.total)
+                  }
+                  progressBar?.update(info.processed)
+                } else {
+                  renderProgress(part, entity, info)
+                }
+              },
+            })
+            progressBar?.complete()
+            if (!useBar) {
+              renderProgress(part, entity, { processed: partitionStats.processed, total: partitionStats.total })
+            } else {
+              console.log(
+                `     processed ${partitionStats.processed} row(s)${partitionStats.total ? ` (base ${partitionStats.total})` : ''}`,
+              )
+            }
+            return partitionStats.processed
+          } finally {
+            if (typeof (partitionContainer as any)?.dispose === 'function') {
+              await (partitionContainer as any).dispose()
+            }
+          }
+        }),
+      )
+      const totalProcessed = stats.reduce((acc, value) => acc + value, 0)
       console.log(`Finished ${entity}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
       return
     }
@@ -478,38 +514,74 @@ const reindex: ModuleCli = {
       const id = entityIds[idx]!
       if (!skipPurge) {
         console.log(`[${idx + 1}/${entityIds.length}] Purging existing index rows for ${id}...`)
-        await purgeIndexScope(em, { entityType: id, organizationId: null, tenantId })
+        await purgeIndexScope(baseEm, { entityType: id, organizationId: null, tenantId })
       }
       console.log(
         `[${idx + 1}/${entityIds.length}] Reindexing ${id}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`,
       )
-      let totalProcessed = 0
-      for (const part of partitionTargets) {
-        const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
-        console.log(`  -> processing${label}`)
-        let progressBar: ReturnType<typeof createProgressBar> | null = null
-        const stats = await reindexEntity(em, {
-          entityType: id,
-          tenantId,
-          force,
-          batchSize,
-          emitVectorizeEvents: false,
-          partitionCount,
-          partitionIndex: part,
-          resetCoverage: shouldResetCoverage(part),
-          onProgress(info) {
-            if (info.total > 0 && !progressBar) {
-              progressBar = createProgressBar(`Reindexing ${id}${label}`, info.total)
-            }
-            progressBar?.update(info.processed)
-          },
-        })
-        totalProcessed += stats.processed
-        progressBar?.complete()
+      const progressState = new Map<number, { last: number }>()
+      const renderProgress = (part: number, entityId: string, info: { processed: number; total: number }) => {
+        const state = progressState.get(part) ?? { last: 0 }
+        const now = Date.now()
+        if (now - state.last < 1000 && info.processed < info.total) return
+        state.last = now
+        progressState.set(part, state)
+        const percent = info.total > 0 ? ((info.processed / info.total) * 100).toFixed(2) : '0.00'
         console.log(
-          `     processed ${stats.processed} row(s)${stats.total ? ` (base ${stats.total})` : ''}`,
+          `     [${entityId}] partition ${part + 1}/${partitionCount}: ${info.processed.toLocaleString()} / ${info.total.toLocaleString()} (${percent}%)`,
         )
       }
+
+      const partitionResults = await Promise.all(
+        partitionTargets.map(async (part, partitionIdx) => {
+          const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
+          if (partitionTargets.length === 1) {
+            console.log(`  -> processing${label}`)
+          } else if (partitionIdx === 0) {
+            console.log(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
+          }
+          const partitionContainer = await createRequestContainer()
+          const partitionEm = partitionContainer.resolve<EntityManager>('em')
+          try {
+            let progressBar: ReturnType<typeof createProgressBar> | null = null
+            const useBar = partitionTargets.length === 1
+            const result = await reindexEntity(partitionEm, {
+              entityType: id,
+              tenantId,
+              force,
+              batchSize,
+              emitVectorizeEvents: false,
+              partitionCount,
+              partitionIndex: part,
+              resetCoverage: shouldResetCoverage(part),
+              onProgress(info) {
+                if (useBar) {
+                  if (info.total > 0 && !progressBar) {
+                    progressBar = createProgressBar(`Reindexing ${id}${label}`, info.total)
+                  }
+                  progressBar?.update(info.processed)
+                } else {
+                  renderProgress(part, id, info)
+                }
+              },
+            })
+            progressBar?.complete()
+            if (!useBar) {
+              renderProgress(part, id, { processed: result.processed, total: result.total })
+            } else {
+              console.log(
+                `     processed ${result.processed} row(s)${result.total ? ` (base ${result.total})` : ''}`,
+              )
+            }
+            return result.processed
+          } finally {
+            if (typeof (partitionContainer as any)?.dispose === 'function') {
+              await (partitionContainer as any).dispose()
+            }
+          }
+        }),
+      )
+      const totalProcessed = partitionResults.reduce((acc, value) => acc + value, 0)
       console.log(`  -> ${id} complete: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
     }
     console.log(`Finished reindexing ${entityIds.length} entities`)

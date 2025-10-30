@@ -59,8 +59,13 @@ export async function GET(req: Request) {
     try {
       const rows = await knex('entity_index_jobs')
         .where({ entity_type: entityType })
-        .modify((qb: any) => {
-          qb.andWhereRaw('tenant_id is not distinct from ?', [tenantIdParam ?? null])
+        .andWhere((qb) => {
+          if (tenantIdParam != null) {
+            qb.whereRaw('tenant_id is not distinct from ?', [tenantIdParam])
+              .orWhereNull('tenant_id')
+          } else {
+            qb.whereRaw('tenant_id is not distinct from ?', [null])
+          }
         })
         .orderBy('started_at', 'desc')
 
@@ -68,48 +73,79 @@ export async function GET(req: Request) {
         return { status: 'idle' as const, partitions: [] as any[] }
       }
 
-      const partitions = rows.map((row: any) => {
-        const heartbeatAt = row.heartbeat_at ? new Date(row.heartbeat_at) : null
-        const stalled = !row.finished_at && (!heartbeatAt || (Date.now() - heartbeatAt.getTime()) > HEARTBEAT_STALE_MS)
-        const state = row.finished_at
-          ? 'completed'
-          : stalled
-            ? 'stalled'
-            : (row.status as string) || 'reindexing'
-        return {
-          partitionIndex: row.partition_index ?? null,
-          partitionCount: row.partition_count ?? null,
-          status: state,
-          startedAt: row.started_at ?? null,
-          finishedAt: row.finished_at ?? null,
-          heartbeatAt: row.heartbeat_at ?? null,
-          processedCount: row.processed_count ?? null,
-          totalCount: row.total_count ?? null,
+      const partitionRows = new Map<string, { row: any; startedTs: number; tenantMatch: boolean }>()
+      for (const row of rows) {
+        const key = String(row.partition_index ?? '__null__')
+        const startedTs = row.started_at ? new Date(row.started_at).getTime() : 0
+        const tenantMatch = tenantIdParam != null ? row.tenant_id === tenantIdParam : true
+        const existing = partitionRows.get(key)
+        if (!existing) {
+          partitionRows.set(key, { row, startedTs, tenantMatch })
+          continue
         }
-      })
+        if (tenantMatch && !existing.tenantMatch) {
+          partitionRows.set(key, { row, startedTs, tenantMatch })
+          continue
+        }
+        if (tenantMatch === existing.tenantMatch && startedTs > existing.startedTs) {
+          partitionRows.set(key, { row, startedTs, tenantMatch })
+        }
+      }
 
+      const partitions = Array.from(partitionRows.values())
+        .map(({ row }) => {
+          const heartbeatDate = row.heartbeat_at ? new Date(row.heartbeat_at) : null
+          const startedDate = row.started_at ? new Date(row.started_at) : null
+          const finishedDate = row.finished_at ? new Date(row.finished_at) : null
+          const stalled =
+            !finishedDate && (!heartbeatDate || Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS)
+          const state = finishedDate
+            ? 'completed'
+            : stalled
+              ? 'stalled'
+              : (row.status as string) || 'reindexing'
+          return {
+            partitionIndex: row.partition_index ?? null,
+            partitionCount: row.partition_count ?? null,
+            status: state,
+            startedAt: startedDate ? startedDate.toISOString() : null,
+            finishedAt: finishedDate ? finishedDate.toISOString() : null,
+            heartbeatAt: heartbeatDate ? heartbeatDate.toISOString() : null,
+            processedCount: row.processed_count ?? null,
+            totalCount: row.total_count ?? null,
+          }
+        })
+        .sort((a, b) => (a.partitionIndex ?? 0) - (b.partitionIndex ?? 0))
       const activePartitions = partitions.filter((p) => !p.finishedAt)
+      const runningPartitions = activePartitions.filter(
+        (p) => p.status === 'reindexing' || p.status === 'purging',
+      )
+      const stalledPartitions = activePartitions.filter((p) => p.status === 'stalled')
       let status: 'idle' | 'reindexing' | 'purging' | 'stalled' = 'idle'
       if (activePartitions.length) {
-        if (activePartitions.some((p) => p.status === 'stalled')) status = 'stalled'
-        else if (activePartitions.some((p) => p.status === 'purging')) status = 'purging'
-        else status = 'reindexing'
+        if (runningPartitions.length) {
+          status = runningPartitions.some((p) => p.status === 'purging') ? 'purging' : 'reindexing'
+        } else if (stalledPartitions.length) {
+          status = 'stalled'
+        }
       }
 
       const startedAt = activePartitions[0]?.startedAt ?? partitions[0]?.startedAt ?? null
       const finishedAt = status === 'idle' ? (partitions.find((p) => p.finishedAt)?.finishedAt ?? null) : null
       const heartbeatAt = activePartitions[0]?.heartbeatAt ?? partitions[0]?.heartbeatAt ?? null
-      const processedCount = activePartitions.reduce((acc, p) => acc + (p.processedCount ?? 0), 0)
-      const totalCount = activePartitions.reduce((acc, p) => acc + (p.totalCount ?? 0), 0)
+      const jobTotalCount = partitions.reduce((max, p) => Math.max(max, p.totalCount ?? 0), 0)
+      const maxProcessed = partitions.reduce((max, p) => Math.max(max, p.processedCount ?? 0), 0)
+      const processedCount = jobTotalCount ? Math.min(jobTotalCount, maxProcessed) : null
+      const totalCount = jobTotalCount || null
 
       return {
         status,
         startedAt,
         finishedAt,
         heartbeatAt,
-        processedCount: totalCount > 0 ? processedCount : null,
-        totalCount: totalCount > 0 ? totalCount : null,
-        partitions: activePartitions,
+        processedCount,
+        totalCount,
+        partitions,
       }
     } catch {
       return { status: 'idle' as const, partitions: [] as any[] }

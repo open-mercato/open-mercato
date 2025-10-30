@@ -235,9 +235,15 @@ export async function run(argv = process.argv) {
     }
   }
 
-  const modName = first
-  const cmdName = second
-  const rest = remaining
+  let modName = first
+  let cmdName = second
+  let rest = remaining
+
+  if (first === 'reindex') {
+    modName = 'query_index'
+    cmdName = 'reindex'
+    rest = second !== undefined ? [second, ...remaining] : remaining
+  }
   
   // Load modules lazily, after init handling
   const { modules } = await import('@/generated/modules.generated')
