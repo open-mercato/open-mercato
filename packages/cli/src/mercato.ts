@@ -3,7 +3,18 @@
 // Some commands (e.g., `init`) must run before generation occurs.
 // We'll lazy-load modules and DI only when required by a specific command.
 
+let envLoaded = false
+
+async function ensureEnvLoaded() {
+  if (envLoaded) return
+  try {
+    await import('dotenv/config')
+  } catch {}
+  envLoaded = true
+}
+
 export async function run(argv = process.argv) {
+  await ensureEnvLoaded()
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
   
@@ -80,8 +91,17 @@ export async function run(argv = process.argv) {
           await client.connect()
           // Collect all user tables in public schema
           const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)
-          const tables: string[] = (res.rows || []).map((r: any) => String(r.tablename))
-          if (tables.length === 0) {
+          const dropTargets = new Set<string>((res.rows || []).map((r: any) => String(r.tablename)))
+          for (const forced of ['vector_search', 'vector_search_migrations']) {
+            const exists = await client.query<{ regclass: string | null }>(
+              `SELECT to_regclass($1) AS regclass`,
+              [`public.${forced}`],
+            )
+            if (exists.rows?.[0]?.regclass) {
+              dropTargets.add(forced)
+            }
+          }
+          if (dropTargets.size === 0) {
             console.log('   No tables found in public schema.')
           } else {
             // Drop all tables with CASCADE to remove constraints in one go
@@ -89,12 +109,14 @@ export async function run(argv = process.argv) {
             try {
               // Temporarily relax constraints to avoid dependency issues
               await client.query("SET session_replication_role = 'replica'")
-              for (const t of tables) {
+              let dropped = 0
+              for (const t of dropTargets) {
                 await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+                dropped += 1
               }
               await client.query("SET session_replication_role = 'origin'")
               await client.query('COMMIT')
-              console.log(`   Dropped ${tables.length} tables.`)
+              console.log(`   Dropped ${dropped} tables.`)
             } catch (e) {
               await client.query('ROLLBACK')
               throw e
@@ -125,7 +147,12 @@ export async function run(argv = process.argv) {
       console.log('📊 Applying database migrations...')
       execSync('yarn db:migrate', { stdio: 'inherit' })
       console.log('✅ Migrations applied\n')
-      
+
+      // Step 3.5: Restore configuration defaults
+      console.log('⚙️  Restoring module defaults...')
+      execSync('yarn mercato configs restore-defaults', { stdio: 'inherit' })
+      console.log('✅ Module defaults restored\n')
+
       // Step 4: Seed roles
       console.log('👥 Seeding default roles...')
       execSync('yarn mercato auth seed-roles', { stdio: 'inherit' })
@@ -194,6 +221,27 @@ export async function run(argv = process.argv) {
       } else {
         console.log('⚠️  Could not extract organization ID or tenant ID, skipping todo seeding and dashboard widget setup\n')
       }
+
+      console.log('🧠 Building vector indexes...')
+      const vectorCommandParts = ['yarn mercato vector reindex']
+      if (tenantId) {
+        vectorCommandParts.push(`--tenant ${tenantId}`)
+        if (orgId) {
+          vectorCommandParts.push(`--org ${orgId}`)
+        }
+      } else {
+        vectorCommandParts.push('--purgeFirst=false')
+      }
+      execSync(vectorCommandParts.join(' '), { stdio: 'inherit' })
+      console.log('✅ Vector indexes built\n')
+
+      console.log('🔍 Rebuilding query indexes...')
+      const queryIndexCommandParts = ['yarn mercato query_index reindex', '--force']
+      if (tenantId) {
+        queryIndexCommandParts.push(`--tenant ${tenantId}`)
+      }
+      execSync(queryIndexCommandParts.join(' '), { stdio: 'inherit' })
+      console.log('✅ Query indexes rebuilt\n')
       
       // Derive admin/employee only when the provided email is a superadmin email
       const [local, domain] = String(email).split('@')

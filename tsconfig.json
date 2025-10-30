@@ -40,6 +40,8 @@
       "@open-mercato/content/generated/*": ["./packages/content/generated/*"],
       "@open-mercato/onboarding/*": ["./packages/onboarding/src/*"],
       "@open-mercato/onboarding/generated/*": ["./packages/onboarding/generated/*"],
+      "@open-mercato/vector": ["./packages/vector/src/index.ts"],
+      "@open-mercato/vector/*": ["./packages/vector/src/*"],
       "@open-mercato/cli/*": ["./packages/cli/src/*"],
       "@open-mercato/cli/generated/*": ["./packages/cli/generated/*"],
       "@open-mercato/events/*": ["./packages/events/src/*"],

@@ -1,0 +1,15 @@
+{
+  "vector.nav.vectorSearch": "Wyszukiwanie wektorowe",
+  "vector.messages.missingKey": "Wyszukiwanie wektorowe wymaga skonfigurowania OPENAI_API_KEY.",
+  "vector.settings.statusTitle": "Status wyszukiwania wektorowego",
+  "vector.settings.statusEnabled": "Wykryto OPENAI_API_KEY. Wyszukiwanie wektorowe jest dostępne.",
+  "vector.settings.statusDisabled": "Brakuje OPENAI_API_KEY. Wyszukiwanie wektorowe jest wyłączone.",
+  "vector.settings.autoIndexingLabel": "Automatycznie indeksuj zmiany w bazie danych",
+  "vector.settings.autoIndexingDescription": "Utrzymuje aktualne osadzenia wektorowe przy każdej zmianie rekordów.",
+  "vector.settings.autoIndexingLocked": "Automatyczne indeksowanie jest zablokowane przez zmienną środowiskową DISABLE_VECTOR_SEARCH_AUTOINDEXING.",
+  "vector.settings.toggleSuccess": "Zapisano preferencję automatycznego indeksowania.",
+  "vector.settings.toggleError": "Nie udało się zaktualizować automatycznego indeksowania.",
+  "vector.settings.refresh": "Odśwież status",
+  "vector.settings.saving": "Zapisywanie…",
+  "vector.settings.loading": "Ładowanie ustawień…"
+}

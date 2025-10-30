@@ -4,8 +4,10 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { E as AllEntities } from '@/generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
+import type { VectorIndexService } from '@open-mercato/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
+import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['query_index.status.view'] },
@@ -19,26 +21,28 @@ export async function GET(req: Request) {
   const em = resolve('em') as EntityManager
   const knex = (em as any).getConnection().getKnex()
   const orgId = auth.orgId
-  const tenantId = auth.tenantId ?? null
+  const tenantRaw = auth.tenantId
+  const tenantId = typeof tenantRaw === 'string'
+    ? (tenantRaw && tenantRaw !== 'undefined' ? tenantRaw.trim() || null : null)
+    : tenantRaw ?? null
   const url = new URL(req.url)
   const forceRefresh = url.searchParams.has('refresh') && url.searchParams.get('refresh') !== '0'
 
-  // Generated entities from code
-  const generated: { entityId: string; label: string }[] = []
-  for (const modId of Object.keys(AllEntities)) {
-    const entities = (AllEntities as any)[modId] as Record<string, string>
-    for (const k of Object.keys(entities)) {
-      const id = entities[k]
-      generated.push({ entityId: id, label: id })
-    }
-  }
+  const generatedIds = flattenSystemEntityIds(AllEntities as Record<string, Record<string, string>>)
+  const generated = generatedIds.map((entityId) => ({ entityId, label: entityId }))
 
-  // Only include code-defined entities in Query Index status.
-  // User-defined entities are stored outside the index and should not appear here.
   const byId = new Map<string, { entityId: string; label: string }>()
   for (const g of generated) byId.set(g.entityId, g)
 
-  let entityIds = Array.from(byId.values()).map((x) => x.entityId).sort()
+  let entityIds = generatedIds.slice()
+
+  let vectorEnabledEntities = new Set<string>()
+  try {
+    const vectorService = resolve('vectorIndexService') as VectorIndexService
+    if (vectorService && typeof vectorService.listEnabledEntities === 'function') {
+      vectorEnabledEntities = new Set(vectorService.listEnabledEntities())
+    }
+  } catch {}
 
   // Limit to entities that have active custom field definitions in current scope
   try {
@@ -54,6 +58,7 @@ export async function GET(req: Request) {
   } catch {}
 
   const HEARTBEAT_STALE_MS = 60_000
+  const COVERAGE_STALE_MS = 60_000
 
   async function fetchJobSummary(entityType: string, tenantIdParam: string | null) {
     try {
@@ -62,7 +67,6 @@ export async function GET(req: Request) {
         .andWhere((qb) => {
           if (tenantIdParam != null) {
             qb.whereRaw('tenant_id is not distinct from ?', [tenantIdParam])
-              .orWhereNull('tenant_id')
           } else {
             qb.whereRaw('tenant_id is not distinct from ?', [null])
           }
@@ -74,10 +78,17 @@ export async function GET(req: Request) {
       }
 
       const partitionRows = new Map<string, { row: any; startedTs: number; tenantMatch: boolean }>()
+      let scopeRow: { row: any; startedTs: number } | null = null
       for (const row of rows) {
         const key = String(row.partition_index ?? '__null__')
         const startedTs = row.started_at ? new Date(row.started_at).getTime() : 0
         const tenantMatch = tenantIdParam != null ? row.tenant_id === tenantIdParam : true
+        if (row.partition_index == null) {
+          if (!scopeRow || startedTs > scopeRow.startedTs) {
+            scopeRow = { row, startedTs }
+          }
+          continue
+        }
         const existing = partitionRows.get(key)
         if (!existing) {
           partitionRows.set(key, { row, startedTs, tenantMatch })
@@ -133,19 +144,36 @@ export async function GET(req: Request) {
       const startedAt = activePartitions[0]?.startedAt ?? partitions[0]?.startedAt ?? null
       const finishedAt = status === 'idle' ? (partitions.find((p) => p.finishedAt)?.finishedAt ?? null) : null
       const heartbeatAt = activePartitions[0]?.heartbeatAt ?? partitions[0]?.heartbeatAt ?? null
-      const jobTotalCount = partitions.reduce((max, p) => Math.max(max, p.totalCount ?? 0), 0)
-      const maxProcessed = partitions.reduce((max, p) => Math.max(max, p.processedCount ?? 0), 0)
-      const processedCount = jobTotalCount ? Math.min(jobTotalCount, maxProcessed) : null
-      const totalCount = jobTotalCount || null
+      const jobTotalCount = partitions.reduce((sum, p) => sum + (p.totalCount ?? 0), 0)
+      const processedSum = partitions.reduce((sum, p) => sum + (p.processedCount ?? 0), 0)
+      const processedCount = jobTotalCount ? Math.min(jobTotalCount, processedSum) : processedSum || null
 
       return {
         status,
         startedAt,
         finishedAt,
         heartbeatAt,
-        processedCount,
-        totalCount,
+        processedCount: jobTotalCount ? processedCount : scopeRow?.row?.processed_count ?? null,
+        totalCount: jobTotalCount ? jobTotalCount : scopeRow?.row?.total_count ?? null,
         partitions,
+        scope: scopeRow
+          ? {
+              status: (() => {
+                const heartbeatDate = scopeRow!.row.heartbeat_at ? new Date(scopeRow!.row.heartbeat_at) : null
+                const finishedDate = scopeRow!.row.finished_at ? new Date(scopeRow!.row.finished_at) : null
+                if (finishedDate) return 'completed'
+                if (
+                  !heartbeatDate ||
+                  Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS
+                ) {
+                  return 'stalled'
+                }
+                return (scopeRow!.row.status as string) || 'reindexing'
+              })(),
+              processedCount: scopeRow.row.processed_count ?? null,
+              totalCount: scopeRow.row.total_count ?? null,
+            }
+          : null,
       }
     } catch {
       return { status: 'idle' as const, partitions: [] as any[] }
@@ -159,35 +187,42 @@ export async function GET(req: Request) {
     return Number.isFinite(parsed) ? parsed : null
   }
 
-  const COVERAGE_STALE_MS = 60_000
-
-  if (forceRefresh) {
-    await Promise.all(
-      entityIds.map((entityId) =>
-        refreshCoverageSnapshot(em, {
-          entityType: entityId,
-          tenantId: tenantId ?? null,
-          organizationId: null,
-          withDeleted: false,
-        }).catch(() => undefined)
-      )
-    )
+  const coverageSnapshots: Array<Awaited<ReturnType<typeof readCoverageSnapshot>>> = []
+  const entitiesNeedingRefresh = new Set<string>()
+  for (const entityId of entityIds) {
+    const scope = {
+      entityType: entityId,
+      tenantId: tenantId ?? null,
+      organizationId: null,
+      withDeleted: false,
+    } as const
+    const ensureSnapshot = async () => {
+      let snapshot = await readCoverageSnapshot(knex, scope)
+      const refreshedAt = snapshot?.refreshed_at instanceof Date
+        ? snapshot.refreshed_at
+        : snapshot?.refreshed_at
+          ? new Date(snapshot.refreshed_at)
+          : null
+      const stale = !snapshot || !refreshedAt || (Date.now() - refreshedAt.getTime() > COVERAGE_STALE_MS)
+      if (forceRefresh || stale) {
+        await refreshCoverageSnapshot(em, scope).catch(() => undefined)
+        snapshot = await readCoverageSnapshot(knex, scope)
+      }
+      const finalRefreshed = snapshot?.refreshed_at instanceof Date
+        ? snapshot.refreshed_at
+        : snapshot?.refreshed_at
+          ? new Date(snapshot.refreshed_at)
+          : null
+      if (!snapshot || !finalRefreshed || (Date.now() - finalRefreshed.getTime() > COVERAGE_STALE_MS)) {
+        entitiesNeedingRefresh.add(entityId)
+      }
+      return snapshot
+    }
+    coverageSnapshots.push(await ensureSnapshot())
   }
-
-  const coverageSnapshots = await Promise.all(
-    entityIds.map((entityId) =>
-      readCoverageSnapshot(knex, {
-        entityType: entityId,
-        tenantId: tenantId ?? null,
-        organizationId: null,
-        withDeleted: false,
-      })
-    )
-  )
 
   const jobs = await Promise.all(entityIds.map((eid) => fetchJobSummary(eid, tenantId)))
 
-  const entitiesNeedingRefresh = new Set<string>()
   const items: any[] = []
   for (let idx = 0; idx < entityIds.length; idx += 1) {
     const eid = entityIds[idx]
@@ -201,12 +236,21 @@ export async function GET(req: Request) {
     const label = (byId.get(eid)?.label) || eid
     const baseCountNumber = normalizeCount(coverage?.baseCount)
     const indexCountNumber = normalizeCount(coverage?.indexedCount)
-    const ok = baseCountNumber != null && indexCountNumber != null ? baseCountNumber === indexCountNumber : false
+    const vectorEnabled = vectorEnabledEntities.has(eid)
+    const vectorCountNumber = vectorEnabled ? normalizeCount(coverage?.vectorIndexedCount) : null
+    const ok = (() => {
+      if (baseCountNumber == null || indexCountNumber == null) return false
+      if (baseCountNumber !== indexCountNumber) return false
+      if (!vectorEnabled) return true
+      return vectorCountNumber != null && vectorCountNumber === baseCountNumber
+    })()
     items.push({
       entityId: eid,
       label,
       baseCount: baseCountNumber,
       indexCount: indexCountNumber,
+      vectorCount: vectorEnabled ? vectorCountNumber : null,
+      vectorEnabled,
       ok,
       job,
       refreshedAt: refreshedAt ?? null,
@@ -233,7 +277,40 @@ export async function GET(req: Request) {
     } catch {}
   }
 
-  const response = NextResponse.json({ items })
+  const errorRows = await knex('indexer_error_logs')
+    .modify((qb) => {
+      if (tenantId != null) {
+        qb.where((inner) => {
+          inner.where('tenant_id', tenantId).orWhereNull('tenant_id')
+        })
+      } else {
+        qb.whereNull('tenant_id')
+      }
+    })
+    .andWhere((qb) => {
+      qb.whereNull('organization_id').orWhere('organization_id', orgId)
+    })
+    .orderBy('occurred_at', 'desc')
+    .limit(100)
+
+  const errors = errorRows.map((row: any) => {
+    const occurredAt = row.occurred_at instanceof Date ? row.occurred_at : row.occurred_at ? new Date(row.occurred_at) : null
+    return {
+      id: String(row.id),
+      source: String(row.source ?? ''),
+      handler: String(row.handler ?? ''),
+      entityType: row.entity_type ?? null,
+      recordId: row.record_id ?? null,
+      tenantId: row.tenant_id ?? null,
+      organizationId: row.organization_id ?? null,
+      message: String(row.message ?? ''),
+      stack: row.stack ?? null,
+      payload: row.payload ?? null,
+      occurredAt: occurredAt ? occurredAt.toISOString() : new Date().toISOString(),
+    }
+  })
+
+  const response = NextResponse.json({ items, errors })
   const partial = items.find((item) => item.ok === false)
   if (partial) {
     response.headers.set(

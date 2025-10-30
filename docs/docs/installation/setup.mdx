@@ -33,6 +33,14 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
     ADMIN_EMAIL=ops@your-domain.com
     ```
 
+   Vector search relies on OpenAI embeddings. Add the API key to `.env` to activate the command palette and Data Designer page:
+
+   ```env
+   OPENAI_API_KEY=sk-your-key
+   ```
+
+   When the variable is omitted the UI keeps the feature visible but displays a reminder banner instead of search results.
+
 ![Open Mercato admin home](/screenshots/open-mercato-homepage.png)
 
 > 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything. Prefer `yarn mercato init --no-examples` if you just want an empty CRM without resetting the database.

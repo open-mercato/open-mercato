@@ -1,0 +1,15 @@
+{
+  "vector.nav.vectorSearch": "Vektorsuche",
+  "vector.messages.missingKey": "Die Vektorsuche erfordert die Konfiguration von OPENAI_API_KEY.",
+  "vector.settings.statusTitle": "Status der Vektorsuche",
+  "vector.settings.statusEnabled": "OPENAI_API_KEY gefunden. Vektorsuche ist verfügbar.",
+  "vector.settings.statusDisabled": "OPENAI_API_KEY fehlt. Vektorsuche ist deaktiviert.",
+  "vector.settings.autoIndexingLabel": "Datenbankänderungen automatisch indexieren",
+  "vector.settings.autoIndexingDescription": "Hält Vektor-Einbettungen bei Änderungen an Datensätzen automatisch synchron.",
+  "vector.settings.autoIndexingLocked": "Auto-Indexierung wird durch die Umgebungsvariable DISABLE_VECTOR_SEARCH_AUTOINDEXING gesperrt.",
+  "vector.settings.toggleSuccess": "Einstellung zur Auto-Indexierung gespeichert.",
+  "vector.settings.toggleError": "Fehler beim Aktualisieren der Auto-Indexierung.",
+  "vector.settings.refresh": "Status aktualisieren",
+  "vector.settings.saving": "Speichern…",
+  "vector.settings.loading": "Einstellungen werden geladen…"
+}

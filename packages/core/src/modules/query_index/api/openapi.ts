@@ -25,19 +25,43 @@ export const queryIndexJobSchema = z.object({
   processedCount: z.number().int().nonnegative().nullable().optional(),
   totalCount: z.number().int().nonnegative().nullable().optional(),
   partitions: z.array(queryIndexPartitionSchema).optional(),
+  scope: queryIndexPartitionSchema.pick({
+    status: true,
+    processedCount: true,
+    totalCount: true,
+  })
+    .nullable()
+    .optional(),
 })
 
 export const queryIndexStatusItemSchema = z.object({
   entityId: z.string(),
   label: z.string(),
-  baseCount: z.number().int().nonnegative(),
-  indexCount: z.number().int().nonnegative(),
+  baseCount: z.number().int().nonnegative().nullable(),
+  indexCount: z.number().int().nonnegative().nullable(),
+  vectorCount: z.number().int().nonnegative().nullable().optional(),
+  vectorEnabled: z.boolean().optional(),
   ok: z.boolean(),
   job: queryIndexJobSchema,
 })
 
+export const queryIndexErrorLogSchema = z.object({
+  id: z.string(),
+  source: z.string(),
+  handler: z.string(),
+  entityType: z.string().nullable(),
+  recordId: z.string().nullable(),
+  tenantId: z.string().nullable(),
+  organizationId: z.string().nullable(),
+  message: z.string(),
+  stack: z.string().nullable(),
+  payload: z.unknown().nullable(),
+  occurredAt: z.string(),
+})
+
 export const queryIndexStatusResponseSchema = z.object({
   items: z.array(queryIndexStatusItemSchema),
+  errors: z.array(queryIndexErrorLogSchema),
 })
 
 export const queryIndexReindexRequestSchema = z.object({

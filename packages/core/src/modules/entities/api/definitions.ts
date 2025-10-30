@@ -12,6 +12,7 @@ import {
   ENTITY_DEFINITIONS_CACHE_TTL_MS,
 } from './definitions.cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { filterSelectableSystemEntityIds, isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
 
 export const metadata = {
   // Reading definitions is needed by record forms; keep it auth-protected but accessible to all authenticated users
@@ -56,13 +57,18 @@ async function resolveEntityDefaultEditor(em: any, entityId: string, tenantId: s
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
-  const entityIds = parseEntityIds(url)
-  if (!entityIds.length) {
+  const requestedEntityIds = parseEntityIds(url)
+  if (!requestedEntityIds.length) {
     return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
   }
 
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const entityIds = filterSelectableSystemEntityIds(requestedEntityIds)
+  if (!entityIds.length) {
+    return NextResponse.json({ items: [] })
+  }
 
   const container = await createRequestContainer()
   const { resolve } = container
@@ -242,6 +248,10 @@ export async function POST(req: Request) {
   const parsed = upsertCustomFieldDefSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   const input = parsed.data
+
+  if (!isSystemEntitySelectable(input.entityId)) {
+    return NextResponse.json({ error: 'Custom fields are not supported for this entity' }, { status: 400 })
+  }
 
   if (input.kind === 'dictionary') {
     const dictionaryId = input.configJson?.dictionaryId

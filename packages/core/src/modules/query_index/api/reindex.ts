@@ -34,21 +34,24 @@ export async function POST(req: Request) {
     : Array.from({ length: partitionCount }, (_, idx) => idx)
   const firstPartition = partitions[0] ?? 0
   await Promise.all(
-    partitions.map((part) =>
-      bus.emitEvent(
+    partitions.map((part) => {
+      const payload: Record<string, unknown> = {
+        entityType,
+        force,
+        batchSize,
+        partitionCount,
+        partitionIndex: part,
+        resetCoverage: part === firstPartition,
+      }
+      if (auth.tenantId !== undefined) {
+        payload.tenantId = auth.tenantId ?? null
+      }
+      return bus.emitEvent(
         'query_index.reindex',
-        {
-          entityType,
-          tenantId: auth.tenantId,
-          force,
-          batchSize,
-          partitionCount,
-          partitionIndex: part,
-          resetCoverage: part === firstPartition,
-        },
+        payload,
         { persistent: true },
-      ),
-    ),
+      )
+    }),
   )
   return NextResponse.json({ ok: true })
 }

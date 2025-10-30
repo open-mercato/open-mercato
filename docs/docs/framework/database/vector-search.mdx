@@ -1,0 +1,109 @@
+---
+title: Vector Search Module
+description: Configure vector-aware entities, drivers, and runtime services.
+---
+
+The `vector` module centralises embeddings and similarity search for enabled entities. It complements the JSON-based query index by storing dense vectors in a configurable backend (pgvector by default) and exposes shared helpers for frontends and APIs.
+
+## Module anatomy
+
+- **Package**: `@open-mercato/vector`
+- **Module id**: `vector`
+- **Generated hooks**: the DI graph registers `vectorIndexService`, `vectorEmbeddingService`, and driver instances at boot.
+- **Subscribers**: the module listens to `query_index.upsert_one` and `query_index.delete_one` events so existing CRUD flows automatically trigger vector reindexing.
+
+```ts title="packages/vector/src/modules/vector/di.ts"
+export function register(container: AppContainer) {
+  const embeddingService = new EmbeddingService()
+  const drivers = [createPgVectorDriver(), createChromaDbDriver(), createQdrantDriver()]
+  const indexService = new VectorIndexService({
+    drivers,
+    embeddingService,
+    queryEngine: container.resolve('queryEngine'),
+    moduleConfigs: vectorModuleConfigs,
+    containerResolver: () => container,
+  })
+
+  container.register({
+    vectorEmbeddingService: asValue(embeddingService),
+    vectorDrivers: asValue(drivers),
+    vectorIndexService: asValue(indexService),
+  })
+}
+```
+
+## Declaring searchable entities
+
+Modules opt in by exporting `vectorConfig` from `src/modules/<module>/vector.ts`.
+
+```ts title="packages/core/src/modules/customers/vector.ts"
+import type { VectorModuleConfig } from '@open-mercato/shared/modules/vector'
+
+export const vectorConfig: VectorModuleConfig = {
+  defaultDriverId: 'pgvector',
+  entities: [
+    {
+      entityId: 'customers:customer_entity',
+      formatResult: ({ record }) => ({
+        title: record.display_name,
+        subtitle: record.kind === 'person' ? record.primary_email : record.description,
+      }),
+      resolveUrl: ({ record }) => record.kind === 'person'
+        ? `/backend/customers/people/${record.id}`
+        : `/backend/customers/companies/${record.id}`,
+    },
+    {
+      entityId: 'customers:customer_comment',
+      buildSource: async (ctx) => {
+        const parent = await loadCustomerEntity(ctx, ctx.record.entity_id)
+        return {
+          input: [`Customer: ${parent?.display_name ?? ''}`, `Note: ${ctx.record.body}`],
+          presenter: {
+            title: parent?.display_name ?? 'Customer note',
+            subtitle: ctx.record.body,
+          },
+        }
+      },
+      resolveUrl: async (ctx) => {
+        const parent = await loadCustomerEntity(ctx, ctx.record.entity_id)
+        return parent ? `/backend/customers/companies/${parent.id}#notes` : null
+      },
+    },
+  ],
+}
+```
+
+Key callbacks:
+
+- `buildSource` returns the text chunks that will be embedded, plus optional presenter metadata and checksum source. Shorthand fields fall back to the raw record and custom fields.
+- `formatResult`, `resolveUrl`, and `resolveLinks` shape the runtime payload sent to front-end consumers (command palette, Data Designer, custom UIs).
+
+## Drivers & migrations
+
+Drivers implement a small interface (`ensureReady`, `upsert`, `delete`, `query`, `getChecksum`, `purge`). The pgvector driver ships with an embedded migration that creates the `vector_search` table and IVFFLAT index with cosine distance.
+
+Driver migrations run on first use via `ensureReady`. Each driver can maintain its own migration log (`vector_search_migrations` for pgvector) without depending on MikroORM.
+
+## Reindexing
+
+`VectorIndexService` exposes three entry points:
+
+- `indexRecord` – upserts a single record, used by event subscribers.
+- `deleteRecord` – removes a record when the base row disappears.
+- `reindexEntity` / `reindexAll` – batch operations invoked via the REST API or CLI to bootstrap historic data.
+
+Whenever the checksum computed from the record, custom fields, and optional `checksumSource` stays unchanged, the service skips re-embedding, preventing redundant OpenAI calls.
+
+## Frontend helpers
+
+The package exports `VectorSearchDialog` (global command palette) and `VectorSearchTable` (Data Designer page). Both rely on the shared `/api/vector/search` endpoint and the `fetchVectorResults()` helper from `frontend/utils.ts` which wraps `apiFetch` with a typed response. A module CLI (`yarn mercato vector reindex ...`) mirrors the REST endpoint to kick off bulk reindexing from scripts or CI.
+
+You can reuse `fetchVectorResults` in custom UIs to embed vector search in specialized workflows.
+
+## Runtime configuration
+
+- Vector-specific preferences live in the shared `configs` module (`module_id = 'vector'`).
+- `vector.auto_index_enabled` determines whether query index events trigger automatic vector reindexing.
+- Toggle the setting in **Backend → Settings → Vector Search**; the page talks to `/api/vector/settings` so custom dashboards can reuse the same endpoint.
+- Setting the environment flag `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` forces the toggle off and disables updates from the UI/API.
+- `yarn mercato configs restore-defaults` (automatically executed by `mercato init`) seeds default values and respects the environment override above.

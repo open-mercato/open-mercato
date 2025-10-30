@@ -4,6 +4,7 @@ import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { upsertIndexBatch, type AnyRow } from './batch'
 import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments } from './coverage'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
+import { purgeUnprocessedPartitionIndexes } from './stale'
 
 export type ReindexJobOptions = {
   entityType: string
@@ -56,7 +57,8 @@ export async function reindexEntity(
 ): Promise<ReindexJobResult> {
   const entityType = String(options?.entityType || '')
   if (!entityType) return { processed: 0, total: 0, tenantScopes: [] }
-  const tenantId = options?.tenantId
+  const tenantIdInput = options?.tenantId
+  const tenantId = tenantIdInput === 'undefined' ? undefined : tenantIdInput
   const force = options?.force === true
   const batchSize = Number.isFinite(options?.batchSize) && options!.batchSize! > 0
     ? Math.max(1, Math.trunc(options!.batchSize!))
@@ -141,6 +143,15 @@ export async function reindexEntity(
 
   const total = Array.from(baseCounts.values()).reduce((acc, value) => acc + (Number.isFinite(value) ? value : 0), 0)
   await prepareJob(knex, jobScope, 'reindexing', { totalCount: total })
+  const jobRow = await knex('entity_index_jobs')
+    .where({ entity_type: entityType })
+    .whereNull('organization_id')
+    .andWhereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
+    .andWhereRaw('partition_index is not distinct from ?', [partitionIndex])
+    .andWhereRaw('partition_count is not distinct from ?', [usingPartitions ? partitionCountRaw : null])
+    .orderBy('started_at', 'desc')
+    .first<{ started_at: Date }>()
+  const jobStartedAt = jobRow?.started_at ? new Date(jobRow.started_at) : new Date()
   const deriveOrg = deriveOrgFromId.has(entityType)
     ? (row: AnyRow) => String(row.id)
     : undefined
@@ -168,7 +179,11 @@ export async function reindexEntity(
           tenantId: tenantValue,
           organizationId: null,
           withDeleted: false,
-        }, { baseCount: count, indexedCount: 0 })
+        }, {
+          baseCount: count,
+          indexedCount: 0,
+          vectorCount: emitVectorize ? 0 : undefined,
+        })
         lastCoverageReset.set(key, nowTs)
       }
     }
@@ -239,6 +254,14 @@ export async function reindexEntity(
       options?.onProgress?.({ processed, total, chunkSize: rows.length })
       await updateJobProgress(knex, jobScope, rows.length)
     }
+
+    await purgeUnprocessedPartitionIndexes(knex, {
+      entityType,
+      tenantId: tenantId ?? null,
+      partitionIndex: usingPartitions ? partitionIndex : null,
+      partitionCount: usingPartitions ? partitionCountRaw : null,
+      startedAt: jobStartedAt,
+    })
 
     for (const tenantValue of tenantScopes) {
       await refreshCoverageSnapshot(em, {

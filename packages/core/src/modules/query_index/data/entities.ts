@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
+import { Entity, PrimaryKey, Property, Index, Unique } from '@mikro-orm/core'
 
 // Generic JSONB-backed index rows for any entity ('<module>:<entity>')
 @Entity({ tableName: 'entity_indexes' })
@@ -120,10 +120,9 @@ export class EntityIndexJob {
 
 // Snapshot counts for coverage checks (per entity / tenant / org / withDeleted scope)
 @Entity({ tableName: 'entity_index_coverage' })
-@Index({
+@Unique({
   name: 'entity_index_coverage_scope_idx',
   properties: ['entityType', 'tenantId', 'organizationId', 'withDeleted'],
-  options: { unique: true },
 })
 export class EntityIndexCoverage {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -147,6 +146,47 @@ export class EntityIndexCoverage {
   @Property({ name: 'indexed_count', type: 'int', unsigned: true, default: 0 })
   indexedCount: number = 0
 
+  @Property({ name: 'vector_indexed_count', type: 'int', unsigned: true, default: 0 })
+  vectorIndexedCount: number = 0
+
   @Property({ name: 'refreshed_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
   refreshedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'indexer_error_logs' })
+@Index({ name: 'indexer_error_logs_source_idx', properties: ['source'] })
+@Index({ name: 'indexer_error_logs_occurred_idx', properties: ['occurredAt'] })
+export class IndexerErrorLog {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'source', type: 'text' })
+  source!: string
+
+  @Property({ name: 'handler', type: 'text' })
+  handler!: string
+
+  @Property({ name: 'entity_type', type: 'text', nullable: true })
+  entityType?: string | null
+
+  @Property({ name: 'record_id', type: 'text', nullable: true })
+  recordId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'payload', type: 'json', nullable: true })
+  payload?: any | null
+
+  @Property({ name: 'message', type: 'text' })
+  message!: string
+
+  @Property({ name: 'stack', type: 'text', nullable: true })
+  stack?: string | null
+
+  @Property({ name: 'occurred_at', type: Date, onCreate: () => new Date() })
+  occurredAt: Date = new Date()
 }

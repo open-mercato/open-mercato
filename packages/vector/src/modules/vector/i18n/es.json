@@ -1,0 +1,15 @@
+{
+  "vector.nav.vectorSearch": "Búsqueda vectorial",
+  "vector.messages.missingKey": "La búsqueda vectorial requiere configurar OPENAI_API_KEY.",
+  "vector.settings.statusTitle": "Estado de la búsqueda vectorial",
+  "vector.settings.statusEnabled": "Se detectó OPENAI_API_KEY. La búsqueda vectorial está disponible.",
+  "vector.settings.statusDisabled": "Falta OPENAI_API_KEY. La búsqueda vectorial está deshabilitada.",
+  "vector.settings.autoIndexingLabel": "Indexar automáticamente los cambios en la base de datos",
+  "vector.settings.autoIndexingDescription": "Mantiene sincronizados los embeddings vectoriales cuando cambian los registros.",
+  "vector.settings.autoIndexingLocked": "La indexación automática está bloqueada por la variable de entorno DISABLE_VECTOR_SEARCH_AUTOINDEXING.",
+  "vector.settings.toggleSuccess": "Preferencia de indexación automática guardada.",
+  "vector.settings.toggleError": "No se pudo actualizar la indexación automática.",
+  "vector.settings.refresh": "Actualizar estado",
+  "vector.settings.saving": "Guardando…",
+  "vector.settings.loading": "Cargando ajustes…"
+}
