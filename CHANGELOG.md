@@ -1,3 +1,23 @@
+# [1.2.0](https://github.com/open-mercato/open-mercato/compare/v1.1.0...v1.2.0) (2025-10-30)
+
+
+### Bug Fixes
+
+* indexer optimizations ([58db1d8](https://github.com/open-mercato/open-mercato/commit/58db1d81984043e9f91ba350793ca953e62a40ea))
+
+
+### Features
+
+* database migrations round-about + indexer fixes ([84db6f1](https://github.com/open-mercato/open-mercato/commit/84db6f1785dd1982d635d9359b22314d15e38ea5))
+* further vector search indexer works ([373ff6a](https://github.com/open-mercato/open-mercato/commit/373ff6a71c192ef5336d7559b4c31ce5bcce688e))
+* initial vector-search implementation ([bcce054](https://github.com/open-mercato/open-mercato/commit/bcce05468465b51d57f20b91df06c73b08eae7cc))
+* ui fixes ([2cd8a53](https://github.com/open-mercato/open-mercato/commit/2cd8a5309ad945bfff50b17d1e9fc0655a59cb06))
+* vector indexer adjustment to the query_index infrastructure ([4b5e2d9](https://github.com/open-mercato/open-mercato/commit/4b5e2d9a6e739408787920d5a5dce03dd6472f83))
+* vector indexer works ([fde026e](https://github.com/open-mercato/open-mercato/commit/fde026ec7bd532946f962f87d7409ae1ba80ef3a))
+* vector search settings ([821a02f](https://github.com/open-mercato/open-mercato/commit/821a02f48f5f86646a14a6f15aaaf6cabd57c93b))
+* vector_search performance optimization ([b59c9ee](https://github.com/open-mercato/open-mercato/commit/b59c9ee60f1325f4f42034d7acf0105a5f73feb4))
+* vector-search WIP ([30252db](https://github.com/open-mercato/open-mercato/commit/30252dbdc7f36d432f858f5366a6c626d05681c1))
+
 # [1.1.0](https://github.com/open-mercato/open-mercato/compare/v1.0.0...v1.1.0) (2025-10-30)
 
 
