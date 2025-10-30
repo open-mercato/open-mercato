@@ -3,6 +3,7 @@ import type { Knex } from 'knex'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { upsertIndexBatch, type AnyRow } from './batch'
 import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments } from './coverage'
+import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
 
 export type ReindexJobOptions = {
   entityType: string
@@ -81,35 +82,29 @@ export async function reindexEntity(
   const hasTenantCol = columns.has('tenant_id')
   const hasDeletedCol = columns.has('deleted_at')
 
-  const lockScope = () => {
-    let query = knex('entity_index_jobs').where('entity_type', entityType)
-    query = query.whereNull('organization_id')
-    query = query.whereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
-    query = query.whereRaw('partition_index is not distinct from ?', [partitionIndex])
-    query = query.whereRaw('partition_count is not distinct from ?', [usingPartitions ? partitionCountRaw : null])
-    return query
+  const jobScope: JobScope = {
+    entityType,
+    organizationId: null,
+    tenantId: tenantId ?? null,
+    partitionIndex,
+    partitionCount: usingPartitions ? partitionCountRaw : null,
   }
 
-  if (force) {
-    try { await lockScope().del() } catch {}
+  if (!force) {
+    const activeJob = await (async () => {
+      let query = knex('entity_index_jobs')
+        .where('entity_type', entityType)
+        .whereNull('finished_at')
+      query = query.whereRaw('organization_id is not distinct from ?', [null])
+      query = query.whereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
+      query = query.whereRaw('partition_index is not distinct from ?', [partitionIndex])
+      query = query.whereRaw('partition_count is not distinct from ?', [usingPartitions ? partitionCountRaw : null])
+      return query.first()
+    })()
+    if (activeJob) {
+      return { processed: 0, total: 0, tenantScopes: [] }
+    }
   }
-
-  const existing = await lockScope().first()
-  if (existing) {
-    return { processed: 0, total: 0, tenantScopes: [] }
-  }
-
-  try {
-    await knex('entity_index_jobs').insert({
-      entity_type: entityType,
-      organization_id: null,
-      tenant_id: tenantId ?? null,
-      status: 'reindexing',
-      started_at: knex.fn.now(),
-      partition_index: partitionIndex,
-      partition_count: usingPartitions ? partitionCountRaw : null,
-    })
-  } catch {}
 
   const scopeKey = (tenantValue: string | null) => `${tenantValue ?? '__null__'}`
   const baseWhere = (builder: Knex.QueryBuilder<any, any>) => {
@@ -145,6 +140,7 @@ export async function reindexEntity(
   }
 
   const total = Array.from(baseCounts.values()).reduce((acc, value) => acc + (Number.isFinite(value) ? value : 0), 0)
+  await prepareJob(knex, jobScope, 'reindexing', { totalCount: total })
   const deriveOrg = deriveOrgFromId.has(entityType)
     ? (row: AnyRow) => String(row.id)
     : undefined
@@ -158,6 +154,8 @@ export async function reindexEntity(
 
   let processed = 0
   let lastId: string | null = null
+
+  options?.onProgress?.({ processed, total, chunkSize: 0 })
 
   if (resetCoverage) {
     const nowTs = Date.now()
@@ -239,6 +237,7 @@ export async function reindexEntity(
       processed += rows.length
       lastId = String(rows[rows.length - 1]!.id)
       options?.onProgress?.({ processed, total, chunkSize: rows.length })
+      await updateJobProgress(knex, jobScope, rows.length)
     }
 
     for (const tenantValue of tenantScopes) {
@@ -250,7 +249,7 @@ export async function reindexEntity(
       })
     }
   } finally {
-    try { await lockScope().del() } catch {}
+    await finalizeJob(knex, jobScope)
   }
 
   return {

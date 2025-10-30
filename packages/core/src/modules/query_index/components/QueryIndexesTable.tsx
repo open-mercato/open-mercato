@@ -8,13 +8,34 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
+type PartitionStatus = {
+  partitionIndex: number | null
+  partitionCount: number | null
+  status: 'reindexing' | 'purging' | 'stalled' | 'completed'
+  processedCount?: number | null
+  totalCount?: number | null
+  heartbeatAt?: string | null
+  startedAt?: string | null
+  finishedAt?: string | null
+}
+
+type JobStatus = {
+  status: 'idle' | 'reindexing' | 'purging' | 'stalled'
+  startedAt?: string | null
+  finishedAt?: string | null
+  heartbeatAt?: string | null
+  processedCount?: number | null
+  totalCount?: number | null
+  partitions?: PartitionStatus[]
+}
+
 type Row = {
   entityId: string
   label: string
   baseCount: number
   indexCount: number
   ok: boolean
-  job?: { status: 'idle'|'reindexing'|'purging'; startedAt?: string|null; finishedAt?: string|null }
+  job?: JobStatus
 }
 
 type Resp = { items: Row[] }
@@ -29,11 +50,31 @@ const columns: ColumnDef<Row>[] = [
     header: 'Status',
     cell: ({ row }) => {
       const r = row.original as Row
-      const working = r.job && (r.job.status === 'reindexing' || r.job.status === 'purging') && !r.job.finishedAt
-      const ok = r.ok && !working
+      const job = r.job
+      const activePartitions = job?.partitions ?? []
+      const isWorking = job && job.status !== 'idle'
+      const isStalled = job?.status === 'stalled'
+      const ok = r.ok && !isWorking
+      const processed = activePartitions.reduce((acc, part) => acc + (part.processedCount ?? 0), 0)
+      const total = activePartitions.reduce((acc, part) => acc + (part.totalCount ?? 0), 0)
+      const progressLabel = total > 0 ? ` (${processed.toLocaleString()}/${total.toLocaleString()})` : ''
+      let label = ok ? 'In sync' : 'Out of sync'
+      if (job) {
+        if (job.status === 'reindexing') label = `Reindexing${progressLabel}`
+        else if (job.status === 'purging') label = `Purging${progressLabel}`
+        else if (job.status === 'stalled') label = `Stalled${progressLabel || ''}`
+        else if (job.status === 'idle' && !ok) label = 'Out of sync'
+      }
+      const className = isStalled
+        ? 'text-red-600'
+        : isWorking
+          ? 'text-orange-600'
+          : ok
+            ? 'text-green-600'
+            : 'text-muted-foreground'
       return (
-        <span className={working ? 'text-orange-600' : ok ? 'text-green-600' : 'text-muted-foreground'}>
-          {working ? r.job!.status : ok ? 'In sync' : 'Out of sync'}
+        <span className={className}>
+          {label}
         </span>
       )
     },

@@ -98,6 +98,15 @@ export class EntityIndexJob {
   @Property({ name: 'partition_count', type: 'int', nullable: true })
   partitionCount?: number | null
 
+  @Property({ name: 'processed_count', type: 'int', nullable: true })
+  processedCount?: number | null
+
+  @Property({ name: 'total_count', type: 'int', nullable: true })
+  totalCount?: number | null
+
+  @Property({ name: 'heartbeat_at', type: Date, nullable: true })
+  heartbeatAt?: Date | null
+
   // 'reindexing' | 'purging'
   @Property({ name: 'status', type: 'text' })
   status!: string

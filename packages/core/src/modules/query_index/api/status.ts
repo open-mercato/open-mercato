@@ -53,20 +53,66 @@ export async function GET(req: Request) {
     entityIds = entityIds.filter((id) => enabled.has(id))
   } catch {}
 
-  async function fetchJob(entityType: string, tenantIdParam: string | null): Promise<{ status: 'idle' | 'reindexing' | 'purging'; startedAt?: string | null; finishedAt?: string | null }> {
+  const HEARTBEAT_STALE_MS = 60_000
+
+  async function fetchJobSummary(entityType: string, tenantIdParam: string | null) {
     try {
-      const row = await knex('entity_index_jobs')
+      const rows = await knex('entity_index_jobs')
         .where({ entity_type: entityType })
         .modify((qb: any) => {
-          if (tenantIdParam != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantIdParam }).orWhereNull('tenant_id'))
+          qb.andWhereRaw('tenant_id is not distinct from ?', [tenantIdParam ?? null])
         })
         .orderBy('started_at', 'desc')
-        .first()
-      if (!row) return { status: 'idle' }
-      const done = row.finished_at != null
-      return { status: done ? 'idle' : (row.status as any) || 'reindexing', startedAt: row.started_at, finishedAt: row.finished_at }
+
+      if (!rows.length) {
+        return { status: 'idle' as const, partitions: [] as any[] }
+      }
+
+      const partitions = rows.map((row: any) => {
+        const heartbeatAt = row.heartbeat_at ? new Date(row.heartbeat_at) : null
+        const stalled = !row.finished_at && (!heartbeatAt || (Date.now() - heartbeatAt.getTime()) > HEARTBEAT_STALE_MS)
+        const state = row.finished_at
+          ? 'completed'
+          : stalled
+            ? 'stalled'
+            : (row.status as string) || 'reindexing'
+        return {
+          partitionIndex: row.partition_index ?? null,
+          partitionCount: row.partition_count ?? null,
+          status: state,
+          startedAt: row.started_at ?? null,
+          finishedAt: row.finished_at ?? null,
+          heartbeatAt: row.heartbeat_at ?? null,
+          processedCount: row.processed_count ?? null,
+          totalCount: row.total_count ?? null,
+        }
+      })
+
+      const activePartitions = partitions.filter((p) => !p.finishedAt)
+      let status: 'idle' | 'reindexing' | 'purging' | 'stalled' = 'idle'
+      if (activePartitions.length) {
+        if (activePartitions.some((p) => p.status === 'stalled')) status = 'stalled'
+        else if (activePartitions.some((p) => p.status === 'purging')) status = 'purging'
+        else status = 'reindexing'
+      }
+
+      const startedAt = activePartitions[0]?.startedAt ?? partitions[0]?.startedAt ?? null
+      const finishedAt = status === 'idle' ? (partitions.find((p) => p.finishedAt)?.finishedAt ?? null) : null
+      const heartbeatAt = activePartitions[0]?.heartbeatAt ?? partitions[0]?.heartbeatAt ?? null
+      const processedCount = activePartitions.reduce((acc, p) => acc + (p.processedCount ?? 0), 0)
+      const totalCount = activePartitions.reduce((acc, p) => acc + (p.totalCount ?? 0), 0)
+
+      return {
+        status,
+        startedAt,
+        finishedAt,
+        heartbeatAt,
+        processedCount: totalCount > 0 ? processedCount : null,
+        totalCount: totalCount > 0 ? totalCount : null,
+        partitions: activePartitions,
+      }
     } catch {
-      return { status: 'idle' }
+      return { status: 'idle' as const, partitions: [] as any[] }
     }
   }
 
@@ -103,7 +149,7 @@ export async function GET(req: Request) {
     )
   )
 
-  const jobs = await Promise.all(entityIds.map((eid) => fetchJob(eid, tenantId)))
+  const jobs = await Promise.all(entityIds.map((eid) => fetchJobSummary(eid, tenantId)))
 
   const entitiesNeedingRefresh = new Set<string>()
   const items: any[] = []

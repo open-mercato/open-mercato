@@ -6,6 +6,7 @@ import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { upsertIndexBatch, type AnyRow } from './lib/batch'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
+import { purgeIndexScope } from './lib/purge'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -103,15 +104,6 @@ type RebuildExecutionOptions = {
 type RebuildResult = {
   processed: number
   matched: number
-}
-
-async function purgeEntityIndex(em: EntityManager, entityType: string, tenantId?: string | null): Promise<void> {
-  const knex = em.getConnection().getKnex()
-  let query = knex('entity_indexes').where('entity_type', entityType)
-  if (tenantId !== undefined) {
-    query = query.andWhereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
-  }
-  await query.update({ deleted_at: knex.fn.now(), updated_at: knex.fn.now() })
 }
 async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<RebuildResult> {
   const {
@@ -440,13 +432,14 @@ const reindex: ModuleCli = {
     if (entity) {
       if (!skipPurge) {
         console.log(`Purging existing index rows for ${entity}...`)
-        await purgeEntityIndex(em, entity, tenantId)
+        await purgeIndexScope(em, { entityType: entity, organizationId: null, tenantId })
       }
       console.log(`Reindexing ${entity}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`)
       let totalProcessed = 0
       for (const part of partitionTargets) {
         const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
         console.log(`  -> processing${label}`)
+        let progressBar: ReturnType<typeof createProgressBar> | null = null
         const stats = await reindexEntity(em, {
           entityType: entity,
           tenantId,
@@ -456,8 +449,15 @@ const reindex: ModuleCli = {
           partitionCount,
           partitionIndex: part,
           resetCoverage: shouldResetCoverage(part),
+          onProgress(info) {
+            if (info.total > 0 && !progressBar) {
+              progressBar = createProgressBar(`Reindexing ${entity}${label}`, info.total)
+            }
+            progressBar?.update(info.processed)
+          },
         })
         totalProcessed += stats.processed
+        progressBar?.complete()
         console.log(
           `     processed ${stats.processed} row(s)${stats.total ? ` (base ${stats.total})` : ''}`,
         )
@@ -478,7 +478,7 @@ const reindex: ModuleCli = {
       const id = entityIds[idx]!
       if (!skipPurge) {
         console.log(`[${idx + 1}/${entityIds.length}] Purging existing index rows for ${id}...`)
-        await purgeEntityIndex(em, id, tenantId)
+        await purgeIndexScope(em, { entityType: id, organizationId: null, tenantId })
       }
       console.log(
         `[${idx + 1}/${entityIds.length}] Reindexing ${id}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`,
@@ -487,6 +487,7 @@ const reindex: ModuleCli = {
       for (const part of partitionTargets) {
         const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
         console.log(`  -> processing${label}`)
+        let progressBar: ReturnType<typeof createProgressBar> | null = null
         const stats = await reindexEntity(em, {
           entityType: id,
           tenantId,
@@ -496,8 +497,15 @@ const reindex: ModuleCli = {
           partitionCount,
           partitionIndex: part,
           resetCoverage: shouldResetCoverage(part),
+          onProgress(info) {
+            if (info.total > 0 && !progressBar) {
+              progressBar = createProgressBar(`Reindexing ${id}${label}`, info.total)
+            }
+            progressBar?.update(info.processed)
+          },
         })
         totalProcessed += stats.processed
+        progressBar?.complete()
         console.log(
           `     processed ${stats.processed} row(s)${stats.total ? ` (base ${stats.total})` : ''}`,
         )
