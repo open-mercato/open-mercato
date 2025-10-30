@@ -205,6 +205,27 @@ export async function run(argv = process.argv) {
       } else {
         console.log('⚠️  Could not extract organization ID or tenant ID, skipping todo seeding and dashboard widget setup\n')
       }
+
+      console.log('🧠 Building vector indexes...')
+      const vectorCommandParts = ['yarn mercato vector reindex']
+      if (tenantId) {
+        vectorCommandParts.push(`--tenant ${tenantId}`)
+        if (orgId) {
+          vectorCommandParts.push(`--org ${orgId}`)
+        }
+      } else {
+        vectorCommandParts.push('--purgeFirst=false')
+      }
+      execSync(vectorCommandParts.join(' '), { stdio: 'inherit' })
+      console.log('✅ Vector indexes built\n')
+
+      console.log('🔍 Rebuilding query indexes...')
+      const queryIndexCommandParts = ['yarn mercato query_index reindex', '--force']
+      if (tenantId) {
+        queryIndexCommandParts.push(`--tenant ${tenantId}`)
+      }
+      execSync(queryIndexCommandParts.join(' '), { stdio: 'inherit' })
+      console.log('✅ Query indexes rebuilt\n')
       
       // Derive admin/employee only when the provided email is a superadmin email
       const [local, domain] = String(email).split('@')

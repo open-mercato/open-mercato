@@ -45,8 +45,23 @@ export const queryIndexStatusItemSchema = z.object({
   job: queryIndexJobSchema,
 })
 
+export const queryIndexErrorLogSchema = z.object({
+  id: z.string(),
+  source: z.string(),
+  handler: z.string(),
+  entityType: z.string().nullable(),
+  recordId: z.string().nullable(),
+  tenantId: z.string().nullable(),
+  organizationId: z.string().nullable(),
+  message: z.string(),
+  stack: z.string().nullable(),
+  payload: z.unknown().nullable(),
+  occurredAt: z.string(),
+})
+
 export const queryIndexStatusResponseSchema = z.object({
   items: z.array(queryIndexStatusItemSchema),
+  errors: z.array(queryIndexErrorLogSchema),
 })
 
 export const queryIndexReindexRequestSchema = z.object({

@@ -538,6 +538,28 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "idx_ce_tenant_person_id",
+          "columnNames": [
+            "tenant_id",
+            "id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "idx_ce_tenant_company_id",
+          "columnNames": [
+            "tenant_id",
+            "id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "idx_ce_tenant_org_company_id",
           "columnNames": [
             "tenant_id",

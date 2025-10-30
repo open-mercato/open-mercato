@@ -1,3 +1,4 @@
+import { recordIndexerError } from '@/lib/indexers/error-log'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
 import type { VectorIndexOperationResult, VectorIndexService } from '@open-mercato/vector'
@@ -20,9 +21,15 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
   let organizationId = payload?.organizationId ?? null
   let tenantId = payload?.tenantId ?? null
 
-  if (organizationId == null || tenantId == null) {
+  let em: any | null = null
+  try {
+    em = ctx.resolve<any>('em')
+  } catch {
+    em = null
+  }
+
+  if ((organizationId == null || tenantId == null) && em) {
     try {
-      const em = ctx.resolve<any>('em')
       const knex = (em as any).getConnection().getKnex()
       const table = resolveEntityTableName(em, entityType)
       const row = await knex(table).select(['organization_id', 'tenant_id']).where({ id: recordId }).first()
@@ -47,9 +54,8 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
       organizationId: organizationId ?? null,
     })
     const delta = computeVectorDelta(result)
-    if (delta !== 0) {
+    if (delta !== 0 && em) {
       try {
-        const em = ctx.resolve<any>('em')
         const adjustments = createCoverageAdjustments({
           entityType,
           tenantId: String(tenantId),
@@ -67,6 +73,19 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
     }
   } catch (error) {
     console.warn('[vector] Failed to delete vector index entry', error)
+    await recordIndexerError(
+      { em: em ?? undefined },
+      {
+        source: 'vector',
+        handler: 'event:query_index.delete_one',
+        error,
+        entityType,
+        recordId,
+        tenantId: tenantId ? String(tenantId) : null,
+        organizationId: organizationId ?? null,
+        payload,
+      },
+    )
   }
 }
 

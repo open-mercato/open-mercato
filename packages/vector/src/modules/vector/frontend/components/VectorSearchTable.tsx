@@ -10,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import type { VectorSearchHit, VectorIndexEntry } from '@open-mercato/vector'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { fetchVectorResults, fetchVectorIndexEntries } from '../utils'
 
 type Row = {
@@ -159,6 +160,24 @@ function pickPrimaryLink(row: Row): string | null {
   return (primary ?? links[0]).href
 }
 
+function normalizeErrorMessage(input: unknown, fallback?: string): string | null {
+  const fallbackMessage = typeof fallback === 'string' && fallback.trim().length ? fallback.trim() : null
+  let message: string | null = null
+  if (typeof input === 'string') {
+    message = input
+  } else if (input instanceof Error && typeof input.message === 'string') {
+    message = input.message
+  }
+  if (message) {
+    const trimmed = message.trim()
+    if (trimmed.length) {
+      const sanitized = trimmed.replace(/^\[[^\]]+\]\s*/, '').trim()
+      if (sanitized.length) return sanitized
+    }
+  }
+  return fallbackMessage
+}
+
 export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiKeyAvailable: boolean; missingKeyMessage: string }) {
   const router = useRouter()
   const [searchValue, setSearchValue] = React.useState('')
@@ -214,7 +233,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (item.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(data.error ?? null)
+          setError(normalizeErrorMessage(data.error) ?? null)
         } else {
           const data = await fetchVectorIndexEntries({ limit: 50, signal: controller.signal })
           const mapped = data.entries.map<Row>((entry: VectorIndexEntry) => ({
@@ -229,13 +248,13 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(data.error ?? null)
+          setError(normalizeErrorMessage(data.error) ?? null)
         }
         setPage(1)
       } catch (err: any) {
         if (controller.signal.aborted) return
         if (err?.name === 'AbortError') return
-        setError(err instanceof Error ? err.message : 'Vector search failed')
+        setError(normalizeErrorMessage(err, 'Vector search failed'))
         setRows([])
       } finally {
         if (!controller.signal.aborted) setLoading(false)
@@ -258,7 +277,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        const message = typeof body?.error === 'string' ? body.error : 'Vector reindex failed'
+        const message = normalizeErrorMessage(body?.error, 'Vector reindex failed')
         setError(message)
         return
       }
@@ -282,9 +301,9 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (item.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(data.error ?? null)
+          setError(normalizeErrorMessage(data.error) ?? null)
         } catch (err: any) {
-          setError(err instanceof Error ? err.message : 'Vector search failed')
+          setError(normalizeErrorMessage(err, 'Vector search failed'))
         }
       } else {
         try {
@@ -301,13 +320,13 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(data.error ?? null)
+          setError(normalizeErrorMessage(data.error) ?? null)
         } catch (err: any) {
-          setError(err instanceof Error ? err.message : 'Vector index fetch failed')
+          setError(normalizeErrorMessage(err, 'Vector index fetch failed'))
         }
       }
     } catch (err: any) {
-      setError(err instanceof Error ? err.message : 'Vector reindex failed')
+      setError(normalizeErrorMessage(err, 'Vector reindex failed'))
     } finally {
       setReindexing(false)
     }
@@ -326,7 +345,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        const message = typeof body?.error === 'string' ? body.error : 'Vector purge failed'
+        const message = normalizeErrorMessage(body?.error, 'Vector purge failed')
         setError(message)
         return
       }
@@ -336,56 +355,70 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
       setRows([])
       setError(null)
     } catch (err: any) {
-      setError(err instanceof Error ? err.message : 'Vector purge failed')
+      setError(normalizeErrorMessage(err, 'Vector purge failed'))
     } finally {
       setPurging(false)
     }
   }, [apiKeyAvailable, purging, reindexing])
 
+  React.useEffect(() => {
+    if (!error) return
+    flash(error, 'error')
+  }, [error])
+
   return (
-    <DataTable<Row>
-      title="Vector Search Index"
-      columns={columns}
-      data={rows}
-      searchValue={searchValue}
-      onSearchChange={(value) => { setSearchValue(value); setPage(1) }}
-      searchPlaceholder="Search vector index"
-      isLoading={apiKeyAvailable ? loading : false}
-      pagination={{ page, pageSize: rows.length || 1, total: rows.length, totalPages: 1, onPageChange: setPage }}
-      actions={(
-        <div className="flex items-center gap-3">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={!apiKeyAvailable || purging || reindexing}
-            onClick={handleReindex}
-          >
-            {reindexing ? 'Reindexing…' : 'Reindex vectors'}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={!apiKeyAvailable || purging || reindexing}
-            onClick={handlePurge}
-          >
-            {purging ? 'Purging…' : 'Purge index'}
-          </Button>
-          {error ? <span className="text-sm text-destructive">{error}</span> : null}
+    <div className="flex w-full flex-col gap-4">
+      {error ? (
+        <div
+          role="alert"
+          className="w-full rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          {error}
         </div>
-      )}
-      onRowClick={(row) => openRow(row)}
-      rowActions={(row) => {
-        const primaryHref = pickPrimaryLink(row)
-        const items = [] as { label: string; href?: string }[]
-        if (primaryHref) items.push({ label: 'Open', href: primaryHref })
-        normalizeLinks(row.links).forEach((link) => {
-          items.push({ label: link.label ?? link.href, href: link.href })
-        })
-        return <RowActions items={items} />
-      }}
-      embedded
-    />
+      ) : null}
+      <DataTable<Row>
+        title="Vector Search Index"
+        columns={columns}
+        data={rows}
+        searchValue={searchValue}
+        onSearchChange={(value) => { setSearchValue(value); setPage(1) }}
+        searchPlaceholder="Search vector index"
+        isLoading={apiKeyAvailable ? loading : false}
+        pagination={{ page, pageSize: rows.length || 1, total: rows.length, totalPages: 1, onPageChange: setPage }}
+        actions={(
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!apiKeyAvailable || purging || reindexing}
+              onClick={handleReindex}
+            >
+              {reindexing ? 'Reindexing…' : 'Reindex vectors'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!apiKeyAvailable || purging || reindexing}
+              onClick={handlePurge}
+            >
+              {purging ? 'Purging…' : 'Purge index'}
+            </Button>
+          </div>
+        )}
+        onRowClick={(row) => openRow(row)}
+        rowActions={(row) => {
+          const primaryHref = pickPrimaryLink(row)
+          const items = [] as { label: string; href?: string }[]
+          if (primaryHref) items.push({ label: 'Open', href: primaryHref })
+          normalizeLinks(row.links).forEach((link) => {
+            items.push({ label: link.label ?? link.href, href: link.href })
+          })
+          return <RowActions items={items} />
+        }}
+        embedded
+      />
+    </div>
   )
 }

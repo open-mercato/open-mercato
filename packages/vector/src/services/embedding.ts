@@ -85,7 +85,9 @@ export class EmbeddingService {
           (wrapped as any).status = normalizedStatus
         }
       }
-      if (apiCode) (wrapped as any).code = apiCode
+      if (apiCode) {
+        (wrapped as any).code = apiCode
+      }
       (wrapped as any).cause = err
       throw wrapped
     }

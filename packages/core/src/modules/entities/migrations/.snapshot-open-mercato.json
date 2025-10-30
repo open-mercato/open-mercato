@@ -405,6 +405,63 @@
           "unique": false
         },
         {
+          "keyName": "cf_defs_active_entity_key_scope_idx",
+          "columnNames": [
+            "entity_id",
+            "key",
+            "tenant_id",
+            "organization_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "cf_defs_active_entity_global_idx",
+          "columnNames": [
+            "entity_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "cf_defs_active_entity_org_idx",
+          "columnNames": [
+            "entity_id",
+            "organization_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "cf_defs_active_entity_tenant_idx",
+          "columnNames": [
+            "entity_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "cf_defs_active_entity_tenant_org_idx",
+          "columnNames": [
+            "entity_id",
+            "tenant_id",
+            "organization_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "custom_field_defs_pkey",
           "columnNames": [
             "id"
@@ -551,6 +608,18 @@
           ],
           "composite": false,
           "keyName": "cf_values_entity_record_field_idx",
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "cf_values_entity_record_tenant_idx",
+          "columnNames": [
+            "entity_id",
+            "record_id",
+            "tenant_id"
+          ],
+          "composite": true,
           "constraint": false,
           "primary": false,
           "unique": false

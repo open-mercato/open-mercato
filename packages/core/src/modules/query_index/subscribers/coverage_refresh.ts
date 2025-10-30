@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { recordIndexerError } from '@/lib/indexers/error-log'
 import { refreshCoverageSnapshot } from '../lib/coverage'
 
 export const metadata = { event: 'query_index.coverage.refresh', persistent: false }
@@ -40,7 +41,7 @@ export default async function handle(payload: Payload, ctx: { resolve: <T = any>
     pending.delete(key)
     Promise.resolve()
       .then(() => refreshCoverageSnapshot(em, { entityType, tenantId, organizationId, withDeleted }))
-      .catch((err) => {
+      .catch(async (err) => {
         console.warn('[query_index] Failed to refresh coverage snapshot', {
           entityType,
           tenantId,
@@ -48,6 +49,18 @@ export default async function handle(payload: Payload, ctx: { resolve: <T = any>
           withDeleted,
           error: err instanceof Error ? err.message : err,
         })
+        await recordIndexerError(
+          { em },
+          {
+            source: 'query_index',
+            handler: 'event:query_index.coverage.refresh',
+            error: err,
+            entityType,
+            tenantId,
+            organizationId,
+            payload,
+          },
+        )
       })
   }, delayMs)
 

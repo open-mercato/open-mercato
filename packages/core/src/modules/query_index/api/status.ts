@@ -20,7 +20,10 @@ export async function GET(req: Request) {
   const em = resolve('em') as EntityManager
   const knex = (em as any).getConnection().getKnex()
   const orgId = auth.orgId
-  const tenantId = auth.tenantId ?? null
+  const tenantRaw = auth.tenantId
+  const tenantId = typeof tenantRaw === 'string'
+    ? (tenantRaw && tenantRaw !== 'undefined' ? tenantRaw.trim() || null : null)
+    : tenantRaw ?? null
   const url = new URL(req.url)
   const forceRefresh = url.searchParams.has('refresh') && url.searchParams.get('refresh') !== '0'
 
@@ -63,6 +66,7 @@ export async function GET(req: Request) {
   } catch {}
 
   const HEARTBEAT_STALE_MS = 60_000
+  const COVERAGE_STALE_MS = 60_000
 
   async function fetchJobSummary(entityType: string, tenantIdParam: string | null) {
     try {
@@ -71,7 +75,6 @@ export async function GET(req: Request) {
         .andWhere((qb) => {
           if (tenantIdParam != null) {
             qb.whereRaw('tenant_id is not distinct from ?', [tenantIdParam])
-              .orWhereNull('tenant_id')
           } else {
             qb.whereRaw('tenant_id is not distinct from ?', [null])
           }
@@ -192,35 +195,42 @@ export async function GET(req: Request) {
     return Number.isFinite(parsed) ? parsed : null
   }
 
-  const COVERAGE_STALE_MS = 60_000
-
-  if (forceRefresh) {
-    await Promise.all(
-      entityIds.map((entityId) =>
-        refreshCoverageSnapshot(em, {
-          entityType: entityId,
-          tenantId: tenantId ?? null,
-          organizationId: null,
-          withDeleted: false,
-        }).catch(() => undefined)
-      )
-    )
+  const coverageSnapshots: Array<Awaited<ReturnType<typeof readCoverageSnapshot>>> = []
+  const entitiesNeedingRefresh = new Set<string>()
+  for (const entityId of entityIds) {
+    const scope = {
+      entityType: entityId,
+      tenantId: tenantId ?? null,
+      organizationId: null,
+      withDeleted: false,
+    } as const
+    const ensureSnapshot = async () => {
+      let snapshot = await readCoverageSnapshot(knex, scope)
+      const refreshedAt = snapshot?.refreshed_at instanceof Date
+        ? snapshot.refreshed_at
+        : snapshot?.refreshed_at
+          ? new Date(snapshot.refreshed_at)
+          : null
+      const stale = !snapshot || !refreshedAt || (Date.now() - refreshedAt.getTime() > COVERAGE_STALE_MS)
+      if (forceRefresh || stale) {
+        await refreshCoverageSnapshot(em, scope).catch(() => undefined)
+        snapshot = await readCoverageSnapshot(knex, scope)
+      }
+      const finalRefreshed = snapshot?.refreshed_at instanceof Date
+        ? snapshot.refreshed_at
+        : snapshot?.refreshed_at
+          ? new Date(snapshot.refreshed_at)
+          : null
+      if (!snapshot || !finalRefreshed || (Date.now() - finalRefreshed.getTime() > COVERAGE_STALE_MS)) {
+        entitiesNeedingRefresh.add(entityId)
+      }
+      return snapshot
+    }
+    coverageSnapshots.push(await ensureSnapshot())
   }
-
-  const coverageSnapshots = await Promise.all(
-    entityIds.map((entityId) =>
-      readCoverageSnapshot(knex, {
-        entityType: entityId,
-        tenantId: tenantId ?? null,
-        organizationId: null,
-        withDeleted: false,
-      })
-    )
-  )
 
   const jobs = await Promise.all(entityIds.map((eid) => fetchJobSummary(eid, tenantId)))
 
-  const entitiesNeedingRefresh = new Set<string>()
   const items: any[] = []
   for (let idx = 0; idx < entityIds.length; idx += 1) {
     const eid = entityIds[idx]
@@ -275,7 +285,40 @@ export async function GET(req: Request) {
     } catch {}
   }
 
-  const response = NextResponse.json({ items })
+  const errorRows = await knex('indexer_error_logs')
+    .modify((qb) => {
+      if (tenantId != null) {
+        qb.where((inner) => {
+          inner.where('tenant_id', tenantId).orWhereNull('tenant_id')
+        })
+      } else {
+        qb.whereNull('tenant_id')
+      }
+    })
+    .andWhere((qb) => {
+      qb.whereNull('organization_id').orWhere('organization_id', orgId)
+    })
+    .orderBy('occurred_at', 'desc')
+    .limit(100)
+
+  const errors = errorRows.map((row: any) => {
+    const occurredAt = row.occurred_at instanceof Date ? row.occurred_at : row.occurred_at ? new Date(row.occurred_at) : null
+    return {
+      id: String(row.id),
+      source: String(row.source ?? ''),
+      handler: String(row.handler ?? ''),
+      entityType: row.entity_type ?? null,
+      recordId: row.record_id ?? null,
+      tenantId: row.tenant_id ?? null,
+      organizationId: row.organization_id ?? null,
+      message: String(row.message ?? ''),
+      stack: row.stack ?? null,
+      payload: row.payload ?? null,
+      occurredAt: occurredAt ? occurredAt.toISOString() : new Date().toISOString(),
+    }
+  })
+
+  const response = NextResponse.json({ items, errors })
   const partial = items.find((item) => item.ok === false)
   if (partial) {
     response.headers.set(

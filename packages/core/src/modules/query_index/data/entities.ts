@@ -153,3 +153,41 @@ export class EntityIndexCoverage {
   @Property({ name: 'refreshed_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
   refreshedAt: Date = new Date()
 }
+
+@Entity({ tableName: 'indexer_error_logs' })
+@Index({ name: 'indexer_error_logs_source_idx', properties: ['source'] })
+@Index({ name: 'indexer_error_logs_occurred_idx', properties: ['occurredAt'] })
+export class IndexerErrorLog {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'source', type: 'text' })
+  source!: string
+
+  @Property({ name: 'handler', type: 'text' })
+  handler!: string
+
+  @Property({ name: 'entity_type', type: 'text', nullable: true })
+  entityType?: string | null
+
+  @Property({ name: 'record_id', type: 'text', nullable: true })
+  recordId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'payload', type: 'json', nullable: true })
+  payload?: any | null
+
+  @Property({ name: 'message', type: 'text' })
+  message!: string
+
+  @Property({ name: 'stack', type: 'text', nullable: true })
+  stack?: string | null
+
+  @Property({ name: 'occurred_at', type: Date, onCreate: () => new Date() })
+  occurredAt: Date = new Date()
+}

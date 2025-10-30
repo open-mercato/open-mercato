@@ -40,7 +40,21 @@ type Row = {
   job?: JobStatus
 }
 
-type Resp = { items: Row[] }
+type ErrorLog = {
+  id: string
+  source: string
+  handler: string
+  entityType: string | null
+  recordId: string | null
+  tenantId: string | null
+  organizationId: string | null
+  message: string
+  stack: string | null
+  payload: unknown
+  occurredAt: string
+}
+
+type Resp = { items: Row[]; errors: ErrorLog[] }
 
 const columns: ColumnDef<Row>[] = [
   { id: 'entityId', header: 'Entity', accessorKey: 'entityId', meta: { priority: 1 } },
@@ -179,6 +193,30 @@ function formatCount(value: number | null): string {
   return value.toLocaleString()
 }
 
+function formatTimestamp(value: string): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+function buildScopeLabel(log: ErrorLog): string {
+  const parts: string[] = []
+  if (log.tenantId) parts.push(`tenant=${log.tenantId}`)
+  if (log.organizationId) parts.push(`org=${log.organizationId}`)
+  return parts.join(' · ')
+}
+
+function formatPayload(value: unknown): string | null {
+  if (value == null) return null
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    if (typeof value === 'string') return value
+    return String(value)
+  }
+}
+
 export default function QueryIndexesTable() {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'entityId', desc: false }])
   const [page, setPage] = React.useState(1)
@@ -200,6 +238,7 @@ export default function QueryIndexesTable() {
   })
 
   const rowsAll = data?.items || []
+  const errors = data?.errors || []
   const rows = React.useMemo(() => {
     if (!search) return rowsAll
     const q = search.toLowerCase()
@@ -215,40 +254,112 @@ export default function QueryIndexesTable() {
   }
 
   return (
-    <DataTable
-      title="Query Indexes"
-      actions={(
-        <>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setRefreshSeq((v) => v + 1)
-              qc.invalidateQueries({ queryKey: ['query-index-status'] })
-            }}
-          >
-            Refresh
-          </Button>
-        </>
-      )}
-      columns={columns}
-      data={rows}
-      searchValue={search}
-      onSearchChange={(v) => { setSearch(v); setPage(1) }}
-      sortable
-      sorting={sorting}
-      onSortingChange={setSorting}
-      perspective={{ tableId: 'query_index.status.list' }}
-      rowActions={(row) => (
-        <RowActions
-          items={[
-            { label: 'Reindex', onSelect: () => trigger('reindex', row.entityId) },
-            { label: 'Force Full Reindex', onSelect: () => trigger('reindex', row.entityId, { force: true }) },
-            { label: 'Purge', destructive: true, onSelect: () => trigger('purge', row.entityId) },
-          ]}
-        />
-      )}
-      pagination={{ page, pageSize: 50, total: rows.length, totalPages: 1, onPageChange: setPage }}
-      isLoading={isLoading}
-    />
+    <div className="space-y-6">
+      <DataTable
+        title="Query Indexes"
+        actions={(
+          <>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRefreshSeq((v) => v + 1)
+                qc.invalidateQueries({ queryKey: ['query-index-status'] })
+              }}
+            >
+              Refresh
+            </Button>
+          </>
+        )}
+        columns={columns}
+        data={rows}
+        searchValue={search}
+        onSearchChange={(v) => { setSearch(v); setPage(1) }}
+        sortable
+        sorting={sorting}
+        onSortingChange={setSorting}
+        perspective={{ tableId: 'query_index.status.list' }}
+        rowActions={(row) => (
+          <RowActions
+            items={[
+              { label: 'Reindex', onSelect: () => trigger('reindex', row.entityId) },
+              { label: 'Force Full Reindex', onSelect: () => trigger('reindex', row.entityId, { force: true }) },
+              { label: 'Purge', destructive: true, onSelect: () => trigger('purge', row.entityId) },
+            ]}
+          />
+        )}
+        pagination={{ page, pageSize: 50, total: rows.length, totalPages: 1, onPageChange: setPage }}
+        isLoading={isLoading}
+      />
+
+      <div className="overflow-hidden rounded-md border bg-card">
+        <div className="border-b px-4 py-3">
+          <h2 className="text-sm font-medium">Recent indexer errors</h2>
+          <p className="text-xs text-muted-foreground">
+            Last 100 errors recorded for query index and vector index jobs in this scope.
+          </p>
+        </div>
+        {errors.length === 0 ? (
+          <div className="px-4 py-6 text-xs text-muted-foreground">
+            No recent errors recorded.
+          </div>
+        ) : (
+          <div className="max-h-72 overflow-y-auto">
+            <table className="w-full table-fixed text-xs">
+              <thead className="sticky top-0 bg-card">
+                <tr className="border-b text-left">
+                  <th className="w-40 px-4 py-2 font-medium">Timestamp</th>
+                  <th className="w-28 px-4 py-2 font-medium">Source</th>
+                  <th className="px-4 py-2 font-medium">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {errors.map((error) => {
+                  const timestamp = formatTimestamp(error.occurredAt)
+                  const scopeLabel = buildScopeLabel(error)
+                  const payloadText = formatPayload(error.payload)
+                  const stackText = error.stack ? error.stack.trim() : null
+                  return (
+                    <tr key={error.id} className="border-b last:border-0">
+                      <td className="px-4 py-2 align-top whitespace-nowrap">{timestamp}</td>
+                      <td className="px-4 py-2 align-top whitespace-nowrap">
+                        <div className="font-medium">{error.source}</div>
+                        <div className="text-muted-foreground">{error.handler}</div>
+                      </td>
+                      <td className="px-4 py-2 align-top">
+                        <div className="flex flex-col gap-1">
+                          <div className="font-medium">{error.message}</div>
+                          <div className="text-muted-foreground">
+                            {error.entityType ?? '—'}
+                            {error.recordId ? ` · ${error.recordId}` : ''}
+                            {scopeLabel ? ` · ${scopeLabel}` : ''}
+                          </div>
+                          {(payloadText || stackText) && (
+                            <details className="mt-1 space-y-2">
+                              <summary className="cursor-pointer select-none text-muted-foreground">
+                                View technical details
+                              </summary>
+                              {payloadText && (
+                                <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded bg-muted/80 p-2 text-[11px] leading-tight">
+                                  {payloadText}
+                                </pre>
+                              )}
+                              {stackText && (
+                                <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded bg-muted/80 p-2 text-[11px] leading-tight">
+                                  {stackText}
+                                </pre>
+                              )}
+                            </details>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
