@@ -73,14 +73,7 @@
     "ts-jest": "^29.1.1",
     "tsx": "^4.20.5",
     "tw-animate-css": "^1.3.8",
-    "typescript": "^5",
-    "semantic-release": "^20.0.0",
-    "@semantic-release/commit-analyzer": "^10.0.0",
-    "@semantic-release/release-notes-generator": "^12.0.0",
-    "@semantic-release/changelog": "^6.0.0",
-    "@semantic-release/exec": "^7.0.0",
-    "@semantic-release/git": "^10.0.0",
-    "@semantic-release/github": "^8.0.0"
+    "typescript": "^5"
   },
   "release": {
     "branches": ["main"],
