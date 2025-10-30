@@ -460,12 +460,8 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
         onRowClick={(row) => openRow(row)}
         rowActions={(row) => {
           const primaryHref = pickPrimaryLink(row)
-          const items = [] as { label: string; href?: string }[]
-          if (primaryHref) items.push({ label: t('vector.table.actions.open'), href: primaryHref })
-          normalizeLinks(row.links).forEach((link) => {
-            items.push({ label: link.label ?? link.href, href: link.href })
-          })
-          return <RowActions items={items} />
+          if (!primaryHref) return null
+          return <RowActions items={[{ label: t('vector.table.actions.open'), href: primaryHref }]} />
         }}
         embedded
       />

@@ -274,9 +274,11 @@ export async function refreshCoverageSnapshot(
   const vectorService = resolveVectorService(deps)
   if (vectorService && typeof tenantId === 'string' && tenantId.length > 0) {
     try {
+      const vectorScopeOrganization =
+        scope.organizationId === null ? undefined : scope.organizationId
       vectorCount = await vectorService.countIndexEntries({
         tenantId,
-        organizationId: organizationId ?? null,
+        organizationId: vectorScopeOrganization,
         entityId: entityType,
       })
     } catch (err) {

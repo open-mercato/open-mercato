@@ -91,6 +91,13 @@ export async function DELETE(req: Request) {
   }
 
   const entityIds = entityIdParam ? [entityIdParam] : service.listEnabledEntities()
+  const scopes = new Set<string>()
+  const registerScope = (org: string | null) => {
+    const key = org ?? '__null__'
+    if (!scopes.has(key)) scopes.add(key)
+  }
+  registerScope(null)
+  if (auth.orgId) registerScope(auth.orgId)
 
   try {
     await recordIndexerLog(
@@ -114,13 +121,6 @@ export async function DELETE(req: Request) {
     })
     if (em) {
       try {
-        const scopes = new Set<string>()
-        const registerScope = (org: string | null) => {
-          const key = org ?? '__null__'
-          if (!scopes.has(key)) scopes.add(key)
-        }
-        registerScope(null)
-        if (auth.orgId) registerScope(auth.orgId)
         for (const entityId of entityIds) {
           for (const scope of scopes) {
             const orgValue = scope === '__null__' ? null : scope
@@ -142,18 +142,21 @@ export async function DELETE(req: Request) {
     }
     if (eventBus) {
       await Promise.all(
-        entityIds.map((entityId) =>
-          eventBus!
-            .emitEvent(
-              'query_index.coverage.refresh',
-              {
-                entityType: entityId,
-                tenantId: auth.tenantId,
-                organizationId: null,
-                delayMs: 0,
-              },
-            )
-            .catch(() => undefined),
+        entityIds.flatMap((entityId) =>
+          Array.from(scopes).map((scope) => {
+            const orgValue = scope === '__null__' ? null : scope
+            return eventBus!
+              .emitEvent(
+                'query_index.coverage.refresh',
+                {
+                  entityType: entityId,
+                  tenantId: auth.tenantId,
+                  organizationId: orgValue,
+                  delayMs: 0,
+                },
+              )
+              .catch(() => undefined)
+          }),
         ),
       )
     }

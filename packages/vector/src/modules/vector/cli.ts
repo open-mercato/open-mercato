@@ -241,17 +241,25 @@ async function reindexCommand(rest: string[]): Promise<void> {
           await service.purgeIndex({ tenantId, organizationId: organizationId ?? null, entityId: entityType })
           await resetVectorCoverageAfterPurge(baseEm, entityType, tenantId ?? null, organizationId ?? null)
           if (baseEventBus) {
-            await baseEventBus
-              .emitEvent(
-                'query_index.coverage.refresh',
-                {
-                  entityType,
-                  tenantId: tenantId ?? null,
-                  organizationId: null,
-                  delayMs: 0,
-                },
-              )
-              .catch(() => undefined)
+            const scopes = new Set<string>()
+            scopes.add('__null__')
+            if (organizationId) scopes.add(organizationId)
+            await Promise.all(
+              Array.from(scopes).map((scope) => {
+                const orgValue = scope === '__null__' ? null : scope
+                return baseEventBus!
+                  .emitEvent(
+                    'query_index.coverage.refresh',
+                    {
+                      entityType,
+                      tenantId: tenantId ?? null,
+                      organizationId: orgValue,
+                      delayMs: 0,
+                    },
+                  )
+                  .catch(() => undefined)
+              }),
+            )
           }
         } catch (err) {
           console.warn('  -> purge failed, continuing with reindex', err instanceof Error ? err.message : err)

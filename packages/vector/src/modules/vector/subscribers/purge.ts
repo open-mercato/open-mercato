@@ -43,6 +43,13 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
   } catch {
     eventBus = null
   }
+  const scopes = new Set<string>()
+  const registerScope = (org: string | null) => {
+    const key = org ?? '__null__'
+    if (!scopes.has(key)) scopes.add(key)
+  }
+  registerScope(null)
+  if (organizationId != null) registerScope(organizationId)
 
   try {
     await service.purgeIndex({
@@ -52,13 +59,6 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
     })
     if (em) {
       try {
-        const scopes = new Set<string>()
-        const registerScope = (org: string | null) => {
-          const key = org ?? '__null__'
-          if (!scopes.has(key)) scopes.add(key)
-        }
-        registerScope(null)
-        if (organizationId != null) registerScope(organizationId)
         for (const scope of scopes) {
           const orgValue = scope === '__null__' ? null : scope
           await writeCoverageCounts(
@@ -77,15 +77,22 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
       }
     }
     if (eventBus) {
-      await eventBus.emitEvent(
-        'query_index.coverage.refresh',
-        {
-          entityType,
-          tenantId,
-          organizationId: null,
-          delayMs: 0,
-        },
-      ).catch(() => undefined)
+      await Promise.all(
+        Array.from(scopes).map((scope) => {
+          const orgValue = scope === '__null__' ? null : scope
+          return eventBus!
+            .emitEvent(
+              'query_index.coverage.refresh',
+              {
+                entityType,
+                tenantId,
+                organizationId: orgValue,
+                delayMs: 0,
+              },
+            )
+            .catch(() => undefined)
+        }),
+      )
     }
     await recordIndexerLog(
       { em: em ?? undefined },

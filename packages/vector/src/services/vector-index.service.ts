@@ -781,7 +781,7 @@ export class VectorIndexService {
     await driver.ensureReady()
     const countParams = {
       tenantId: args.tenantId,
-      organizationId: args.organizationId ?? null,
+      organizationId: args.organizationId,
       entityId: args.entityId,
     }
     if (typeof driver.count === 'function') {
@@ -801,7 +801,7 @@ export class VectorIndexService {
       for (;;) {
         const batch = await driver.list({
           tenantId: countParams.tenantId,
-          organizationId: countParams.organizationId ?? null,
+          organizationId: countParams.organizationId,
           entityId: countParams.entityId,
           limit,
           offset,
@@ -840,7 +840,7 @@ export class VectorIndexService {
     await driver.ensureReady()
     const list = await driver.list({
       tenantId: args.tenantId,
-      organizationId: args.organizationId ?? null,
+      organizationId: args.organizationId,
       entityId: args.entityId,
       limit: args.limit,
       offset: args.offset,
