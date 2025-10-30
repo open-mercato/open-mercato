@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
+import { refreshCoverageSnapshot } from '../lib/coverage'
 import { purgeIndexScope } from '../lib/purge'
 
 export const metadata = { event: 'query_index.purge', persistent: true }
@@ -26,6 +27,34 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       },
     )
     await purgeIndexScope(em, { entityType, organizationId: orgId, tenantId })
+    try {
+      await refreshCoverageSnapshot(
+        em,
+        {
+          entityType,
+          organizationId: orgId,
+          tenantId,
+          withDeleted: false,
+        },
+        { resolve: ctx.resolve },
+      )
+    } catch (refreshError) {
+      await recordIndexerLog(
+        { em },
+        {
+          source: 'query_index',
+          handler: 'event:query_index.purge',
+          level: 'warn',
+          message: `Coverage refresh failed after purge for ${entityType}`,
+          entityType,
+          tenantId,
+          organizationId: orgId,
+          details: {
+            error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+          },
+        },
+      ).catch(() => undefined)
+    }
     await recordIndexerLog(
       { em },
       {

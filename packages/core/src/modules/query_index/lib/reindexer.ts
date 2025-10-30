@@ -4,7 +4,7 @@ import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { upsertIndexBatch, type AnyRow } from './batch'
 import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments } from './coverage'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
-import { purgeUnprocessedPartitionIndexes } from './stale'
+import { purgeOrphans } from './stale'
 import type { VectorIndexService } from '@open-mercato/vector'
 
 export type ReindexJobOptions = {
@@ -388,7 +388,7 @@ export async function reindexEntity(
       await updateJobProgress(knex, jobScope, rows.length)
     }
 
-    await purgeUnprocessedPartitionIndexes(knex, {
+    await purgeOrphans(knex, {
       entityType,
       tenantId,
       organizationId,

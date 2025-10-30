@@ -38,10 +38,8 @@ export async function purgeIndexScope(
   await prepareJob(knex, scope, 'purging', { totalCount: total })
 
   if (total > 0) {
-    const updated = await countQuery
-      .clone()
-      .update({ deleted_at: knex.fn.now(), updated_at: knex.fn.now() })
-    await updateJobProgress(knex, scope, typeof updated === 'number' ? updated : total)
+    const removed = await countQuery.clone().del()
+    await updateJobProgress(knex, scope, typeof removed === 'number' ? removed : total)
   } else {
     await updateJobProgress(knex, scope, 0)
   }

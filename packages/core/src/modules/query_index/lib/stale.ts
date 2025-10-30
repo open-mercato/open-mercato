@@ -1,6 +1,6 @@
 import type { Knex } from 'knex'
 
-type PurgeUnprocessedOptions = {
+type PurgeOrphansOptions = {
   entityType: string
   tenantId?: string | null
   organizationId?: string | null
@@ -9,9 +9,9 @@ type PurgeUnprocessedOptions = {
   startedAt: Date
 }
 
-export async function purgeUnprocessedPartitionIndexes(
+export async function purgeOrphans(
   knex: Knex,
-  options: PurgeUnprocessedOptions,
+  options: PurgeOrphansOptions,
 ): Promise<void> {
   const { entityType, tenantId, partitionIndex, partitionCount, startedAt } = options
   await knex('entity_indexes')

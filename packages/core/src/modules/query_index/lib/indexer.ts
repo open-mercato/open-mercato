@@ -74,11 +74,11 @@ export async function upsertIndexRow(
 
   const existing = await baseScopeQuery
   const existed = !!existing
-  const wasDeleted = existed && existing!.deleted_at != null
+  const wasDeleted = !!existing && existing.deleted_at != null
 
   const doc = await buildIndexDoc(em, args)
   if (!doc) {
-    if (existed && existing!.deleted_at == null) {
+    if (existed) {
       await knex('entity_indexes')
         .where({
           entity_type: args.entityType,
@@ -86,7 +86,7 @@ export async function upsertIndexRow(
           organization_id: args.organizationId ?? null,
         })
         .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
-        .update({ deleted_at: knex.fn.now(), updated_at: knex.fn.now() })
+        .del()
     }
     return { doc: null, existed, wasDeleted, created: false, revived: false }
   }
@@ -144,14 +144,16 @@ export async function markDeleted(
 
   const wasActive = !!existing && existing.deleted_at == null
 
-  await knex('entity_indexes')
-    .where({
-      entity_type: args.entityType,
-      entity_id: String(args.recordId),
-      organization_id: args.organizationId ?? null,
-    })
-    .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
-    .update({ deleted_at: knex.fn.now(), updated_at: knex.fn.now() })
+  if (existing) {
+    await knex('entity_indexes')
+      .where({
+        entity_type: args.entityType,
+        entity_id: String(args.recordId),
+        organization_id: args.organizationId ?? null,
+      })
+      .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
+      .del()
+  }
 
   return { wasActive }
 }
