@@ -28,6 +28,26 @@ function pickPrimaryLink(result: VectorSearchResult): string | null {
   return (primary ?? links[0]).href
 }
 
+function humanizeSegment(segment: string): string {
+  return segment
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function formatEntityId(entityId: string): string {
+  if (!entityId.includes(':')) return humanizeSegment(entityId)
+  const [module, entity] = entityId.split(':')
+  return `${humanizeSegment(module)} · ${humanizeSegment(entity)}`
+}
+
+function formatDistance(score: number | null | undefined): string | null {
+  if (typeof score !== 'number' || Number.isNaN(score)) return null
+  const distance = Math.max(0, 1 - score)
+  return `${distance.toFixed(3)}`
+}
+
 export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { apiKeyAvailable: boolean; missingKeyMessage: string }) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
@@ -207,6 +227,8 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
               {results.map((result, index) => {
                 const presenter = result.presenter
                 const isActive = index === selectedIndex
+                const distance = formatDistance(result.score)
+                const snapshot = typeof result.metadata?.snapshot === 'string' ? result.metadata.snapshot : null
                 return (
                   <li key={`${result.entityId}:${result.recordId}`}>
                     <button
@@ -214,28 +236,54 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
                       onClick={() => openResult(result)}
                       onMouseEnter={() => setSelectedIndex(index)}
                       className={cn(
-                        'w-full rounded px-4 py-3 text-left transition',
-                        isActive ? 'bg-primary/10 text-primary-foreground' : 'hover:bg-muted'
+                        'w-full rounded-lg px-4 py-3 text-left transition border',
+                        isActive
+                          ? 'border-primary bg-primary/10 text-foreground shadow-sm'
+                          : 'border-transparent hover:border-muted-foreground/30 hover:bg-muted/60'
                       )}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="font-medium">{presenter?.title ?? result.recordId}</div>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-base">{presenter?.title ?? result.recordId}</span>
+                            <span className="rounded-full border border-muted-foreground/30 px-2 py-0.5 text-xs text-muted-foreground">
+                              {formatEntityId(result.entityId)}
+                            </span>
+                          </div>
                           {presenter?.subtitle ? (
                             <div className="text-sm text-muted-foreground">{presenter.subtitle}</div>
                           ) : null}
+                          {snapshot && (!presenter?.subtitle || presenter.subtitle !== snapshot) ? (
+                            <div className="text-sm text-muted-foreground">{snapshot}</div>
+                          ) : null}
+                          {normalizeLinks(result.links).length ? (
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              {normalizeLinks(result.links).map((link) => (
+                                <span
+                                  key={`${link.href}`}
+                                  className={cn(
+                                    'rounded-full border px-2 py-0.5 text-xs',
+                                    link.kind === 'primary'
+                                      ? 'border-primary text-primary'
+                                      : 'border-muted-foreground/40 text-muted-foreground'
+                                  )}
+                                >
+                                  {link.label ?? link.href}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
-                        <div className="text-xs text-muted-foreground">{result.entityId}</div>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {normalizeLinks(result.links).map((link) => (
-                          <span key={`${link.href}`} className={cn(
-                            'rounded-full border px-2 py-0.5 text-xs',
-                            link.kind === 'primary' ? 'border-primary text-primary' : 'border-muted-foreground/40 text-muted-foreground'
-                          )}>
-                            {link.label ?? link.href}
-                          </span>
-                        ))}
+                        <div className="flex flex-col items-end gap-2 text-xs text-muted-foreground">
+                          {distance ? (
+                            <span className="rounded bg-muted px-2 py-1 font-medium text-foreground/80" title="Vector distance">
+                              Distance {distance}
+                            </span>
+                          ) : null}
+                          {presenter?.icon ? (
+                            <span className="text-muted-foreground/80">{humanizeSegment(presenter.icon)}</span>
+                          ) : null}
+                        </div>
                       </div>
                     </button>
                   </li>

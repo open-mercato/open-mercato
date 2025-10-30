@@ -91,7 +91,10 @@ export class VectorIndexService {
   }
 
   private getEnrichmentFields(entityId: EntityId): string[] | undefined {
-    return ENRICHMENT_FIELD_HINTS[entityId]
+    const hints = ENRICHMENT_FIELD_HINTS[entityId]
+    if (!hints) return undefined
+    const unique = new Set<string>(['id', ...hints])
+    return Array.from(unique)
   }
 
   private async fetchRecord(entityId: EntityId, recordIds: string[], tenantId: string, organizationId?: string | null) {
@@ -171,6 +174,22 @@ export class VectorIndexService {
       tenantId: args.tenantId,
       organizationId: args.organizationId ?? null,
     }, source.presenter ?? null)
+    if (!presenter?.title) {
+      if (process.env.VECTOR_DEBUG === '1') {
+        console.warn('[vector.index] missing presenter title', {
+          entityId: args.entityId,
+          recordId: args.recordId,
+          recordSample: {
+            display_name: record.display_name,
+            displayName: record.displayName,
+            name: record.name,
+            title: record.title,
+            subject: record.subject,
+            kind: record.kind,
+          },
+        })
+      }
+    }
     const links = await this.resolveLinks(entry.config, {
       record,
       customFields,
@@ -186,8 +205,19 @@ export class VectorIndexService {
 
     const normalizedPresenter = this.ensurePresenter(presenter, record, customFields, args.recordId, args.entityId)
     const normalizedLinks = Array.isArray(links) && links.length ? links : null
-    const primaryLink = this.resolvePrimaryLink(normalizedLinks, url, normalizedPresenter.title)
     const snapshot = this.deriveSnapshot(record, customFields)
+    const resultTitle = this.resolveResultTitle(normalizedPresenter, record, customFields, args.recordId)
+    const resultSubtitle = normalizedPresenter.subtitle ?? snapshot ?? null
+    const resultIcon = normalizedPresenter.icon ?? this.mapDefaultIcon(args.entityId)
+    const resultBadge = normalizedPresenter.badge ?? null
+    const primaryLink = this.resolvePrimaryLink(normalizedLinks, url, resultTitle)
+
+    const presenterForStorage: VectorResultPresenter = {
+      title: resultTitle,
+      subtitle: resultSubtitle ?? undefined,
+      icon: resultIcon ?? undefined,
+      badge: resultBadge ?? undefined,
+    }
 
     await driver.upsert({
       driverId: entry.driverId,
@@ -198,13 +228,13 @@ export class VectorIndexService {
       checksum,
       embedding,
       url: url ?? null,
-      presenter: normalizedPresenter,
+      presenter: presenterForStorage,
       links: normalizedLinks,
       payload: source.payload ?? null,
-      resultTitle: normalizedPresenter.title,
-      resultSubtitle: normalizedPresenter.subtitle ?? null,
-      resultIcon: normalizedPresenter.icon ?? null,
-      resultBadge: normalizedPresenter.badge ?? null,
+      resultTitle,
+      resultSubtitle,
+      resultIcon: resultIcon ?? null,
+      resultBadge,
       resultSnapshot: snapshot,
       primaryLinkHref: primaryLink?.href ?? null,
       primaryLinkLabel: primaryLink?.label ?? null,
@@ -221,6 +251,26 @@ export class VectorIndexService {
     if (presenter?.title) return presenter
     const fallback = this.buildFallbackPresenter(record, customFields, recordId, entityId)
     return fallback
+  }
+
+  private resolveResultTitle(
+    presenter: VectorResultPresenter,
+    record: Record<string, any>,
+    customFields: Record<string, any>,
+    recordId: string,
+  ): string {
+    const candidate =
+      presenter.title ??
+      record.display_name ??
+      record.displayName ??
+      record.name ??
+      record.title ??
+      record.subject ??
+      customFields.title ??
+      customFields.name ??
+      recordId
+    const text = String(candidate).trim()
+    return text.length ? text : recordId
   }
 
   private buildFallbackPresenter(
@@ -492,6 +542,7 @@ export class VectorIndexService {
         organizationId: args.organizationId ?? undefined,
         page: { page, pageSize },
         includeCustomFields: true,
+        fields: this.getEnrichmentFields(args.entityId),
       })
       if (!result.items.length) break
       for (const raw of result.items) {
