@@ -4,7 +4,7 @@ import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { upsertIndexBatch, type AnyRow } from './batch'
 import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments } from './coverage'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
-import { purgeStalePartitionIndexes, purgeUnprocessedPartitionIndexes } from './stale'
+import { purgeUnprocessedPartitionIndexes } from './stale'
 
 export type ReindexJobOptions = {
   entityType: string
@@ -57,7 +57,8 @@ export async function reindexEntity(
 ): Promise<ReindexJobResult> {
   const entityType = String(options?.entityType || '')
   if (!entityType) return { processed: 0, total: 0, tenantScopes: [] }
-  const tenantId = options?.tenantId
+  const tenantIdInput = options?.tenantId
+  const tenantId = tenantIdInput === 'undefined' ? undefined : tenantIdInput
   const force = options?.force === true
   const batchSize = Number.isFinite(options?.batchSize) && options!.batchSize! > 0
     ? Math.max(1, Math.trunc(options!.batchSize!))
@@ -178,22 +179,17 @@ export async function reindexEntity(
           tenantId: tenantValue,
           organizationId: null,
           withDeleted: false,
-        }, { baseCount: count, indexedCount: 0 })
+        }, {
+          baseCount: count,
+          indexedCount: 0,
+          vectorCount: emitVectorize ? 0 : undefined,
+        })
         lastCoverageReset.set(key, nowTs)
       }
     }
   }
 
   try {
-    if (usingPartitions && partitionIndex !== null) {
-      await purgeStalePartitionIndexes(knex, {
-        entityType,
-        table,
-        tenantId: tenantId ?? null,
-        partitionIndex,
-        partitionCount: partitionCountRaw,
-      })
-    }
     while (true) {
       let query = knex({ b: table })
         .modify(baseWhere)

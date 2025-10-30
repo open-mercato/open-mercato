@@ -1,5 +1,6 @@
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
-import type { VectorIndexService } from '@open-mercato/vector'
+import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
+import type { VectorIndexOperationResult, VectorIndexService } from '@open-mercato/vector'
 
 export const metadata = { event: 'query_index.delete_one', persistent: false }
 
@@ -39,12 +40,39 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
   }
 
   try {
-    await service.deleteRecord({
+    const result = await service.deleteRecord({
       entityId: entityType,
       recordId,
       tenantId: String(tenantId),
+      organizationId: organizationId ?? null,
     })
+    const delta = computeVectorDelta(result)
+    if (delta !== 0) {
+      try {
+        const em = ctx.resolve<any>('em')
+        const adjustments = createCoverageAdjustments({
+          entityType,
+          tenantId: String(tenantId),
+          organizationId: organizationId ?? null,
+          baseDelta: 0,
+          indexDelta: 0,
+          vectorDelta: delta,
+        })
+        if (adjustments.length) {
+          await applyCoverageAdjustments(em, adjustments)
+        }
+      } catch (coverageError) {
+        console.warn('[vector] Failed to adjust vector coverage', coverageError)
+      }
+    }
   } catch (error) {
     console.warn('[vector] Failed to delete vector index entry', error)
   }
+}
+
+function computeVectorDelta(result: VectorIndexOperationResult): number {
+  if (!result) return 0
+  if (result.action === 'deleted') return result.existed ? -1 : 0
+  if (result.action === 'indexed') return result.created ? 1 : 0
+  return 0
 }

@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { E as AllEntities } from '@/generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
+import type { VectorIndexService } from '@open-mercato/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
 
@@ -39,6 +40,14 @@ export async function GET(req: Request) {
   for (const g of generated) byId.set(g.entityId, g)
 
   let entityIds = Array.from(byId.values()).map((x) => x.entityId).sort()
+
+  let vectorEnabledEntities = new Set<string>()
+  try {
+    const vectorService = resolve('vectorIndexService') as VectorIndexService
+    if (vectorService && typeof vectorService.listEnabledEntities === 'function') {
+      vectorEnabledEntities = new Set(vectorService.listEnabledEntities())
+    }
+  } catch {}
 
   // Limit to entities that have active custom field definitions in current scope
   try {
@@ -225,12 +234,21 @@ export async function GET(req: Request) {
     const label = (byId.get(eid)?.label) || eid
     const baseCountNumber = normalizeCount(coverage?.baseCount)
     const indexCountNumber = normalizeCount(coverage?.indexedCount)
-    const ok = baseCountNumber != null && indexCountNumber != null ? baseCountNumber === indexCountNumber : false
+    const vectorEnabled = vectorEnabledEntities.has(eid)
+    const vectorCountNumber = vectorEnabled ? normalizeCount(coverage?.vectorIndexedCount) : null
+    const ok = (() => {
+      if (baseCountNumber == null || indexCountNumber == null) return false
+      if (baseCountNumber !== indexCountNumber) return false
+      if (!vectorEnabled) return true
+      return vectorCountNumber != null && vectorCountNumber === baseCountNumber
+    })()
     items.push({
       entityId: eid,
       label,
       baseCount: baseCountNumber,
       indexCount: indexCountNumber,
+      vectorCount: vectorEnabled ? vectorCountNumber : null,
+      vectorEnabled,
       ok,
       job,
       refreshedAt: refreshedAt ?? null,

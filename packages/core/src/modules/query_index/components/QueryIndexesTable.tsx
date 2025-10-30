@@ -32,8 +32,10 @@ type JobStatus = {
 type Row = {
   entityId: string
   label: string
-  baseCount: number
-  indexCount: number
+  baseCount: number | null
+  indexCount: number | null
+  vectorCount: number | null
+  vectorEnabled: boolean
   ok: boolean
   job?: JobStatus
 }
@@ -43,8 +45,34 @@ type Resp = { items: Row[] }
 const columns: ColumnDef<Row>[] = [
   { id: 'entityId', header: 'Entity', accessorKey: 'entityId', meta: { priority: 1 } },
   { id: 'label', header: 'Label', accessorKey: 'label', meta: { priority: 2 } },
-  { id: 'baseCount', header: 'Records', accessorKey: 'baseCount', meta: { priority: 2 } },
-  { id: 'indexCount', header: 'Indexed', accessorKey: 'indexCount', meta: { priority: 2 } },
+  {
+    id: 'baseCount',
+    header: 'Records',
+    accessorFn: (row) => row.baseCount ?? 0,
+    cell: ({ row }) => <span>{formatCount(row.original.baseCount)}</span>,
+    meta: { priority: 2 },
+  },
+  {
+    id: 'indexCount',
+    header: 'Indexed',
+    accessorFn: (row) => row.indexCount ?? 0,
+    cell: ({ row }) => <span>{formatCount(row.original.indexCount)}</span>,
+    meta: { priority: 2 },
+  },
+  {
+    id: 'vectorCount',
+    header: 'Vector',
+    accessorFn: (row) => (row.vectorEnabled ? row.vectorCount ?? 0 : -1),
+    cell: ({ row }) => {
+      const r = row.original
+      if (!r.vectorEnabled) return <span>—</span>
+      const ok = r.vectorCount != null && r.baseCount != null && r.vectorCount === r.baseCount
+      const display = formatCount(r.vectorCount)
+      const className = ok ? 'text-green-600' : 'text-orange-600'
+      return <span className={className}>{display}</span>
+    },
+    meta: { priority: 2 },
+  },
   {
     id: 'status',
     header: 'Status',
@@ -118,7 +146,16 @@ const columns: ColumnDef<Row>[] = [
             })
           : []
 
-      const lines = [...scopeLine, ...partitionSummaries]
+      const vectorSummary =
+        r.vectorEnabled
+          ? [
+              `Vector: ${
+                r.vectorCount != null ? r.vectorCount.toLocaleString() : '—'
+              }${r.baseCount != null ? ` / ${r.baseCount.toLocaleString()}` : ''}`,
+            ]
+          : []
+
+      const lines = [...scopeLine, ...partitionSummaries, ...vectorSummary]
 
       return (
         <div className="space-y-1">
@@ -136,6 +173,11 @@ const columns: ColumnDef<Row>[] = [
     meta: { priority: 1 },
   },
 ]
+
+function formatCount(value: number | null): string {
+  if (value == null) return '—'
+  return value.toLocaleString()
+}
 
 export default function QueryIndexesTable() {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'entityId', desc: false }])

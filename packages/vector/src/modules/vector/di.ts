@@ -19,6 +19,7 @@ export function register(container: AppContainer) {
     queryEngine,
     moduleConfigs: vectorModuleConfigs,
     containerResolver: () => container,
+    eventBus: container.resolve('eventBus') as any,
   })
 
   container.register({

@@ -42,6 +42,9 @@ export type VectorIndexServiceOptions = {
   moduleConfigs: VectorModuleConfig[]
   defaultDriverId?: VectorDriverId
   containerResolver?: ContainerResolver
+  eventBus?: {
+    emitEvent(event: string, payload: any, options?: any): Promise<void>
+  }
 }
 
 type IndexRecordArgs = {
@@ -55,6 +58,16 @@ type DeleteRecordArgs = {
   entityId: EntityId
   recordId: string
   tenantId: string
+  organizationId?: string | null
+}
+
+export type VectorIndexOperationResult = {
+  action: 'indexed' | 'deleted' | 'skipped'
+  created?: boolean
+  existed?: boolean
+  tenantId: string
+  organizationId: string | null
+  reason?: 'unsupported' | 'missing_record' | 'checksum_match'
 }
 
 export class VectorIndexService {
@@ -143,26 +156,52 @@ export class VectorIndexService {
     return { record, customFields }
   }
 
-  private async indexExisting(entry: { config: VectorEntityConfig; driverId: VectorDriverId }, driver: VectorDriver, args: IndexRecordArgs, raw: Record<string, any>, opts: { skipDelete?: boolean } = {}): Promise<void> {
+  private async indexExisting(
+    entry: { config: VectorEntityConfig; driverId: VectorDriverId },
+    driver: VectorDriver,
+    args: IndexRecordArgs,
+    raw: Record<string, any>,
+    opts: { skipDelete?: boolean } = {},
+  ): Promise<VectorIndexOperationResult> {
+    const scopeOrg = args.organizationId ?? null
     const { record, customFields } = this.extractRecordPayload(raw)
     const source = await this.resolveSource(args.entityId, entry.config, {
       record,
       customFields,
       tenantId: args.tenantId,
-      organizationId: args.organizationId ?? null,
+      organizationId: scopeOrg,
     })
     if (!source) {
-      if (!opts.skipDelete) {
+      const existing = await driver.getChecksum(args.entityId, args.recordId, args.tenantId)
+      if (!opts.skipDelete && existing) {
         await driver.delete(args.entityId, args.recordId, args.tenantId)
+        return {
+          action: 'deleted',
+          existed: true,
+          tenantId: args.tenantId,
+          organizationId: scopeOrg,
+        }
       }
-      return
+      return {
+        action: 'skipped',
+        existed: Boolean(existing),
+        tenantId: args.tenantId,
+        organizationId: scopeOrg,
+        reason: 'missing_record',
+      }
     }
 
     const checksumSource = source.checksumSource ?? { record, customFields }
     const checksum = computeChecksum(checksumSource)
     const current = await driver.getChecksum(args.entityId, args.recordId, args.tenantId)
     if (current && current === checksum) {
-      return
+      return {
+        action: 'skipped',
+        existed: true,
+        tenantId: args.tenantId,
+        organizationId: scopeOrg,
+        reason: 'checksum_match',
+      }
     }
     if (!this.opts.embeddingService.available) {
       throw new Error('[vector] Embedding service unavailable (missing OPENAI_API_KEY)')
@@ -172,7 +211,7 @@ export class VectorIndexService {
       record,
       customFields,
       tenantId: args.tenantId,
-      organizationId: args.organizationId ?? null,
+      organizationId: scopeOrg,
     }, source.presenter ?? null)
     if (!presenter?.title) {
       if (process.env.VECTOR_DEBUG === '1') {
@@ -194,13 +233,13 @@ export class VectorIndexService {
       record,
       customFields,
       tenantId: args.tenantId,
-      organizationId: args.organizationId ?? null,
+      organizationId: scopeOrg,
     }, source.links ?? null)
     const url = await this.resolveUrl(entry.config, {
       record,
       customFields,
       tenantId: args.tenantId,
-      organizationId: args.organizationId ?? null,
+      organizationId: scopeOrg,
     })
 
     const normalizedPresenter = this.ensurePresenter(presenter, record, customFields, args.recordId, args.entityId)
@@ -224,7 +263,7 @@ export class VectorIndexService {
       entityId: args.entityId,
       recordId: args.recordId,
       tenantId: args.tenantId,
-      organizationId: args.organizationId ?? null,
+      organizationId: scopeOrg,
       checksum,
       embedding,
       url: url ?? null,
@@ -239,6 +278,14 @@ export class VectorIndexService {
       primaryLinkHref: primaryLink?.href ?? null,
       primaryLinkLabel: primaryLink?.label ?? null,
     })
+
+    return {
+      action: 'indexed',
+      created: !current,
+      existed: true,
+      tenantId: args.tenantId,
+      organizationId: scopeOrg,
+    }
   }
 
   private ensurePresenter(
@@ -502,34 +549,104 @@ export class VectorIndexService {
     return fallback ?? null
   }
 
-  async indexRecord(args: IndexRecordArgs): Promise<void> {
+  async indexRecord(args: IndexRecordArgs): Promise<VectorIndexOperationResult> {
     const entry = this.entityConfig.get(args.entityId)
-    if (!entry) return
+    if (!entry) {
+      return {
+        action: 'skipped',
+        existed: false,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId ?? null,
+        reason: 'unsupported',
+      }
+    }
     const driver = this.getDriver(entry.driverId)
     await driver.ensureReady()
 
     const records = await this.fetchRecord(args.entityId, [args.recordId], args.tenantId, args.organizationId)
     const raw = records.get(args.recordId)
     if (!raw) {
+      const existing = await driver.getChecksum(args.entityId, args.recordId, args.tenantId)
+      if (existing) {
+        await driver.delete(args.entityId, args.recordId, args.tenantId)
+        return {
+          action: 'deleted',
+          existed: true,
+          tenantId: args.tenantId,
+          organizationId: args.organizationId ?? null,
+        }
+      }
+      return {
+        action: 'skipped',
+        existed: false,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId ?? null,
+        reason: 'missing_record',
+      }
+    }
+    return this.indexExisting(entry, driver, args, raw as Record<string, any>)
+  }
+
+  async deleteRecord(args: DeleteRecordArgs): Promise<VectorIndexOperationResult> {
+    const entry = this.entityConfig.get(args.entityId)
+    if (!entry) {
+      return {
+        action: 'skipped',
+        existed: false,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId ?? null,
+        reason: 'unsupported',
+      }
+    }
+    const driver = this.getDriver(entry.driverId)
+    await driver.ensureReady()
+    const scopeOrg = args.organizationId ?? null
+    const existing = await driver.getChecksum(args.entityId, args.recordId, args.tenantId)
+    if (existing) {
       await driver.delete(args.entityId, args.recordId, args.tenantId)
+      return {
+        action: 'deleted',
+        existed: true,
+        tenantId: args.tenantId,
+        organizationId: scopeOrg,
+      }
+    }
+    return {
+      action: 'skipped',
+      existed: false,
+      tenantId: args.tenantId,
+      organizationId: scopeOrg,
+      reason: 'missing_record',
+    }
+  }
+
+  async reindexEntity(args: { entityId: EntityId; tenantId?: string | null; organizationId?: string | null; purgeFirst?: boolean }): Promise<void> {
+    const entry = this.entityConfig.get(args.entityId)
+    if (!entry) return
+    const driver = this.getDriver(entry.driverId)
+    await driver.ensureReady()
+
+    if (this.opts.eventBus) {
+      if (args.purgeFirst !== false && driver.purge && args.tenantId) {
+        await driver.purge(args.entityId, args.tenantId)
+      } else if (args.purgeFirst !== false && !args.tenantId) {
+        console.warn('[vector] Skipping purge for multi-tenant reindex (tenant not provided)')
+      }
+      const payload: Record<string, unknown> = {
+        entityType: args.entityId,
+        force: true,
+        resetCoverage: true,
+      }
+      if (args.tenantId !== undefined) payload.tenantId = args.tenantId
+      if (args.organizationId !== undefined) payload.organizationId = args.organizationId
+      await this.opts.eventBus.emitEvent('query_index.reindex', payload)
       return
     }
-    await this.indexExisting(entry, driver, args, raw as Record<string, any>)
-  }
 
-  async deleteRecord(args: DeleteRecordArgs): Promise<void> {
-    const entry = this.entityConfig.get(args.entityId)
-    if (!entry) return
-    const driver = this.getDriver(entry.driverId)
-    await driver.ensureReady()
-    await driver.delete(args.entityId, args.recordId, args.tenantId)
-  }
+    if (!args.tenantId) {
+      throw new Error('[vector] Reindex without tenantId requires event bus integration')
+    }
 
-  async reindexEntity(args: { entityId: EntityId; tenantId: string; organizationId?: string | null; purgeFirst?: boolean }): Promise<void> {
-    const entry = this.entityConfig.get(args.entityId)
-    if (!entry) return
-    const driver = this.getDriver(entry.driverId)
-    await driver.ensureReady()
     if (args.purgeFirst !== false && driver.purge) {
       await driver.purge(args.entityId, args.tenantId)
     }
@@ -566,7 +683,7 @@ export class VectorIndexService {
     }
   }
 
-  async reindexAll(args: { tenantId: string; organizationId?: string | null; purgeFirst?: boolean }): Promise<void> {
+  async reindexAll(args: { tenantId?: string | null; organizationId?: string | null; purgeFirst?: boolean }): Promise<void> {
     for (const entityId of this.listEnabledEntities()) {
       await this.reindexEntity({ entityId, tenantId: args.tenantId, organizationId: args.organizationId ?? null, purgeFirst: args.purgeFirst })
     }

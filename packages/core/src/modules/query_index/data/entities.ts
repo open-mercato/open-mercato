@@ -147,6 +147,9 @@ export class EntityIndexCoverage {
   @Property({ name: 'indexed_count', type: 'int', unsigned: true, default: 0 })
   indexedCount: number = 0
 
+  @Property({ name: 'vector_indexed_count', type: 'int', unsigned: true, default: 0 })
+  vectorIndexedCount: number = 0
+
   @Property({ name: 'refreshed_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
   refreshedAt: Date = new Date()
 }

@@ -52,29 +52,36 @@ function flagOpt(args: ParsedArgs, ...keys: string[]): boolean | undefined {
 async function reindexCommand(rest: string[]): Promise<void> {
   const args = parseArgs(rest)
   const tenantId = stringOpt(args, 'tenant', 'tenantId')
-  if (!tenantId) {
-    console.error('Missing tenant scope. Use --tenant <tenantId>.')
-    return
-  }
   const organizationId = stringOpt(args, 'org', 'orgId', 'organizationId')
   const entityId = stringOpt(args, 'entity', 'entityId')
-  const purgeFirst = flagOpt(args, 'purge', 'purgeFirst') !== false
+  const purgeFlag = flagOpt(args, 'purge', 'purgeFirst')
+  let purgeFirst = purgeFlag !== false
+  if (!tenantId && purgeFirst) {
+    console.warn('Skipping purge: tenant scope not provided. Supply --tenant to purge per tenant.')
+    purgeFirst = false
+  }
 
   const container = await createRequestContainer()
   const service = container.resolve<VectorIndexService>('vectorIndexService')
 
   if (entityId) {
-    console.log(`Reindexing vectors for ${entityId} (tenant=${tenantId}${organizationId ? `, org=${organizationId}` : ''})${purgeFirst ? ' [purge]' : ''}`)
+    const scopeLabel = tenantId
+      ? `tenant=${tenantId}${organizationId ? `, org=${organizationId}` : ''}`
+      : 'all tenants'
+    console.log(`Reindexing vectors for ${entityId} (${scopeLabel})${purgeFirst ? ' [purge]' : ''}`)
     await service.reindexEntity({
       entityId,
-      tenantId,
+      tenantId: tenantId ?? undefined,
       organizationId: organizationId ?? null,
       purgeFirst,
     })
   } else {
-    console.log(`Reindexing all vector-enabled entities for tenant ${tenantId}${organizationId ? ` (org=${organizationId})` : ''}${purgeFirst ? ' [purge]' : ''}`)
+    const scopeLabel = tenantId
+      ? `tenant ${tenantId}${organizationId ? ` (org=${organizationId})` : ''}`
+      : 'all tenants'
+    console.log(`Reindexing all vector-enabled entities for ${scopeLabel}${purgeFirst ? ' [purge]' : ''}`)
     await service.reindexAll({
-      tenantId,
+      tenantId: tenantId ?? undefined,
       organizationId: organizationId ?? null,
       purgeFirst,
     })
@@ -83,24 +90,22 @@ async function reindexCommand(rest: string[]): Promise<void> {
   console.log('Vector reindex completed.')
 }
 
-const cli: ModuleCli = {
-  command: 'vector',
-  async run(argv) {
-    const [sub, ...rest] = argv
-    switch (sub) {
-      case 'reindex':
-      case 'rebuild':
-        await reindexCommand(rest)
-        return
-      case 'help':
-      case undefined:
-        console.log('Usage: yarn mercato vector reindex --tenant <tenantId> [--org <orgId>] [--entity <module:entity>] [--purgeFirst=false]')
-        return
-      default:
-        console.error(`Unknown vector subcommand: ${sub}`)
-        console.log('Available subcommands: reindex')
-    }
+const reindexCli: ModuleCli = {
+  command: 'reindex',
+  async run(rest) {
+    await reindexCommand(rest)
   },
 }
 
-export default cli
+const helpCli: ModuleCli = {
+  command: 'help',
+  async run() {
+    console.log('Usage: yarn mercato vector reindex [--tenant <tenantId>] [--org <orgId>] [--entity <module:entity>] [--purgeFirst=false]')
+    console.log('  --tenant      Optional tenant scope (required for purge).')
+    console.log('  --org         Optional organization scope (requires tenant).')
+    console.log('  --entity      Limit to a single module entity id.')
+    console.log('  --purgeFirst  Defaults to true when tenant provided. Add --purgeFirst=false to skip purging.')
+  },
+}
+
+export default [reindexCli, helpCli]

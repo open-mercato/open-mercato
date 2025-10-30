@@ -37,8 +37,10 @@ export const queryIndexJobSchema = z.object({
 export const queryIndexStatusItemSchema = z.object({
   entityId: z.string(),
   label: z.string(),
-  baseCount: z.number().int().nonnegative(),
-  indexCount: z.number().int().nonnegative(),
+  baseCount: z.number().int().nonnegative().nullable(),
+  indexCount: z.number().int().nonnegative().nullable(),
+  vectorCount: z.number().int().nonnegative().nullable().optional(),
+  vectorEnabled: z.boolean().optional(),
   ok: z.boolean(),
   job: queryIndexJobSchema,
 })
