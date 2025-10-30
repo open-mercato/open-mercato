@@ -101,6 +101,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       ready = withClient(pool, async (client) => {
         await client.query('CREATE EXTENSION IF NOT EXISTS pgcrypto')
         await client.query('CREATE EXTENSION IF NOT EXISTS vector')
+
         await client.query(
           `CREATE TABLE IF NOT EXISTS ${migrationsIdent} (
             id text primary key,
@@ -108,9 +109,41 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           )`,
         )
 
-        const applied = await client.query<{ id: string }>(
-          `SELECT id FROM ${migrationsIdent} WHERE id = $1`,
-          ['0001_init'],
+        await client.query(
+          `CREATE TABLE IF NOT EXISTS ${tableIdent} (
+            id uuid primary key default gen_random_uuid(),
+            driver_id text not null,
+            entity_id text not null,
+            record_id text not null,
+            tenant_id uuid not null,
+            organization_id uuid null,
+            checksum text not null,
+            embedding vector(${dimension}) not null,
+            url text null,
+            presenter jsonb null,
+            links jsonb null,
+            payload jsonb null,
+            result_title text null,
+            result_subtitle text null,
+            result_icon text null,
+            result_badge text null,
+            result_snapshot text null,
+            primary_link_href text null,
+            primary_link_label text null,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+          )`,
+        )
+
+        await client.query(
+          `CREATE UNIQUE INDEX IF NOT EXISTS ${tableName}_uniq ON ${tableIdent} (driver_id, entity_id, record_id, tenant_id)`,
+        )
+        await client.query(
+          `CREATE INDEX IF NOT EXISTS ${tableName}_lookup ON ${tableIdent} (tenant_id, organization_id, entity_id)`,
+        )
+        await client.query(
+          `CREATE INDEX IF NOT EXISTS ${tableName}_embedding_idx ON ${tableIdent}
+            USING ivfflat (embedding vector_${distanceMetric}_ops) WITH (lists = 100)`,
         )
 
         const columnAlters = [
@@ -126,49 +159,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           await client.query(statement)
         }
 
-        if (applied.rowCount === 0) {
-          const initSql = `
-            CREATE TABLE IF NOT EXISTS ${tableIdent} (
-              id uuid primary key default gen_random_uuid(),
-              driver_id text not null,
-              entity_id text not null,
-              record_id text not null,
-              tenant_id uuid not null,
-              organization_id uuid null,
-              checksum text not null,
-              embedding vector(${dimension}) not null,
-              url text null,
-              presenter jsonb null,
-              links jsonb null,
-              payload jsonb null,
-              result_title text null,
-              result_subtitle text null,
-              result_icon text null,
-              result_badge text null,
-              result_snapshot text null,
-              primary_link_href text null,
-              primary_link_label text null,
-              created_at timestamptz not null default now(),
-              updated_at timestamptz not null default now()
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS ${tableName}_uniq ON ${tableIdent} (driver_id, entity_id, record_id, tenant_id);
-            CREATE INDEX IF NOT EXISTS ${tableName}_lookup ON ${tableIdent} (tenant_id, organization_id, entity_id);
-            CREATE INDEX IF NOT EXISTS ${tableName}_embedding_idx ON ${tableIdent}
-              USING ivfflat (embedding vector_${distanceMetric}_ops) WITH (lists = 100);
-          `
-          await client.query('BEGIN')
-          try {
-            await client.query(initSql)
-            await client.query(
-              `INSERT INTO ${migrationsIdent} (id, applied_at) VALUES ($1, now())`,
-              ['0001_init'],
-            )
-            await client.query('COMMIT')
-          } catch (err) {
-            await client.query('ROLLBACK')
-            throw err
-          }
-        }
+        await client.query(
+          `INSERT INTO ${migrationsIdent} (id, applied_at) VALUES ($1, now()) ON CONFLICT (id) DO NOTHING`,
+          ['0001_init'],
+        )
+      }).catch((err) => {
+        ready = null
+        throw err
       })
     }
     return ready

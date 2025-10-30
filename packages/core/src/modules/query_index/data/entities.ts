@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
+import { Entity, PrimaryKey, Property, Index, Unique } from '@mikro-orm/core'
 
 // Generic JSONB-backed index rows for any entity ('<module>:<entity>')
 @Entity({ tableName: 'entity_indexes' })
@@ -120,10 +120,9 @@ export class EntityIndexJob {
 
 // Snapshot counts for coverage checks (per entity / tenant / org / withDeleted scope)
 @Entity({ tableName: 'entity_index_coverage' })
-@Index({
+@Unique({
   name: 'entity_index_coverage_scope_idx',
   properties: ['entityType', 'tenantId', 'organizationId', 'withDeleted'],
-  options: { unique: true },
 })
 export class EntityIndexCoverage {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })

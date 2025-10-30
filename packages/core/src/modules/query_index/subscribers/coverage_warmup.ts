@@ -1,5 +1,6 @@
 import { E as AllEntities } from '@/generated/entities.ids.generated'
 import type { EventBus } from '@open-mercato/events/types'
+import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 
 export const metadata = { event: 'query_index.coverage.warmup', persistent: false }
 
@@ -14,19 +15,7 @@ function scopeKey(entityType: string, tenantId: string | null): string {
   return `${entityType}|${tenantId ?? '__null__'}`
 }
 
-function flattenEntities(): string[] {
-  const items: string[] = []
-  for (const moduleKey of Object.keys(AllEntities)) {
-    const entities = (AllEntities as Record<string, Record<string, string>>)[moduleKey]
-    for (const key of Object.keys(entities)) {
-      const id = entities[key]
-      if (typeof id === 'string' && id.length) items.push(id)
-    }
-  }
-  return Array.from(new Set(items)).sort()
-}
-
-const entityIds = flattenEntities()
+const entityIds = flattenSystemEntityIds(AllEntities as Record<string, Record<string, string>>)
 
 export default async function handle(payload: Payload, ctx: { resolve: <T = any>(name: string) => T }) {
   if (!entityIds.length) return

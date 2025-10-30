@@ -106,12 +106,9 @@
             "with_deleted"
           ],
           "composite": true,
-          "constraint": false,
+          "constraint": true,
           "primary": false,
-          "unique": false,
-          "options": {
-            "unique": true
-          }
+          "unique": true
         },
         {
           "keyName": "entity_index_coverage_pkey",

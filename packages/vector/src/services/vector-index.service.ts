@@ -95,6 +95,29 @@ export class VectorIndexService {
     return Array.from(this.entityConfig.keys())
   }
 
+  async ensureDriverReady(entityId?: EntityId): Promise<void> {
+    if (entityId) {
+      const entry = this.entityConfig.get(entityId)
+      if (!entry) return
+      const driver = this.getDriver(entry.driverId)
+      await driver.ensureReady()
+      return
+    }
+    const uniqueDrivers = new Set<VectorDriverId>()
+    for (const entry of this.entityConfig.values()) {
+      uniqueDrivers.add(entry.driverId)
+    }
+    if (!uniqueDrivers.size) uniqueDrivers.add(this.defaultDriverId)
+    await Promise.all(Array.from(uniqueDrivers).map(async (driverId) => {
+      try {
+        const driver = this.getDriver(driverId)
+        await driver.ensureReady()
+      } catch (err) {
+        console.warn('[vector] Failed to ensure driver readiness', { driverId, error: err instanceof Error ? err.message : err })
+      }
+    }))
+  }
+
   private getDriver(driverId: VectorDriverId): VectorDriver {
     const driver = this.driverMap.get(driverId)
     if (!driver) {

@@ -133,6 +133,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
 
   try {
     const service = container.resolve<VectorIndexService>('vectorIndexService')
+    await service.ensureDriverReady()
     const enabledEntities = new Set(service.listEnabledEntities())
     const baseEventBus = (() => {
       try {
@@ -260,6 +261,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
         return
       }
       const purgeFirst = defaultPurge
+      await service.ensureDriverReady(entityId)
       await runReindex(entityId, purgeFirst)
       console.log('Vector reindex completed.')
       return
@@ -275,6 +277,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
     for (let idx = 0; idx < entityIds.length; idx += 1) {
       const id = entityIds[idx]!
       console.log(`[${idx + 1}/${entityIds.length}] Preparing ${id}...`)
+      await service.ensureDriverReady(id)
       processedOverall += await runReindex(id, defaultPurge)
     }
     console.log(`Vector reindex completed. Total processed rows: ${processedOverall.toLocaleString()}`)

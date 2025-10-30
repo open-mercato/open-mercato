@@ -1,10 +1,10 @@
 import { Migration } from '@mikro-orm/migrations';
 
-export class Migration20251030145622 extends Migration {
+export class Migration20251030150038 extends Migration {
 
   override async up(): Promise<void> {
     this.addSql(`create table "entity_index_coverage" ("id" uuid not null default gen_random_uuid(), "entity_type" text not null, "tenant_id" uuid null, "organization_id" uuid null, "with_deleted" boolean not null default false, "base_count" int not null default 0, "indexed_count" int not null default 0, "vector_indexed_count" int not null default 0, "refreshed_at" timestamptz not null, constraint "entity_index_coverage_pkey" primary key ("id"));`);
-    this.addSql(`create index "entity_index_coverage_scope_idx" on "entity_index_coverage" ("entity_type", "tenant_id", "organization_id", "with_deleted");`);
+    this.addSql(`alter table "entity_index_coverage" add constraint "entity_index_coverage_scope_idx" unique ("entity_type", "tenant_id", "organization_id", "with_deleted");`);
 
     this.addSql(`create table "entity_index_jobs" ("id" uuid not null default gen_random_uuid(), "entity_type" text not null, "organization_id" uuid null, "tenant_id" uuid null, "partition_index" int null, "partition_count" int null, "processed_count" int null, "total_count" int null, "heartbeat_at" timestamptz null, "status" text not null, "started_at" timestamptz not null, "finished_at" timestamptz null, constraint "entity_index_jobs_pkey" primary key ("id"));`);
     this.addSql(`create index "entity_index_jobs_type_idx" on "entity_index_jobs" ("entity_type");`);

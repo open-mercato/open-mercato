@@ -6,6 +6,7 @@ import { CustomEntity, CustomFieldDef } from '@open-mercato/core/modules/entitie
 import { E as AllEntities } from '@/generated/entities.ids.generated'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/data/validators'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -26,6 +27,7 @@ export async function GET(req: Request) {
     const entities = (AllEntities as any)[modId] as Record<string, string>
     for (const k of Object.keys(entities)) {
       const id = entities[k]
+      if (!isSystemEntitySelectable(id)) continue
       generated.push({ entityId: id, source: 'code', label: id })
     }
   }
@@ -46,15 +48,17 @@ export async function GET(req: Request) {
     if (!prev || specificity > prevSpec) customByEntityId.set(c.entityId, c)
   }
 
-  const custom = Array.from(customByEntityId.values()).map((c) => ({
-    entityId: c.entityId,
-    source: 'custom' as const,
-    label: c.label,
-    description: c.description ?? undefined,
-    labelField: (c as any).labelField ?? undefined,
-    defaultEditor: (c as any).defaultEditor ?? undefined,
-    showInSidebar: (c as any).showInSidebar ?? false,
-  }))
+  const custom = Array.from(customByEntityId.values())
+    .filter((c) => isSystemEntitySelectable(c.entityId))
+    .map((c) => ({
+      entityId: c.entityId,
+      source: 'custom' as const,
+      label: c.label,
+      description: c.description ?? undefined,
+      labelField: (c as any).labelField ?? undefined,
+      defaultEditor: (c as any).defaultEditor ?? undefined,
+      showInSidebar: (c as any).showInSidebar ?? false,
+    }))
 
   const byId = new Map<string, any>()
   for (const g of generated) byId.set(g.entityId, g)
@@ -72,6 +76,7 @@ export async function GET(req: Request) {
   for (const d of defs as any[]) {
     const eid = String(d.entityId)
     const k = String(d.key)
+    if (!isSystemEntitySelectable(eid)) continue
     const set = keySets.get(eid) || new Set<string>()
     set.add(k)
     keySets.set(eid, set)

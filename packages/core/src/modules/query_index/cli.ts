@@ -8,6 +8,7 @@ import { recordIndexerError } from '@/lib/indexers/error-log'
 import { upsertIndexBatch, type AnyRow } from './lib/batch'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import { purgeIndexScope } from './lib/purge'
+import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -349,7 +350,7 @@ const rebuildAll: ModuleCli = {
       const { E: All } = await import('@/generated/entities.ids.generated') as {
         E: Record<string, Record<string, string>>
       }
-      const entityIds: string[] = Object.values(All).flatMap((bucket) => Object.values(bucket ?? {}))
+      const entityIds = flattenSystemEntityIds(All)
       if (!entityIds.length) {
         console.log('No entity definitions registered for query indexing.')
         return
@@ -550,7 +551,7 @@ const reindex: ModuleCli = {
       const { E: All } = await import('@/generated/entities.ids.generated') as {
         E: Record<string, Record<string, string>>
       }
-      const entityIds: string[] = Object.values(All).flatMap((bucket) => Object.values(bucket ?? {}))
+      const entityIds = flattenSystemEntityIds(All)
       if (!entityIds.length) {
         console.log('No entity definitions registered for query indexing.')
         return
@@ -691,7 +692,7 @@ const purge: ModuleCli = {
       const { E: All } = await import('@/generated/entities.ids.generated') as {
         E: Record<string, Record<string, string>>
       }
-      const entityIds: string[] = Object.values(All).flatMap((bucket) => Object.values(bucket ?? {}))
+      const entityIds = flattenSystemEntityIds(All)
       for (const id of entityIds) {
         await bus.emitEvent(
           'query_index.purge',

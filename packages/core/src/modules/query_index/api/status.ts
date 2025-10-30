@@ -7,6 +7,7 @@ import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
 import type { VectorIndexService } from '@open-mercato/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
+import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['query_index.status.view'] },
@@ -27,22 +28,13 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const forceRefresh = url.searchParams.has('refresh') && url.searchParams.get('refresh') !== '0'
 
-  // Generated entities from code
-  const generated: { entityId: string; label: string }[] = []
-  for (const modId of Object.keys(AllEntities)) {
-    const entities = (AllEntities as any)[modId] as Record<string, string>
-    for (const k of Object.keys(entities)) {
-      const id = entities[k]
-      generated.push({ entityId: id, label: id })
-    }
-  }
+  const generatedIds = flattenSystemEntityIds(AllEntities as Record<string, Record<string, string>>)
+  const generated = generatedIds.map((entityId) => ({ entityId, label: entityId }))
 
-  // Only include code-defined entities in Query Index status.
-  // User-defined entities are stored outside the index and should not appear here.
   const byId = new Map<string, { entityId: string; label: string }>()
   for (const g of generated) byId.set(g.entityId, g)
 
-  let entityIds = Array.from(byId.values()).map((x) => x.entityId).sort()
+  let entityIds = generatedIds.slice()
 
   let vectorEnabledEntities = new Set<string>()
   try {
