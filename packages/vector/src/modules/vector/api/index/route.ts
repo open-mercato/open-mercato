@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import type { VectorIndexService } from '@open-mercato/vector'
+import { recordIndexerLog } from '@/lib/indexers/status-log'
+import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['vector.search'] },
@@ -77,12 +79,98 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: 'Vector index unavailable' }, { status: 503 })
   }
 
+  let em: any | null = null
   try {
+    em = container.resolve('em')
+  } catch {}
+  let eventBus: { emitEvent(event: string, payload: any, options?: any): Promise<void> } | null = null
+  try {
+    eventBus = container.resolve('eventBus')
+  } catch {
+    eventBus = null
+  }
+
+  const entityIds = entityIdParam ? [entityIdParam] : service.listEnabledEntities()
+
+  try {
+    await recordIndexerLog(
+      { em: em ?? undefined },
+      {
+        source: 'vector',
+        handler: 'api:vector.index.purge',
+        message: entityIdParam
+          ? `Vector purge requested for ${entityIdParam}`
+          : 'Vector purge requested for all entities',
+        entityType: entityIdParam ?? null,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        details: { entityIds },
+      },
+    ).catch(() => undefined)
     await service.purgeIndex({
       tenantId: auth.tenantId,
       organizationId: auth.orgId ?? null,
       entityId: entityIdParam ?? undefined,
     })
+    if (em) {
+      try {
+        const scopes = new Set<string>()
+        const registerScope = (org: string | null) => {
+          const key = org ?? '__null__'
+          if (!scopes.has(key)) scopes.add(key)
+        }
+        registerScope(null)
+        if (auth.orgId) registerScope(auth.orgId)
+        for (const entityId of entityIds) {
+          for (const scope of scopes) {
+            const orgValue = scope === '__null__' ? null : scope
+            await writeCoverageCounts(
+              em,
+              {
+                entityType: entityId,
+                tenantId: auth.tenantId,
+                organizationId: orgValue,
+                withDeleted: false,
+              },
+              { vectorCount: 0 },
+            )
+          }
+        }
+      } catch (coverageError) {
+        console.warn('[vector.index.purge] Failed to reset coverage after purge', coverageError)
+      }
+    }
+    if (eventBus) {
+      await Promise.all(
+        entityIds.map((entityId) =>
+          eventBus!
+            .emitEvent(
+              'query_index.coverage.refresh',
+              {
+                entityType: entityId,
+                tenantId: auth.tenantId,
+                organizationId: null,
+                delayMs: 0,
+              },
+            )
+            .catch(() => undefined),
+        ),
+      )
+    }
+    await recordIndexerLog(
+      { em: em ?? undefined },
+      {
+        source: 'vector',
+        handler: 'api:vector.index.purge',
+        message: entityIdParam
+          ? `Vector purge completed for ${entityIdParam}`
+          : 'Vector purge completed for all entities',
+        entityType: entityIdParam ?? null,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        details: { entityIds },
+      },
+    ).catch(() => undefined)
     return NextResponse.json({ ok: true })
   } catch (error: any) {
     const message = typeof error?.message === 'string' ? error.message : 'Vector index purge failed'
@@ -90,6 +178,21 @@ export async function DELETE(req: Request) {
       ? error.status
       : (typeof error?.statusCode === 'number' ? error.statusCode : undefined)
     console.error('[vector.index.purge] failed', error)
+    await recordIndexerLog(
+      { em: em ?? undefined },
+      {
+        source: 'vector',
+        handler: 'api:vector.index.purge',
+        level: 'warn',
+        message: entityIdParam
+          ? `Vector purge failed for ${entityIdParam}`
+          : 'Vector purge failed for all entities',
+        entityType: entityIdParam ?? null,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        details: { error: message, entityIds },
+      },
+    ).catch(() => undefined)
     return NextResponse.json({ error: message }, { status: status && status >= 400 ? status : 500 })
   }
 }

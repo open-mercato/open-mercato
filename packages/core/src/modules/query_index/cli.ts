@@ -10,6 +10,7 @@ import { upsertIndexBatch, type AnyRow } from './lib/batch'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import { purgeIndexScope } from './lib/purge'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
+import type { VectorIndexService } from '@open-mercato/vector'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -524,6 +525,12 @@ const reindex: ModuleCli = {
             }
             const partitionContainer = await createRequestContainer()
             const partitionEm = partitionContainer.resolve<EntityManager>('em')
+            let partitionVectorService: VectorIndexService | null = null
+            try {
+              partitionVectorService = partitionContainer.resolve<VectorIndexService>('vectorIndexService')
+            } catch {
+              partitionVectorService = null
+            }
             try {
               let progressBar: ReturnType<typeof createProgressBar> | null = null
               const useBar = partitionTargets.length === 1
@@ -537,6 +544,7 @@ const reindex: ModuleCli = {
                 partitionCount,
                 partitionIndex: part,
                 resetCoverage: shouldResetCoverage(part),
+                vectorService: partitionVectorService,
                 onProgress(info) {
                   if (useBar) {
                     if (info.total > 0 && !progressBar) {
@@ -644,6 +652,12 @@ const reindex: ModuleCli = {
             }
             const partitionContainer = await createRequestContainer()
             const partitionEm = partitionContainer.resolve<EntityManager>('em')
+            let partitionVectorService: VectorIndexService | null = null
+            try {
+              partitionVectorService = partitionContainer.resolve<VectorIndexService>('vectorIndexService')
+            } catch {
+              partitionVectorService = null
+            }
             try {
               let progressBar: ReturnType<typeof createProgressBar> | null = null
               const useBar = partitionTargets.length === 1
@@ -657,6 +671,7 @@ const reindex: ModuleCli = {
                 partitionCount,
                 partitionIndex: part,
                 resetCoverage: shouldResetCoverage(part),
+                vectorService: partitionVectorService,
                 onProgress(info) {
                   if (useBar) {
                     if (info.total > 0 && !progressBar) {

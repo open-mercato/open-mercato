@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import * as LucideIcons from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -114,13 +115,13 @@ function toPascalCase(input: string): string {
     .join('')
 }
 
-type LucideIconComponent = React.ComponentType<{ className?: string }>
+type LucideIconComponent = LucideIcon
 
 function resolveIcon(name?: string): LucideIconComponent | null {
   if (!name) return null
   const key = toPascalCase(name)
   const Icon = (LucideIcons as Record<string, LucideIconComponent | undefined>)[key]
-  return typeof Icon === 'function' ? Icon : null
+  return Icon ?? null
 }
 
 function humanizeSegment(segment: string): string {

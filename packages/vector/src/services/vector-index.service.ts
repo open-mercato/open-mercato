@@ -1,4 +1,5 @@
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import {
   type VectorModuleConfig,
@@ -14,6 +15,7 @@ import {
 import type { VectorDriver } from '../types'
 import { computeChecksum } from './checksum'
 import { EmbeddingService } from './embedding'
+import { logVectorOperation } from '../lib/vector-logs'
 
 type ContainerResolver = () => unknown
 
@@ -659,8 +661,10 @@ export class VectorIndexService {
       }
       const payload: Record<string, unknown> = {
         entityType: args.entityId,
-        force: true,
-        resetCoverage: true,
+      }
+      if (shouldPurge) {
+        payload.force = true
+        payload.resetCoverage = true
       }
       if (args.tenantId !== undefined) payload.tenantId = args.tenantId
       if (args.organizationId !== undefined) payload.organizationId = args.organizationId
@@ -678,6 +682,7 @@ export class VectorIndexService {
 
     const pageSize = 50
     let page = 1
+    const loggingEm = this.resolveEntityManager()
     for (;;) {
       const result = await this.opts.queryEngine.query(args.entityId, {
         tenantId: args.tenantId,
@@ -690,7 +695,7 @@ export class VectorIndexService {
       for (const raw of result.items) {
         const recordId = String((raw as any).id ?? '')
         if (!recordId) continue
-        await this.indexExisting(
+        const opResult = await this.indexExisting(
           entry,
           driver,
           {
@@ -702,6 +707,13 @@ export class VectorIndexService {
           raw as Record<string, any>,
           { skipDelete: true },
         )
+        await logVectorOperation({
+          em: loggingEm,
+          handler: 'service:vector.reindex',
+          entityType: args.entityId,
+          recordId,
+          result: opResult,
+        })
       }
       if (result.items.length < pageSize) break
       page += 1
@@ -711,6 +723,18 @@ export class VectorIndexService {
   async reindexAll(args: { tenantId?: string | null; organizationId?: string | null; purgeFirst?: boolean }): Promise<void> {
     for (const entityId of this.listEnabledEntities()) {
       await this.reindexEntity({ entityId, tenantId: args.tenantId, organizationId: args.organizationId ?? null, purgeFirst: args.purgeFirst })
+    }
+  }
+
+  private resolveEntityManager(): EntityManager | null {
+    if (!this.opts.containerResolver) return null
+    try {
+      const container = this.opts.containerResolver()
+      if (!container || typeof (container as any).resolve !== 'function') return null
+      const em = (container as any).resolve<EntityManager>('em')
+      return em ?? null
+    } catch {
+      return null
     }
   }
 
@@ -737,6 +761,61 @@ export class VectorIndexService {
         await driver.purge!(entityId, args.tenantId)
       }
     }
+  }
+
+  async countIndexEntries(args: {
+    tenantId: string
+    organizationId?: string | null
+    entityId?: EntityId
+    driverId?: VectorDriverId
+  }): Promise<number> {
+    if (!args.tenantId) return 0
+    const targetEntity = args.entityId ? this.entityConfig.get(args.entityId) : null
+    if (args.entityId && !targetEntity) {
+      return 0
+    }
+    const driverId =
+      args.driverId ??
+      (targetEntity ? targetEntity.driverId : this.defaultDriverId)
+    const driver = this.getDriver(driverId)
+    await driver.ensureReady()
+    const countParams = {
+      tenantId: args.tenantId,
+      organizationId: args.organizationId ?? null,
+      entityId: args.entityId,
+    }
+    if (typeof driver.count === 'function') {
+      try {
+        return await driver.count(countParams)
+      } catch (err) {
+        console.warn('[vector] Driver count failed, falling back to list', {
+          driverId,
+          error: err instanceof Error ? err.message : err,
+        })
+      }
+    }
+    if (typeof driver.list === 'function') {
+      const limit = 1000
+      let offset = 0
+      let total = 0
+      for (;;) {
+        const batch = await driver.list({
+          tenantId: countParams.tenantId,
+          organizationId: countParams.organizationId ?? null,
+          entityId: countParams.entityId,
+          limit,
+          offset,
+          orderBy: 'created',
+        })
+        const size = batch.length
+        total += size
+        if (size < limit) break
+        offset += limit
+      }
+      return total
+    }
+    console.warn('[vector] Driver does not support counting or listing index entries', { driverId })
+    return 0
   }
 
   async listIndexEntries(args: {

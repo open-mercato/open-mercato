@@ -310,7 +310,7 @@ export default function QueryIndexesTable() {
       if (action === 'reindex') {
         res = await apiFetch('/api/vector/reindex', {
           method: 'POST',
-          body: JSON.stringify({ entityId, purgeFirst: true }),
+          body: JSON.stringify({ entityId }),
         })
       } else {
         const url = `/api/vector/index?entityId=${encodeURIComponent(entityId)}`

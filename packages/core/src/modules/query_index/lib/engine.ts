@@ -7,6 +7,7 @@ import type { Knex } from 'knex'
 import type { EventBus } from '@open-mercato/events'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
+import type { VectorIndexService } from '@open-mercato/vector'
 
 function parseBooleanToken(value: string | null | undefined, defaultValue: boolean): boolean {
   if (value == null) return defaultValue
@@ -72,7 +73,8 @@ export class HybridQueryEngine implements QueryEngine {
   constructor(
     private em: EntityManager,
     private fallback: BasicQueryEngine,
-    private eventBusResolver?: () => Pick<EventBus, 'emitEvent'> | null | undefined
+    private eventBusResolver?: () => Pick<EventBus, 'emitEvent'> | null | undefined,
+    private vectorServiceResolver?: () => VectorIndexService | null | undefined,
   ) {
     const coverageTtl = Number.parseInt(process.env.QUERY_INDEX_COVERAGE_CACHE_MS ?? '', 10)
     this.coverageStatsTtlMs = Number.isFinite(coverageTtl) && coverageTtl >= 0 ? coverageTtl : 5 * 60 * 1000
@@ -812,6 +814,15 @@ export class HybridQueryEngine implements QueryEngine {
     return `${tenantId ?? '__none__'}|${sorted}`
   }
 
+  private resolveVectorService(): VectorIndexService | null {
+    if (!this.vectorServiceResolver) return null
+    try {
+      return this.vectorServiceResolver() ?? null
+    } catch {
+      return null
+    }
+  }
+
   private async indexAnyRows(entity: string): Promise<boolean> {
     const knex = this.getKnex()
     // Prefer coverage snapshots – cheap and already scoped by maintenance jobs.
@@ -832,12 +843,16 @@ export class HybridQueryEngine implements QueryEngine {
   ): Promise<{ baseCount: number; indexedCount: number } | null> {
     try {
       if (!this.isCoverageOptimizationEnabled()) {
-        await refreshCoverageSnapshot(this.em, {
-          entityType: entity,
-          tenantId,
-          organizationId,
-          withDeleted,
-        })
+        await refreshCoverageSnapshot(
+          this.em,
+          {
+            entityType: entity,
+            tenantId,
+            organizationId,
+            withDeleted,
+          },
+          { vectorService: this.resolveVectorService() },
+        )
       }
       const knex = this.getKnex()
       const row = await readCoverageSnapshot(knex, {

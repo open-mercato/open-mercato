@@ -3,6 +3,7 @@ import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
 import type { VectorIndexOperationResult, VectorIndexService } from '@open-mercato/vector'
 import { resolveVectorAutoIndexingEnabled } from '../lib/auto-indexing'
+import { logVectorOperation } from '../../../lib/vector-logs'
 
 export const metadata = { event: 'query_index.delete_one', persistent: false }
 
@@ -75,6 +76,13 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
         console.warn('[vector] Failed to adjust vector coverage', coverageError)
       }
     }
+    await logVectorOperation({
+      em,
+      handler: 'event:query_index.delete_one',
+      entityType,
+      recordId,
+      result,
+    })
   } catch (error) {
     console.warn('[vector] Failed to delete vector index entry', error)
     await recordIndexerError(
