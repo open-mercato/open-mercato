@@ -652,6 +652,7 @@ export class VectorIndexService {
     await driver.ensureReady()
 
     const shouldPurge = args.purgeFirst === true
+    const reindexStartedAt = new Date()
 
     if (this.opts.eventBus) {
       if (shouldPurge && driver.purge && args.tenantId) {
@@ -718,6 +719,15 @@ export class VectorIndexService {
       if (result.items.length < pageSize) break
       page += 1
     }
+
+    if (shouldPurge) {
+      await this.removeOrphans({
+        entityId: args.entityId,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId,
+        olderThan: reindexStartedAt,
+      })
+    }
   }
 
   async reindexAll(args: { tenantId?: string | null; organizationId?: string | null; purgeFirst?: boolean }): Promise<void> {
@@ -761,6 +771,40 @@ export class VectorIndexService {
         await driver.purge!(entityId, args.tenantId)
       }
     }
+  }
+
+  async removeOrphans(args: {
+    entityId: EntityId
+    tenantId?: string | null
+    organizationId?: string | null
+    olderThan: Date
+  }): Promise<number> {
+    const entry = this.entityConfig.get(args.entityId)
+    if (!entry) return 0
+    const driver = this.getDriver(entry.driverId)
+    await driver.ensureReady()
+
+    const driverAny = driver as VectorDriver & {
+      removeOrphans?: (params: {
+        entityId: EntityId
+        tenantId?: string | null
+        organizationId?: string | null
+        olderThan: Date
+      }) => Promise<number | void>
+    }
+
+    if (typeof driverAny.removeOrphans === 'function') {
+      const deleted = await driverAny.removeOrphans({
+        entityId: args.entityId,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId,
+        olderThan: args.olderThan,
+      })
+      return typeof deleted === 'number' ? deleted : 0
+    }
+
+    console.warn('[vector] Driver does not support orphan cleanup', { driverId: entry.driverId })
+    return 0
   }
 
   async countIndexEntries(args: {

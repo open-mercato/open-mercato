@@ -18,6 +18,7 @@ import type {
   VectorDriverListParams,
   VectorDriverCountParams,
   VectorIndexEntry,
+  VectorDriverRemoveOrphansParams,
 } from '../../types'
 
 type PgVectorDriverOptions = {
@@ -469,7 +470,6 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       values.push(params.organizationId)
       nextParam += 1
     }
-
     if (params.entityId) {
       conditions.push(`entity_id = $${nextParam}::text`)
       values.push(params.entityId)
@@ -488,6 +488,36 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     return Number.isFinite(parsed) ? parsed : 0
   }
 
+  const removeOrphans = async (params: VectorDriverRemoveOrphansParams): Promise<number> => {
+    await ensureReady()
+    const conditions: string[] = [
+      'driver_id = $1',
+      'entity_id = $2',
+      'updated_at < $3::timestamptz',
+    ]
+    const values: any[] = [DRIVER_ID, params.entityId, (params.olderThan instanceof Date ? params.olderThan : new Date(params.olderThan)).toISOString()]
+    let nextParam = 4
+
+    if (params.tenantId !== undefined) {
+      conditions.push(`tenant_id is not distinct from $${nextParam}::uuid`)
+      values.push(params.tenantId)
+      nextParam += 1
+    }
+
+    if (params.organizationId !== undefined) {
+      conditions.push(`organization_id is not distinct from $${nextParam}::uuid`)
+      values.push(params.organizationId)
+      nextParam += 1
+    }
+
+    const sql = `
+        DELETE FROM ${tableIdent}
+        WHERE ${conditions.join('\n          AND ')}
+      `
+    const res = await pool.query(sql, values)
+    return res.rowCount ?? 0
+  }
+
   return {
     id: 'pgvector',
     ensureReady,
@@ -498,5 +528,6 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     query,
     list,
     count,
+    removeOrphans,
   }
 }

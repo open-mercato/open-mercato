@@ -87,6 +87,13 @@ export type VectorDriverCountParams = {
   entityId?: EntityId
 }
 
+export type VectorDriverRemoveOrphansParams = {
+  entityId: EntityId
+  tenantId?: string | null
+  organizationId?: string | null
+  olderThan: Date
+}
+
 export interface VectorDriver {
   readonly id: VectorDriverId
   ensureReady(): Promise<void>
@@ -97,4 +104,5 @@ export interface VectorDriver {
   purge?(entityId: EntityId, tenantId: string): Promise<void>
   list?(params: VectorDriverListParams): Promise<VectorIndexEntry[]>
   count?(params: VectorDriverCountParams): Promise<number>
+  removeOrphans?(params: VectorDriverRemoveOrphansParams): Promise<number | void>
 }

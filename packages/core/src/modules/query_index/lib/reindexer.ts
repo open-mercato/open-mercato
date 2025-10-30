@@ -397,6 +397,24 @@ export async function reindexEntity(
       startedAt: jobStartedAt,
     })
 
+    if (force && vectorService && (!usingPartitions || partitionIndex === null)) {
+      try {
+        await vectorService.removeOrphans({
+          entityId: entityType,
+          tenantId,
+          organizationId,
+          olderThan: jobStartedAt,
+        })
+      } catch (error) {
+        console.warn('[HybridQueryEngine] Failed to prune vector orphans after reindex', {
+          entityType,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          error: error instanceof Error ? error.message : error,
+        })
+      }
+    }
+
     for (const scope of scopeEntries) {
       await refreshCoverageSnapshot(
         em,
