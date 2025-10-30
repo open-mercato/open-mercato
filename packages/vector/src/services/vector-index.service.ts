@@ -649,10 +649,12 @@ export class VectorIndexService {
     const driver = this.getDriver(entry.driverId)
     await driver.ensureReady()
 
+    const shouldPurge = args.purgeFirst === true
+
     if (this.opts.eventBus) {
-      if (args.purgeFirst !== false && driver.purge && args.tenantId) {
+      if (shouldPurge && driver.purge && args.tenantId) {
         await driver.purge(args.entityId, args.tenantId)
-      } else if (args.purgeFirst !== false && !args.tenantId) {
+      } else if (shouldPurge && !args.tenantId) {
         console.warn('[vector] Skipping purge for multi-tenant reindex (tenant not provided)')
       }
       const payload: Record<string, unknown> = {
@@ -670,7 +672,7 @@ export class VectorIndexService {
       throw new Error('[vector] Reindex without tenantId requires event bus integration')
     }
 
-    if (args.purgeFirst !== false && driver.purge) {
+    if (shouldPurge && driver.purge) {
       await driver.purge(args.entityId, args.tenantId)
     }
 

@@ -240,7 +240,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (item.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(normalizeErrorMessage(data.error) ?? null)
+          setError(normalizeErrorMessage(data.error, t('vector.table.errors.searchFailed')) ?? null)
         } else {
           const data = await fetchVectorIndexEntries({ limit: 50, signal: controller.signal })
           const mapped = data.entries.map<Row>((entry: VectorIndexEntry) => ({
@@ -255,13 +255,13 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(normalizeErrorMessage(data.error) ?? null)
+          setError(normalizeErrorMessage(data.error, t('vector.table.errors.indexFetchFailed')) ?? null)
         }
         setPage(1)
       } catch (err: any) {
         if (controller.signal.aborted) return
         if (err?.name === 'AbortError') return
-        setError(normalizeErrorMessage(err, 'Vector search failed'))
+        setError(normalizeErrorMessage(err, t('vector.table.errors.searchFailed')))
         setRows([])
       } finally {
         if (!controller.signal.aborted) setLoading(false)
@@ -284,13 +284,11 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        const message = normalizeErrorMessage(body?.error, 'Vector reindex failed')
+        const message = normalizeErrorMessage(body?.error, t('vector.table.errors.reindexFailed'))
         setError(message)
         return
       }
-      if (typeof window !== 'undefined') {
-        window.alert('Vector reindex started. Results will refresh once embeddings complete.')
-      }
+      if (typeof window !== 'undefined') window.alert(t('vector.table.alert.reindexStarted'))
       setError(null)
       const trimmed = searchValue.trim()
       if (trimmed.length >= MIN_QUERY_LENGTH) {
@@ -308,9 +306,9 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (item.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(normalizeErrorMessage(data.error) ?? null)
+          setError(normalizeErrorMessage(data.error, t('vector.table.errors.searchFailed')) ?? null)
         } catch (err: any) {
-          setError(normalizeErrorMessage(err, 'Vector search failed'))
+          setError(normalizeErrorMessage(err, t('vector.table.errors.searchFailed')))
         }
       } else {
         try {
@@ -327,13 +325,13 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(normalizeErrorMessage(data.error) ?? null)
+          setError(normalizeErrorMessage(data.error, t('vector.table.errors.indexFetchFailed')) ?? null)
         } catch (err: any) {
-          setError(normalizeErrorMessage(err, 'Vector index fetch failed'))
+          setError(normalizeErrorMessage(err, t('vector.table.errors.indexFetchFailed')))
         }
       }
     } catch (err: any) {
-      setError(normalizeErrorMessage(err, 'Vector reindex failed'))
+      setError(normalizeErrorMessage(err, t('vector.table.errors.reindexFailed')))
     } finally {
       setReindexing(false)
     }
@@ -342,7 +340,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
   const handlePurge = React.useCallback(async () => {
     if (!apiKeyAvailable || purging || reindexing) return
     if (typeof window !== 'undefined') {
-      const confirmed = window.confirm('Remove all vector entries for this tenant? This cannot be undone.')
+      const confirmed = window.confirm(t('vector.table.confirm.purge'))
       if (!confirmed) return
     }
     setPurging(true)
@@ -352,17 +350,15 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        const message = normalizeErrorMessage(body?.error, 'Vector purge failed')
+        const message = normalizeErrorMessage(body?.error, t('vector.table.errors.purgeFailed'))
         setError(message)
         return
       }
-      if (typeof window !== 'undefined') {
-        window.alert('Vector index purged. Reindex to rebuild embeddings.')
-      }
+      if (typeof window !== 'undefined') window.alert(t('vector.table.alert.purgeCompleted'))
       setRows([])
       setError(null)
     } catch (err: any) {
-      setError(normalizeErrorMessage(err, 'Vector purge failed'))
+      setError(normalizeErrorMessage(err, t('vector.table.errors.purgeFailed')))
     } finally {
       setPurging(false)
     }
@@ -384,12 +380,12 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
         </div>
       ) : null}
       <DataTable<Row>
-        title="Vector Search Index"
+        title={t('vector.table.title')}
         columns={columns}
         data={rows}
         searchValue={searchValue}
         onSearchChange={(value) => { setSearchValue(value); setPage(1) }}
-        searchPlaceholder="Search vector index"
+        searchPlaceholder={t('vector.table.searchPlaceholder')}
         isLoading={apiKeyAvailable ? loading : false}
         pagination={{ page, pageSize: rows.length || 1, total: rows.length, totalPages: 1, onPageChange: setPage }}
         actions={(
@@ -401,7 +397,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
               disabled={!apiKeyAvailable || purging || reindexing}
               onClick={handleReindex}
             >
-              {reindexing ? 'Reindexing…' : 'Reindex vectors'}
+              {reindexing ? t('vector.table.actions.reindexing') : t('vector.table.actions.reindex')}
             </Button>
             <Button
               type="button"
@@ -410,7 +406,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
               disabled={!apiKeyAvailable || purging || reindexing}
               onClick={handlePurge}
             >
-              {purging ? 'Purging…' : 'Purge index'}
+              {purging ? t('vector.table.actions.purging') : t('vector.table.actions.purge')}
             </Button>
           </div>
         )}
@@ -418,7 +414,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
         rowActions={(row) => {
           const primaryHref = pickPrimaryLink(row)
           const items = [] as { label: string; href?: string }[]
-          if (primaryHref) items.push({ label: 'Open', href: primaryHref })
+          if (primaryHref) items.push({ label: t('vector.table.actions.open'), href: primaryHref })
           normalizeLinks(row.links).forEach((link) => {
             items.push({ label: link.label ?? link.href, href: link.href })
           })

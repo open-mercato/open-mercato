@@ -215,6 +215,7 @@ async function ensureDefaultRoleAcls(
       'attachments.*',
       'query_index.*',
       'vector.*',
+      'configs.manage',
       'catalog.*',
       'sales.*',
       'audit_logs.*',

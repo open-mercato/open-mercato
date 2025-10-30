@@ -253,7 +253,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
       return totalProcessed
     }
 
-    const defaultPurge = purgeFlag !== false && !skipPurgeFlag
+    const defaultPurge = purgeFlag === true && !skipPurgeFlag
 
     if (entityId) {
       if (!enabledEntities.has(entityId)) {
@@ -309,8 +309,8 @@ const helpCli: ModuleCli = {
     console.log('  --partition <idx>       Restrict to a specific partition index.')
     console.log('  --batch <n>             Override batch size per chunk.')
     console.log('  --force                 Force reindex even if another job is running.')
-    console.log('  --purgeFirst=false      Skip purging vector rows before reindexing.')
-    console.log('  --skipPurge             Alias to skip purging vector rows.')
+    console.log('  --purgeFirst            Purge vector rows before reindexing (defaults to skip).')
+    console.log('  --skipPurge             Explicitly skip purging vector rows.')
     console.log('  --skipResetCoverage     Keep existing coverage snapshots.')
   },
 }

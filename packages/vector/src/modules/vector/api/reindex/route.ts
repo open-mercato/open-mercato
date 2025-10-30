@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   } catch {}
 
   const entityId = typeof payload?.entityId === 'string' ? payload.entityId : undefined
-  const purgeFirst = payload?.purgeFirst !== false
+  const purgeFirst = payload?.purgeFirst === true
 
   const container = await createRequestContainer()
   let service: VectorIndexService

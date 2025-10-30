@@ -376,7 +376,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       action: 'created',
       entity,
       identifiers: {
-        id: entity.id,
+        id: profile.id ?? entity.id,
         organizationId: entity.organizationId,
         tenantId: entity.tenantId,
       },
@@ -483,7 +483,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       action: 'updated',
       entity: record,
       identifiers: {
-        id: record.id,
+        id: profile.id ?? record.id,
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
@@ -660,7 +660,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       action: 'updated',
       entity,
       identifiers: {
-        id: entity.id,
+        id: profile.id ?? entity.id,
         organizationId: entity.organizationId,
         tenantId: entity.tenantId,
       },
@@ -690,29 +690,30 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const record = assertRecordFound(entity, 'Company not found')
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
-      await em.nativeUpdate(CustomerPersonProfile, { company: record }, { company: null })
-      await em.nativeDelete(CustomerDealCompanyLink, { company: record })
-      await em.nativeDelete(CustomerActivity, { entity: record })
-      await em.nativeDelete(CustomerTodoLink, { entity: record })
-      await em.nativeDelete(CustomerCompanyProfile, { entity: record })
-      await em.nativeDelete(CustomerAddress, { entity: record })
-      await em.nativeDelete(CustomerComment, { entity: record })
-      await em.nativeDelete(CustomerTagAssignment, { entity: record })
-      em.remove(record)
-      await em.flush()
+    const profile = await em.findOne(CustomerCompanyProfile, { entity: record })
+    await em.nativeUpdate(CustomerPersonProfile, { company: record }, { company: null })
+    await em.nativeDelete(CustomerDealCompanyLink, { company: record })
+    await em.nativeDelete(CustomerActivity, { entity: record })
+    await em.nativeDelete(CustomerTodoLink, { entity: record })
+    await em.nativeDelete(CustomerCompanyProfile, { entity: record })
+    await em.nativeDelete(CustomerAddress, { entity: record })
+    await em.nativeDelete(CustomerComment, { entity: record })
+    await em.nativeDelete(CustomerTagAssignment, { entity: record })
+    em.remove(record)
+    await em.flush()
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
-      await emitCrudSideEffects({
-        dataEngine: de,
-        action: 'deleted',
-        entity: record,
-        identifiers: {
-          id: record.id,
-          organizationId: record.organizationId,
-          tenantId: record.tenantId,
-        },
-        indexer: companyCrudIndexer,
-      })
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: profile?.id ?? record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      indexer: companyCrudIndexer,
+    })
       return { entityId: record.id }
     },
     buildLog: async ({ snapshots }) => {
@@ -950,7 +951,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
         action: 'created',
         entity,
         identifiers: {
-          id: entity.id,
+          id: profile.id ?? entity.id,
           organizationId: entity.organizationId,
           tenantId: entity.tenantId,
         },

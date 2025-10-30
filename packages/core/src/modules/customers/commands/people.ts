@@ -496,7 +496,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       action: 'created',
       entity,
       identifiers: {
-        id: entity.id,
+        id: profile.id ?? entity.id,
         tenantId,
         organizationId,
       },
@@ -649,7 +649,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       action: 'updated',
       entity: record,
       identifiers: {
-        id: record.id,
+        id: profile.id ?? record.id,
         tenantId: record.tenantId,
         organizationId: record.organizationId,
       },
@@ -806,7 +806,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       action: 'updated',
       entity: await em.findOne(CustomerEntity, { id: before.entity.id }),
       identifiers: {
-        id: before.entity.id,
+        id: before.profile.id ?? before.entity.id,
         organizationId: before.entity.organizationId,
         tenantId: before.entity.tenantId,
       },
@@ -853,7 +853,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         action: 'deleted',
         entity: record,
         identifiers: {
-          id: record.id,
+          id: profile?.id ?? record.id,
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         },
@@ -1091,7 +1091,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         action: 'created',
         entity,
         identifiers: {
-          id: entity.id,
+          id: profile.id ?? entity.id,
           organizationId: entity.organizationId,
           tenantId: entity.tenantId,
         },
