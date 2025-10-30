@@ -1,3 +1,13 @@
+## [1.0.1](https://github.com/MStaniaszek1998/open-mercato/compare/v1.0.0...v1.0.1) (2025-10-30)
+
+
+### Bug Fixes
+
+* Generate lock file and use yarn instead of npm ([3dc303f](https://github.com/MStaniaszek1998/open-mercato/commit/3dc303f29f5fb3a56f88607b7f80b16b593a210c))
+* Generate lock file and use yarn instead of npm ([4a4f7c8](https://github.com/MStaniaszek1998/open-mercato/commit/4a4f7c8f551c9dd17fa57f9a62b29f216c8da7c4))
+* upgrade node version ([18eb246](https://github.com/MStaniaszek1998/open-mercato/commit/18eb2462d8b76b6a4d8e426669d81fcd3c07edd0))
+* upgrade node version ([1bb3157](https://github.com/MStaniaszek1998/open-mercato/commit/1bb31577dc7c68fe462d6f33dbffceb12ba68259))
+
 # 1.0.0 (2025-10-30)
 
 
