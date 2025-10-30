@@ -1370,13 +1370,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await opts.hooks?.afterCreate?.(entity, { ...ctx, input: input as any })
 
       const identifiers = identifierResolver(entity, 'created')
-      await de.emitOrmEntityEvent({
+      de.markOrmEntityChange({
         action: 'created',
         entity,
         identifiers,
         events: opts.events as CrudEventsConfig | undefined,
         indexer: opts.indexer as CrudIndexerConfig | undefined,
       })
+      await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'created', resourceTargets)
 
       const payload = opts.create.response ? opts.create.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
@@ -1474,13 +1475,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       await opts.hooks?.afterUpdate?.(entity, { ...ctx, input: input as any })
       const identifiers = identifierResolver(entity, 'updated')
-      await de.emitOrmEntityEvent({
+      de.markOrmEntityChange({
         action: 'updated',
         entity,
         identifiers,
         events: opts.events as CrudEventsConfig | undefined,
         indexer: opts.indexer as CrudIndexerConfig | undefined,
       })
+      await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'updated', resourceTargets)
       const payload = opts.update.response ? opts.update.response(entity) : { success: true }
       return json(payload)
@@ -1564,13 +1566,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await opts.hooks?.afterDelete?.(id!, ctx)
       if (entity) {
         const identifiers = identifierResolver(entity, 'deleted')
-        await de.emitOrmEntityEvent({
+        de.markOrmEntityChange({
           action: 'deleted',
           entity,
           identifiers,
           events: opts.events as CrudEventsConfig | undefined,
           indexer: opts.indexer as CrudIndexerConfig | undefined,
         })
+        await de.flushOrmEntityChanges()
         await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'deleted', resourceTargets)
       }
       const payload = opts.del?.response ? opts.del.response(id) : { success: true }

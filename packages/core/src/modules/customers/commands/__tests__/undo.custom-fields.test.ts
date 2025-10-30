@@ -29,13 +29,27 @@ function createMockContext(deps: {
   tenantId?: string
   organizationId?: string
 }): CommandRuntimeContext {
+  const engine = deps.dataEngine as unknown as Record<string, any>
+  if (typeof engine.markOrmEntityChange !== 'function' || typeof engine.flushOrmEntityChanges !== 'function') {
+    const queue: any[] = []
+    engine.markOrmEntityChange = jest.fn((entry: any) => {
+      if (!entry || !entry.entity) return
+      queue.push(entry)
+    })
+    engine.flushOrmEntityChanges = jest.fn(async () => {
+      while (queue.length > 0) {
+        const next = queue.shift()
+        await engine.emitOrmEntityEvent(next)
+      }
+    })
+  }
   const container = {
     resolve: (token: string) => {
       switch (token) {
         case 'em':
           return deps.em
         case 'dataEngine':
-          return deps.dataEngine
+          return engine
         default:
           throw new Error(`Unexpected dependency: ${token}`)
       }

@@ -3,6 +3,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexOkSchema, queryIndexReindexRequestSchema } from './openapi'
+import { DEFAULT_REINDEX_PARTITIONS } from '../lib/reindexer'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['query_index.reindex'] },
@@ -15,10 +16,40 @@ export async function POST(req: Request) {
   const entityType = String(body?.entityType || '')
   if (!entityType) return NextResponse.json({ error: 'Missing entityType' }, { status: 400 })
   const force = Boolean(body?.force)
+  const batchSize = Number.isFinite(body?.batchSize) ? Math.max(1, Math.trunc(body.batchSize)) : undefined
+  const partitionCountInput = Number(body?.partitionCount)
+  const partitionCount = Number.isFinite(partitionCountInput)
+    ? Math.max(1, Math.trunc(partitionCountInput))
+    : DEFAULT_REINDEX_PARTITIONS
+  const partitionIndexInput = Number(body?.partitionIndex)
+  const partitionIndex = Number.isFinite(partitionIndexInput) ? Math.max(0, Math.trunc(partitionIndexInput)) : undefined
+  if (partitionIndex !== undefined && partitionIndex >= partitionCount) {
+    return NextResponse.json({ error: 'partitionIndex must be < partitionCount' }, { status: 400 })
+  }
 
   const { resolve } = await createRequestContainer()
   const bus = resolve('eventBus') as any
-  await bus.emitEvent('query_index.reindex', { entityType, tenantId: auth.tenantId, force }, { persistent: true })
+  const partitions = partitionIndex !== undefined
+    ? [partitionIndex]
+    : Array.from({ length: partitionCount }, (_, idx) => idx)
+  const firstPartition = partitions[0] ?? 0
+  await Promise.all(
+    partitions.map((part) =>
+      bus.emitEvent(
+        'query_index.reindex',
+        {
+          entityType,
+          tenantId: auth.tenantId,
+          force,
+          batchSize,
+          partitionCount,
+          partitionIndex: part,
+          resetCoverage: part === firstPartition,
+        },
+        { persistent: true },
+      ),
+    ),
+  )
   return NextResponse.json({ ok: true })
 }
 

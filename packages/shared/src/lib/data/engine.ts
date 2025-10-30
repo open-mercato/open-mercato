@@ -27,6 +27,14 @@ function shouldTriggerCoverageRefresh(entityType: string | undefined, tenantId: 
 
 type CustomEntityValues = Record<string, unknown>
 
+type QueuedCrudSideEffect = {
+  action: CrudEventAction
+  entity: unknown
+  identifiers: CrudEntityIdentifiers
+  events?: CrudEventsConfig<unknown>
+  indexer?: CrudIndexerConfig<unknown>
+}
+
 export interface DataEngine {
   setCustomFields(opts: {
     entityId: string
@@ -91,9 +99,21 @@ export interface DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
   }): Promise<void>
+
+  markOrmEntityChange<T>(opts: {
+    action: CrudEventAction
+    entity: T | null | undefined
+    events?: CrudEventsConfig<T>
+    indexer?: CrudIndexerConfig<T>
+    identifiers: CrudEntityIdentifiers
+  }): void
+
+  flushOrmEntityChanges(): Promise<void>
 }
 
 export class DefaultDataEngine implements DataEngine {
+  private pendingSideEffects = new Map<string, QueuedCrudSideEffect>()
+
   constructor(private em: EntityManager, private container: AwilixContainer) {}
 
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {
@@ -464,5 +484,63 @@ export class DefaultDataEngine implements DataEngine {
         }).catch(() => undefined)
       }
     }
+  }
+
+  markOrmEntityChange<T>(opts: { action: CrudEventAction; entity: T | null | undefined; events?: CrudEventsConfig<T>; indexer?: CrudIndexerConfig<T>; identifiers: CrudEntityIdentifiers }): void {
+    const { entity, identifiers } = opts
+    if (!entity) return
+    if (!identifiers?.id) return
+    const key = this.buildSideEffectKey(opts.action, identifiers)
+    const existing = this.pendingSideEffects.get(key)
+    if (existing) {
+      existing.entity = entity
+      existing.identifiers = {
+        id: identifiers.id,
+        organizationId: identifiers.organizationId ?? null,
+        tenantId: identifiers.tenantId ?? null,
+      }
+      if (opts.events) existing.events = opts.events as CrudEventsConfig<unknown>
+      if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
+      this.pendingSideEffects.set(key, existing)
+      return
+    }
+    const entry: QueuedCrudSideEffect = {
+      action: opts.action,
+      entity,
+      identifiers: {
+        id: identifiers.id,
+        organizationId: identifiers.organizationId ?? null,
+        tenantId: identifiers.tenantId ?? null,
+      },
+    }
+    if (opts.events) entry.events = opts.events as CrudEventsConfig<unknown>
+    if (opts.indexer) entry.indexer = opts.indexer as CrudIndexerConfig<unknown>
+    this.pendingSideEffects.set(key, entry)
+  }
+
+  async flushOrmEntityChanges(): Promise<void> {
+    if (!this.pendingSideEffects.size) return
+    const entries = Array.from(this.pendingSideEffects.values())
+    this.pendingSideEffects.clear()
+    for (const entry of entries) {
+      try {
+        await this.emitOrmEntityEvent({
+          action: entry.action,
+          entity: entry.entity,
+          identifiers: entry.identifiers,
+          events: entry.events as CrudEventsConfig<unknown>,
+          indexer: entry.indexer as CrudIndexerConfig<unknown>,
+        })
+      } catch {
+        // best-effort; continue with remaining side effects
+      }
+    }
+  }
+
+  private buildSideEffectKey(action: CrudEventAction, identifiers: CrudEntityIdentifiers): string {
+    const id = identifiers.id ?? ''
+    const org = identifiers.organizationId ?? ''
+    const tenant = identifiers.tenantId ?? ''
+    return [action, id, org, tenant].join('|')
   }
 }

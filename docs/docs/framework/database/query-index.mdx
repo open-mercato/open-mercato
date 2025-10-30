@@ -55,7 +55,11 @@ Backfill
   - Single record: `mercato query_index rebuild --entity example:todo --record <entityId>`
   - Options: `--withDeleted` `--limit <n>` `--offset <n>` `--batch <size>`
 - CLI: `mercato query_index rebuild-all` walks every registered entity index using the same flags as `rebuild`, making it easy to refresh the entire corpus in one go.
-- Scheduling via events remains available: `mercato query_index reindex [--entity <module:entity>] [--tenant <tenantId>] [--force]` and `mercato query_index purge [...]` enqueue background jobs when you don’t need immediate writes.
+- CLI: `mercato query_index reindex [--entity <module:entity>] [--tenant <tenantId>] [--force]` now splits work into five partitions by default. Override the granularity with `--partitions <n>` or target a single shard with `--partition-index <i>`. Combine with `--skipResetCoverage` on partitions >0 when running several workers concurrently. The command continues to honour `--batch <size>` for the inner chunk size (defaults to 500 rows).
+  - Parallel run: start five terminals with `mercato query_index reindex --entity example:todo --partitions 5 --partition-index <0-4>`; the partition `0` process resets coverage, so the remaining workers should pass `--skipResetCoverage`.
+  - Single worker: omit `--partition-index` and the CLI will iterate every partition sequentially.
+- Each CLI run purges existing index rows before reindexing unless `--skipPurge` is provided, ensuring a clean rebuild.
+- Scheduling via events remains available: `mercato query_index reindex [...]` and `mercato query_index purge [...]` enqueue background jobs when you don’t need immediate writes. API callers can pass `partitionCount`, `partitionIndex`, and `batchSize` to mirror the CLI behaviour; omitting `partitionIndex` emits one event per partition automatically.
 - Bulk imports: build and insert index payloads alongside your ETL transaction with the `buildIndexDocument` helper (`packages/core/src/modules/query_index/lib/document.ts`) so large seeders can skip the post-import reindex sweep. The CRM stress-test seeder now follows this pattern.
 
 Performance tips

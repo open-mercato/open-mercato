@@ -51,7 +51,7 @@ export async function emitCrudSideEffects<TEntity>(opts: {
   indexer?: CrudIndexerConfig<TEntity>
 }) {
   const { dataEngine, action, entity, identifiers, events, indexer } = opts
-  await dataEngine.emitOrmEntityEvent({
+  dataEngine.markOrmEntityChange({
     action,
     entity,
     identifiers,
@@ -70,7 +70,17 @@ export async function emitCrudUndoSideEffects<TEntity>(opts: {
 }) {
   const { dataEngine, action, entity, identifiers, events, indexer } = opts
   if (!entity) return
-  await emitCrudSideEffects({ dataEngine, action, entity, identifiers, events, indexer })
+  dataEngine.markOrmEntityChange({
+    action,
+    entity,
+    identifiers,
+    events,
+    indexer,
+  })
+}
+
+export async function flushCrudSideEffects(dataEngine: DataEngine): Promise<void> {
+  await dataEngine.flushOrmEntityChanges()
 }
 
 export function buildChanges(

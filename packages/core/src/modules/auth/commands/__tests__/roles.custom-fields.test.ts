@@ -38,10 +38,21 @@ describe('auth.roles.update undo custom fields', () => {
       return entity
     })
 
-    const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent'> = {
+    const pending: any[] = []
+    const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent' | 'markOrmEntityChange' | 'flushOrmEntityChanges'> = {
       updateOrmEntity,
       setCustomFields,
       emitOrmEntityEvent: jest.fn(async () => {}),
+      markOrmEntityChange: jest.fn((entry: any) => {
+        if (!entry || !entry.entity) return
+        pending.push(entry)
+      }),
+      flushOrmEntityChanges: jest.fn(async () => {
+        while (pending.length > 0) {
+          const next = pending.shift()
+          await dataEngine.emitOrmEntityEvent(next as any)
+        }
+      }),
     }
 
     const em: Partial<EntityManager> = {

@@ -92,6 +92,12 @@ export class EntityIndexJob {
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
   tenantId?: string | null
 
+  @Property({ name: 'partition_index', type: 'int', nullable: true })
+  partitionIndex?: number | null
+
+  @Property({ name: 'partition_count', type: 'int', nullable: true })
+  partitionCount?: number | null
+
   // 'reindexing' | 'purging'
   @Property({ name: 'status', type: 'text' })
   status!: string

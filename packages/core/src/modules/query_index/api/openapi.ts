@@ -28,6 +28,9 @@ export const queryIndexStatusResponseSchema = z.object({
 export const queryIndexReindexRequestSchema = z.object({
   entityType: z.string().min(1),
   force: z.boolean().optional(),
+  batchSize: z.number().int().positive().optional(),
+  partitionCount: z.number().int().positive().optional(),
+  partitionIndex: z.number().int().nonnegative().optional(),
 })
 
 export const queryIndexPurgeRequestSchema = z.object({
@@ -37,4 +40,3 @@ export const queryIndexPurgeRequestSchema = z.object({
 export const queryIndexOkSchema = z.object({
   ok: z.literal(true),
 })
-

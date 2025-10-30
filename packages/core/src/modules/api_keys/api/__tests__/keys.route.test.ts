@@ -9,8 +9,19 @@ const mockEm = {
   findOne: jest.fn(),
 } as any
 const mockDataEngine = {
+  __queue: [] as any[],
   createOrmEntity: jest.fn(),
   emitOrmEntityEvent: jest.fn(),
+  markOrmEntityChange: jest.fn((entry: any) => {
+    if (!entry || !entry.entity) return
+    mockDataEngine.__queue.push(entry)
+  }),
+  flushOrmEntityChanges: jest.fn(async () => {
+    while (mockDataEngine.__queue.length > 0) {
+      const next = mockDataEngine.__queue.shift()
+      await mockDataEngine.emitOrmEntityEvent(next)
+    }
+  }),
 } as any
 const mockRbac = {
   invalidateUserCache: jest.fn(),
@@ -58,6 +69,7 @@ const { metadata, POST } = routeModule
 describe('API Keys route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockDataEngine.__queue.length = 0
     mockGetAuthFromCookies.mockResolvedValue({
       sub: 'user-1',
       tenantId: '123e4567-e89b-12d3-a456-426614174000',
