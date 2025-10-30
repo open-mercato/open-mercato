@@ -1,0 +1,55 @@
+---
+title: configs module
+description: Persist and fetch module-level preferences from a single source of truth.
+---
+
+# configs module
+
+- **Module id**: `configs`
+- **Package**: `@open-mercato/core`
+- **Entity**: `ModuleConfig` (table `module_configs`)
+- **Features**: `configs.manage` (reserved for future UI)
+
+## Storage model
+
+`ModuleConfig` records are keyed by `{ module_id, name }` and store a JSON payload in `value_json`. Rows also track `created_at`/`updated_at` timestamps so background syncs can detect stale values. The shared cache tag `module-config:module:<module_id>` keeps lookups fast while allowing targeted invalidation.
+
+```ts title="packages/core/src/modules/configs/data/entities.ts"
+@Entity({ tableName: 'module_configs' })
+@Unique({ name: 'module_configs_module_name_unique', properties: ['moduleId', 'name'] })
+export class ModuleConfig {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'module_id', type: 'text' })
+  moduleId!: string
+
+  @Property({ name: 'name', type: 'text' })
+  name!: string
+
+  @Property({ name: 'value_json', type: 'json', nullable: true })
+  valueJson!: unknown
+}
+```
+
+## Runtime helpers
+
+The DI registrar exposes a singleton `moduleConfigService` with the following surface:
+
+- `getValue(moduleId, name, { defaultValue })` → fetches and caches the JSON value.
+- `setValue(moduleId, name, value)` → upserts the record and invalidates cache entries.
+- `restoreDefaults([{ moduleId, name, value }], { force })` → seed or reset baseline values.
+- `invalidate(moduleId, name?)` → drop cache entries for a specific key or the entire module.
+
+Every call automatically resolves the request-scoped `EntityManager` and the configured cache strategy (memory/Redis/sqlite/JSON). Consumers can safely call these helpers from APIs, subscribers, or CLIs without managing transactions or cache keys manually.
+
+## Default seeding & automation
+
+- `yarn mercato configs restore-defaults` seeds module defaults. The command runs automatically during `mercato init` after database migrations complete.
+- Environment flags can override values. Example: `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` forces the `vector.auto_index_enabled` toggle off and prevents the API/UI from re-enabling it.
+- Additional defaults can be registered by other modules via `restoreDefaults` (e.g., inside their CLI bootstrap or migrations).
+
+## Usage example: vector search auto-indexing
+
+The vector module reads `moduleConfigService.getValue('vector', 'auto_index_enabled', { defaultValue: true })` inside its subscribers before running expensive embedding work. A backend settings page at `/backend/vector-search` exposes the toggle through `/api/vector/settings`, so operators can pause real-time indexing without redeploying the app.
+

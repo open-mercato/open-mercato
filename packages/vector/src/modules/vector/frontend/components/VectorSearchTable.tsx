@@ -11,6 +11,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import type { VectorSearchHit, VectorIndexEntry } from '@open-mercato/vector'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@/lib/i18n/context'
 import { fetchVectorResults, fetchVectorIndexEntries } from '../utils'
 
 type Row = {
@@ -26,10 +27,13 @@ type Row = {
 }
 const MIN_QUERY_LENGTH = 2
 
-const columns: ColumnDef<Row>[] = [
+type Translator = (key: string, params?: Record<string, string | number>) => string
+
+function createColumns(t: Translator): ColumnDef<Row>[] {
+  return [
   {
     id: 'title',
-    header: 'Result',
+    header: () => t('vector.table.columns.result'),
     cell: ({ row }) => {
       const item = row.original
       const iconName = item.presenter?.icon
@@ -77,13 +81,13 @@ const columns: ColumnDef<Row>[] = [
   },
   {
     id: 'score',
-    header: 'Score',
+    header: () => t('vector.table.columns.score'),
     cell: ({ row }) => <span>{row.original.score != null ? row.original.score.toFixed(2) : '—'}</span>,
     meta: { priority: 2 },
   },
   {
     id: 'updated',
-    header: 'Updated',
+    header: () => t('vector.table.columns.updated'),
     cell: ({ row }) => {
       const value = row.original.updatedAt
       if (!value) return <span>—</span>
@@ -94,6 +98,7 @@ const columns: ColumnDef<Row>[] = [
     meta: { priority: 2 },
   },
 ]
+}
 
 function normalizeLinks(links?: Row['links']): { href: string; label?: string; kind?: string }[] {
   if (!Array.isArray(links)) return []
@@ -189,6 +194,8 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
   const [purging, setPurging] = React.useState(false)
   const debounceRef = React.useRef<number | null>(null)
   const abortRef = React.useRef<AbortController | null>(null)
+  const t = useT()
+  const columns = React.useMemo(() => createColumns(t), [t])
 
   const openRow = React.useCallback((row: Row) => {
     const href = pickPrimaryLink(row)

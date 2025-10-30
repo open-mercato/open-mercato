@@ -7,6 +7,9 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@/lib/i18n/context'
+
+type Translator = (key: string, params?: Record<string, string | number>) => string
 
 type PartitionStatus = {
   partitionIndex: number | null
@@ -27,6 +30,11 @@ type JobStatus = {
   processedCount?: number | null
   totalCount?: number | null
   partitions?: PartitionStatus[]
+  scope?: {
+    status?: 'reindexing' | 'purging' | 'stalled' | 'completed' | null
+    processedCount?: number | null
+    totalCount?: number | null
+  } | null
 }
 
 type Row = {
@@ -56,141 +64,14 @@ type ErrorLog = {
 
 type Resp = { items: Row[]; errors: ErrorLog[] }
 
-const columns: ColumnDef<Row>[] = [
-  { id: 'entityId', header: 'Entity', accessorKey: 'entityId', meta: { priority: 1 } },
-  { id: 'label', header: 'Label', accessorKey: 'label', meta: { priority: 2 } },
-  {
-    id: 'baseCount',
-    header: 'Records',
-    accessorFn: (row) => row.baseCount ?? 0,
-    cell: ({ row }) => <span>{formatCount(row.original.baseCount)}</span>,
-    meta: { priority: 2 },
-  },
-  {
-    id: 'indexCount',
-    header: 'Indexed',
-    accessorFn: (row) => row.indexCount ?? 0,
-    cell: ({ row }) => <span>{formatCount(row.original.indexCount)}</span>,
-    meta: { priority: 2 },
-  },
-  {
-    id: 'vectorCount',
-    header: 'Vector',
-    accessorFn: (row) => (row.vectorEnabled ? row.vectorCount ?? 0 : -1),
-    cell: ({ row }) => {
-      const r = row.original
-      if (!r.vectorEnabled) return <span>—</span>
-      const ok = r.vectorCount != null && r.baseCount != null && r.vectorCount === r.baseCount
-      const display = formatCount(r.vectorCount)
-      const className = ok ? 'text-green-600' : 'text-orange-600'
-      return <span className={className}>{display}</span>
-    },
-    meta: { priority: 2 },
-  },
-  {
-    id: 'status',
-    header: 'Status',
-    cell: ({ row }) => {
-      const r = row.original as Row
-      const job = r.job
-      const partitions = job?.partitions ?? []
-      const ok = r.ok && (!job || job.status === 'idle')
-      const showJobProgress =
-        job?.processedCount != null && job?.totalCount != null && job.totalCount > 0
-      const progressLabel = showJobProgress
-        ? ` (${job.processedCount!.toLocaleString()}/${job.totalCount!.toLocaleString()})`
-        : ''
-      let label = ok ? 'In sync' : 'Out of sync'
-      if (job) {
-        if (job.status === 'reindexing') label = `Reindexing${progressLabel}`
-        else if (job.status === 'purging') label = `Purging${progressLabel}`
-        else if (job.status === 'stalled') label = `Stalled${progressLabel || ''}`
-        else if (!ok) label = 'Out of sync'
-      }
-      const className = job
-        ? job.status === 'stalled'
-          ? 'text-red-600'
-          : job.status === 'reindexing' || job.status === 'purging'
-            ? 'text-orange-600'
-            : ok
-              ? 'text-green-600'
-              : 'text-muted-foreground'
-        : ok
-          ? 'text-green-600'
-          : 'text-muted-foreground'
-
-      const scopeLine =
-        job?.scope && partitions.length <= 1
-          ? [
-              `Scope: ${
-                job.scope.status === 'reindexing'
-                  ? 'Running'
-                  : job.scope.status === 'purging'
-                    ? 'Purging'
-                    : job.scope.status === 'stalled'
-                      ? 'Stalled'
-                      : 'Done'
-              }${
-                job.scope.processedCount != null && job.scope.totalCount
-                  ? ` (${job.scope.processedCount.toLocaleString()}/${job.scope.totalCount.toLocaleString()})`
-                  : ''
-              }`,
-            ]
-          : []
-
-      const partitionSummaries =
-        partitions.length > 1
-          ? partitions.map((part) => {
-              const partLabel = part.partitionIndex != null ? `P${Number(part.partitionIndex) + 1}` : 'Scope'
-              const partProgress =
-                part.totalCount && part.processedCount != null
-                  ? `${part.processedCount.toLocaleString()}/${part.totalCount.toLocaleString()}`
-                  : part.processedCount != null
-                    ? `${part.processedCount.toLocaleString()}`
-                    : null
-              const stateLabel =
-                part.status === 'reindexing'
-                  ? 'Running'
-                  : part.status === 'purging'
-                    ? 'Purging'
-                    : part.status === 'stalled'
-                      ? 'Stalled'
-                      : 'Done'
-              return `${partLabel}: ${stateLabel}${partProgress ? ` (${partProgress})` : ''}`
-            })
-          : []
-
-      const vectorSummary =
-        r.vectorEnabled
-          ? [
-              `Vector: ${
-                r.vectorCount != null ? r.vectorCount.toLocaleString() : '—'
-              }${r.baseCount != null ? ` / ${r.baseCount.toLocaleString()}` : ''}`,
-            ]
-          : []
-
-      const lines = [...scopeLine, ...partitionSummaries, ...vectorSummary]
-
-      return (
-        <div className="space-y-1">
-          <span className={className}>{label}</span>
-          {lines.length > 0 && (
-            <div className="text-xs text-muted-foreground">
-              {lines.map((line, idx) => (
-                <div key={idx}>{line}</div>
-              ))}
-            </div>
-          )}
-        </div>
-      )
-    },
-    meta: { priority: 1 },
-  },
-]
-
 function formatCount(value: number | null): string {
   if (value == null) return '—'
   return value.toLocaleString()
+}
+
+function formatNumeric(value: number | null | undefined): string | null {
+  if (value == null) return null
+  return Number(value).toLocaleString()
 }
 
 function formatTimestamp(value: string): string {
@@ -200,10 +81,42 @@ function formatTimestamp(value: string): string {
   return date.toLocaleString()
 }
 
-function buildScopeLabel(log: ErrorLog): string {
+function formatProgressLabel(
+  processed: number | null | undefined,
+  total: number | null | undefined,
+  t: Translator,
+): string | null {
+  const processedText = formatNumeric(processed)
+  if (!processedText) return null
+  const totalText = formatNumeric(total)
+  if (totalText) return t('query_index.table.status.progress', { processed: processedText, total: totalText })
+  return t('query_index.table.status.progressSingle', { processed: processedText })
+}
+
+function translateJobStatus(t: Translator, status: JobStatus['status'] | undefined, ok: boolean): string {
+  if (!status || status === 'idle') {
+    return ok ? t('query_index.table.status.in_sync') : t('query_index.table.status.out_of_sync')
+  }
+  if (status === 'reindexing') return t('query_index.table.status.reindexing')
+  if (status === 'purging') return t('query_index.table.status.purging')
+  if (status === 'stalled') return t('query_index.table.status.stalled')
+  return ok ? t('query_index.table.status.in_sync') : t('query_index.table.status.out_of_sync')
+}
+
+function translateScopeStatus(
+  t: Translator,
+  status: PartitionStatus['status'] | JobStatus['status'] | undefined | null,
+): string {
+  if (status === 'reindexing') return t('query_index.table.status.scope.reindexing')
+  if (status === 'purging') return t('query_index.table.status.scope.purging')
+  if (status === 'stalled') return t('query_index.table.status.scope.stalled')
+  return t('query_index.table.status.scope.completed')
+}
+
+function buildScopeLabel(log: ErrorLog, t: Translator): string {
   const parts: string[] = []
-  if (log.tenantId) parts.push(`tenant=${log.tenantId}`)
-  if (log.organizationId) parts.push(`org=${log.organizationId}`)
+  if (log.tenantId) parts.push(t('query_index.table.errors.scope.tenant', { tenantId: log.tenantId }))
+  if (log.organizationId) parts.push(t('query_index.table.errors.scope.organization', { organizationId: log.organizationId }))
   return parts.join(' · ')
 }
 
@@ -217,6 +130,112 @@ function formatPayload(value: unknown): string | null {
   }
 }
 
+function createColumns(t: Translator): ColumnDef<Row>[] {
+  return [
+    { id: 'entityId', header: () => t('query_index.table.columns.entity'), accessorKey: 'entityId', meta: { priority: 1 } },
+    { id: 'label', header: () => t('query_index.table.columns.label'), accessorKey: 'label', meta: { priority: 2 } },
+    {
+      id: 'baseCount',
+      header: () => t('query_index.table.columns.records'),
+      accessorFn: (row) => row.baseCount ?? 0,
+      cell: ({ row }) => <span>{formatCount(row.original.baseCount)}</span>,
+      meta: { priority: 2 },
+    },
+    {
+      id: 'indexCount',
+      header: () => t('query_index.table.columns.indexed'),
+      accessorFn: (row) => row.indexCount ?? 0,
+      cell: ({ row }) => <span>{formatCount(row.original.indexCount)}</span>,
+      meta: { priority: 2 },
+    },
+    {
+      id: 'vectorCount',
+      header: () => t('query_index.table.columns.vector'),
+      accessorFn: (row) => (row.vectorEnabled ? row.vectorCount ?? 0 : -1),
+      cell: ({ row }) => {
+        const record = row.original
+        if (!record.vectorEnabled) return <span>—</span>
+        const ok = record.vectorCount != null && record.baseCount != null && record.vectorCount === record.baseCount
+        const display = formatCount(record.vectorCount)
+        const className = ok ? 'text-green-600' : 'text-orange-600'
+        return <span className={className}>{display}</span>
+      },
+      meta: { priority: 2 },
+    },
+    {
+      id: 'status',
+      header: () => t('query_index.table.columns.status'),
+      cell: ({ row }) => {
+        const record = row.original
+        const job = record.job
+        const partitions = job?.partitions ?? []
+        const ok = record.ok && (!job || job.status === 'idle')
+        const statusText = translateJobStatus(t, job?.status, ok)
+        const jobProgress = job ? formatProgressLabel(job.processedCount ?? null, job.totalCount ?? null, t) : null
+        const label = jobProgress
+          ? t('query_index.table.status.withProgress', { status: statusText, progress: jobProgress })
+          : statusText
+        const className = job
+          ? job.status === 'stalled'
+            ? 'text-red-600'
+            : job.status === 'reindexing' || job.status === 'purging'
+              ? 'text-orange-600'
+              : ok
+                ? 'text-green-600'
+                : 'text-muted-foreground'
+          : ok
+            ? 'text-green-600'
+            : 'text-muted-foreground'
+
+        const lines: string[] = []
+
+        if (job?.scope && partitions.length <= 1) {
+          const scopeStatus = translateScopeStatus(t, job.scope.status ?? null)
+          const scopeProgress = formatProgressLabel(job.scope.processedCount ?? null, job.scope.totalCount ?? null, t)
+          const scopeLabel = t('query_index.table.status.scopeLabel')
+          lines.push(`${scopeLabel}: ${scopeStatus}${scopeProgress ? ` (${scopeProgress})` : ''}`)
+        }
+
+        if (partitions.length > 1) {
+          for (const part of partitions) {
+            const partitionLabel =
+              part.partitionIndex != null
+                ? t('query_index.table.status.partitionLabel', { index: Number(part.partitionIndex) + 1 })
+                : t('query_index.table.status.scopeLabel')
+            const partitionStatus = translateScopeStatus(t, part.status)
+            const partitionProgress = formatProgressLabel(part.processedCount ?? null, part.totalCount ?? null, t)
+            lines.push(`${partitionLabel}: ${partitionStatus}${partitionProgress ? ` (${partitionProgress})` : ''}`)
+          }
+        }
+
+        if (record.vectorEnabled) {
+          const vectorLabel = t('query_index.table.status.vectorLabel')
+          const vectorCount = formatCount(record.vectorCount)
+          const vectorTotal = record.baseCount != null ? formatCount(record.baseCount) : null
+          const vectorValue = vectorTotal
+            ? t('query_index.table.status.vectorValue', { count: vectorCount, total: vectorTotal })
+            : vectorCount
+          lines.push(`${vectorLabel}: ${vectorValue}`)
+        }
+
+        return (
+          <div className="space-y-1">
+            <span className={className}>{label}</span>
+            {lines.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                {lines.map((line, idx) => (
+                  <div key={idx}>{line}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      },
+      meta: { priority: 1 },
+    },
+  ]
+}
+
 export default function QueryIndexesTable() {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'entityId', desc: false }])
   const [page, setPage] = React.useState(1)
@@ -224,6 +243,8 @@ export default function QueryIndexesTable() {
   const qc = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
   const [refreshSeq, setRefreshSeq] = React.useState(0)
+  const t = useT()
+  const columns = React.useMemo(() => createColumns(t), [t])
 
   const { data, isLoading } = useQuery<Resp>({
     queryKey: ['query-index-status', scopeVersion, refreshSeq],
@@ -231,7 +252,7 @@ export default function QueryIndexesTable() {
       const baseUrl = '/api/query_index/status'
       const url = refreshSeq > 0 ? `${baseUrl}?refresh=${refreshSeq}` : baseUrl
       const res = await apiFetch(url)
-      if (!res.ok) throw new Error('Failed to load status')
+      if (!res.ok) throw new Error(t('query_index.table.errors.loadFailed'))
       return res.json()
     },
     refetchInterval: 4000,
@@ -242,21 +263,28 @@ export default function QueryIndexesTable() {
   const rows = React.useMemo(() => {
     if (!search) return rowsAll
     const q = search.toLowerCase()
-    return rowsAll.filter(r => r.entityId.toLowerCase().includes(q) || r.label.toLowerCase().includes(q))
+    return rowsAll.filter((r) => r.entityId.toLowerCase().includes(q) || r.label.toLowerCase().includes(q))
   }, [rowsAll, search])
 
-  const trigger = async (action: 'reindex'|'purge', entityId: string, opts?: { force?: boolean }) => {
-    const body: any = { entityType: entityId }
-    if (opts?.force) body.force = true
-    const res = await apiFetch(`/api/query_index/${action}`, { method: 'POST', body: JSON.stringify(body) })
-    if (!res.ok) alert(`Failed to ${action}`)
-    qc.invalidateQueries({ queryKey: ['query-index-status'] })
-  }
+  const trigger = React.useCallback(
+    async (action: 'reindex' | 'purge', entityId: string, opts?: { force?: boolean }) => {
+      const body: Record<string, unknown> = { entityType: entityId }
+      if (opts?.force) body.force = true
+      const res = await apiFetch(`/api/query_index/${action}`, { method: 'POST', body: JSON.stringify(body) })
+      if (!res.ok && typeof window !== 'undefined') {
+        const label =
+          action === 'purge' ? t('query_index.table.actions.purge') : t('query_index.table.actions.reindex')
+        window.alert(t('query_index.table.errors.actionFailed', { action: label }))
+      }
+      qc.invalidateQueries({ queryKey: ['query-index-status'] })
+    },
+    [qc, t],
+  )
 
   return (
     <div className="space-y-6">
       <DataTable
-        title="Query Indexes"
+        title={t('query_index.nav.queryIndexes')}
         actions={(
           <>
             <Button
@@ -266,14 +294,18 @@ export default function QueryIndexesTable() {
                 qc.invalidateQueries({ queryKey: ['query-index-status'] })
               }}
             >
-              Refresh
+              {t('query_index.table.refresh')}
             </Button>
           </>
         )}
         columns={columns}
         data={rows}
         searchValue={search}
-        onSearchChange={(v) => { setSearch(v); setPage(1) }}
+        searchPlaceholder={t('query_index.table.searchPlaceholder')}
+        onSearchChange={(value) => {
+          setSearch(value)
+          setPage(1)
+        }}
         sortable
         sorting={sorting}
         onSortingChange={setSorting}
@@ -281,9 +313,12 @@ export default function QueryIndexesTable() {
         rowActions={(row) => (
           <RowActions
             items={[
-              { label: 'Reindex', onSelect: () => trigger('reindex', row.entityId) },
-              { label: 'Force Full Reindex', onSelect: () => trigger('reindex', row.entityId, { force: true }) },
-              { label: 'Purge', destructive: true, onSelect: () => trigger('purge', row.entityId) },
+              { label: t('query_index.table.actions.reindex'), onSelect: () => trigger('reindex', row.entityId) },
+              {
+                label: t('query_index.table.actions.reindexForce'),
+                onSelect: () => trigger('reindex', row.entityId, { force: true }),
+              },
+              { label: t('query_index.table.actions.purge'), destructive: true, onSelect: () => trigger('purge', row.entityId) },
             ]}
           />
         )}
@@ -293,42 +328,42 @@ export default function QueryIndexesTable() {
 
       <div className="overflow-hidden rounded-md border bg-card">
         <div className="border-b px-4 py-3">
-          <h2 className="text-sm font-medium">Recent indexer errors</h2>
+          <h2 className="text-sm font-medium">{t('query_index.table.errors.title')}</h2>
           <p className="text-xs text-muted-foreground">
-            Last 100 errors recorded for query index and vector index jobs in this scope.
+            {t('query_index.table.errors.subtitle')}
           </p>
         </div>
         {errors.length === 0 ? (
           <div className="px-4 py-6 text-xs text-muted-foreground">
-            No recent errors recorded.
+            {t('query_index.table.errors.empty')}
           </div>
         ) : (
-          <div className="max-h-72 overflow-y-auto">
+          <div className="max-h-72 overflow-x-auto overflow-y-auto">
             <table className="w-full table-fixed text-xs">
               <thead className="sticky top-0 bg-card">
                 <tr className="border-b text-left">
-                  <th className="w-40 px-4 py-2 font-medium">Timestamp</th>
-                  <th className="w-28 px-4 py-2 font-medium">Source</th>
-                  <th className="px-4 py-2 font-medium">Details</th>
+                  <th className="w-40 px-4 py-2 font-medium">{t('query_index.table.errors.columns.timestamp')}</th>
+                  <th className="w-28 px-4 py-2 font-medium">{t('query_index.table.errors.columns.source')}</th>
+                  <th className="px-4 py-2 font-medium">{t('query_index.table.errors.columns.details')}</th>
                 </tr>
               </thead>
               <tbody>
                 {errors.map((error) => {
                   const timestamp = formatTimestamp(error.occurredAt)
-                  const scopeLabel = buildScopeLabel(error)
+                  const scopeLabel = buildScopeLabel(error, t)
                   const payloadText = formatPayload(error.payload)
                   const stackText = error.stack ? error.stack.trim() : null
                   return (
                     <tr key={error.id} className="border-b last:border-0">
-                      <td className="px-4 py-2 align-top whitespace-nowrap">{timestamp}</td>
-                      <td className="px-4 py-2 align-top whitespace-nowrap">
+                      <td className="whitespace-nowrap px-4 py-2 align-top">{timestamp}</td>
+                      <td className="px-4 py-2 align-top">
                         <div className="font-medium">{error.source}</div>
-                        <div className="text-muted-foreground">{error.handler}</div>
+                        <div className="break-all text-muted-foreground">{error.handler}</div>
                       </td>
                       <td className="px-4 py-2 align-top">
                         <div className="flex flex-col gap-1">
-                          <div className="font-medium">{error.message}</div>
-                          <div className="text-muted-foreground">
+                          <div className="break-words font-medium">{error.message}</div>
+                          <div className="break-words text-muted-foreground">
                             {error.entityType ?? '—'}
                             {error.recordId ? ` · ${error.recordId}` : ''}
                             {scopeLabel ? ` · ${scopeLabel}` : ''}
@@ -336,7 +371,7 @@ export default function QueryIndexesTable() {
                           {(payloadText || stackText) && (
                             <details className="mt-1 space-y-2">
                               <summary className="cursor-pointer select-none text-muted-foreground">
-                                View technical details
+                                {t('query_index.table.errors.viewDetails')}
                               </summary>
                               {payloadText && (
                                 <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded bg-muted/80 p-2 text-[11px] leading-tight">

@@ -147,7 +147,12 @@ export async function run(argv = process.argv) {
       console.log('📊 Applying database migrations...')
       execSync('yarn db:migrate', { stdio: 'inherit' })
       console.log('✅ Migrations applied\n')
-      
+
+      // Step 3.5: Restore configuration defaults
+      console.log('⚙️  Restoring module defaults...')
+      execSync('yarn mercato configs restore-defaults', { stdio: 'inherit' })
+      console.log('✅ Module defaults restored\n')
+
       // Step 4: Seed roles
       console.log('👥 Seeding default roles...')
       execSync('yarn mercato auth seed-roles', { stdio: 'inherit' })
