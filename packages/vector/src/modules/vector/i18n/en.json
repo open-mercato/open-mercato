@@ -1,0 +1,10 @@
+{
+  "vector": {
+    "nav": {
+      "vectorSearch": "Vector Search"
+    },
+    "messages": {
+      "missingKey": "Vector search requires configuring OPENAI_API_KEY."
+    }
+  }
+}

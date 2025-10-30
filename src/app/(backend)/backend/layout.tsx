@@ -5,6 +5,7 @@ import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
 import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
 import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
+import { VectorSearchDialog } from '@open-mercato/vector/modules/vector/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@/lib/di/container'
@@ -43,6 +44,8 @@ export default async function BackendLayout({ children, params }: { children: Re
   
   // Build initial nav (SSR) using module metadata to preserve icons
   const { translate, locale } = await resolveTranslations()
+  const vectorApiKeyAvailable = Boolean(process.env.OPENAI_API_KEY)
+  const vectorMissingKeyMessage = translate('vector.messages.missingKey', 'Vector search requires configuring OPENAI_API_KEY.')
   const entries = await buildAdminNav(
     modules as any[],
     ctx,
@@ -169,6 +172,7 @@ export default async function BackendLayout({ children, params }: { children: Re
 
   const rightHeaderContent = (
     <>
+      <VectorSearchDialog apiKeyAvailable={vectorApiKeyAvailable} missingKeyMessage={vectorMissingKeyMessage} />
       <OrganizationSwitcher />
       <UserMenu email={auth?.email} />
     </>
