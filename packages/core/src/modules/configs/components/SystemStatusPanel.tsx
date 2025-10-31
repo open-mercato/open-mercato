@@ -2,9 +2,7 @@
 
 import * as React from 'react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import type { SystemStatusSnapshot, SystemStatusItem, SystemStatusState } from '../lib/system-status.types'
 
@@ -87,7 +85,6 @@ type FetchState = {
 export function SystemStatusPanel() {
   const t = useT()
   const [state, setState] = React.useState<FetchState>({ loading: true, error: null, snapshot: null })
-  const [purging, setPurging] = React.useState(false)
 
   const loadSnapshot = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }))
@@ -159,9 +156,13 @@ export function SystemStatusPanel() {
         <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {state.error}
         </div>
-        <Button variant="outline" onClick={() => loadSnapshot().catch(() => {})}>
+        <button
+          type="button"
+          className="inline-flex items-center justify-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition hover:bg-accent"
+          onClick={() => loadSnapshot().catch(() => {})}
+        >
           {t('configs.systemStatus.retry', 'Retry')}
-        </Button>
+        </button>
       </section>
     )
   }
@@ -171,33 +172,18 @@ export function SystemStatusPanel() {
 
   return (
     <section className="space-y-6 rounded-lg border bg-background p-6">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold">{t('configs.systemStatus.title', 'System status')}</h2>
-          <p className="text-sm text-muted-foreground">
-            {t('configs.systemStatus.description', 'Review debugging, cache, and logging flags that shape backend behaviour.')}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {t(
-              'configs.systemStatus.generatedAt',
-              'Snapshot generated {{timestamp}}',
-              { timestamp: new Date(snapshot.generatedAt).toLocaleString() }
-            )}
-          </p>
-        </div>
-        {!checkingFeature && canPurgeCache ? (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="destructive"
-              disabled={purging}
-              onClick={() => { void handlePurgeCache() }}
-            >
-              {purging
-                ? t('configs.systemStatus.actions.purgeCacheLoading', 'Purging…')
-                : t('configs.systemStatus.actions.purgeCache', 'Purge cache')}
-            </Button>
-          </div>
-        ) : null}
+      <header className="space-y-1">
+        <h2 className="text-lg font-semibold">{t('configs.systemStatus.title', 'System status')}</h2>
+        <p className="text-sm text-muted-foreground">
+          {t('configs.systemStatus.description', 'Review debugging, cache, and logging flags that shape backend behaviour.')}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            'configs.systemStatus.generatedAt',
+            'Snapshot generated {{timestamp}}',
+            { timestamp: new Date(snapshot.generatedAt).toLocaleString() }
+          )}
+        </p>
       </header>
       <div className="space-y-6">
         {snapshot.categories.map((category) => (

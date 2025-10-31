@@ -103,7 +103,10 @@ export function CachePanel() {
     if (!canManage || purgingAll) return
     if (typeof window !== 'undefined') {
       const confirmed = window.confirm(
-        t('configs.cache.purgeAllConfirm', 'Purge all cached entries for this tenant?'))
+        t('configs.cache.purgeAllConfirm', 'Purge all cached entries for this tenant?')
+      )
+      if (!confirmed) return
+    }
     setPurgingAll(true)
     try {
       const response = await apiFetch(API_PATH, {
@@ -121,8 +124,11 @@ export function CachePanel() {
         return
       }
       const stats = payload?.stats as CrudCacheStats | undefined
-      if (stats) setState({ loading: false, error: null, stats })
-      else handleRefresh()
+      if (stats) {
+        setState({ loading: false, error: null, stats })
+      } else {
+        handleRefresh()
+      }
       flash(t('configs.cache.purgeAllSuccess', 'Cache cleared.'), 'success')
       setSegmentPurges({})
     } catch (error) {
@@ -134,7 +140,8 @@ export function CachePanel() {
     } finally {
       setPurgingAll(false)
     }
-  }, [canManage, purgingAll, t, handleRefresh])
+  }, [canManage, purgingAll, t, handleRefresh]);
+
 
   const handlePurgeSegment = React.useCallback(async (segment: string) => {
     if (!canManage || segmentPurges[segment]) return
@@ -161,8 +168,11 @@ export function CachePanel() {
         return
       }
       const stats = payload?.stats as CrudCacheStats | undefined
-      if (stats) setState({ loading: false, error: null, stats })
-      else handleRefresh()
+      if (stats) {
+        setState({ loading: false, error: null, stats })
+      } else {
+        handleRefresh()
+      }
       const deleted = typeof payload?.deleted === 'number' ? payload.deleted : 0
       flash(
         t('configs.cache.purgeSegmentSuccess', {
@@ -184,7 +194,7 @@ export function CachePanel() {
         return next
       })
     }
-  }, [canManage, segmentPurges, t, handleRefresh])
+  }, [canManage, segmentPurges, t, handleRefresh]);
 
   if (state.loading) {
     return (
