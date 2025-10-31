@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import type { SystemStatusSnapshot, SystemStatusItem, SystemStatusState } from '../lib/system-status.types'
 
@@ -86,6 +87,9 @@ type FetchState = {
 export function SystemStatusPanel() {
   const t = useT()
   const [state, setState] = React.useState<FetchState>({ loading: true, error: null, snapshot: null })
+  const [purging, setPurging] = React.useState(false)
+  const [canPurgeCache, setCanPurgeCache] = React.useState(false)
+  const [checkingFeature, setCheckingFeature] = React.useState(true)
 
   const loadSnapshot = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }))
@@ -121,6 +125,81 @@ export function SystemStatusPanel() {
   React.useEffect(() => {
     loadSnapshot().catch(() => {})
   }, [loadSnapshot])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function checkFeature() {
+      try {
+        const response = await apiFetch('/api/auth/feature-check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ features: ['configs.manage'] }),
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (cancelled) return
+        const granted = Array.isArray(payload?.granted)
+          ? (payload.granted as unknown[]).filter((feature) => typeof feature === 'string') as string[]
+          : []
+        const hasFeature = payload?.ok === true || granted.includes('configs.manage')
+        setCanPurgeCache(hasFeature)
+      } catch {
+        if (!cancelled) setCanPurgeCache(false)
+      } finally {
+        if (!cancelled) setCheckingFeature(false)
+      }
+    }
+    checkFeature().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handlePurgeCache = React.useCallback(async () => {
+    if (purging || !canPurgeCache) return
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(
+        t(
+          'configs.systemStatus.actions.purgeCacheConfirm',
+          'Purge all cached data now? This clears cache entries across every tenant.'
+        )
+      )
+      if (!confirmed) return
+    }
+
+    setPurging(true)
+    try {
+      const response = await apiFetch(API_PATH, { method: 'POST' })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const message =
+          typeof payload?.error === 'string'
+            ? payload.error
+            : t('configs.systemStatus.actions.purgeCacheError', 'Failed to purge cache.')
+        flash(message, 'error')
+        return
+      }
+      const cleared = typeof payload?.cleared === 'number' ? payload.cleared : null
+      if (typeof cleared === 'number' && Number.isFinite(cleared)) {
+        flash(
+          t('configs.systemStatus.actions.purgeCacheSuccessWithCount', {
+            count: cleared,
+          }),
+          'success'
+        )
+      } else {
+        flash(t('configs.systemStatus.actions.purgeCacheSuccess', 'Cache cleared.'), 'success')
+      }
+      await loadSnapshot()
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : t('configs.systemStatus.actions.purgeCacheError', 'Failed to purge cache.')
+      flash(message, 'error')
+    } finally {
+      setPurging(false)
+    }
+  }, [purging, canPurgeCache, t, loadSnapshot])
 
   if (state.loading) {
     return (
@@ -169,18 +248,33 @@ export function SystemStatusPanel() {
 
   return (
     <section className="space-y-6 rounded-lg border bg-background p-6">
-      <header className="space-y-1">
-        <h2 className="text-lg font-semibold">{t('configs.systemStatus.title', 'System status')}</h2>
-        <p className="text-sm text-muted-foreground">
-          {t('configs.systemStatus.description', 'Review debugging, cache, and logging flags that shape backend behaviour.')}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {t(
-            'configs.systemStatus.generatedAt',
-            'Snapshot generated {{timestamp}}',
-            { timestamp: new Date(snapshot.generatedAt).toLocaleString() }
-          )}
-        </p>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">{t('configs.systemStatus.title', 'System status')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {t('configs.systemStatus.description', 'Review debugging, cache, and logging flags that shape backend behaviour.')}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'configs.systemStatus.generatedAt',
+              'Snapshot generated {{timestamp}}',
+              { timestamp: new Date(snapshot.generatedAt).toLocaleString() }
+            )}
+          </p>
+        </div>
+        {!checkingFeature && canPurgeCache ? (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="destructive"
+              disabled={purging}
+              onClick={() => { void handlePurgeCache() }}
+            >
+              {purging
+                ? t('configs.systemStatus.actions.purgeCacheLoading', 'Purging…')
+                : t('configs.systemStatus.actions.purgeCache', 'Purge cache')}
+            </Button>
+          </div>
+        ) : null}
       </header>
       <div className="space-y-6">
         {snapshot.categories.map((category) => (

@@ -8,6 +8,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { enforceTenantSelection, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { runWithCacheTenant } from '@open-mercato/cache'
 
 type MethodMetadata = {
   requireAuth?: boolean
@@ -195,7 +196,7 @@ async function handleRequest(
   if (authError) return authError
 
   const handlerContext: HandlerContext = { params: api.params, auth }
-  return api.handler(req, handlerContext)
+  return await runWithCacheTenant(auth?.tenantId ?? null, () => api.handler(req, handlerContext))
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {

@@ -3,6 +3,130 @@ import { createMemoryStrategy } from './strategies/memory'
 import { createRedisStrategy } from './strategies/redis'
 import { createSqliteStrategy } from './strategies/sqlite'
 import { createJsonFileStrategy } from './strategies/jsonfile'
+import { getCurrentCacheTenant } from './tenantContext'
+
+function normalizeTenantKey(raw: string | null | undefined): string {
+  const value = typeof raw === 'string' ? raw.trim() : ''
+  if (!value) return 'global'
+  return value.replace(/[^a-zA-Z0-9._-]/g, '_')
+}
+
+type TenantPrefixes = {
+  keyPrefix: string
+  tagPrefix: string
+  scopeTag: string
+}
+
+function resolveTenantPrefixes(): TenantPrefixes {
+  const tenant = normalizeTenantKey(getCurrentCacheTenant())
+  const base = `tenant:${tenant}:`
+  return {
+    keyPrefix: `${base}key:`,
+    tagPrefix: `${base}tag:`,
+    scopeTag: `${base}tag:__scope__`,
+  }
+}
+
+function prefixKey(key: string, prefixes: TenantPrefixes): string {
+  return `${prefixes.keyPrefix}${key}`
+}
+
+function prefixTag(tag: string, prefixes: TenantPrefixes): string {
+  return `${prefixes.tagPrefix}${tag}`
+}
+
+function includeScopeTag(tags: string[] | undefined, prefixes: TenantPrefixes): string[] {
+  const scoped = new Set<string>()
+  scoped.add(prefixes.scopeTag)
+  if (Array.isArray(tags)) {
+    for (const tag of tags) {
+      if (typeof tag === 'string' && tag.length > 0) scoped.add(prefixTag(tag, prefixes))
+    }
+  }
+  return Array.from(scoped)
+}
+
+function stripKeyPrefix(key: string, prefixes: TenantPrefixes): string | null {
+  if (!key.startsWith(prefixes.keyPrefix)) return null
+  return key.slice(prefixes.keyPrefix.length)
+}
+
+function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
+  const get = async (key: string, options?: CacheGetOptions) => {
+    const prefixes = resolveTenantPrefixes()
+    return base.get(prefixKey(key, prefixes), options)
+  }
+
+  const set = async (key: string, value: any, options?: CacheSetOptions) => {
+    const prefixes = resolveTenantPrefixes()
+    const nextOptions: CacheSetOptions | undefined = options
+      ? { ...options, tags: includeScopeTag(options.tags, prefixes) }
+      : { tags: includeScopeTag(undefined, prefixes) }
+    return base.set(prefixKey(key, prefixes), value, nextOptions)
+  }
+
+  const has = async (key: string) => {
+    const prefixes = resolveTenantPrefixes()
+    return base.has(prefixKey(key, prefixes))
+  }
+
+  const del = async (key: string) => {
+    const prefixes = resolveTenantPrefixes()
+    return base.delete(prefixKey(key, prefixes))
+  }
+
+  const deleteByTags = async (tags: string[]) => {
+    const prefixes = resolveTenantPrefixes()
+    const scopedTags = tags.map((tag) => prefixTag(tag, prefixes))
+    return base.deleteByTags(scopedTags)
+  }
+
+  const clear = async () => {
+    const prefixes = resolveTenantPrefixes()
+    return base.deleteByTags([prefixes.scopeTag])
+  }
+
+  const keys = async (pattern?: string) => {
+    const prefixes = resolveTenantPrefixes()
+    const searchPattern = prefixKey(pattern ?? '*', prefixes)
+    const scopedKeys = await base.keys(searchPattern)
+    const result: string[] = []
+    for (const key of scopedKeys) {
+      const unwrapped = stripKeyPrefix(key, prefixes)
+      if (unwrapped !== null) {
+        result.push(unwrapped)
+      }
+    }
+    return result
+  }
+
+  const stats = async () => {
+    const prefixes = resolveTenantPrefixes()
+    const scopedKeys = await base.keys(prefixKey('*', prefixes))
+    return { size: scopedKeys.length, expired: 0 }
+  }
+
+  const cleanup = base.cleanup
+    ? async () => base.cleanup!()
+    : undefined
+
+  const close = base.close
+    ? async () => base.close!()
+    : undefined
+
+  return {
+    get,
+    set,
+    has,
+    delete: del,
+    deleteByTags,
+    clear,
+    keys,
+    stats,
+    cleanup,
+    close,
+  }
+}
 
 /**
  * Cache service that provides a unified interface to different cache strategies
@@ -49,7 +173,7 @@ export function createCacheService(options?: CacheServiceOptions): CacheStrategy
       break
   }
 
-  return strategy
+  return createTenantAwareWrapper(strategy)
 }
 
 /**
@@ -108,4 +232,3 @@ export class CacheService implements CacheStrategy {
     }
   }
 }
-
