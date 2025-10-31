@@ -9,7 +9,7 @@ export const baseScopeSchema = z.object({
 })
 
 const recordLike = z.union([
-  z.record(z.unknown()),
+  z.record(z.string(), z.unknown()),
   z.array(z.unknown()),
   z.null(),
 ]).optional()
@@ -43,7 +43,7 @@ export const accessLogCreateSchema = baseScopeSchema.extend({
   resourceId: z.string().min(1),
   accessType: z.string().min(1),
   fields: z.array(z.string().min(1)).optional(),
-  context: z.record(z.unknown()).optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const accessLogListSchema = z.object({

@@ -28,7 +28,7 @@ import { TasksSection } from '../../../../components/detail/TasksSection'
 import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
-import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights'
+import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights.tsx'
 import { formatTemplate } from '../../../../components/detail/utils'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
@@ -556,6 +556,17 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       onSave: (value) => updateProfileField('brandName', value),
     },
     {
+      key: 'websiteUrl',
+      kind: 'text',
+      label: t('customers.companies.detail.fields.website', 'Website'),
+      value: profile?.websiteUrl ?? null,
+      placeholder: t('customers.companies.detail.fields.websitePlaceholder', 'https://example.com'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      inputType: 'url',
+      validator: validators.website,
+      onSave: (value) => updateProfileField('websiteUrl', value),
+    },
+    {
       key: 'description',
       kind: 'multiline',
       label: t('customers.companies.detail.fields.description', 'Description'),
@@ -604,6 +615,16 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       onSave: (value) => updateProfileField('domain', value),
     },
     {
+      key: 'industry',
+      kind: 'dictionary',
+      label: t('customers.companies.detail.fields.industry', 'Industry'),
+      value: profile?.industry ?? null,
+      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      dictionaryKind: 'industries',
+      onSave: (next) => updateProfileField('industry', next),
+      selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+    },
+    {
       key: 'sizeBucket',
       kind: 'text',
       label: t('customers.companies.detail.fields.sizeBucket', 'Company size'),
@@ -612,6 +633,16 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
       onSave: (value) => updateProfileField('sizeBucket', value),
     },
+    {
+      key: 'annualRevenue',
+      kind: 'annualRevenue',
+      label: t('customers.companies.detail.fields.annualRevenue', 'Annual revenue'),
+      value: profile?.annualRevenue ?? null,
+      currency: annualRevenueCurrency,
+      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      validator: validators.annualRevenue,
+      onSave: handleAnnualRevenueChange,
+    },
   ]
 
   return (
@@ -619,9 +650,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       <PageBody className="space-y-8">
         <CompanyHighlights
           company={company}
-          profile={profile}
           validators={validators}
-          annualRevenueCurrency={annualRevenueCurrency}
           onDisplayNameSave={updateDisplayName}
           onPrimaryEmailSave={(value) => updateCompanyField('primaryEmail', value)}
           onPrimaryPhoneSave={(value) => updateCompanyField('primaryPhone', value)}
@@ -652,11 +681,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
               })
             )
           }}
-          onBrandNameSave={(value) => updateProfileField('brandName', value)}
-          onLegalNameSave={(value) => updateProfileField('legalName', value)}
-          onWebsiteUrlSave={(value) => updateProfileField('websiteUrl', value)}
-          onIndustrySave={(value) => updateProfileField('industry', value)}
-          onAnnualRevenueChange={handleAnnualRevenueChange}
           onDelete={handleDelete}
           isDeleting={isDeleting}
         />

@@ -47,6 +47,7 @@ export async function createApiKey(
     rolesJson: Array.isArray(input.roles) ? input.roles : [],
     createdBy: input.createdBy ?? null,
     expiresAt: input.expiresAt ?? null,
+    createdAt: new Date(),
   })
   await em.persistAndFlush(record)
   if (opts.rbac) {

@@ -76,7 +76,7 @@ const updateSchema = z.object({
   roles: z.array(z.string()).optional(),
 })
 
-export const userCrudEvents: CrudEventsConfig<User> = {
+export const userCrudEvents: CrudEventsConfig = {
   module: 'auth',
   entity: 'user',
   persistent: true,
@@ -87,7 +87,7 @@ export const userCrudEvents: CrudEventsConfig<User> = {
   }),
 }
 
-export const userCrudIndexer: CrudIndexerConfig<User> = {
+export const userCrudIndexer: CrudIndexerConfig = {
   entityType: E.auth.user,
   buildUpsertPayload: (ctx) => ({
     entityType: E.auth.user,
@@ -214,7 +214,8 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const reset = buildCustomFieldResetMap(undefined, snapshot.custom)
       if (Object.keys(reset).length) {
-        await de.setCustomFields({
+        await setCustomFieldsIfAny({
+          dataEngine: de,
           entityId: E.auth.user,
           recordId: userId,
           organizationId: snapshot.organizationId,

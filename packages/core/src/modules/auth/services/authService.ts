@@ -26,7 +26,7 @@ export class AuthService {
   }
 
 
-  async createSession(user: User, expiresAt: Date) {
+  async createSession(user: User, expiresAt: Date): Promise<Session> {
     const token = crypto.randomBytes(32).toString('hex')
     const sess = this.em.create(Session as any, { user, token, expiresAt, createdAt: new Date() } as any)
     await this.em.persistAndFlush(sess)

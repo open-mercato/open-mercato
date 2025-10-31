@@ -20,7 +20,7 @@ const addApiKey: ModuleCli = {
     const args = parseArgs(rest)
     const name = args.name || args.label
     const organizationId = args.organizationId || args.orgId || args.org
-    let tenantId = args.tenantId || args.tenant
+    let tenantId: string | null = args.tenantId || args.tenant || null
     const rolesCsv = args.roles || ''
 
     if (!name) {
@@ -39,7 +39,7 @@ const addApiKey: ModuleCli = {
         console.error('Organization not found:', organizationId)
         return
       }
-      tenantId = tenantId || (orgRecord.tenant ? String(orgRecord.tenant.id) : null)
+      tenantId = tenantId ?? (orgRecord.tenant ? String(orgRecord.tenant.id) : null)
     }
 
     if (!tenantId) {

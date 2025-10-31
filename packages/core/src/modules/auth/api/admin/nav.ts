@@ -41,6 +41,15 @@ const adminNavErrorSchema = z.object({
   error: z.string(),
 })
 
+type SidebarItemNode = {
+  href: string
+  title: string
+  defaultTitle: string
+  enabled: boolean
+  hidden?: boolean
+  children?: SidebarItemNode[]
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -211,13 +220,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const toItem = (entry: Entry): {
-    href: string
-    title: string
-    defaultTitle: string
-    enabled: boolean
-    children?: ReturnType<typeof toItem>[]
-  } => {
+  const toItem = (entry: Entry): SidebarItemNode => {
     const defaultTitle = entry.titleKey ? translate(entry.titleKey, entry.title) : entry.title
     return {
       href: entry.href,
@@ -276,7 +279,7 @@ export async function GET(req: Request) {
       id: group.id,
       name: group.name,
       defaultName: group.defaultName,
-      items: group.items.map((item) => ({
+      items: (group.items as SidebarItemNode[]).map((item) => ({
         href: item.href,
         title: item.title,
         defaultTitle: item.defaultTitle,
@@ -312,7 +315,7 @@ export async function GET(req: Request) {
 }
 
 function adoptSidebarDefaults(groups: ReturnType<typeof applySidebarPreference>) {
-  const adoptItems = (items: any[]) =>
+  const adoptItems = <T extends { title: string; defaultTitle?: string; children?: T[] }>(items: T[]): T[] =>
     items.map((item) => ({
       ...item,
       defaultTitle: item.title,

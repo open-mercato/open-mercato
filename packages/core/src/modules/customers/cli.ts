@@ -106,6 +106,22 @@ const JOB_TITLE_DEFAULTS: DictionaryDefault[] = [
   { value: 'Director of Retail Partnerships', label: 'Director of Retail Partnerships', color: '#f59e0b', icon: 'lucide:shopping-bag' },
 ]
 
+const INDUSTRY_DEFAULTS: DictionaryDefault[] = [
+  { value: 'Renewable Energy', label: 'Renewable Energy' },
+  { value: 'Software', label: 'Software' },
+  { value: 'Interior Design', label: 'Interior Design' },
+  { value: 'SaaS', label: 'SaaS' },
+  { value: 'E-commerce', label: 'E-commerce' },
+  { value: 'Healthcare', label: 'Healthcare' },
+  { value: 'Manufacturing', label: 'Manufacturing' },
+  { value: 'Logistics', label: 'Logistics' },
+  { value: 'Financial Services', label: 'Financial Services' },
+  { value: 'Retail', label: 'Retail' },
+  { value: 'Hospitality', label: 'Hospitality' },
+  { value: 'Energy', label: 'Energy' },
+  { value: 'Media', label: 'Media' },
+]
+
 const PRIORITY_CURRENCIES = ['EUR', 'USD', 'GBP', 'PLN']
 
 type ExampleAddress = {
@@ -1213,6 +1229,17 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
       icon: entry.icon,
     })
   }
+  for (const entry of INDUSTRY_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'industry',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
 }
 
 function resolveCurrencyCodes(): string[] {
@@ -1344,6 +1371,20 @@ async function seedCustomerExamples(
 
   await seedCustomerDictionaries(em, { tenantId, organizationId })
 
+  const seededIndustryValues = new Set(
+    CUSTOMER_EXAMPLES.map((company) => (typeof company.industry === 'string' ? company.industry.trim() : ''))
+      .filter((value): value is string => value.length > 0)
+  )
+  for (const value of seededIndustryValues) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'industry',
+      value,
+      label: value,
+    })
+  }
+
   let cache: CacheStrategy | null = null
   if (typeof (container as any).hasRegistration === 'function' && container.hasRegistration('cache')) {
     try {
@@ -1401,7 +1442,7 @@ async function seedCustomerExamples(
       brandName: company.brandName ?? null,
       domain: company.domain ?? null,
       websiteUrl: company.websiteUrl ?? null,
-      industry: company.industry ?? null,
+      industry: typeof company.industry === 'string' ? company.industry.trim() || null : null,
       sizeBucket: company.sizeBucket ?? null,
       annualRevenue: typeof company.annualRevenue === 'number' ? toAmount(company.annualRevenue) : null,
     })
