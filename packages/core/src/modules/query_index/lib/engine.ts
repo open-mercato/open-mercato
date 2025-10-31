@@ -425,7 +425,7 @@ export class HybridQueryEngine implements QueryEngine {
       }
     }
 
-    builder = await applyJoinFilters({
+    await applyJoinFilters({
       knex,
       baseTable,
       builder,
@@ -439,7 +439,7 @@ export class HybridQueryEngine implements QueryEngine {
     }) as ResultBuilder
 
     if (optimizedCountBuilder) {
-      optimizedCountBuilder = (await applyJoinFilters({
+      await applyJoinFilters({
         knex,
         baseTable,
         builder: optimizedCountBuilder,
@@ -450,7 +450,7 @@ export class HybridQueryEngine implements QueryEngine {
         applyAliasScope: (target, alias) => applyAliasScopes(target, alias),
         applyFilterOp: (target, column, op, value) => applyJoinFilterOp(target as ResultBuilder, column, op, value),
         columnExists: (tbl, column) => this.columnExists(tbl, column),
-      })) as ResultBuilder
+      })
     }
 
     const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : ['id'])

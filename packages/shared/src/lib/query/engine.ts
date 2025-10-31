@@ -157,7 +157,7 @@ export class BasicQueryEngine implements QueryEngine {
         builder.where(`${aliasName}.tenant_id`, opts.tenantId)
       }
     }
-    q = await applyJoinFilters({
+    await applyJoinFilters({
       knex,
       baseTable: table,
       builder: q,
