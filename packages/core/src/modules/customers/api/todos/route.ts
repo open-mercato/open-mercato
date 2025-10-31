@@ -701,7 +701,10 @@ export async function POST(req: Request) {
     )
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
-    const { result, logEntry } = await commandBus.execute('customers.todos.create', { input, ctx })
+    const { result, logEntry } = await commandBus.execute<
+      TodoLinkWithTodoCreateInput,
+      { todoId: string; linkId: string; todoSnapshot?: unknown }
+    >('customers.todos.create', { input, ctx })
     const response = NextResponse.json(
       {
         todoId: result?.todoId ?? null,
@@ -743,7 +746,10 @@ export async function PUT(req: Request) {
     const input = parseTodoLinkInput(mergedPayload as Record<string, unknown>, translate)
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
-    const { result, logEntry } = await commandBus.execute('customers.todos.link', { input, ctx })
+    const { result, logEntry } = await commandBus.execute<TodoLinkCreateInput, { linkId: string }>(
+      'customers.todos.link',
+      { input, ctx },
+    )
     const response = NextResponse.json({ linkId: result?.linkId ?? null })
     attachOperationHeader(response, logEntry, result?.linkId ?? null)
     return response
@@ -774,7 +780,10 @@ export async function DELETE(req: Request) {
     const input = parseTodoUnlinkInput({ id: idValue }, translate)
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
-    const { result, logEntry } = await commandBus.execute('customers.todos.unlink', { input, ctx })
+    const { result, logEntry } = await commandBus.execute<{ id: string }, { linkId: string | null }>(
+      'customers.todos.unlink',
+      { input, ctx },
+    )
     const response = NextResponse.json({ linkId: result?.linkId ?? null })
     attachOperationHeader(response, logEntry, result?.linkId ?? input.id)
     return response

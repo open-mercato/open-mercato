@@ -28,7 +28,7 @@ import { TasksSection } from '../../../../components/detail/TasksSection'
 import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
-import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights.tsx'
+import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights'
 import { formatTemplate } from '../../../../components/detail/utils'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
@@ -122,7 +122,8 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
-  const companyId = data?.company?.id ?? null
+  const { company, profile } = data!
+  const companyId = company.id
   const companyName =
     data?.company?.displayName && data.company.displayName.trim().length
       ? data.company.displayName
@@ -225,6 +226,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       setIsLoading(false)
       return
     }
+    const companyId = id
     let cancelled = false
     async function load() {
       setIsLoading(true)
@@ -233,7 +235,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         const search = new URLSearchParams()
         search.append('include', 'todos')
         search.append('include', 'people')
-        const res = await apiFetch(`/api/customers/companies/${encodeURIComponent(id)}?${search.toString()}`)
+        const res = await apiFetch(`/api/customers/companies/${encodeURIComponent(companyId)}?${search.toString()}`)
         if (!res.ok) {
           const payload = await res.json().catch(() => ({}))
           const message =
@@ -520,7 +522,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     )
   }
 
-  const { company, profile } = data
   const annualRevenueCurrency =
     typeof data.customFields?.cf_annual_revenue_currency === 'string'
       ? (data.customFields.cf_annual_revenue_currency as string)
@@ -647,205 +648,207 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
 
   return (
     <Page>
-      <PageBody className="space-y-8">
-        <CompanyHighlights
-          company={company}
-          validators={validators}
-          onDisplayNameSave={updateDisplayName}
-          onPrimaryEmailSave={(value) => updateCompanyField('primaryEmail', value)}
-          onPrimaryPhoneSave={(value) => updateCompanyField('primaryPhone', value)}
-          onStatusSave={(value) => updateCompanyField('status', value)}
-          onNextInteractionSave={async (payload) => {
-            await saveCompany(
-              {
-                nextInteraction: payload
-                  ? {
-                      at: payload.at,
-                      name: payload.name ?? undefined,
-                      refId: payload.refId ?? undefined,
-                      icon: payload.icon ?? undefined,
-                      color: payload.color ?? undefined,
-                    }
-                  : null,
-              },
-              (prev) => ({
-                ...prev,
-                company: {
-                  ...prev.company,
-                  nextInteractionAt: payload?.at ?? null,
-                  nextInteractionName: payload?.name ?? null,
-                  nextInteractionRefId: payload?.refId ?? null,
-                  nextInteractionIcon: payload?.icon ?? null,
-                  nextInteractionColor: payload?.color ?? null,
+      <PageBody>
+        <div className="space-y-8">
+          <CompanyHighlights
+            company={company}
+            validators={validators}
+            onDisplayNameSave={updateDisplayName}
+            onPrimaryEmailSave={(value) => updateCompanyField('primaryEmail', value)}
+            onPrimaryPhoneSave={(value) => updateCompanyField('primaryPhone', value)}
+            onStatusSave={(value) => updateCompanyField('status', value)}
+            onNextInteractionSave={async (payload) => {
+              await saveCompany(
+                {
+                  nextInteraction: payload
+                    ? {
+                        at: payload.at,
+                        name: payload.name ?? undefined,
+                        refId: payload.refId ?? undefined,
+                        icon: payload.icon ?? undefined,
+                        color: payload.color ?? undefined,
+                      }
+                    : null,
                 },
-              })
-            )
-          }}
-          onDelete={handleDelete}
-          isDeleting={isDeleting}
-        />
+                (prev) => ({
+                  ...prev,
+                  company: {
+                    ...prev.company,
+                    nextInteractionAt: payload?.at ?? null,
+                    nextInteractionName: payload?.name ?? null,
+                    nextInteractionRefId: payload?.refId ?? null,
+                    nextInteractionIcon: payload?.icon ?? null,
+                    nextInteractionColor: payload?.color ?? null,
+                  },
+                })
+              )
+            }}
+            onDelete={handleDelete}
+            isDeleting={isDeleting}
+          />
 
-        <div className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <nav
-              aria-label={t('customers.companies.detail.tabs.label', 'Company detail sections')}
-              className="flex flex-wrap items-center gap-4"
-            >
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={cn(
-                    'relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors',
-                    activeTab === tab.id
-                      ? 'border-primary text-foreground'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </nav>
-            {sectionAction ? (
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleSectionAction}
-                disabled={sectionAction.disabled}
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <nav
+                aria-label={t('customers.companies.detail.tabs.label', 'Company detail sections')}
+                className="flex flex-wrap items-center gap-4"
               >
-                <Plus className="mr-2 h-4 w-4" />
-                {sectionAction.label}
-              </Button>
-            ) : null}
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={cn(
+                      'relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors',
+                      activeTab === tab.id
+                        ? 'border-primary text-foreground'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
+              {sectionAction ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSectionAction}
+                  disabled={sectionAction.disabled}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  {sectionAction.label}
+                </Button>
+              ) : null}
+            </div>
+            <div>
+              {activeTab !== 'notes' ? (
+                <SectionLoader
+                  isLoading={sectionPending[activeTab as SectionKey]}
+                  label={sectionLoaderLabel}
+                />
+              ) : null}
+              {activeTab === 'notes' && (
+                <NotesSection
+                  entityId={companyId}
+                  emptyLabel={t('customers.companies.detail.empty.comments', 'No notes yet.')}
+                  viewerUserId={data.viewer?.userId ?? null}
+                  viewerName={data.viewer?.name ?? null}
+                  viewerEmail={data.viewer?.email ?? null}
+                  addActionLabel={t('customers.companies.detail.notes.addLabel', 'Add note')}
+                  emptyState={{
+                    title: t('customers.companies.detail.emptyState.notes.title', 'Keep everyone in the loop'),
+                    actionLabel: t('customers.companies.detail.emptyState.notes.action', 'Create a note'),
+                  }}
+                  onActionChange={handleSectionActionChange}
+                  translator={translateCompanyDetail}
+                  onLoadingChange={handleNotesLoadingChange}
+                />
+              )}
+              {activeTab === 'activities' && (
+                <ActivitiesSection
+                  entityId={companyId}
+                  addActionLabel={t('customers.companies.detail.activities.add', 'Log activity')}
+                  emptyState={{
+                    title: t('customers.companies.detail.emptyState.activities.title', 'No activities logged yet'),
+                    actionLabel: t('customers.companies.detail.emptyState.activities.action', 'Log activity'),
+                  }}
+                  onActionChange={handleSectionActionChange}
+                  onLoadingChange={handleActivitiesLoadingChange}
+                />
+              )}
+              {activeTab === 'deals' && (
+                <DealsSection
+                  scope={dealsScope}
+                  emptyLabel={t('customers.companies.detail.empty.deals', 'No deals linked to this company.')}
+                  addActionLabel={t('customers.companies.detail.actions.addDeal', 'Add deal')}
+                  emptyState={{
+                    title: t('customers.companies.detail.emptyState.deals.title', 'No deals yet'),
+                    actionLabel: t('customers.companies.detail.emptyState.deals.action', 'Create a deal'),
+                  }}
+                  onActionChange={handleSectionActionChange}
+                  onLoadingChange={handleDealsLoadingChange}
+                  translator={detailTranslator}
+                />
+              )}
+              {activeTab === 'people' && (
+                <CompanyPeopleSection
+                  companyId={companyId}
+                  initialPeople={data.people ?? []}
+                  addActionLabel={t('customers.companies.detail.people.add', 'Add person')}
+                  emptyLabel={t('customers.companies.detail.people.empty', 'No people linked to this company yet.')}
+                  emptyState={{
+                    title: t('customers.companies.detail.emptyState.people.title', 'Build the account team'),
+                    actionLabel: t('customers.companies.detail.emptyState.people.action', 'Create person'),
+                  }}
+                  onActionChange={handleSectionActionChange}
+                  onLoadingChange={handlePeopleLoadingChange}
+                  translator={detailTranslator}
+                  onPeopleChange={(next) => {
+                    setData((prev) => (prev ? { ...prev, people: next } : prev))
+                  }}
+                />
+              )}
+              {activeTab === 'addresses' && (
+                <AddressesSection
+                  entityId={companyId}
+                  emptyLabel={t('customers.companies.detail.empty.addresses', 'No addresses recorded.')}
+                  addActionLabel={t('customers.companies.detail.addresses.add', 'Add address')}
+                  emptyState={{
+                    title: t('customers.companies.detail.emptyState.addresses.title', 'No addresses yet'),
+                    actionLabel: t('customers.companies.detail.emptyState.addresses.action', 'Add address'),
+                  }}
+                  onActionChange={handleSectionActionChange}
+                  onLoadingChange={handleAddressesLoadingChange}
+                  translator={detailTranslator}
+                />
+              )}
+              {activeTab === 'tasks' && (
+                <TasksSection
+                  entityId={companyId}
+                  initialTasks={data.todos}
+                  emptyLabel={t('customers.companies.detail.empty.todos', 'No tasks linked to this company.')}
+                  addActionLabel={t('customers.companies.detail.tasks.add', 'Add task')}
+                  emptyState={{
+                    title: t('customers.companies.detail.emptyState.tasks.title', 'Plan what happens next'),
+                    actionLabel: t('customers.companies.detail.emptyState.tasks.action', 'Create task'),
+                  }}
+                  onActionChange={handleSectionActionChange}
+                  onLoadingChange={handleTasksLoadingChange}
+                  translator={translateCompanyDetail}
+                  entityName={companyName}
+                  dialogContextKey="customers.companies.detail.tasks.dialog.context"
+                  dialogContextFallback="This task will be linked to {{name}}"
+                />
+              )}
+            </div>
           </div>
-          <div>
-            {activeTab !== 'notes' ? (
-              <SectionLoader
-                isLoading={sectionPending[activeTab as SectionKey]}
-                label={sectionLoaderLabel}
-              />
-            ) : null}
-            {activeTab === 'notes' && (
-              <NotesSection
-                entityId={companyId}
-                emptyLabel={t('customers.companies.detail.empty.comments', 'No notes yet.')}
-                viewerUserId={data.viewer?.userId ?? null}
-                viewerName={data.viewer?.name ?? null}
-                viewerEmail={data.viewer?.email ?? null}
-                addActionLabel={t('customers.companies.detail.notes.addLabel', 'Add note')}
-                emptyState={{
-                  title: t('customers.companies.detail.emptyState.notes.title', 'Keep everyone in the loop'),
-                  actionLabel: t('customers.companies.detail.emptyState.notes.action', 'Create a note'),
-                }}
-                onActionChange={handleSectionActionChange}
-                translator={translateCompanyDetail}
-                onLoadingChange={handleNotesLoadingChange}
-              />
-            )}
-            {activeTab === 'activities' && (
-              <ActivitiesSection
-                entityId={companyId}
-                addActionLabel={t('customers.companies.detail.activities.add', 'Log activity')}
-                emptyState={{
-                  title: t('customers.companies.detail.emptyState.activities.title', 'No activities logged yet'),
-                  actionLabel: t('customers.companies.detail.emptyState.activities.action', 'Log activity'),
-                }}
-                onActionChange={handleSectionActionChange}
-                onLoadingChange={handleActivitiesLoadingChange}
-              />
-            )}
-            {activeTab === 'deals' && (
-              <DealsSection
-                scope={dealsScope}
-                emptyLabel={t('customers.companies.detail.empty.deals', 'No deals linked to this company.')}
-                addActionLabel={t('customers.companies.detail.actions.addDeal', 'Add deal')}
-                emptyState={{
-                  title: t('customers.companies.detail.emptyState.deals.title', 'No deals yet'),
-                  actionLabel: t('customers.companies.detail.emptyState.deals.action', 'Create a deal'),
-                }}
-                onActionChange={handleSectionActionChange}
-                onLoadingChange={handleDealsLoadingChange}
-                translator={detailTranslator}
-              />
-            )}
-            {activeTab === 'people' && (
-              <CompanyPeopleSection
-                companyId={companyId}
-                initialPeople={data.people ?? []}
-                addActionLabel={t('customers.companies.detail.people.add', 'Add person')}
-                emptyLabel={t('customers.companies.detail.people.empty', 'No people linked to this company yet.')}
-                emptyState={{
-                  title: t('customers.companies.detail.emptyState.people.title', 'Build the account team'),
-                  actionLabel: t('customers.companies.detail.emptyState.people.action', 'Create person'),
-                }}
-                onActionChange={handleSectionActionChange}
-                onLoadingChange={handlePeopleLoadingChange}
-                translator={detailTranslator}
-                onPeopleChange={(next) => {
-                  setData((prev) => (prev ? { ...prev, people: next } : prev))
-                }}
-              />
-            )}
-            {activeTab === 'addresses' && (
-              <AddressesSection
-                entityId={companyId}
-                emptyLabel={t('customers.companies.detail.empty.addresses', 'No addresses recorded.')}
-                addActionLabel={t('customers.companies.detail.addresses.add', 'Add address')}
-                emptyState={{
-                  title: t('customers.companies.detail.emptyState.addresses.title', 'No addresses yet'),
-                  actionLabel: t('customers.companies.detail.emptyState.addresses.action', 'Add address'),
-                }}
-                onActionChange={handleSectionActionChange}
-                onLoadingChange={handleAddressesLoadingChange}
-                translator={detailTranslator}
-              />
-            )}
-            {activeTab === 'tasks' && (
-              <TasksSection
-                entityId={companyId}
-                initialTasks={data.todos}
-                emptyLabel={t('customers.companies.detail.empty.todos', 'No tasks linked to this company.')}
-                addActionLabel={t('customers.companies.detail.tasks.add', 'Add task')}
-                emptyState={{
-                  title: t('customers.companies.detail.emptyState.tasks.title', 'Plan what happens next'),
-                  actionLabel: t('customers.companies.detail.emptyState.tasks.action', 'Create task'),
-                }}
-                onActionChange={handleSectionActionChange}
-                onLoadingChange={handleTasksLoadingChange}
-                translator={translateCompanyDetail}
-                entityName={companyName}
-                dialogContextKey="customers.companies.detail.tasks.dialog.context"
-                dialogContextFallback="This task will be linked to {{name}}"
-              />
-            )}
+
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <h2 className="text-sm font-semibold">{t('customers.companies.detail.sections.details', 'Company details')}</h2>
+              <DetailFieldsSection fields={detailFields} />
+            </div>
+
+            <CustomDataSection
+              entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
+              values={data.customFields ?? {}}
+              onSubmit={handleCustomFieldsSubmit}
+              title={t('customers.companies.detail.sections.customFields', 'Custom fields')}
+            />
+
+            <TagsSection
+              entityId={companyId}
+              tags={data.tags}
+              onChange={handleTagsChange}
+              isSubmitting={false}
+            />
           </div>
+
+          <Separator className="my-4" />
         </div>
-
-        <div className="space-y-6">
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold">{t('customers.companies.detail.sections.details', 'Company details')}</h2>
-            <DetailFieldsSection fields={detailFields} />
-          </div>
-
-          <CustomDataSection
-            entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
-            values={data.customFields ?? {}}
-            onSubmit={handleCustomFieldsSubmit}
-            title={t('customers.companies.detail.sections.customFields', 'Custom fields')}
-          />
-
-          <TagsSection
-            entityId={companyId}
-            tags={data.tags}
-            onChange={handleTagsChange}
-            isSubmitting={false}
-          />
-        </div>
-
-        <Separator className="my-4" />
       </PageBody>
     </Page>
   )

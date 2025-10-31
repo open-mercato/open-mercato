@@ -55,7 +55,7 @@ function notFound(message: string) {
   return NextResponse.json({ error: message }, { status: 404 })
 }
 
-function serializeTags(assignments: CustomerTagAssignment[]): Array<{ id: string; label: string; color?: string | null }> {
+function serializeTags(assignments: CustomerTagAssignment[]): Array<{ id: string; label: string; color: string | null }> {
   return assignments
     .map((assignment) => {
       const tag = assignment.tag as CustomerTag | string | null
@@ -66,7 +66,7 @@ function serializeTags(assignments: CustomerTagAssignment[]): Array<{ id: string
         color: tag.color ?? null,
       }
     })
-    .filter((tag): tag is { id: string; label: string; color?: string | null } => !!tag)
+    .filter((tag): tag is { id: string; label: string; color: string | null } => tag !== null)
 }
 
 type TodoDetail = {
@@ -401,13 +401,15 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       { company: company.id, entity: { deletedAt: null } },
       { populate: ['entity'] },
     )
-    relatedPeople = profiles
-      .map((entry) => {
+    relatedPeople = profiles.reduce<Array<{ entity: CustomerEntity; profile: CustomerPersonProfile | null }>>(
+      (acc, entry) => {
         const entity = entry.entity as CustomerEntity | null
-        if (!entity || entity.kind !== 'person' || entity.deletedAt) return null
-        return { entity, profile: entry }
-      })
-      .filter((entry): entry is { entity: CustomerEntity; profile: CustomerPersonProfile | null } => !!entry)
+        if (!entity || entity.kind !== 'person' || entity.deletedAt) return acc
+        acc.push({ entity, profile: entry ?? null })
+        return acc
+      },
+      [],
+    )
   }
 
   const entityCustomFieldValues = await loadCustomFieldValues({

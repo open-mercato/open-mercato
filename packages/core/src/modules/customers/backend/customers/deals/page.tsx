@@ -143,7 +143,7 @@ async function fetchPeopleLookup(query?: string): Promise<PersonLookupRecord[]> 
         const phone = typeof item?.primary_phone === 'string' ? item.primary_phone : null
         return { id, name, email, phone }
       })
-      .filter((record): record is PersonLookupRecord => !!record)
+      .filter((record: PersonLookupRecord | null): record is PersonLookupRecord => record !== null)
   } catch {
     return []
   }
@@ -196,7 +196,7 @@ async function fetchCompaniesLookup(query?: string): Promise<CompanyLookupRecord
         const email = typeof item?.primary_email === 'string' ? item.primary_email : null
         return { id, name, domain, email }
       })
-      .filter((record): record is CompanyLookupRecord => !!record)
+      .filter((record: CompanyLookupRecord | null): record is CompanyLookupRecord => record !== null)
   } catch {
     return []
   }

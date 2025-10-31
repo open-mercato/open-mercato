@@ -39,6 +39,8 @@ type ProductSnapshot = {
   metadata: Record<string, unknown> | null
   isConfigurable: boolean
   isActive: boolean
+  createdAt: string
+  updatedAt: string
   custom: Record<string, unknown> | null
 }
 
@@ -46,6 +48,18 @@ type ProductUndoPayload = {
   before?: ProductSnapshot | null
   after?: ProductSnapshot | null
 }
+
+const PRODUCT_CHANGE_KEYS = [
+  'name',
+  'description',
+  'code',
+  'statusEntryId',
+  'primaryCurrencyCode',
+  'defaultUnit',
+  'metadata',
+  'isConfigurable',
+  'isActive',
+] as const satisfies readonly string[]
 
 function dedupeIds(ids: string[] | null | undefined): string[] | null {
   if (!ids || !ids.length) return null
@@ -78,6 +92,8 @@ async function loadProductSnapshot(
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     isConfigurable: record.isConfigurable,
     isActive: record.isActive,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
     custom: Object.keys(custom).length ? custom : null,
   }
 }
@@ -95,6 +111,8 @@ function applyProductSnapshot(record: CatalogProduct, snapshot: ProductSnapshot)
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   record.isConfigurable = snapshot.isConfigurable
   record.isActive = snapshot.isActive
+  record.createdAt = new Date(snapshot.createdAt)
+  record.updatedAt = new Date(snapshot.updatedAt)
 }
 
 const createProductCommand: CommandHandler<ProductCreateInput, { productId: string }> = {
@@ -104,6 +122,7 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = ctx.container.resolve<EntityManager>('em').fork()
+    const now = new Date()
     const record = em.create(CatalogProduct, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -117,6 +136,8 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       isConfigurable: parsed.isConfigurable ?? false,
       isActive: parsed.isActive ?? true,
+      createdAt: now,
+      updatedAt: now,
     })
     em.persist(record)
     await em.flush()
@@ -134,8 +155,9 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     const em = ctx.container.resolve<EntityManager>('em')
     return loadProductSnapshot(em, result.productId)
   },
-  buildLog: async ({ result, snapshots }) => {
-    const after = snapshots.after as ProductSnapshot | undefined
+  buildLog: async ({ result, ctx }) => {
+    const em = ctx.container.resolve<EntityManager>('em')
+    const after = await loadProductSnapshot(em, result.productId)
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -235,9 +257,10 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     const em = ctx.container.resolve<EntityManager>('em')
     return loadProductSnapshot(em, result.productId)
   },
-  buildLog: async ({ snapshots }) => {
+  buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as ProductSnapshot | undefined
-    const after = snapshots.after as ProductSnapshot | undefined
+    const em = ctx.container.resolve<EntityManager>('em')
+    const after = await loadProductSnapshot(em, result.productId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -248,7 +271,11 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
       organizationId: before.organizationId,
       snapshotBefore: before,
       snapshotAfter: after,
-      changes: buildChanges(before as Record<string, unknown>, after as Record<string, unknown>),
+      changes: buildChanges(
+        before as Record<string, unknown>,
+        after as Record<string, unknown>,
+        PRODUCT_CHANGE_KEYS
+      ),
       payload: {
         undo: {
           before,
@@ -264,7 +291,23 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     const em = ctx.container.resolve<EntityManager>('em').fork()
     let record = await em.findOne(CatalogProduct, { id: before.id })
     if (!record) {
-      record = em.create(CatalogProduct, { id: before.id })
+      record = em.create(CatalogProduct, {
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        name: before.name,
+        description: before.description ?? null,
+        code: before.code ?? null,
+        statusEntryId: before.statusEntryId ?? null,
+        primaryCurrencyCode: before.primaryCurrencyCode ?? null,
+        defaultUnit: before.defaultUnit ?? null,
+        channelIds: before.channelIds ? [...before.channelIds] : null,
+        metadata: before.metadata ? cloneJson(before.metadata) : null,
+        isConfigurable: before.isConfigurable,
+        isActive: before.isActive,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
+      })
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)
@@ -320,7 +363,7 @@ const deleteProductCommand: CommandHandler<
     em.remove(record)
     await em.flush()
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
-      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsIfAny({
           dataEngine: ctx.container.resolve('dataEngine'),
@@ -359,7 +402,23 @@ const deleteProductCommand: CommandHandler<
     const em = ctx.container.resolve<EntityManager>('em').fork()
     let record = await em.findOne(CatalogProduct, { id: before.id })
     if (!record) {
-      record = em.create(CatalogProduct, { id: before.id })
+      record = em.create(CatalogProduct, {
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        name: before.name,
+        description: before.description ?? null,
+        code: before.code ?? null,
+        statusEntryId: before.statusEntryId ?? null,
+        primaryCurrencyCode: before.primaryCurrencyCode ?? null,
+        defaultUnit: before.defaultUnit ?? null,
+        channelIds: before.channelIds ? [...before.channelIds] : null,
+        metadata: before.metadata ? cloneJson(before.metadata) : null,
+        isConfigurable: before.isConfigurable,
+        isActive: before.isActive,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
+      })
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)

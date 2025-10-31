@@ -25,19 +25,20 @@ export function normalizeTenantId(value: unknown): string | null | undefined {
 }
 
 export async function resolveIsSuperAdmin(ctx: TenantGuardCtx): Promise<boolean> {
-  const cached = (ctx as Record<string, unknown>)[SUPER_ADMIN_SYMBOL]
+  const cacheStore = ctx as { [SUPER_ADMIN_SYMBOL]?: boolean }
+  const cached = cacheStore[SUPER_ADMIN_SYMBOL]
   if (typeof cached === 'boolean') return cached
   const auth = ctx.auth
   if (!auth?.sub) {
-    (ctx as Record<string, unknown>)[SUPER_ADMIN_SYMBOL] = false
+    cacheStore[SUPER_ADMIN_SYMBOL] = false
     return false
   }
   if (auth.isSuperAdmin === true) {
-    (ctx as Record<string, unknown>)[SUPER_ADMIN_SYMBOL] = true
+    cacheStore[SUPER_ADMIN_SYMBOL] = true
     return true
   }
   if (Array.isArray(auth.roles) && auth.roles.some((role) => role.toLowerCase() === 'superadmin')) {
-    (ctx as Record<string, unknown>)[SUPER_ADMIN_SYMBOL] = true
+    cacheStore[SUPER_ADMIN_SYMBOL] = true
     return true
   }
   try {
@@ -47,11 +48,11 @@ export async function resolveIsSuperAdmin(ctx: TenantGuardCtx): Promise<boolean>
       organizationId: auth.orgId ?? null,
     })
     const value = !!acl?.isSuperAdmin
-    ;(ctx as Record<string, unknown>)[SUPER_ADMIN_SYMBOL] = value
+    cacheStore[SUPER_ADMIN_SYMBOL] = value
     return value
   } catch (error) {
     console.error('auth.tenantGuard: failed to resolve rbac', error)
-    ;(ctx as Record<string, unknown>)[SUPER_ADMIN_SYMBOL] = false
+    cacheStore[SUPER_ADMIN_SYMBOL] = false
     return false
   }
 }
