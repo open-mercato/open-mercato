@@ -350,3 +350,5 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
     </div>
   )
 }
+
+export default VectorSearchTable

@@ -324,3 +324,5 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
     </>
   )
 }
+
+export default VectorSearchDialog

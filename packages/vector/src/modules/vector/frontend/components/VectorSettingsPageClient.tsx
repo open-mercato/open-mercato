@@ -187,3 +187,4 @@ export function VectorSettingsPageClient(props: Props) {
   )
 }
 
+export default VectorSettingsPageClient

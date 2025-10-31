@@ -37,7 +37,7 @@ export default function CreateApiKeyPage() {
           value={typeof value === 'string' ? value : value ?? null}
           onChange={(next) => setValue(next ?? null)}
           includeEmptyOption
-          placeholder={t('api_keys.form.organizationPlaceholder')}
+          emptyOptionLabel={t('api_keys.form.organizationPlaceholder')}
           className="w-full h-9 rounded border px-2 text-sm"
         />
       ),
@@ -53,33 +53,35 @@ export default function CreateApiKeyPage() {
   if (createdSecret) {
     return (
       <Page>
-        <PageBody className="flex items-center justify-center">
-          <div className="w-full max-w-2xl rounded-xl border bg-card shadow-sm">
-            <div className="border-b p-6">
-              <h1 className="text-lg font-semibold leading-7">{t('api_keys.copy.title')}</h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t('api_keys.copy.subtitle')}
-              </p>
-            </div>
-            <div className="space-y-4 p-6">
-              <div className="rounded-md border bg-muted/40 p-4 font-mono text-sm break-all">
-                {createdSecret.secret}
+        <PageBody>
+          <div className="flex items-center justify-center">
+            <div className="w-full max-w-2xl rounded-xl border bg-card shadow-sm">
+              <div className="border-b p-6">
+                <h1 className="text-lg font-semibold leading-7">{t('api_keys.copy.title')}</h1>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {t('api_keys.copy.subtitle')}
+                </p>
               </div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span className="inline-flex items-center rounded-full border px-2 py-1 font-medium">
-                  {t('api_keys.copy.prefix', { prefix: createdSecret.keyPrefix })}
-                </span>
-                <span>{t('api_keys.copy.warning')}</span>
-              </div>
-              <div className="flex justify-end">
-                <Button onClick={() => router.push('/backend/api-keys')}>
-                  {t('common.close')}
-                </Button>
+              <div className="space-y-4 p-6">
+                <div className="rounded-md border bg-muted/40 p-4 font-mono text-sm break-all">
+                  {createdSecret.secret}
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="inline-flex items-center rounded-full border px-2 py-1 font-medium">
+                    {t('api_keys.copy.prefix', { prefix: createdSecret.keyPrefix })}
+                  </span>
+                  <span>{t('api_keys.copy.warning')}</span>
+                </div>
+                <div className="flex justify-end">
+                  <Button onClick={() => router.push('/backend/api-keys')}>
+                    {t('common.close')}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
-        </PageBody>
-      </Page>
+      </PageBody>
+    </Page>
     )
   }
 

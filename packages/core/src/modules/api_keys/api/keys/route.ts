@@ -288,6 +288,7 @@ const crud = makeCrudRoute<
       const em = ctx.container.resolve<EntityManager>('em')
       const record = await em.findOne(ApiKey, { id, deletedAt: null })
       if (!record) throw json({ error: translate('api_keys.errors.notFound', 'Not found') }, { status: 404 })
+      const scopedCtx = ctx as ApiKeyCrudCtx
       const isSuperAdmin = await resolveIsSuperAdmin(scopedCtx)
       if (!isSuperAdmin && record.tenantId && record.tenantId !== auth.tenantId) {
         throw json({ error: translate('api_keys.errors.forbidden', 'Forbidden') }, { status: 403 })

@@ -93,11 +93,12 @@ export async function run(argv = process.argv) {
           const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)
           const dropTargets = new Set<string>((res.rows || []).map((r: any) => String(r.tablename)))
           for (const forced of ['vector_search', 'vector_search_migrations']) {
-            const exists = await client.query<{ regclass: string | null }>(
+            const exists = await client.query(
               `SELECT to_regclass($1) AS regclass`,
               [`public.${forced}`],
             )
-            if (exists.rows?.[0]?.regclass) {
+            const regclass = (exists as { rows?: Array<{ regclass: string | null }> }).rows?.[0]?.regclass ?? null
+            if (regclass) {
               dropTargets.add(forced)
             }
           }
@@ -436,7 +437,7 @@ export async function run(argv = process.argv) {
               const propName = n.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
               const columnName = n.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
               const dbType = resolved.db
-              const tsType = resolved.ts === 'int' || resolved.ts === 'float' ? 'number' : resolved.ts
+              const tsType = resolved.ts
               const defaultValue =
                 resolved.ts === 'boolean' ? ' = false' :
                 resolved.ts === 'Date' ? ' = new Date()' :

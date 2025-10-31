@@ -39,14 +39,20 @@ type NavGroup = {
   weight: number
 }
 
-export default async function BackendLayout({ children, params }: { children: React.ReactNode; params?: { slug?: string[] } }) {
+export default async function BackendLayout({ children, params }: { children: React.ReactNode; params: Promise<{ slug?: string[] }> }) {
   const auth = await getAuthFromCookies()
   const cookieStore = cookies()
   const headerStore = headers()
   let path = headerStore.get('x-next-url') ?? ''
   if (path.includes('?')) path = path.split('?')[0]
+  let resolvedParams: { slug?: string[] } = {}
+  try {
+    resolvedParams = await params
+  } catch {
+    resolvedParams = {}
+  }
   if (!path) {
-    const slug = params?.slug ?? []
+    const slug = resolvedParams.slug ?? []
     path = '/backend' + (Array.isArray(slug) && slug.length ? '/' + slug.join('/') : '')
   }
 

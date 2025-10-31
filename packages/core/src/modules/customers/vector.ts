@@ -1,4 +1,4 @@
-import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { QueryCustomFieldSource, QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { VectorLinkDescriptor, VectorModuleConfig, VectorResultPresenter } from '@open-mercato/shared/modules/vector'
 
 type VectorContext = {
@@ -9,8 +9,214 @@ type VectorContext = {
   queryEngine?: QueryEngine
 }
 
-const customerEntityCache = new WeakMap<Record<string, any>, any>()
+type CustomerProfileKind = 'person' | 'company'
+
+type LoadedCustomerEntity = {
+  entity: Record<string, any> | null
+  customFields: Record<string, any>
+}
+
+const entityIdCache = new Map<string, LoadedCustomerEntity | null>()
+const profileEntityCache = new WeakMap<Record<string, any>, Partial<Record<CustomerProfileKind, LoadedCustomerEntity | null>>>()
 const todoCache = new WeakMap<Record<string, any>, any>()
+
+const CUSTOMER_ENTITY_FIELDS = [
+  'id',
+  'kind',
+  'display_name',
+  'description',
+  'primary_email',
+  'primary_phone',
+  'status',
+  'lifecycle_stage',
+  'owner_user_id',
+  'source',
+  'next_interaction_at',
+  'next_interaction_name',
+  'next_interaction_ref_id',
+  'next_interaction_icon',
+  'next_interaction_color',
+  'organization_id',
+  'tenant_id',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+] satisfies string[]
+
+const CUSTOMER_CUSTOM_FIELD_SOURCES: QueryCustomFieldSource[] = [
+  {
+    entityId: 'customers:customer_person_profile',
+    table: 'customer_people',
+    alias: 'person_profile',
+    recordIdColumn: 'id',
+    join: { fromField: 'id', toField: 'entity_id' },
+  },
+  {
+    entityId: 'customers:customer_company_profile',
+    table: 'customer_companies',
+    alias: 'company_profile',
+    recordIdColumn: 'id',
+    join: { fromField: 'id', toField: 'entity_id' },
+  },
+]
+
+function extractCustomFieldMap(source: Record<string, any> | null | undefined): Record<string, any> {
+  if (!source) return {}
+  const result: Record<string, any> = {}
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined) continue
+    if (key.startsWith('cf:')) {
+      result[key.slice(3)] = value
+    } else if (key.startsWith('cf_')) {
+      result[key.slice(3)] = value
+    }
+  }
+  return result
+}
+
+function normalizeCustomerEntity(row: Record<string, any>): Record<string, any> {
+  const normalized: Record<string, any> = {
+    id: row.id ?? row.entity_id ?? row.entityId ?? null,
+    kind: row.kind ?? null,
+  }
+  const assign = (snake: string, camel?: string) => {
+    const value = row[snake] ?? (camel ? row[camel] : undefined)
+    if (value !== undefined) {
+      normalized[snake] = value
+      if (camel) normalized[camel] = value
+    }
+  }
+  assign('display_name', 'displayName')
+  assign('description')
+  assign('primary_email', 'primaryEmail')
+  assign('primary_phone', 'primaryPhone')
+  assign('status')
+  assign('lifecycle_stage', 'lifecycleStage')
+  assign('owner_user_id', 'ownerUserId')
+  assign('source')
+  assign('next_interaction_at', 'nextInteractionAt')
+  assign('next_interaction_name', 'nextInteractionName')
+  assign('next_interaction_ref_id', 'nextInteractionRefId')
+  assign('next_interaction_icon', 'nextInteractionIcon')
+  assign('next_interaction_color', 'nextInteractionColor')
+  assign('organization_id', 'organizationId')
+  assign('tenant_id', 'tenantId')
+  assign('created_at', 'createdAt')
+  assign('updated_at', 'updatedAt')
+  assign('deleted_at', 'deletedAt')
+  return normalized
+}
+
+function getProfileCache(record: Record<string, any>): Partial<Record<CustomerProfileKind, LoadedCustomerEntity | null>> {
+  let cache = profileEntityCache.get(record)
+  if (!cache) {
+    cache = {}
+    profileEntityCache.set(record, cache)
+  }
+  return cache
+}
+
+type CustomerEntityQueryOptions = {
+  entityId?: string | null
+  profileKind?: CustomerProfileKind
+  profileId?: string | null
+}
+
+async function loadCustomerEntityBundle(ctx: VectorContext, opts: CustomerEntityQueryOptions): Promise<LoadedCustomerEntity | null> {
+  if (!ctx.queryEngine) return null
+  const filters: Record<string, any> = {}
+  const resolvedEntityId = typeof opts.entityId === 'string' && opts.entityId.length ? opts.entityId : null
+  const resolvedProfileId =
+    opts.profileId != null && String(opts.profileId).trim().length > 0 ? String(opts.profileId).trim() : null
+  if (resolvedEntityId) {
+    filters.id = { $eq: resolvedEntityId }
+  }
+  if (opts.profileKind && resolvedProfileId) {
+    const alias = opts.profileKind === 'person' ? 'person_profile' : 'company_profile'
+    filters[`${alias}.id`] = { $eq: resolvedProfileId }
+  }
+  if (!Object.keys(filters).length) return null
+  try {
+    const result = await ctx.queryEngine.query('customers:customer_entity', {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId ?? undefined,
+      filters,
+      includeCustomFields: true,
+      customFieldSources: CUSTOMER_CUSTOM_FIELD_SOURCES,
+      fields: CUSTOMER_ENTITY_FIELDS,
+      page: { page: 1, pageSize: 1 },
+    })
+    const row = result.items[0] as Record<string, any> | undefined
+    if (!row) return null
+    const entity = normalizeCustomerEntity(row)
+    const customFields = extractCustomFieldMap(row)
+    return { entity, customFields }
+  } catch (error) {
+    console.warn('[vector.customers] Failed to load customer entity via QueryEngine', {
+      entityId: resolvedEntityId ?? null,
+      profileKind: opts.profileKind ?? null,
+      profileId: resolvedProfileId ?? null,
+      error: error instanceof Error ? error.message : error,
+    })
+    return null
+  }
+}
+
+async function loadCustomerEntityForProfile(ctx: VectorContext, kind: CustomerProfileKind): Promise<LoadedCustomerEntity | null> {
+  const cache = getProfileCache(ctx.record)
+  if (cache[kind] !== undefined) return cache[kind] ?? null
+  const entityIdHint = resolveCustomerEntityId(ctx.record)
+  if (!entityIdHint) {
+    cache[kind] = null
+    return null
+  }
+  const loaded = await loadCustomerEntityBundle(ctx, { entityId: entityIdHint, profileKind: kind })
+  cache[kind] = loaded ?? null
+  const resolvedId = loaded?.entity?.id ?? entityIdHint
+  if (resolvedId) {
+    ctx.record.entity_id ??= resolvedId
+    ctx.record.entityId ??= resolvedId
+    entityIdCache.set(resolvedId, loaded ?? null)
+  }
+  if (loaded?.entity) {
+    if (!ctx.record.entity) ctx.record.entity = loaded.entity
+    if (!ctx.record.customer_entity) ctx.record.customer_entity = loaded.entity
+  }
+  return loaded ?? null
+}
+
+async function loadCustomerEntityById(ctx: VectorContext, entityId: string | null | undefined): Promise<LoadedCustomerEntity | null> {
+  const resolvedId = typeof entityId === 'string' && entityId.length ? entityId : null
+  if (!resolvedId) return null
+  if (entityIdCache.has(resolvedId)) {
+    return entityIdCache.get(resolvedId) ?? null
+  }
+  const loaded = await loadCustomerEntityBundle(ctx, { entityId: resolvedId })
+  entityIdCache.set(resolvedId, loaded ?? null)
+  return loaded ?? null
+}
+
+async function getCustomerEntity(ctx: VectorContext, entityId?: string | null): Promise<Record<string, any> | null> {
+  const profileCache = profileEntityCache.get(ctx.record)
+  if (profileCache) {
+    const cached = Object.values(profileCache).find((entry) => {
+      if (!entry?.entity) return false
+      if (!entityId) return true
+      return entry.entity.id === entityId
+    })
+    if (cached?.entity) return cached.entity
+  }
+  const inline = getInlineCustomerEntity(ctx.record)
+  if (inline && (!entityId || inline.id === entityId)) {
+    if (inline.id) {
+      entityIdCache.set(inline.id, { entity: inline, customFields: {} })
+    }
+    return inline
+  }
+  const resolvedId = entityId ?? resolveCustomerEntityId(ctx.record)
+  const loaded = await loadCustomerEntityById(ctx, resolvedId)
+  return loaded?.entity ?? null
+}
 
 async function loadRecord(ctx: VectorContext, entityId: string, recordId?: string | null) {
   if (!recordId || !ctx.queryEngine) return null
@@ -19,46 +225,9 @@ async function loadRecord(ctx: VectorContext, entityId: string, recordId?: strin
     organizationId: ctx.organizationId ?? undefined,
     filters: { id: recordId },
     includeCustomFields: true,
+    page: { page: 1, pageSize: 1 },
   })
   return res.items[0] as Record<string, any> | undefined
-}
-
-async function getCustomerEntity(ctx: VectorContext, entityId?: string | null) {
-  if (!entityId) return null
-  if (customerEntityCache.has(ctx.record)) {
-    return customerEntityCache.get(ctx.record)
-  }
-  const inline = getInlineCustomerEntity(ctx.record)
-  if (inline) {
-    customerEntityCache.set(ctx.record, inline)
-    return inline
-  }
-  const entity = await loadRecord(ctx, 'customers:customer_entity', entityId)
-  customerEntityCache.set(ctx.record, entity ?? null)
-  return entity ?? null
-}
-
-async function ensureEntityId(ctx: VectorContext, record: Record<string, any>, entityType: string): Promise<string | null> {
-  let entityId = resolveCustomerEntityId(record)
-  if (entityId) return entityId
-  if (!ctx.queryEngine || !record.id) return null
-  try {
-    const res = await ctx.queryEngine.query(entityType, {
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId ?? undefined,
-      filters: { id: record.id },
-      fields: ['entity_id'],
-    })
-    const raw = res.items[0] as Record<string, any> | undefined
-    entityId = raw?.entity_id ?? raw?.entityId ?? null
-    if (entityId) {
-      record.entity_id = entityId
-      record.entityId = entityId
-    }
-    return entityId
-  } catch {
-    return null
-  }
 }
 
 function resolveCustomerEntityId(record: Record<string, any>): string | null {
@@ -236,16 +405,26 @@ export const vectorConfig: VectorModuleConfig = {
           'Twitter',
           record.twitter_url ?? record.twitterUrl ?? ctx.customFields.twitter_url,
         )
-        appendCustomFieldLines(lines, ctx.customFields, 'Person custom')
+        const profileCustomFields = ctx.customFields ?? {}
+        appendCustomFieldLines(lines, profileCustomFields, 'Person custom')
 
-        let entity = getInlineCustomerEntity(record)
-        let entityId = resolveCustomerEntityId(record)
-        if (!entityId) {
-          entityId = await ensureEntityId(ctx, record, 'customers:customer_person_profile')
+        const loaded = await loadCustomerEntityForProfile(ctx, 'person')
+        let entity = loaded?.entity ?? getInlineCustomerEntity(record)
+        if (entity?.id) {
+          record.entity_id ??= entity.id
+          record.entityId ??= entity.id
         }
-        if (!entity && entityId) {
-          entity = await getCustomerEntity(ctx, entityId)
+        const entityCustomFields = loaded?.customFields ?? {}
+        if (Object.keys(entityCustomFields).length) {
+          const profileKeys = new Set(Object.keys(profileCustomFields))
+          const entityOnlyCustomFields = Object.fromEntries(
+            Object.entries(entityCustomFields).filter(([key]) => !profileKeys.has(key)),
+          )
+          if (Object.keys(entityOnlyCustomFields).length) {
+            appendCustomFieldLines(lines, entityOnlyCustomFields, 'Customer custom')
+          }
         }
+        const entityId = entity?.id ?? resolveCustomerEntityId(record)
         if (!entity) {
           console.warn('[vector.customers] Failed to load customer entity for person profile', {
             recordId: record.id,
@@ -296,8 +475,9 @@ export const vectorConfig: VectorModuleConfig = {
 
         const checksumSource = {
           record: ctx.record,
-          customFields: ctx.customFields,
+          customFields: profileCustomFields,
           entity,
+          entityCustomFields,
         }
 
         return {
@@ -334,16 +514,26 @@ export const vectorConfig: VectorModuleConfig = {
           'Annual revenue',
           record.annual_revenue ?? record.annualRevenue ?? ctx.customFields.annual_revenue,
         )
-        appendCustomFieldLines(lines, ctx.customFields, 'Company custom')
+        const profileCustomFields = ctx.customFields ?? {}
+        appendCustomFieldLines(lines, profileCustomFields, 'Company custom')
 
-        let entity = getInlineCustomerEntity(record)
-        let entityId = resolveCustomerEntityId(record)
-        if (!entityId) {
-          entityId = await ensureEntityId(ctx, record, 'customers:customer_company_profile')
+        const loaded = await loadCustomerEntityForProfile(ctx, 'company')
+        let entity = loaded?.entity ?? getInlineCustomerEntity(record)
+        if (entity?.id) {
+          record.entity_id ??= entity.id
+          record.entityId ??= entity.id
         }
-        if (!entity && entityId) {
-          entity = await getCustomerEntity(ctx, entityId)
+        const entityCustomFields = loaded?.customFields ?? {}
+        if (Object.keys(entityCustomFields).length) {
+          const profileKeys = new Set(Object.keys(profileCustomFields))
+          const entityOnlyCustomFields = Object.fromEntries(
+            Object.entries(entityCustomFields).filter(([key]) => !profileKeys.has(key)),
+          )
+          if (Object.keys(entityOnlyCustomFields).length) {
+            appendCustomFieldLines(lines, entityOnlyCustomFields, 'Customer custom')
+          }
         }
+        const entityId = entity?.id ?? resolveCustomerEntityId(record)
         if (entity) {
           appendLine(lines, 'Customer', pickValue(entity, 'display_name', 'displayName') ?? entity.id)
           appendLine(lines, 'Status', pickValue(entity, 'status'))
@@ -355,8 +545,6 @@ export const vectorConfig: VectorModuleConfig = {
         ensureFallbackLines(lines, record)
         if (!lines.length) return null
 
-        const finalEntityId = entityId ?? resolveCustomerEntityId(record)
-        console.log(record)
         const presenter = resolveCompanyPresenter(record, entity, ctx.customFields)
         logMissingPresenterTitle('company', record, entity, presenter)
         const primaryLabel =
@@ -374,13 +562,13 @@ export const vectorConfig: VectorModuleConfig = {
             ctx.customFields.brandName,
             ctx.customFields.legal_name,
             ctx.customFields.legalName,
-            finalEntityId,
+            entityId,
             record.id,
             'Open company',
           ) ?? 'Open company'
         const links: VectorLinkDescriptor[] = []
-        if (finalEntityId) {
-          const href = buildCustomerUrl('company', finalEntityId)
+        if (entityId) {
+          const href = buildCustomerUrl('company', entityId)
           if (href) {
             links.push({ href, label: primaryLabel, kind: 'primary' })
           }
@@ -388,8 +576,9 @@ export const vectorConfig: VectorModuleConfig = {
 
         const checksumSource = {
           record: ctx.record,
-          customFields: ctx.customFields,
+          customFields: profileCustomFields,
           entity,
+          entityCustomFields,
         }
 
         return {
@@ -399,7 +588,7 @@ export const vectorConfig: VectorModuleConfig = {
           checksumSource,
           payload: {
             kind: 'company',
-            entityId: finalEntityId ?? null,
+            entityId: entityId ?? null,
             name: presenter.title,
           },
         }
@@ -625,7 +814,6 @@ function resolveCompanyPresenter(
   entity: Record<string, any> | null,
   customFields: Record<string, any>,
 ): VectorResultPresenter {
-  console.log('RECORD', record, 'ENTITY', entity, customFields);
   const fallbackEntityId = resolveCustomerEntityId(record)
   const title =
     (pickValue(entity, 'display_name', 'displayName') as string | undefined) ??

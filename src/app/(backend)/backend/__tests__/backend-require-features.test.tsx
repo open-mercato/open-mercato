@@ -67,8 +67,8 @@ jest.mock('next/navigation', () => ({
 type GetAuthFromCookies = typeof import('@/lib/auth/server')['getAuthFromCookies']
 
 async function setAuthMock(value: Awaited<ReturnType<GetAuthFromCookies>>) {
-  const module = await import('@/lib/auth/server')
-  const mocked = module.getAuthFromCookies as jest.MockedFunction<GetAuthFromCookies>
+  const authModule = await import('@/lib/auth/server')
+  const mocked = authModule.getAuthFromCookies as jest.MockedFunction<GetAuthFromCookies>
   mocked.mockResolvedValue(value)
 }
 
