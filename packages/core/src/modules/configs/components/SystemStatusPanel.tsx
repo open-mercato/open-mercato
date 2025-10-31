@@ -90,6 +90,7 @@ export function SystemStatusPanel() {
   const [purging, setPurging] = React.useState(false)
   const [canPurgeCache, setCanPurgeCache] = React.useState(false)
   const [checkingFeature, setCheckingFeature] = React.useState(true)
+  const [segmentPurges, setSegmentPurges] = React.useState<Record<string, boolean>>({})
 
   const loadSnapshot = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }))
@@ -153,6 +154,58 @@ export function SystemStatusPanel() {
       cancelled = true
     }
   }, [])
+
+  const handlePurgeSegment = React.useCallback(async (segment: string) => {
+    if (!canPurgeCache || segmentPurges[segment]) return
+    if (typeof window !== 'undefined') {
+      const confirmed = window.confirm(
+        t(
+          'configs.systemStatus.crudCache.purgeConfirm',
+          'Purge cached entries for this segment?'
+        )
+      )
+      if (!confirmed) return
+    }
+
+    setSegmentPurges((prev) => ({ ...prev, [segment]: true }))
+    try {
+      const response = await apiFetch(API_PATH, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'purgeSegment', segment }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const message =
+          typeof payload?.error === 'string'
+            ? payload.error
+            : t('configs.systemStatus.crudCache.purgeError', 'Failed to purge segment cache.')
+        flash(message, 'error')
+        return
+      }
+      const deleted = typeof payload?.deleted === 'number' ? payload.deleted : null
+      flash(
+        t('configs.systemStatus.crudCache.purgeSuccess', {
+          segment,
+          count: deleted ?? 0,
+        }),
+        'success'
+      )
+      await loadSnapshot()
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : t('configs.systemStatus.crudCache.purgeError', 'Failed to purge segment cache.')
+      flash(message, 'error')
+    } finally {
+      setSegmentPurges((prev) => {
+        const next = { ...prev }
+        delete next[segment]
+        return next
+      })
+    }
+  }, [canPurgeCache, segmentPurges, t, loadSnapshot])
 
   const handlePurgeCache = React.useCallback(async () => {
     if (purging || !canPurgeCache) return
@@ -277,6 +330,110 @@ export function SystemStatusPanel() {
         ) : null}
       </header>
       <div className="space-y-6">
+        {(() => {
+          const crudStats = snapshot.runtime?.crudCache
+          if (!crudStats) return null
+          return (
+            <div className="space-y-4 rounded-lg border bg-card p-4">
+              <div className="space-y-1">
+                <h3 className="text-base font-semibold">
+                  {t('configs.systemStatus.crudCache.title', 'CRUD cache segments')}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    'configs.systemStatus.crudCache.description',
+                    'Inspect cached CRUD responses by segment and purge selectively when necessary.'
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'configs.systemStatus.crudCache.generatedAt',
+                    'Stats generated {{timestamp}}',
+                    { timestamp: new Date(crudStats.generatedAt).toLocaleString() }
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'configs.systemStatus.crudCache.totalKeys',
+                    '{{count}} cached entries',
+                    { count: crudStats.totalKeys }
+                  )}
+                </p>
+              </div>
+              {crudStats.segments.length ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[480px] text-sm">
+                    <thead>
+                      <tr className="text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="px-3 py-2 text-left">
+                          {t('configs.systemStatus.crudCache.segmentLabel', 'Segment')}
+                        </th>
+                        <th className="px-3 py-2 text-left">
+                          {t('configs.systemStatus.crudCache.pathLabel', 'Path')}
+                        </th>
+                        <th className="px-3 py-2 text-left">
+                          {t('configs.systemStatus.crudCache.methodLabel', 'Method')}
+                        </th>
+                        <th className="px-3 py-2 text-left">
+                          {t('configs.systemStatus.crudCache.countLabel', 'Cached keys')}
+                        </th>
+                        <th className="px-3 py-2 text-right">
+                          {t('configs.systemStatus.crudCache.actions', 'Actions')}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {crudStats.segments.map((entry) => {
+                        const isPurgingSegment = !!segmentPurges[entry.segment]
+                        return (
+                          <tr key={entry.segment} className="border-t">
+                            <td className="px-3 py-2 align-top font-medium">
+                              <div className="flex flex-col">
+                                <span>{entry.segment}</span>
+                                {entry.resource ? (
+                                  <span className="text-xs text-muted-foreground">{entry.resource}</span>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 align-top">
+                              <code className="text-xs text-muted-foreground">
+                                {entry.path ?? t('configs.systemStatus.crudCache.pathUnknown', 'n/a')}
+                              </code>
+                            </td>
+                            <td className="px-3 py-2 align-top">
+                              <span className="text-xs uppercase text-muted-foreground">
+                                {entry.method ?? 'GET'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 align-top">
+                              {t('configs.systemStatus.crudCache.countValue', '{{count}} keys', { count: entry.keyCount })}
+                            </td>
+                            <td className="px-3 py-2 align-top text-right">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!canPurgeCache || isPurgingSegment}
+                                onClick={() => { void handlePurgeSegment(entry.segment) }}
+                              >
+                                {isPurgingSegment
+                                  ? t('configs.systemStatus.crudCache.purgeLoading', 'Purging…')
+                                  : t('configs.systemStatus.crudCache.purge', 'Purge')}
+                              </Button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {t('configs.systemStatus.crudCache.empty', 'No cached entries for CRUD segments.')}
+                </p>
+              )}
+            </div>
+          )
+        })()}
         {snapshot.categories.map((category) => (
           <div key={category.key} className="space-y-4">
             <div className="space-y-1">
