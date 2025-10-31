@@ -212,8 +212,9 @@ export async function setupInitialTenant(
           passwordHash,
           organizationId: organization.id,
           tenantId: tenant.id,
-          name: base.name ?? null,
+          name: base.name ?? undefined,
           isConfirmed: confirm,
+          createdAt: new Date(),
         })
         tem.persist(user)
         userSnapshots.push({ user, roles: base.roles, created: true })
@@ -222,7 +223,7 @@ export async function setupInitialTenant(
       for (const roleName of base.roles) {
         const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
         const existingLink = await tem.findOne(UserRole, { user, role })
-        if (!existingLink) tem.persist(tem.create(UserRole, { user, role }))
+        if (!existingLink) tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
       }
       await tem.flush()
     }
