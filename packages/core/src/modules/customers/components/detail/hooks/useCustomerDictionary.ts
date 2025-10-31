@@ -68,9 +68,9 @@ export const customerDictionaryQueryOptions = (kind: CustomerDictionaryKind, sco
           icon,
           organizationId,
           isInherited,
-        }
+        } as CustomerDictionaryEntry
       })
-      .filter((entry): entry is CustomerDictionaryEntry => !!entry)
+      .filter((entry): entry is CustomerDictionaryEntry => entry !== null)
     const normalized = normalizeDictionaryEntries(
       parsed.map(({ value, label, color, icon }) => ({ value, label, color, icon })),
     )

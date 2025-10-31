@@ -16,13 +16,13 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 
-export const tenantCrudEvents: CrudEventsConfig<Tenant> = {
+export const tenantCrudEvents: CrudEventsConfig = {
   module: 'directory',
   entity: 'tenant',
   persistent: true,
 }
 
-export const tenantCrudIndexer: CrudIndexerConfig<Tenant> = {
+export const tenantCrudIndexer: CrudIndexerConfig = {
   entityType: E.directory.tenant,
 }
 

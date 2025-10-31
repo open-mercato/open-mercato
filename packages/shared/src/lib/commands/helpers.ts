@@ -134,7 +134,7 @@ export type LogBuilderArgs<TInput, TResult> = {
   input: TInput
   result: TResult
   ctx: CommandRuntimeContext
-  snapshots: { before?: unknown }
+  snapshots: { before?: unknown; after?: unknown }
 }
 
 export type LogBuilder<TInput, TResult> = (args: LogBuilderArgs<TInput, TResult>) => CommandLogMetadata | null | Promise<CommandLogMetadata | null>

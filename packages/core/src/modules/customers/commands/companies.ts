@@ -1080,7 +1080,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
         }
       }
 
-      const resetValues = buildCustomFieldResetMap(before.custom, null)
+      const resetValues = buildCustomFieldResetMap(before.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCompanyCustomFields(ctx, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }

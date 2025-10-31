@@ -29,6 +29,7 @@ import {
   loadCustomFieldSnapshot,
   diffCustomFieldChanges,
   buildCustomFieldResetMap,
+  type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -63,6 +64,10 @@ type DealSnapshot = {
 type DealUndoPayload = {
   before?: DealSnapshot | null
   after?: DealSnapshot | null
+}
+
+type DealChangeMap = Record<string, { from: unknown; to: unknown }> & {
+  custom?: CustomFieldChangeSet
 }
 
 async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnapshot | null> {
@@ -320,7 +325,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       'ownerUserId',
       'source',
     ]
-    const coreChanges =
+    const coreChanges: DealChangeMap =
       afterSnapshot && afterSnapshot.deal
         ? buildChanges(
             before.deal as Record<string, unknown>,
@@ -328,7 +333,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             changeKeys
           )
         : {}
-    const changes = { ...coreChanges }
+    const changes: DealChangeMap = { ...coreChanges }
     if (!arraysEqual(before.people, afterSnapshot?.people)) {
       changes.people = { from: before.people, to: afterSnapshot?.people ?? [] }
     }
@@ -520,7 +525,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         indexer: dealCrudIndexer,
       })
 
-      const resetValues = buildCustomFieldResetMap(before.custom, null)
+      const resetValues = buildCustomFieldResetMap(before.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsIfAny({
           dataEngine: de,

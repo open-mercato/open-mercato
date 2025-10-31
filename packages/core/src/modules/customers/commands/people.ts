@@ -397,8 +397,8 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
-    const firstName = parsed.firstName.trim()
-    const lastName = parsed.lastName.trim()
+    const firstName = parsed.firstName?.trim() ?? ''
+    const lastName = parsed.lastName?.trim() ?? ''
     const description = normalizeOptionalString(parsed.description)
     const primaryEmail = normalizeEmail(parsed.primaryEmail)
     const primaryPhone = normalizeOptionalString(parsed.primaryPhone)
@@ -412,11 +412,14 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const timezone = normalizeOptionalString(parsed.timezone)
     const linkedInUrl = normalizeOptionalString(parsed.linkedInUrl)
     const twitterUrl = normalizeOptionalString(parsed.twitterUrl)
-    const displayName = parsed.displayName.trim()
+    const displayName = parsed.displayName?.trim() ?? ''
     const nextInteractionName = parsed.nextInteraction?.name ? parsed.nextInteraction.name.trim() : null
     const nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction?.refId)
     const nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction?.icon)
     const nextInteractionColor = normalizeHexColor(parsed.nextInteraction?.color)
+    if (!firstName || !lastName) {
+      throw new CrudHttpError(400, { error: 'First and last name are required' })
+    }
     if (!displayName) {
       throw new CrudHttpError(400, { error: 'Display name is required' })
     }
@@ -1196,7 +1199,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           })
         }
       }
-      const resetValues = buildCustomFieldResetMap(before.custom, null)
+      const resetValues = buildCustomFieldResetMap(before.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsForPerson(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }

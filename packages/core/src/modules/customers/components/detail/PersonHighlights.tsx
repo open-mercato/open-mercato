@@ -289,7 +289,7 @@ export function PersonHighlights({
                 </span>
               ) : company ? (
                 <span className="text-primary transition group-hover:underline">
-                  {t('customers.people.detail.company.current', { company: company.name })}
+                  {t('customers.people.detail.company.current', undefined, { company: company.name })}
                 </span>
               ) : companyError ? (
                 <span className="text-xs text-red-600">{companyError}</span>

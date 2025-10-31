@@ -83,6 +83,8 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       authorUserId: normalizedAuthor,
       appearanceIcon: parsed.appearanceIcon ?? null,
       appearanceColor: parsed.appearanceColor ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(comment)
     await em.flush()
@@ -233,6 +235,8 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
         authorUserId: before.authorUserId,
         appearanceIcon: before.appearanceIcon,
         appearanceColor: before.appearanceColor,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(comment)
     } else {
@@ -328,6 +332,10 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
           deal,
           body: before.body,
           authorUserId: before.authorUserId,
+          appearanceIcon: before.appearanceIcon,
+          appearanceColor: before.appearanceColor,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         })
         em.persist(comment)
       } else {
@@ -335,6 +343,8 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
         comment.deal = deal
         comment.body = before.body
         comment.authorUserId = before.authorUserId
+        comment.appearanceIcon = before.appearanceIcon
+        comment.appearanceColor = before.appearanceColor
       }
       await em.flush()
 

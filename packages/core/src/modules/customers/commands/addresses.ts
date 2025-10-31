@@ -106,6 +106,8 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       latitude: parsed.latitude ?? null,
       longitude: parsed.longitude ?? null,
       isPrimary: parsed.isPrimary ?? false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(address)
     await em.flush()
@@ -293,6 +295,8 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         latitude: before.latitude,
         longitude: before.longitude,
         isPrimary: before.isPrimary,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(address)
     } else {
@@ -398,27 +402,29 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           entity,
           name: before.name,
           purpose: before.purpose,
-        addressLine1: before.addressLine1,
-        addressLine2: before.addressLine2,
-        buildingNumber: before.buildingNumber,
-        flatNumber: before.flatNumber,
-        city: before.city,
+          addressLine1: before.addressLine1,
+          addressLine2: before.addressLine2,
+          buildingNumber: before.buildingNumber,
+          flatNumber: before.flatNumber,
+          city: before.city,
           region: before.region,
           postalCode: before.postalCode,
           country: before.country,
           latitude: before.latitude,
           longitude: before.longitude,
           isPrimary: before.isPrimary,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         })
         em.persist(address)
       } else {
         address.entity = entity
         address.name = before.name
         address.purpose = before.purpose
-      address.addressLine1 = before.addressLine1
-      address.addressLine2 = before.addressLine2
-      address.buildingNumber = before.buildingNumber
-      address.flatNumber = before.flatNumber
+        address.addressLine1 = before.addressLine1
+        address.addressLine2 = before.addressLine2
+        address.buildingNumber = before.buildingNumber
+        address.flatNumber = before.flatNumber
         address.city = before.city
         address.region = before.region
         address.postalCode = before.postalCode

@@ -83,11 +83,11 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           id: entry.id,
           value: entry.value,
           label: entry.label,
-          color: entry.color,
-          icon: entry.icon,
+          color: entry.color ?? null,
+          icon: entry.icon ?? null,
         })
-        appearance.setColor(entry.color)
-        appearance.setIcon(entry.icon)
+        appearance.setColor(entry.color ?? null)
+        appearance.setIcon(entry.icon ?? null)
       } else {
         resetForm()
       }

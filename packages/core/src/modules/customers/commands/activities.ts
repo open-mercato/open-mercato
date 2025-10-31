@@ -12,6 +12,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CustomerActivity, CustomerDeal } from '../data/entities'
+import type { CustomerDictionaryEntry } from '../data/entities'
 import {
   activityCreateSchema,
   activityUpdateSchema,
@@ -32,6 +33,7 @@ import {
   loadCustomFieldSnapshot,
   diffCustomFieldChanges,
   buildCustomFieldResetMap,
+  type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -65,6 +67,10 @@ type ActivitySnapshot = {
 type ActivityUndoPayload = {
   before?: ActivitySnapshot | null
   after?: ActivitySnapshot | null
+}
+
+type ActivityChangeMap = Record<string, { from: unknown; to: unknown }> & {
+  custom?: CustomFieldChangeSet
 }
 
 async function loadActivitySnapshot(em: EntityManager, id: string): Promise<ActivitySnapshot | null> {
@@ -159,6 +165,8 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
       authorUserId: normalizedAuthor,
       appearanceIcon: resolvedAppearanceIcon,
       appearanceColor: resolvedAppearanceColor,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(activity)
     await em.flush()
@@ -242,12 +250,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
       parsed.activityType !== undefined ||
       parsed.appearanceIcon !== undefined ||
       parsed.appearanceColor !== undefined
-    let dictionaryEntry:
-      | {
-          icon: string | null
-          color: string | null
-        }
-      | null = null
+    let dictionaryEntry: Pick<CustomerDictionaryEntry, 'icon' | 'color'> | null = null
     if (shouldSyncDictionary) {
       const nextActivityType = parsed.activityType ?? activity.activityType
       dictionaryEntry = await ensureDictionaryEntry(em, {
@@ -310,7 +313,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
       'appearanceIcon',
       'appearanceColor',
     ]
-    const changes =
+    const changes: ActivityChangeMap =
       afterSnapshot && afterSnapshot.activity
         ? buildChanges(
             before.activity as Record<string, unknown>,
@@ -358,6 +361,10 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
         body: before.activity.body,
         occurredAt: before.activity.occurredAt,
         authorUserId: before.activity.authorUserId,
+        appearanceIcon: before.activity.appearanceIcon,
+        appearanceColor: before.activity.appearanceColor,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(activity)
     } else {
@@ -368,6 +375,8 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
       activity.body = before.activity.body
       activity.occurredAt = before.activity.occurredAt
       activity.authorUserId = before.activity.authorUserId
+      activity.appearanceIcon = before.activity.appearanceIcon
+      activity.appearanceColor = before.activity.appearanceColor
     }
 
     await em.flush()
@@ -471,6 +480,10 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           body: before.activity.body,
           occurredAt: before.activity.occurredAt,
           authorUserId: before.activity.authorUserId,
+          appearanceIcon: before.activity.appearanceIcon,
+          appearanceColor: before.activity.appearanceColor,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         })
         em.persist(activity)
       } else {
@@ -481,6 +494,8 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
         activity.body = before.activity.body
         activity.occurredAt = before.activity.occurredAt
         activity.authorUserId = before.activity.authorUserId
+        activity.appearanceIcon = before.activity.appearanceIcon
+        activity.appearanceColor = before.activity.appearanceColor
       }
       await em.flush()
 
@@ -497,7 +512,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
         indexer: activityCrudIndexer,
       })
 
-      const resetValues = buildCustomFieldResetMap(before.custom, null)
+      const resetValues = buildCustomFieldResetMap(before.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsIfAny({
           dataEngine: de,

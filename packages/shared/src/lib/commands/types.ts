@@ -38,6 +38,7 @@ export type CommandLogBuilderArgs<TInput, TResult> = {
   ctx: CommandRuntimeContext
   snapshots: {
     before?: unknown
+    after?: unknown
   }
 }
 

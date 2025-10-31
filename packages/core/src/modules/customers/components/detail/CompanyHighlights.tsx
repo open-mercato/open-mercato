@@ -10,6 +10,7 @@ import {
   InlineDictionaryEditor,
   InlineNextInteractionEditor,
   type InlineFieldProps,
+  type NextInteractionPayload,
 } from './InlineEditors'
 
 type CompanyHighlightsCompany = {
@@ -47,13 +48,7 @@ export type CompanyHighlightsProps = {
   onPrimaryEmailSave: (value: string | null) => Promise<void>
   onPrimaryPhoneSave: (value: string | null) => Promise<void>
   onStatusSave: (value: string | null) => Promise<void>
-  onNextInteractionSave: (payload: {
-    at: string | null
-    name: string | null
-    refId: string | null
-    icon: string | null
-    color: string | null
-  } | null) => Promise<void>
+  onNextInteractionSave: (payload: NextInteractionPayload | null) => Promise<void>
   onDelete: () => void
   isDeleting: boolean
 }

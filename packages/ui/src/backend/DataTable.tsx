@@ -105,6 +105,8 @@ export type DataTableProps<T> = {
   onSortingChange?: (s: SortingState) => void
   pagination?: PaginationProps
   isLoading?: boolean
+  emptyState?: React.ReactNode
+  error?: React.ReactNode | string | null
   // Optional per-row actions renderer. When provided, an extra trailing column is rendered.
   rowActions?: (row: T) => React.ReactNode
   // Optional row click handler. When provided, rows become clickable and show pointer cursor.
@@ -468,6 +470,8 @@ export function DataTable<T>({
   onSortingChange,
   pagination,
   isLoading,
+  emptyState,
+  error,
   rowActions,
   onRowClick,
   searchValue,
@@ -1330,6 +1334,12 @@ export function DataTable<T>({
                   </div>
                 </TableCell>
               </TableRow>
+            ) : error ? (
+              <TableRow>
+                <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-destructive">
+                  {typeof error === 'string' ? error : error}
+                </TableCell>
+              </TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => {
                 const isClickable = onRowClick || (rowActions && rowActions(row.original as T))
@@ -1398,7 +1408,7 @@ export function DataTable<T>({
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
-                  No results.
+                  {emptyState ?? 'No results.'}
                 </TableCell>
               </TableRow>
             )}

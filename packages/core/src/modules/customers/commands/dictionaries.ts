@@ -1,4 +1,5 @@
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'

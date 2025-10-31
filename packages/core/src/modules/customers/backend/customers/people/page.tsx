@@ -424,7 +424,7 @@ export default function CustomersPeoplePage() {
   const handleDelete = React.useCallback(async (person: PersonRow) => {
     if (!person?.id) return
     const name = person.name || t('customers.people.list.deleteFallbackName')
-    const confirmed = window.confirm(t('customers.people.list.deleteConfirm', { name }))
+    const confirmed = window.confirm(t('customers.people.list.deleteConfirm', undefined, { name }))
     if (!confirmed) return
     try {
       const res = await apiFetch(`/api/customers/people?id=${encodeURIComponent(person.id)}`, {

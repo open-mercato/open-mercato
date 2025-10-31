@@ -87,7 +87,12 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
       input: { ...payload, dictionaryId },
       ctx: context.ctx,
     })
-    const entry = await context.em.fork().findOne(DictionaryEntry, result.entryId, { populate: ['dictionary'] })
+    const createResult = (result ?? {}) as { entryId?: string | null }
+    const createdEntryId = typeof createResult.entryId === 'string' ? createResult.entryId : null
+    if (!createdEntryId) {
+      throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_create_failed', 'Failed to create dictionary entry') })
+    }
+    const entry = await context.em.fork().findOne(DictionaryEntry, createdEntryId, { populate: ['dictionary'] })
     if (!entry) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_create_failed', 'Failed to create dictionary entry') })
     }
@@ -109,7 +114,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
           commandId: logEntry.commandId,
           actionLabel: logEntry.actionLabel ?? null,
           resourceKind: logEntry.resourceKind ?? 'dictionaries.entry',
-          resourceId: result.entryId,
+          resourceId: createdEntryId,
           executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
         })
       )

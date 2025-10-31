@@ -66,10 +66,10 @@ function MarkdownEditorFallback() {
   )
 }
 
-const UiMarkdownEditor = dynamic<UiMarkdownEditorProps>(() => import('@uiw/react-md-editor'), {
+const UiMarkdownEditor = dynamic(() => import('@uiw/react-md-editor'), {
   ssr: false,
   loading: () => <MarkdownEditorFallback />,
-})
+}) as unknown as React.ComponentType<UiMarkdownEditorProps>
 
 export function InlineTextEditor({
   label,
@@ -323,7 +323,7 @@ export function InlineTextEditor({
                   minDigits={7}
                   checkingLabel={t('customers.people.form.phoneChecking')}
                   duplicateLabel={(match) =>
-                    t('customers.people.form.phoneDuplicateNotice', { name: match.label })
+                    t('customers.people.form.phoneDuplicateNotice', undefined, { name: match.label })
                   }
                   duplicateLinkLabel={t('customers.people.form.phoneDuplicateLink')}
                   onDuplicateLookup={handlePhoneDuplicateLookup}
@@ -344,7 +344,7 @@ export function InlineTextEditor({
               {error ? <p className="text-xs text-red-600">{error}</p> : null}
               {!error && isEmailField && duplicate ? (
                 <p className="text-xs text-muted-foreground">
-                  {t('customers.people.detail.inline.emailDuplicate', { name: duplicate.displayName })}{' '}
+                  {t('customers.people.detail.inline.emailDuplicate', undefined, { name: duplicate.displayName })}{' '}
                   <Link
                     className="font-medium text-primary underline underline-offset-2"
                     href={`/backend/customers/people/${duplicate.id}`}

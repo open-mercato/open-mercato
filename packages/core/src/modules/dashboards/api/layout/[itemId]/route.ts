@@ -31,7 +31,10 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
-  const parsed = dashboardLayoutItemPatchSchema.safeParse({ ...body, id: layoutItemId })
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
+  }
+  const parsed = dashboardLayoutItemPatchSchema.safeParse({ ...(body as Record<string, unknown>), id: layoutItemId })
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload', issues: parsed.error.issues }, { status: 400 })
   }
@@ -61,7 +64,7 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
     return NextResponse.json({ error: 'Layout not found' }, { status: 404 })
   }
 
-  const idx = layout.layoutJson.findIndex((item) => item.id === layoutItemId)
+  const idx = layout.layoutJson.findIndex((item: { id?: string | null }) => item?.id === layoutItemId)
   if (idx === -1) {
     return NextResponse.json({ error: 'Layout item not found' }, { status: 404 })
   }

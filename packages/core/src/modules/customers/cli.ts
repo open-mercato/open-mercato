@@ -7,7 +7,7 @@ import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
-import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
+import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { E as CoreEntities } from '@open-mercato/core/generated/entities.ids.generated'
 import { E as ExampleEntities } from '@open-mercato/example/generated/entities.ids.generated'
@@ -38,6 +38,9 @@ type DictionaryDefault = {
   color?: string
   icon?: string
 }
+
+type CustomFieldValuesPayload = Parameters<DataEngine['setCustomFields']>[0]['values']
+type ProgressBarHandle = ReturnType<typeof createProgressBar>
 
 const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
   { value: 'open', label: 'Open', color: '#2563eb', icon: 'lucide:circle' },
@@ -1452,19 +1455,21 @@ async function seedCustomerExamples(
       industry: typeof company.industry === 'string' ? company.industry.trim() || null : null,
       sizeBucket: company.sizeBucket ?? null,
       annualRevenue: typeof company.annualRevenue === 'number' ? toAmount(company.annualRevenue) : null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(companyEntity)
     em.persist(companyProfile)
 
     if (company.custom && Object.keys(company.custom).length) {
-      const values = { ...company.custom }
+      const values = { ...company.custom } as CustomFieldValuesPayload
       customFieldAssignments.push(async () =>
         dataEngine.setCustomFields({
           entityId: CoreEntities.customers.customer_company_profile,
           recordId: companyProfile.id,
           organizationId,
           tenantId,
-          values: values as Record<string, unknown>,
+          values,
         })
       )
     }
@@ -1487,6 +1492,8 @@ async function seedCustomerExamples(
         buildingNumber: company.address.buildingNumber ?? null,
         flatNumber: company.address.flatNumber ?? null,
         isPrimary: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(address)
     }
@@ -1504,11 +1511,13 @@ async function seedCustomerExamples(
         description: person.description ?? null,
         primaryEmail: person.email,
         primaryPhone: person.phone ?? null,
-        lifecycleStage: company.lifecycleStage ?? null,
-        status: 'active',
-        source: person.source ?? company.source ?? null,
-        isActive: true,
-      })
+      lifecycleStage: company.lifecycleStage ?? null,
+      status: 'active',
+      source: person.source ?? company.source ?? null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
       const personProfile = em.create(CustomerPersonProfile, {
         organizationId,
         tenantId,
@@ -1523,19 +1532,21 @@ async function seedCustomerExamples(
         timezone: person.timezone ?? null,
         linkedInUrl: person.linkedInUrl ?? null,
         twitterUrl: person.twitterUrl ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(personEntity)
       em.persist(personProfile)
 
       if (person.custom && Object.keys(person.custom).length) {
-        const values = { ...person.custom }
+        const values = { ...person.custom } as CustomFieldValuesPayload
         customFieldAssignments.push(async () =>
           dataEngine.setCustomFields({
             entityId: CoreEntities.customers.customer_person_profile,
             recordId: personProfile.id,
             organizationId,
             tenantId,
-            values: values as Record<string, unknown>,
+            values,
           })
         )
       }
@@ -1558,6 +1569,8 @@ async function seedCustomerExamples(
           buildingNumber: person.address.buildingNumber ?? null,
           flatNumber: person.address.flatNumber ?? null,
           isPrimary: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         })
         em.persist(address)
       }
@@ -1583,18 +1596,20 @@ async function seedCustomerExamples(
         appearanceIcon: interaction.icon ?? null,
         appearanceColor: interaction.color ?? null,
         authorUserId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(activity)
 
       if (interaction.custom && Object.keys(interaction.custom).length) {
-        const values = { ...interaction.custom }
+        const values = { ...interaction.custom } as CustomFieldValuesPayload
         customFieldAssignments.push(async () =>
           dataEngine.setCustomFields({
             entityId: CoreEntities.customers.customer_activity,
             recordId: activity.id,
             organizationId,
             tenantId,
-            values: values as Record<string, unknown>,
+            values,
           })
         )
       }
@@ -1613,6 +1628,8 @@ async function seedCustomerExamples(
         authorUserId: null,
         appearanceIcon: note.icon ?? null,
         appearanceColor: note.color ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       if (note.occurredAt) {
         const timestamp = new Date(note.occurredAt)
@@ -1644,18 +1661,20 @@ async function seedCustomerExamples(
         expectedCloseAt: dealInfo.expectedCloseAt ? new Date(dealInfo.expectedCloseAt) : null,
         ownerUserId: null,
         source: dealInfo.source ?? company.source ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(deal)
 
       if (dealInfo.custom && Object.keys(dealInfo.custom).length) {
-        const values = { ...dealInfo.custom }
+        const values = { ...dealInfo.custom } as CustomFieldValuesPayload
         customFieldAssignments.push(async () =>
           dataEngine.setCustomFields({
             entityId: CoreEntities.customers.customer_deal,
             recordId: deal.id,
             organizationId,
             tenantId,
-            values: values as Record<string, unknown>,
+            values,
           })
         )
       }
@@ -1663,6 +1682,7 @@ async function seedCustomerExamples(
       const companyLink = em.create(CustomerDealCompanyLink, {
         deal,
         company: companyEntity,
+        createdAt: new Date(),
       })
       em.persist(companyLink)
 
@@ -1673,6 +1693,7 @@ async function seedCustomerExamples(
           deal,
           person: personEntity,
           role: participant.role ?? null,
+          createdAt: new Date(),
         })
         em.persist(link)
       }
@@ -1695,18 +1716,20 @@ async function seedCustomerExamples(
           appearanceIcon: activityInfo.icon ?? null,
           appearanceColor: activityInfo.color ?? null,
           authorUserId: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         })
         em.persist(activity)
 
         if (activityInfo.custom && Object.keys(activityInfo.custom).length) {
-          const values = { ...activityInfo.custom }
+          const values = { ...activityInfo.custom } as CustomFieldValuesPayload
           customFieldAssignments.push(async () =>
             dataEngine.setCustomFields({
               entityId: CoreEntities.customers.customer_activity,
               recordId: activity.id,
               organizationId,
               tenantId,
-              values: values as Record<string, unknown>,
+              values,
             })
           )
         }
@@ -1753,6 +1776,7 @@ async function seedCustomerExamples(
       organizationId,
       tenantId,
       todoId: todo.id,
+      todoSource: 'example:todo',
       entity: target,
       createdAt: new Date(seed.createdAt),
     })
@@ -2867,7 +2891,7 @@ const seedStressTest: ModuleCli = {
 
     const container = await createRequestContainer()
     const em = container.resolve<EntityManager>('em')
-    let bar: ReturnType<typeof createProgressBar> | null = null
+    let progressBar: ProgressBarHandle | null = null
     const result = await seedCustomerStressTest(
       em,
       container,
@@ -2877,15 +2901,19 @@ const seedStressTest: ModuleCli = {
         includeExtras: !liteMode,
         onProgress: ({ completed, total }) => {
           if (total <= 0) return
-          if (!bar) {
+          if (!progressBar) {
             const label = liteMode ? 'Generating stress-test customers (lite)' : 'Generating stress-test customers'
-            bar = createProgressBar(label, total)
+            progressBar = createProgressBar(label, total)
           }
-          bar.update(completed)
+          if (progressBar) {
+            ;(progressBar as unknown as { update(completed: number): void }).update(completed)
+          }
         },
       }
     )
-    bar?.complete()
+    if (progressBar) {
+      ;(progressBar as unknown as { complete(): void }).complete()
+    }
 
     try {
       const eventBus = container.resolve<any>('eventBus')

@@ -1,12 +1,19 @@
 import type { QueryCustomFieldSource, QueryEngine } from '@open-mercato/shared/lib/query/types'
-import type { VectorLinkDescriptor, VectorModuleConfig, VectorResultPresenter } from '@open-mercato/shared/modules/vector'
+import type {
+  VectorBuildContext,
+  VectorLinkDescriptor,
+  VectorModuleConfig,
+  VectorResultPresenter,
+} from '@open-mercato/shared/modules/vector'
 
-type VectorContext = {
-  record: Record<string, any>
-  customFields: Record<string, any>
+type VectorContext = VectorBuildContext & {
   tenantId: string
-  organizationId?: string | null
-  queryEngine?: QueryEngine
+}
+
+function assertTenantContext(ctx: VectorBuildContext): asserts ctx is VectorContext {
+  if (typeof ctx.tenantId !== 'string' || ctx.tenantId.length === 0) {
+    throw new Error('[vector.customers] Missing tenantId in vector build context')
+  }
 }
 
 type CustomerProfileKind = 'person' | 'company'
@@ -433,6 +440,7 @@ export const vectorConfig: VectorModuleConfig = {
     {
       entityId: 'customers:customer_person_profile',
       buildSource: async (ctx) => {
+        assertTenantContext(ctx)
         const lines: string[] = []
         const record = ctx.record
         appendLine(
@@ -548,6 +556,7 @@ export const vectorConfig: VectorModuleConfig = {
         }
       },
       formatResult: async (ctx) => {
+        assertTenantContext(ctx)
         const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(ctx.record))
         return resolvePersonPresenter(ctx.record, entity, ctx.customFields)
       },
@@ -556,6 +565,7 @@ export const vectorConfig: VectorModuleConfig = {
     {
       entityId: 'customers:customer_company_profile',
       buildSource: async (ctx) => {
+        assertTenantContext(ctx)
         const lines: string[] = []
         const record = ctx.record
         appendLine(lines, 'Legal name', record.legal_name ?? record.legalName ?? ctx.customFields.legal_name)
@@ -629,6 +639,7 @@ export const vectorConfig: VectorModuleConfig = {
         }
       },
       formatResult: async (ctx) => {
+        assertTenantContext(ctx)
         const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(ctx.record))
         return resolveCompanyPresenter(ctx.record, entity, ctx.customFields)
       },
@@ -637,6 +648,7 @@ export const vectorConfig: VectorModuleConfig = {
     {
       entityId: 'customers:customer_comment',
       buildSource: async (ctx) => {
+        assertTenantContext(ctx)
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id ?? ctx.record.entityId)
         const lines: string[] = []
         if (parent?.display_name) lines.push(`Customer: ${parent.display_name}`)
@@ -661,6 +673,7 @@ export const vectorConfig: VectorModuleConfig = {
         }
       },
       formatResult: async (ctx) => {
+        assertTenantContext(ctx)
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id ?? ctx.record.entityId)
         const title = parent?.display_name ?? 'Customer note'
         return {
@@ -670,11 +683,13 @@ export const vectorConfig: VectorModuleConfig = {
         }
       },
       resolveUrl: async (ctx) => {
+        assertTenantContext(ctx)
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id ?? ctx.record.entityId)
         const base = buildCustomerUrl(parent?.kind ?? null, parent?.id ?? ctx.record.entity_id ?? ctx.record.entityId)
         return base ? `${base}#notes` : null
       },
       resolveLinks: async (ctx) => {
+        assertTenantContext(ctx)
         const links: VectorLinkDescriptor[] = []
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id ?? ctx.record.entityId)
         const parentUrl = buildCustomerUrl(parent?.kind ?? null, parent?.id ?? ctx.record.entity_id ?? ctx.record.entityId)
@@ -691,6 +706,7 @@ export const vectorConfig: VectorModuleConfig = {
     {
       entityId: 'customers:customer_activity',
       buildSource: async (ctx) => {
+        assertTenantContext(ctx)
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id ?? ctx.record.entityId)
         const lines: string[] = []
         if (parent?.display_name) lines.push(`Customer: ${parent.display_name}`)
@@ -714,6 +730,7 @@ export const vectorConfig: VectorModuleConfig = {
         }
       },
       formatResult: async (ctx) => {
+        assertTenantContext(ctx)
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id ?? ctx.record.entityId)
         return {
           title: ctx.record.subject ? String(ctx.record.subject) : `Activity: ${ctx.record.activity_type ?? 'update'}`,
@@ -722,6 +739,7 @@ export const vectorConfig: VectorModuleConfig = {
         }
       },
       resolveUrl: async (ctx) => {
+        assertTenantContext(ctx)
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id ?? ctx.record.entityId)
         const base = buildCustomerUrl(parent?.kind ?? null, parent?.id ?? ctx.record.entity_id ?? ctx.record.entityId)
         return base ? `${base}#activity-${ctx.record.id ?? ctx.record.activity_id ?? ''}` : null
@@ -758,6 +776,7 @@ export const vectorConfig: VectorModuleConfig = {
     {
       entityId: 'customers:customer_todo_link',
       buildSource: async (ctx) => {
+        assertTenantContext(ctx)
         const todo = await getLinkedTodo(ctx)
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id ?? ctx.record.entityId)
         const lines: string[] = []
@@ -776,6 +795,7 @@ export const vectorConfig: VectorModuleConfig = {
         }
       },
       formatResult: async (ctx) => {
+        assertTenantContext(ctx)
         const todo = await getLinkedTodo(ctx)
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id ?? ctx.record.entityId)
         return {
@@ -785,6 +805,7 @@ export const vectorConfig: VectorModuleConfig = {
         }
       },
       resolveUrl: async (ctx) => {
+        assertTenantContext(ctx)
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id ?? ctx.record.entityId)
         const base = buildCustomerUrl(parent?.kind ?? null, parent?.id ?? ctx.record.entity_id ?? ctx.record.entityId)
         return base ? `${base}#tasks` : null

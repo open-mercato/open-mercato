@@ -60,7 +60,7 @@ function buildCustomerHref(item: CustomerTodoItem): string | null {
   return `${base}?${TASKS_TAB_QUERY}`
 }
 
-export function CustomerTodosTable(): JSX.Element {
+export function CustomerTodosTable(): React.JSX.Element {
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
@@ -226,13 +226,17 @@ export function CustomerTodosTable(): JSX.Element {
     router.push(href)
   }, [router])
 
+  const errorMessage = error ? (error instanceof Error ? error.message : t('customers.workPlan.customerTodos.table.error.load')) : null
+  const isEmpty = !isLoading && !errorMessage && rows.length === 0
+
   return (
-    <DataTable
-      title={t('customers.workPlan.customerTodos.table.title')}
-      actions={(
-        <Button
-          variant="outline"
-          onClick={() => { void handleRefresh() }}
+    <div className="space-y-4">
+      <DataTable
+        title={t('customers.workPlan.customerTodos.table.title')}
+        actions={(
+          <Button
+            variant="outline"
+            onClick={() => { void handleRefresh() }}
           disabled={isFetching}
         >
           {t('customers.workPlan.customerTodos.table.actions.refresh')}
@@ -274,15 +278,20 @@ export function CustomerTodosTable(): JSX.Element {
         onPageChange: setPage,
       }}
       isLoading={isLoading}
-      emptyState={(
+      />
+      {errorMessage ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          {errorMessage}
+        </div>
+      ) : null}
+      {isEmpty ? (
         <div className="py-8 text-sm text-muted-foreground">
           {search || filters.is_done
             ? t('customers.workPlan.customerTodos.table.state.noMatches')
             : t('customers.workPlan.customerTodos.table.state.empty')}
         </div>
-      )}
-      error={error ? (error instanceof Error ? error.message : t('customers.workPlan.customerTodos.table.error.load')) : null}
-    />
+      ) : null}
+    </div>
   )
 }
 

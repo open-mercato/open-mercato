@@ -24,31 +24,40 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
-export const organizationCrudEvents: CrudEventsConfig<Organization> = {
+export const organizationCrudEvents: CrudEventsConfig = {
   module: 'directory',
   entity: 'organization',
   persistent: true,
-  buildPayload: (ctx: CrudEmitContext<Organization>) => ({
-    id: ctx.identifiers.id,
-    tenantId: tenantIdFromContext(ctx),
-    organizationId: ctx.identifiers.id,
-  }),
+  buildPayload: (ctx) => {
+    const orgCtx = ctx as CrudEmitContext<Organization>
+    return {
+      id: orgCtx.identifiers.id,
+      tenantId: tenantIdFromContext(orgCtx),
+      organizationId: orgCtx.identifiers.id,
+    }
+  },
 }
 
-export const organizationCrudIndexer: CrudIndexerConfig<Organization> = {
+export const organizationCrudIndexer: CrudIndexerConfig = {
   entityType: E.directory.organization,
-  buildUpsertPayload: (ctx: CrudEmitContext<Organization>) => ({
-    entityType: E.directory.organization,
-    recordId: ctx.identifiers.id,
-    organizationId: ctx.identifiers.id,
-    tenantId: tenantIdFromContext(ctx),
-  }),
-  buildDeletePayload: (ctx: CrudEmitContext<Organization>) => ({
-    entityType: E.directory.organization,
-    recordId: ctx.identifiers.id,
-    organizationId: ctx.identifiers.id,
-    tenantId: tenantIdFromContext(ctx),
-  }),
+  buildUpsertPayload: (ctx) => {
+    const orgCtx = ctx as CrudEmitContext<Organization>
+    return {
+      entityType: E.directory.organization,
+      recordId: orgCtx.identifiers.id,
+      organizationId: orgCtx.identifiers.id,
+      tenantId: tenantIdFromContext(orgCtx),
+    }
+  },
+  buildDeletePayload: (ctx) => {
+    const orgCtx = ctx as CrudEmitContext<Organization>
+    return {
+      entityType: E.directory.organization,
+      recordId: orgCtx.identifiers.id,
+      organizationId: orgCtx.identifiers.id,
+      tenantId: tenantIdFromContext(orgCtx),
+    }
+  },
 }
 
 type OrganizationTenantShape = {

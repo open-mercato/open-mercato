@@ -8,6 +8,8 @@ export type CurrencyDictionaryEntry = {
   id: string
   value: string
   label: string
+  color?: string | null
+  icon?: string | null
 }
 
 export type CurrencyDictionaryPayload = {
@@ -45,9 +47,11 @@ async function fetchCurrencyDictionary(): Promise<CurrencyDictionaryPayload> {
           : value
       const entryId = typeof entry?.id === 'string' ? entry.id : value
       if (!value) return null
-      return { id: entryId, value, label }
+      const color = typeof entry?.color === 'string' && entry.color.trim().length ? entry.color.trim() : null
+      const icon = typeof entry?.icon === 'string' && entry.icon.trim().length ? entry.icon.trim() : null
+      return { id: entryId, value, label, color, icon }
     })
-    .filter((entry): entry is CurrencyDictionaryEntry => !!entry)
+    .filter((entry: CurrencyDictionaryEntry | null): entry is CurrencyDictionaryEntry => entry !== null)
   return { id, entries }
 }
 

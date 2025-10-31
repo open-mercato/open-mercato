@@ -334,6 +334,7 @@ const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { tod
       const exampleCreate = resolveExampleCreateHandler()
       if (typeof exampleCreate.undo === 'function') {
         await exampleCreate.undo({
+          input: {},
           ctx,
           logEntry: {
             commandId: 'example.todos.create',

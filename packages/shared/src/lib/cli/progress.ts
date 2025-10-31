@@ -1,4 +1,4 @@
-type ProgressBar = {
+export type ProgressBar = {
   update(completed: number): void
   complete(): void
 }

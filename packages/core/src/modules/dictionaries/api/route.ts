@@ -83,6 +83,8 @@ export async function POST(req: Request) {
       isSystem: payload.isSystem ?? false,
       isActive: payload.isActive ?? true,
       managerVisibility: 'default',
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     context.em.persist(dictionary)
     await context.em.flush()
