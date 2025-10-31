@@ -20,9 +20,10 @@ function collectOperations(doc: any): ExplorerOperation[] {
     const methodEntries = Object.entries(doc.paths[path] ?? {})
     for (const [method, operation] of methodEntries) {
       const methodUpper = method.toUpperCase()
-      const summary: string | undefined = operation?.summary
-      const description: string | undefined = operation?.description
-      const tag = Array.isArray(operation?.tags) && operation.tags.length ? operation.tags[0] : 'General'
+      const op = (operation ?? {}) as { summary?: unknown; description?: unknown; tags?: unknown }
+      const summary: string | undefined = typeof op.summary === 'string' ? op.summary : undefined
+      const description: string | undefined = typeof op.description === 'string' ? op.description : undefined
+      const tag = Array.isArray(op.tags) && typeof op.tags[0] === 'string' ? op.tags[0] : 'General'
       operations.push({
         id: `${methodUpper}-${path.replace(/[^\w]+/g, '-')}`,
         path,

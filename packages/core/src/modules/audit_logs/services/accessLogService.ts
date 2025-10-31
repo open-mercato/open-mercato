@@ -61,6 +61,7 @@ export class AccessLogService {
       accessType: data.accessType,
       fieldsJson: data.fields ?? null,
       contextJson: data.context ?? null,
+      createdAt: new Date(),
     })
     await fork.persistAndFlush(entry)
     await this.rotate(fork)

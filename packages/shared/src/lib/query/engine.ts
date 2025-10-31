@@ -1,6 +1,15 @@
-import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource, QueryJoinEdge } from './types'
+import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource } from './types'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  applyJoinFilters,
+  normalizeFilters,
+  partitionFilters,
+  resolveJoins,
+  type BaseFilter,
+  type NormalizedFilter,
+  type ResolvedJoin,
+} from './join-utils'
 
 const entityTableCache = new Map<string, string>()
 
@@ -9,15 +18,6 @@ type ResolvedCustomFieldSource = {
   alias: string
   table: string
   recordIdExpr: any
-}
-
-type ResolvedJoin = {
-  alias: string
-  table: string
-  fromAlias: string
-  fromField: string
-  toField: string
-  type: 'left' | 'inner'
 }
 
 const pluralizeBaseName = (name: string): string => {
@@ -106,7 +106,8 @@ export class BasicQueryEngine implements QueryEngine {
       q = q.whereNull(qualify('deleted_at'))
     }
 
-    const resolvedJoins = this.resolveJoins(table, opts.joins)
+    const normalizedFilters = normalizeFilters(opts.filters)
+    const resolvedJoins = resolveJoins(table, opts.joins, (entityId) => resolveEntityTableName(this.em, entityId as any))
     const joinMap = new Map<string, ResolvedJoin>()
     const aliasTables = new Map<string, string>()
     aliasTables.set(table, table)
@@ -115,34 +116,8 @@ export class BasicQueryEngine implements QueryEngine {
       joinMap.set(join.alias, join)
       aliasTables.set(join.alias, join.table)
     }
-
-    // Normalize filters: accept array or Mongo-style object
-    const arrayFilters = this.normalizeFilters(opts.filters)
-
-    type BaseFilter = { field: string; op: any; value?: any; qualified?: string }
-    type AliasFilter = { alias: string; column: string; op: any; value?: any }
-    const baseFilters: BaseFilter[] = []
-    const joinFilters = new Map<string, AliasFilter[]>()
-
-    for (const f of arrayFilters) {
-      if (f.field.startsWith('cf:')) continue
-      const parts = f.field.split('.')
-      if (parts.length === 2) {
-        const [aliasNameRaw, column] = parts
-        const aliasName = aliasNameRaw || ''
-        if (joinMap.has(aliasName)) {
-          const list = joinFilters.get(aliasName) ?? []
-          list.push({ alias: aliasName, column, op: f.op, value: f.value })
-          joinFilters.set(aliasName, list)
-          continue
-        }
-        if (aliasName === table || aliasName === 'base') {
-          baseFilters.push({ field: column, op: f.op, value: f.value, qualified: `${table}.${column}` })
-          continue
-        }
-      }
-      baseFilters.push({ field: f.field, op: f.op, value: f.value })
-    }
+    const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
+    const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
 
     const applyFilterOp = (builder: any, column: string, op: any, value: any) => {
       switch (op) {
@@ -165,71 +140,35 @@ export class BasicQueryEngine implements QueryEngine {
     for (const filter of baseFilters) {
       let qualified = filter.qualified ?? null
       if (!qualified) {
-        const column = await this.resolveBaseColumn(table, filter.field)
+        const column = await this.resolveBaseColumn(table, String(filter.field))
         if (!column) continue
         qualified = qualify(column)
       }
       applyFilterOp(q, qualified, filter.op, filter.value)
     }
 
-    const resolveAliasName = (aliasName?: string | null) => {
-      if (!aliasName || aliasName === 'base') return table
-      return aliasName
-    }
-
     const applyAliasScopes = async (builder: any, aliasName: string) => {
-      const tableName = aliasTables.get(aliasName)
-      if (!tableName) return
-      if (orgScope && await this.columnExists(tableName, 'organization_id')) {
+      const targetTable = aliasTables.get(aliasName)
+      if (!targetTable) return
+      if (orgScope && await this.columnExists(targetTable, 'organization_id')) {
         this.applyOrganizationScope(builder, `${aliasName}.organization_id`, orgScope)
       }
-      if (opts.tenantId && await this.columnExists(tableName, 'tenant_id')) {
+      if (opts.tenantId && await this.columnExists(targetTable, 'tenant_id')) {
         builder.where(`${aliasName}.tenant_id`, opts.tenantId)
       }
     }
-
-    for (const [alias, filtersForAlias] of joinFilters.entries()) {
-      const chain = this.buildJoinChain(alias, joinMap, table)
-      if (!chain.length) continue
-      const first = chain[0]
-      const sub = knex({ [first.alias]: first.table }).select(1)
-      await applyAliasScopes(sub, first.alias)
-      const parentAlias = resolveAliasName(first.fromAlias)
-      if (parentAlias === table) {
-        sub.whereRaw('?? = ??', [`${first.alias}.${first.toField}`, qualify(first.fromField)])
-      } else {
-        sub.whereRaw('?? = ??', [`${first.alias}.${first.toField}`, `${parentAlias}.${first.fromField}`])
-      }
-      for (const cfg of chain.slice(1)) {
-        const joinArgs = { [cfg.alias]: cfg.table }
-        const parent = resolveAliasName(cfg.fromAlias)
-        const joinFn = function (this: any) {
-          if (parent === table) {
-            this.on(`${cfg.alias}.${cfg.toField}`, '=', knex.raw('??', [qualify(cfg.fromField)]))
-          } else {
-            this.on(`${cfg.alias}.${cfg.toField}`, '=', knex.raw('??', [`${parent}.${cfg.fromField}`]))
-          }
-        }
-        if (cfg.type === 'inner') sub.join(joinArgs, joinFn)
-        else sub.leftJoin(joinArgs, joinFn)
-        await applyAliasScopes(sub, cfg.alias)
-      }
-      let existsDirective: boolean | null = null
-      for (const filter of filtersForAlias) {
-        if (filter.op === 'exists') {
-          if (filter.value === false) existsDirective = false
-          else if (existsDirective === null) existsDirective = true
-          continue
-        }
-        const targetTable = aliasTables.get(filter.alias)
-        if (!targetTable) continue
-        if (!await this.columnExists(targetTable, filter.column)) continue
-        const qualified = `${filter.alias}.${filter.column}`
-        applyFilterOp(sub, qualified, filter.op, filter.value)
-      }
-      if (existsDirective === false) q = q.whereNotExists(sub)
-      else q = q.whereExists(sub)
-    }
+    await applyJoinFilters({
+      knex,
+      baseTable: table,
+      builder: q,
+      joinMap,
+      joinFilters,
+      aliasTables,
+      qualifyBase: (column) => qualify(column),
+      applyAliasScope: (builder, alias) => applyAliasScopes(builder, alias),
+      applyFilterOp,
+      columnExists: (tbl, column) => this.columnExists(tbl, column),
+    })
     // Selection (base columns only here; cf:* handled later)
     if (opts.fields && opts.fields.length) {
       const cols = opts.fields.filter((f) => !f.startsWith('cf:'))
@@ -260,7 +199,7 @@ export class BasicQueryEngine implements QueryEngine {
     for (const f of (opts.fields || [])) {
       if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
     }
-    for (const f of arrayFilters) {
+    for (const f of cfFilters) {
       if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
     }
     if (opts.includeCustomFields === true) {
@@ -395,7 +334,7 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     // Apply cf:* filters (on raw expressions)
-    for (const f of arrayFilters) {
+    for (const f of cfFilters) {
       if (!f.field.startsWith('cf:')) continue
       const key = f.field.slice(3)
       const expr = cfValueExprByKey[key]
@@ -504,13 +443,18 @@ export class BasicQueryEngine implements QueryEngine {
 
   private async columnExists(table: string, column: string): Promise<boolean> {
     const key = `${table}.${column}`
-    if (this.columnCache.has(key)) return this.columnCache.get(key)!
+    if (this.columnCache.has(key)) {
+      const cached = this.columnCache.get(key)
+      if (cached === true) return true
+      this.columnCache.delete(key)
+    }
     const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
     const exists = await knex('information_schema.columns')
       .where({ table_name: table, column_name: column })
       .first()
     const present = !!exists
-    this.columnCache.set(key, present)
+    if (present) this.columnCache.set(key, true)
+    else this.columnCache.delete(key)
     return present
   }
 
@@ -556,44 +500,6 @@ export class BasicQueryEngine implements QueryEngine {
     return sources
   }
 
-  private resolveJoins(baseTable: string, joins?: QueryJoinEdge[] | null): ResolvedJoin[] {
-    if (!joins || joins.length === 0) return []
-    const resolved: ResolvedJoin[] = []
-    const seen = new Set<string>()
-    for (const entry of joins) {
-      if (!entry || typeof entry !== 'object') continue
-      const alias = typeof entry.alias === 'string' ? entry.alias.trim() : ''
-      if (!alias) continue
-      if (seen.has(alias)) continue
-      const table = entry.table ?? (entry.entityId ? resolveEntityTableName(this.em, entry.entityId) : null)
-      if (!table) continue
-      const fromField = entry.from?.field?.trim()
-      const toField = entry.to?.field?.trim()
-      if (!fromField || !toField) continue
-      const fromAliasRaw = entry.from?.alias?.trim()
-      const fromAlias = fromAliasRaw && fromAliasRaw.length > 0 ? fromAliasRaw : 'base'
-      const type: 'left' | 'inner' = entry.type === 'left' ? 'left' : 'inner'
-      resolved.push({ alias, table, fromAlias, fromField, toField, type })
-      seen.add(alias)
-    }
-    return resolved
-  }
-
-  private buildJoinChain(alias: string, joinMap: Map<string, ResolvedJoin>, baseTable: string, visited: Set<string> = new Set()): ResolvedJoin[] {
-    if (visited.has(alias)) {
-      throw new Error(`QueryEngine: circular join reference detected for alias ${alias}`)
-    }
-    const cfg = joinMap.get(alias)
-    if (!cfg) return []
-    visited.add(alias)
-    if (!cfg.fromAlias || cfg.fromAlias === 'base' || cfg.fromAlias === baseTable) {
-      return [cfg]
-    }
-    const parentChain = this.buildJoinChain(cfg.fromAlias, joinMap, baseTable, visited)
-    if (parentChain.length === 0) return []
-    return [...parentChain, cfg]
-  }
-
   private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {
     if (opts.organizationIds !== undefined) {
       const raw = (opts.organizationIds ?? []).map((id) => (typeof id === 'string' ? id.trim() : id))
@@ -627,37 +533,6 @@ export class BasicQueryEngine implements QueryEngine {
     })
   }
 
-  private normalizeFilters(filters?: QueryOptions['filters']): { field: string; op: any; value?: any }[] {
-    if (!filters) return []
-    const normalizeField = (k: string) => k.startsWith('cf_') ? `cf:${k.slice(3)}` : k
-    if (Array.isArray(filters)) return (filters as any[]).map((f) => ({ ...f, field: normalizeField(String((f as any).field)) }))
-    const out: { field: string; op: any; value?: any }[] = []
-    const obj = filters as Record<string, any>
-    const add = (field: string, op: any, value?: any) => out.push({ field, op, value })
-    for (const [rawKey, rawVal] of Object.entries(obj)) {
-      const field = normalizeField(rawKey)
-      if (rawVal !== null && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
-        for (const [opKey, opVal] of Object.entries(rawVal)) {
-          switch (opKey) {
-            case '$eq': add(field, 'eq', opVal); break
-            case '$ne': add(field, 'ne', opVal); break
-            case '$gt': add(field, 'gt', opVal); break
-            case '$gte': add(field, 'gte', opVal); break
-            case '$lt': add(field, 'lt', opVal); break
-            case '$lte': add(field, 'lte', opVal); break
-            case '$in': add(field, 'in', opVal); break
-            case '$nin': add(field, 'nin', opVal); break
-            case '$like': add(field, 'like', opVal); break
-            case '$ilike': add(field, 'ilike', opVal); break
-            case '$exists': add(field, 'exists', opVal); break
-          }
-        }
-      } else {
-        add(field, 'eq', rawVal)
-      }
-    }
-    return out
-  }
 }
     const computeScore = (cfg: Record<string, unknown>, kind: string, entityIndex: number) => {
       const listVisibleScore = cfg.listVisible === false ? 0 : 1

@@ -33,7 +33,7 @@ const configUnavailable = () => NextResponse.json({ error: 'Configuration servic
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.userId) return unauthorized()
+  if (!auth?.sub) return unauthorized()
 
   const container = await createRequestContainer()
   try {
@@ -64,7 +64,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.userId) return unauthorized()
+  if (!auth?.sub) return unauthorized()
 
   if (envDisablesVectorAutoIndexing()) {
     return NextResponse.json(
@@ -113,4 +113,3 @@ export async function POST(req: Request) {
     }
   }
 }
-

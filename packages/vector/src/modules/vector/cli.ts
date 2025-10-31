@@ -1,10 +1,12 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import { recordIndexerError } from '@/lib/indexers/error-log'
+import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import type { VectorIndexService } from '@open-mercato/vector'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from '@open-mercato/core/modules/query_index/lib/reindexer'
+import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -79,6 +81,35 @@ function toNonNegativeInt(value: number | undefined, fallback = 0): number {
   return n
 }
 
+async function resetVectorCoverageAfterPurge(
+  em: EntityManager | null,
+  entityId: string,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<void> {
+  if (!em || !entityId) return
+  try {
+    const scopes = new Set<string>()
+    scopes.add('__null__')
+    if (organizationId) scopes.add(organizationId)
+    for (const scope of scopes) {
+      const orgValue = scope === '__null__' ? null : scope
+      await writeCoverageCounts(
+        em,
+        {
+          entityType: entityId,
+          tenantId,
+          organizationId: orgValue,
+          withDeleted: false,
+        },
+        { vectorCount: 0 },
+      )
+    }
+  } catch (error) {
+    console.warn('[vector.cli] Failed to reset vector coverage after purge', error instanceof Error ? error.message : error)
+  }
+}
+
 async function reindexCommand(rest: string[]): Promise<void> {
   const args = parseArgs(rest)
   const tenantId = stringOpt(args, 'tenant', 'tenantId')
@@ -108,28 +139,43 @@ async function reindexCommand(rest: string[]): Promise<void> {
     }
   }
 
-  const recordError = async (error: Error) => recordIndexerError(
-    { em: baseEm ?? undefined },
-    {
-      source: 'vector',
-      handler: 'cli:vector.reindex',
-      error,
-      entityType: entityId ?? null,
-      tenantId: tenantId ?? null,
-      organizationId: organizationId ?? null,
-      payload: {
-        args,
-        force,
-        batchSize,
-        partitionsOption,
-        partitionIndexOption,
-        resetCoverageFlag,
-        skipResetCoverageFlag,
-        skipPurgeFlag,
-        purgeFlag,
+  const recordError = async (error: Error) => {
+    await recordIndexerLog(
+      { em: baseEm ?? undefined },
+      {
+        source: 'vector',
+        handler: 'cli:vector.reindex',
+        level: 'warn',
+        message: `Reindex failed${entityId ? ` for ${entityId}` : ''}`,
+        entityType: entityId ?? null,
+        tenantId: tenantId ?? null,
+        organizationId: organizationId ?? null,
+        details: { error: error.message },
       },
-    },
-  )
+    ).catch(() => undefined)
+    await recordIndexerError(
+      { em: baseEm ?? undefined },
+      {
+        source: 'vector',
+        handler: 'cli:vector.reindex',
+        error,
+        entityType: entityId ?? null,
+        tenantId: tenantId ?? null,
+        organizationId: organizationId ?? null,
+        payload: {
+          args,
+          force,
+          batchSize,
+          partitionsOption,
+          partitionIndexOption,
+          resetCoverageFlag,
+          skipResetCoverageFlag,
+          skipPurgeFlag,
+          purgeFlag,
+        },
+      },
+    )
+  }
 
   try {
     const service = container.resolve<VectorIndexService>('vectorIndexService')
@@ -170,11 +216,51 @@ async function reindexCommand(rest: string[]): Promise<void> {
         ? `tenant=${tenantId}${organizationId ? `, org=${organizationId}` : ''}`
         : 'all tenants'
       console.log(`Reindexing vectors for ${entityType} (${scopeLabel})${purgeFirst ? ' [purge]' : ''}`)
+      await recordIndexerLog(
+        { em: baseEm ?? undefined },
+        {
+          source: 'vector',
+          handler: 'cli:vector.reindex',
+          message: `Reindex started for ${entityType}`,
+          entityType,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          details: {
+            purgeFirst,
+            partitions: partitionTargets.length,
+            partitionCount,
+            partitionIndex: partitionIndexOption ?? null,
+            batchSize,
+          },
+        },
+      ).catch(() => undefined)
 
       if (purgeFirst && tenantId) {
         try {
           console.log('  -> purging existing vector index rows...')
           await service.purgeIndex({ tenantId, organizationId: organizationId ?? null, entityId: entityType })
+          await resetVectorCoverageAfterPurge(baseEm, entityType, tenantId ?? null, organizationId ?? null)
+          if (baseEventBus) {
+            const scopes = new Set<string>()
+            scopes.add('__null__')
+            if (organizationId) scopes.add(organizationId)
+            await Promise.all(
+              Array.from(scopes).map((scope) => {
+                const orgValue = scope === '__null__' ? null : scope
+                return baseEventBus!
+                  .emitEvent(
+                    'query_index.coverage.refresh',
+                    {
+                      entityType,
+                      tenantId: tenantId ?? null,
+                      organizationId: orgValue,
+                      delayMs: 0,
+                    },
+                  )
+                  .catch(() => undefined)
+              }),
+            )
+          }
         } catch (err) {
           console.warn('  -> purge failed, continuing with reindex', err instanceof Error ? err.message : err)
         }
@@ -206,13 +292,19 @@ async function reindexCommand(rest: string[]): Promise<void> {
 
           const partitionContainer = await createRequestContainer()
           const partitionEm = partitionContainer.resolve<EntityManager>('em')
+          let partitionVectorService: VectorIndexService | null = null
+          try {
+            partitionVectorService = partitionContainer.resolve<VectorIndexService>('vectorIndexService')
+          } catch {
+            partitionVectorService = null
+          }
           try {
             let progressBar: ReturnType<typeof createProgressBar> | null = null
             const useBar = partitionTargets.length === 1
             const stats = await reindexEntity(partitionEm, {
               entityType,
               tenantId: tenantId ?? undefined,
-              organizationId: organizationId ?? null,
+              organizationId: organizationId ?? undefined,
               force,
               batchSize,
               eventBus: baseEventBus ?? undefined,
@@ -220,6 +312,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
               partitionCount,
               partitionIndex: part,
               resetCoverage: shouldResetCoverage(part),
+              vectorService: partitionVectorService,
               onProgress(info) {
                 if (useBar) {
                   if (info.total > 0 && !progressBar) {
@@ -250,10 +343,28 @@ async function reindexCommand(rest: string[]): Promise<void> {
 
       const totalProcessed = processed.reduce((acc, value) => acc + value, 0)
       console.log(`Finished ${entityType}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+      await recordIndexerLog(
+        { em: baseEm ?? undefined },
+        {
+          source: 'vector',
+          handler: 'cli:vector.reindex',
+          message: `Reindex completed for ${entityType}`,
+          entityType,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          details: {
+            processed: totalProcessed,
+            partitions: partitionTargets.length,
+            partitionCount,
+            partitionIndex: partitionIndexOption ?? null,
+            batchSize,
+          },
+        },
+      ).catch(() => undefined)
       return totalProcessed
     }
 
-    const defaultPurge = purgeFlag !== false && !skipPurgeFlag
+    const defaultPurge = purgeFlag === true && !skipPurgeFlag
 
     if (entityId) {
       if (!enabledEntities.has(entityId)) {
@@ -309,8 +420,8 @@ const helpCli: ModuleCli = {
     console.log('  --partition <idx>       Restrict to a specific partition index.')
     console.log('  --batch <n>             Override batch size per chunk.')
     console.log('  --force                 Force reindex even if another job is running.')
-    console.log('  --purgeFirst=false      Skip purging vector rows before reindexing.')
-    console.log('  --skipPurge             Alias to skip purging vector rows.')
+    console.log('  --purgeFirst            Purge vector rows before reindexing (defaults to skip).')
+    console.log('  --skipPurge             Explicitly skip purging vector rows.')
     console.log('  --skipResetCoverage     Keep existing coverage snapshots.')
   },
 }

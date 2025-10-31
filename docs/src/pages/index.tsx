@@ -1,4 +1,5 @@
 import React from 'react';
+import type { JSX } from 'react';
 import Layout from '@theme/Layout';
 import Head from '@docusaurus/Head';
 import Link from '@docusaurus/Link';

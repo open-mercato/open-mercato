@@ -60,13 +60,13 @@ async function fetchRoleFilterOptions(query?: string): Promise<FilterOption[]> {
     const data = await res.json().catch(() => ({}))
     const items = Array.isArray(data?.items) ? data.items : []
     return items
-      .map((item: any) => {
+      .map((item: any): FilterOption | null => {
         const id = typeof item?.id === 'string' ? item.id : null
         const name = typeof item?.name === 'string' ? item.name : null
         if (!id || !name) return null
         return { value: id, label: name }
       })
-      .filter((opt): opt is FilterOption => !!opt)
+      .filter((opt: FilterOption | null): opt is FilterOption => opt !== null)
   } catch {
     return []
   }
@@ -92,7 +92,7 @@ async function fetchRoleOptionsByIds(ids: string[]): Promise<FilterOption[]> {
       return null
     }
   }))
-  return results.filter((opt): opt is FilterOption => !!opt)
+  return results.filter((opt: FilterOption | null): opt is FilterOption => opt !== null)
 }
 
 function mergeOptions(existing: FilterOption[], next: FilterOption[]): FilterOption[] {

@@ -3,23 +3,66 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Role, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
+import { normalizeTenantId } from './tenantAccess'
 
 const DEFAULT_ROLE_NAMES = ['employee', 'admin', 'superadmin'] as const
 const DEMO_SUPERADMIN_EMAIL = 'superadmin@acme.com'
 
 export type EnsureRolesOptions = {
   roleNames?: string[]
+  tenantId?: string | null
+}
+
+async function ensureRolesInContext(
+  em: EntityManager,
+  roleNames: string[],
+  tenantId: string | null,
+) {
+  for (const name of roleNames) {
+    const existing = await em.findOne(Role, { name, tenantId })
+    if (existing) continue
+    if (tenantId !== null) {
+      const globalRole = await em.findOne(Role, { name, tenantId: null })
+      if (globalRole) {
+        globalRole.tenantId = tenantId
+        em.persist(globalRole)
+        continue
+      }
+    }
+    em.persist(em.create(Role, { name, tenantId, createdAt: new Date() }))
+  }
 }
 
 export async function ensureRoles(em: EntityManager, options: EnsureRolesOptions = {}) {
   const roleNames = options.roleNames ?? [...DEFAULT_ROLE_NAMES]
+  const tenantId = normalizeTenantId(options.tenantId ?? null) ?? null
   await em.transactional(async (tem) => {
-    for (const name of roleNames) {
-      const existing = await tem.findOne(Role, { name })
-      if (!existing) tem.persist(tem.create(Role, { name, tenantId: null }))
-    }
+    await ensureRolesInContext(tem, roleNames, tenantId)
     await tem.flush()
   })
+}
+
+async function findRoleByName(
+  em: EntityManager,
+  name: string,
+  tenantId: string | null,
+): Promise<Role | null> {
+  const normalizedTenant = normalizeTenantId(tenantId ?? null) ?? null
+  let role = await em.findOne(Role, { name, tenantId: normalizedTenant })
+  if (!role && normalizedTenant !== null) {
+    role = await em.findOne(Role, { name, tenantId: null })
+  }
+  return role
+}
+
+async function findRoleByNameOrFail(
+  em: EntityManager,
+  name: string,
+  tenantId: string | null,
+): Promise<Role> {
+  const role = await findRoleByName(em, name, tenantId)
+  if (!role) throw new Error(`ROLE_NOT_FOUND:${name}`)
+  return role
 }
 
 type PrimaryUserInput = {
@@ -72,7 +115,6 @@ export async function setupInitialTenant(
     ? defaultRoleNames
     : defaultRoleNames.filter((role) => role !== 'superadmin')
   const roleNames = Array.from(new Set([...resolvedRoleNames, ...primaryRoles]))
-  await ensureRoles(em, { roleNames })
 
   const mainEmail = primaryUser.email
   const existingUser = await em.findOne(User, { email: mainEmail })
@@ -90,14 +132,18 @@ export async function setupInitialTenant(
       reusedExistingUser = true
       tenantId = existingUser.tenantId ? String(existingUser.tenantId) : undefined
       organizationId = existingUser.organizationId ? String(existingUser.organizationId) : undefined
+      const roleTenantId = normalizeTenantId(existingUser.tenantId ?? null) ?? null
+
+      await ensureRolesInContext(tem, roleNames, roleTenantId)
+      await tem.flush()
 
       const requiredRoleSet = new Set([...roleNames, ...primaryRoles])
       const links = await tem.find(UserRole, { user: existingUser }, { populate: ['role'] })
       const currentRoles = new Set(links.map((link) => link.role.name))
       for (const roleName of requiredRoleSet) {
         if (!currentRoles.has(roleName)) {
-          const role = await tem.findOneOrFail(Role, { name: roleName })
-          tem.persist(tem.create(UserRole, { user: existingUser, role }))
+          const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
+          tem.persist(tem.create(UserRole, { user: existingUser, role, createdAt: new Date() }))
         }
       }
       await tem.flush()
@@ -106,16 +152,32 @@ export async function setupInitialTenant(
       return
     }
 
-    const tenant = tem.create(Tenant, { name: `${options.orgName} Tenant` })
+    const tenant = tem.create(Tenant, {
+      name: `${options.orgName} Tenant`,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
     tem.persist(tenant)
     await tem.flush()
 
-    const organization = tem.create(Organization, { name: options.orgName, tenant })
+    const organization = tem.create(Organization, {
+      name: options.orgName,
+      tenant,
+      isActive: true,
+      depth: 0,
+      ancestorIds: [],
+      childIds: [],
+      descendantIds: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
     tem.persist(organization)
     await tem.flush()
 
     tenantId = String(tenant.id)
     organizationId = String(organization.id)
+    const roleTenantId = tenantId
 
     const baseUsers: Array<{ email: string; roles: string[]; name?: string | null }> = [
       { email: primaryUser.email, roles: primaryRoles, name: resolvePrimaryName(primaryUser) },
@@ -130,6 +192,9 @@ export async function setupInitialTenant(
     }
 
     const passwordHash = await resolvePasswordHash(primaryUser)
+    await ensureRolesInContext(tem, roleNames, roleTenantId)
+    await tem.flush()
+
     for (const base of baseUsers) {
       let user = await tem.findOne(User, { email: base.email })
       const confirm = primaryUser.confirm ?? true
@@ -147,17 +212,18 @@ export async function setupInitialTenant(
           passwordHash,
           organizationId: organization.id,
           tenantId: tenant.id,
-          name: base.name ?? null,
+          name: base.name ?? undefined,
           isConfirmed: confirm,
+          createdAt: new Date(),
         })
         tem.persist(user)
         userSnapshots.push({ user, roles: base.roles, created: true })
       }
       await tem.flush()
       for (const roleName of base.roles) {
-        const role = await tem.findOneOrFail(Role, { name: roleName })
+        const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
         const existingLink = await tem.findOne(UserRole, { user, role })
-        if (!existingLink) tem.persist(tem.create(UserRole, { user, role }))
+        if (!existingLink) tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
       }
       await tem.flush()
     }
@@ -201,9 +267,10 @@ async function ensureDefaultRoleAcls(
   options: { includeSuperadminRole?: boolean } = {},
 ) {
   const includeSuperadminRole = options.includeSuperadminRole ?? true
-  const superadminRole = includeSuperadminRole ? await em.findOne(Role, { name: 'superadmin' }) : null
-  const adminRole = await em.findOne(Role, { name: 'admin' })
-  const employeeRole = await em.findOne(Role, { name: 'employee' })
+  const roleTenantId = normalizeTenantId(tenantId) ?? null
+  const superadminRole = includeSuperadminRole ? await findRoleByName(em, 'superadmin', roleTenantId) : null
+  const adminRole = await findRoleByName(em, 'admin', roleTenantId)
+  const employeeRole = await findRoleByName(em, 'employee', roleTenantId)
 
   if (includeSuperadminRole && superadminRole) {
     await ensureRoleAclFor(em, superadminRole, tenantId, ['directory.tenants.*'], { isSuperAdmin: true })
@@ -215,6 +282,10 @@ async function ensureDefaultRoleAcls(
       'attachments.*',
       'query_index.*',
       'vector.*',
+      'configs.system_status.view',
+      'configs.cache.view',
+      'configs.cache.manage',
+      'configs.manage',
       'catalog.*',
       'sales.*',
       'audit_logs.*',
@@ -273,6 +344,7 @@ async function ensureRoleAclFor(
       tenantId,
       featuresJson: features,
       isSuperAdmin: !!options.isSuperAdmin,
+      createdAt: new Date(),
     })
     await em.persistAndFlush(acl)
     return

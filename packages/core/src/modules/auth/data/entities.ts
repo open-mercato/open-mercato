@@ -34,11 +34,12 @@ export class User {
 }
 
 @Entity({ tableName: 'roles' })
+@Unique({ properties: ['tenantId', 'name'] })
 export class Role {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @Property({ type: 'text', unique: true })
+  @Property({ type: 'text' })
   name!: string
 
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })

@@ -4,6 +4,7 @@ import {
   Index,
   ManyToOne,
   OneToMany,
+  OptionalProps,
   PrimaryKey,
   Property,
   Unique,
@@ -13,6 +14,8 @@ import {
 @Index({ name: 'catalog_products_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Unique({ name: 'catalog_products_code_scope_unique', properties: ['organizationId', 'tenantId', 'code'] })
 export class CatalogProduct {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -75,6 +78,8 @@ export class CatalogProduct {
   properties: ['organizationId', 'tenantId', 'sku'],
 })
 export class CatalogProductVariant {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -141,6 +146,8 @@ export class CatalogProductVariant {
 @Entity({ tableName: 'catalog_product_options' })
 @Index({ name: 'catalog_product_options_scope_idx', properties: ['product', 'organizationId', 'tenantId'] })
 export class CatalogProductOption {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -191,6 +198,8 @@ export class CatalogProductOption {
   properties: ['organizationId', 'tenantId', 'option', 'code'],
 })
 export class CatalogProductOptionValue {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -234,6 +243,8 @@ export class CatalogProductOptionValue {
   properties: ['variant', 'optionValue'],
 })
 export class CatalogVariantOptionValue {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -266,6 +277,8 @@ export class CatalogVariantOptionValue {
   properties: ['variant', 'organizationId', 'tenantId', 'currencyCode', 'kind', 'minQuantity'],
 })
 export class CatalogProductPrice {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 

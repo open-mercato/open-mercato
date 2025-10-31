@@ -5,7 +5,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
-import { tagAssignmentSchema } from '../../../data/validators'
+import { tagAssignmentSchema, type TagAssignmentInput } from '../../../data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../../utils'
@@ -42,8 +42,11 @@ export async function POST(req: Request) {
     const input = tagAssignmentSchema.parse(scoped)
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
-    const { result, logEntry } = await commandBus.execute('customers.tags.assign', { input, ctx })
-    const response = NextResponse.json({ id: result?.assignmentId ?? result?.id ?? null }, { status: 201 })
+    const { result, logEntry } = await commandBus.execute<TagAssignmentInput, { assignmentId: string }>(
+    'customers.tags.assign',
+    { input, ctx },
+  )
+    const response = NextResponse.json({ id: result?.assignmentId ?? null }, { status: 201 })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
         'x-om-operation',
@@ -53,7 +56,7 @@ export async function POST(req: Request) {
           commandId: logEntry.commandId,
           actionLabel: logEntry.actionLabel ?? null,
           resourceKind: logEntry.resourceKind ?? 'customers.tagAssignment',
-          resourceId: logEntry.resourceId ?? (result?.assignmentId ?? null),
+          resourceId: logEntry.resourceId ?? result?.assignmentId ?? null,
           executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
         })
       )

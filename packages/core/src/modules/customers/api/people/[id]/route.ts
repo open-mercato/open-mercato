@@ -51,7 +51,7 @@ function notFound(message: string) {
   return NextResponse.json({ error: message }, { status: 404 })
 }
 
-function serializeTags(assignments: CustomerTagAssignment[]): Array<{ id: string; label: string; color?: string | null }> {
+function serializeTags(assignments: CustomerTagAssignment[]): Array<{ id: string; label: string; color: string | null }> {
   return assignments
     .map((assignment) => {
       const tag = assignment.tag as CustomerTag | string | null
@@ -62,7 +62,13 @@ function serializeTags(assignments: CustomerTagAssignment[]): Array<{ id: string
         color: tag.color ?? null,
       }
     })
-    .filter((tag): tag is { id: string; label: string; color?: string | null } => !!tag)
+    .filter(
+      (tag: { id: string; label: string; color: string | null } | null): tag is {
+        id: string
+        label: string
+        color: string | null
+      } => tag !== null,
+    )
 }
 
 type TodoDetail = {

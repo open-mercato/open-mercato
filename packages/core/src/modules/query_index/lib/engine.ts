@@ -7,6 +7,15 @@ import type { Knex } from 'knex'
 import type { EventBus } from '@open-mercato/events'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
+import type { VectorIndexService } from '@open-mercato/vector'
+import {
+  applyJoinFilters,
+  normalizeFilters,
+  partitionFilters,
+  resolveJoins,
+  type BaseFilter,
+  type ResolvedJoin,
+} from '@open-mercato/shared/lib/query/join-utils'
 
 function parseBooleanToken(value: string | null | undefined, defaultValue: boolean): boolean {
   if (value == null) return defaultValue
@@ -72,7 +81,8 @@ export class HybridQueryEngine implements QueryEngine {
   constructor(
     private em: EntityManager,
     private fallback: BasicQueryEngine,
-    private eventBusResolver?: () => Pick<EventBus, 'emitEvent'> | null | undefined
+    private eventBusResolver?: () => Pick<EventBus, 'emitEvent'> | null | undefined,
+    private vectorServiceResolver?: () => VectorIndexService | null | undefined,
   ) {
     const coverageTtl = Number.parseInt(process.env.QUERY_INDEX_COVERAGE_CACHE_MS ?? '', 10)
     this.coverageStatsTtlMs = Number.isFinite(coverageTtl) && coverageTtl >= 0 ? coverageTtl : 5 * 60 * 1000
@@ -127,11 +137,12 @@ export class HybridQueryEngine implements QueryEngine {
         return fallbackResult
       }
 
-      const normalizedFilters = this.normalizeFilters(opts.filters)
+      const normalizedFilters = normalizeFilters(opts.filters)
+      const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:'))
       const orgScope = this.resolveOrganizationScope(opts)
       const wantsCf = (
         (opts.fields || []).some((field) => typeof field === 'string' && field.startsWith('cf:')) ||
-        normalizedFilters.some((filter) => filter.field.startsWith('cf:')) ||
+        cfFilters.length > 0 ||
         opts.includeCustomFields === true ||
         (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.length > 0)
       )
@@ -221,9 +232,21 @@ export class HybridQueryEngine implements QueryEngine {
 
       const qualify = (col: string) => `b.${col}`
     let builder: ResultBuilder = knex({ b: baseTable })
-    const hasCustomFieldFilters = normalizedFilters.some((filter) => filter.field.startsWith('cf:'))
+    const hasCustomFieldFilters = cfFilters.length > 0
     const canOptimizeCount = !hasCustomFieldFilters
     let optimizedCountBuilder: ResultBuilder | null = canOptimizeCount ? knex({ b: baseTable }) : null
+
+    const resolvedJoinsConfig = resolveJoins(baseTable, opts.joins, (entityId) => resolveEntityTableName(this.em, entityId as any))
+    const joinMap = new Map<string, ResolvedJoin>()
+    const aliasTables = new Map<string, string>()
+    aliasTables.set('b', baseTable)
+    aliasTables.set('base', baseTable)
+    aliasTables.set(baseTable, baseTable)
+    for (const join of resolvedJoinsConfig) {
+      joinMap.set(join.alias, join)
+      aliasTables.set(join.alias, join.table)
+    }
+    const { baseFilters, joinFilters } = partitionFilters(baseTable, normalizedFilters, joinMap)
 
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
 
@@ -340,16 +363,94 @@ export class HybridQueryEngine implements QueryEngine {
       return null
     }
 
-    for (const filter of normalizedFilters) {
-      if (filter.field.startsWith('cf:')) {
-        builder = this.applyCfFilterAcrossSources(knex, builder, filter.field, filter.op, filter.value, indexSources)
-        continue
-      }
+    for (const filter of cfFilters) {
+      builder = this.applyCfFilterAcrossSources(knex, builder, filter.field, filter.op, filter.value, indexSources)
+    }
+
+    for (const filter of baseFilters) {
       const baseField = resolveBaseColumn(String(filter.field))
       if (!baseField) continue
       const column = qualify(baseField)
       builder = this.applyColumnFilter(builder, column, filter)
-      if (optimizedCountBuilder) optimizedCountBuilder = this.applyColumnFilter(optimizedCountBuilder, column, filter)
+      if (optimizedCountBuilder) {
+        optimizedCountBuilder = this.applyColumnFilter(optimizedCountBuilder, column, filter)
+      }
+    }
+
+    const applyAliasScopes = async (target: ResultBuilder, aliasName: string) => {
+      const tableName = aliasTables.get(aliasName)
+      if (!tableName) return
+      if (orgScope && await this.columnExists(tableName, 'organization_id')) {
+        this.applyOrganizationScope(target, `${aliasName}.organization_id`, orgScope)
+      }
+      if (opts.tenantId && await this.columnExists(tableName, 'tenant_id')) {
+        target.where(`${aliasName}.tenant_id`, opts.tenantId)
+      }
+      if (!opts.withDeleted && await this.columnExists(tableName, 'deleted_at')) {
+        target.whereNull(`${aliasName}.deleted_at`)
+      }
+    }
+
+    const applyJoinFilterOp = (target: ResultBuilder, column: string, op: FilterOp, value?: unknown) => {
+      switch (op) {
+        case 'eq':
+          target.where(column, value as Knex.Value)
+          break
+        case 'ne':
+          target.whereNot(column, value as Knex.Value)
+          break
+        case 'gt':
+        case 'gte':
+        case 'lt':
+        case 'lte': {
+          const operator = op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<='
+          target.where(column, operator, value as Knex.Value)
+          break
+        }
+        case 'in':
+          target.whereIn(column, this.toArray(value) as readonly Knex.Value[])
+          break
+        case 'nin':
+          target.whereNotIn(column, this.toArray(value) as readonly Knex.Value[])
+          break
+        case 'like':
+          target.where(column, 'like', value as Knex.Value)
+          break
+        case 'ilike':
+          target.where(column, 'ilike', value as Knex.Value)
+          break
+        case 'exists':
+          value ? target.whereNotNull(column) : target.whereNull(column)
+          break
+      }
+    }
+
+    await applyJoinFilters({
+      knex,
+      baseTable,
+      builder,
+      joinMap,
+      joinFilters,
+      aliasTables,
+      qualifyBase: (column) => qualify(column),
+      applyAliasScope: (target, alias) => applyAliasScopes(target, alias),
+      applyFilterOp: (target, column, op, value) => applyJoinFilterOp(target as ResultBuilder, column, op, value),
+      columnExists: (tbl, column) => this.columnExists(tbl, column),
+    }) as ResultBuilder
+
+    if (optimizedCountBuilder) {
+      await applyJoinFilters({
+        knex,
+        baseTable,
+        builder: optimizedCountBuilder,
+        joinMap,
+        joinFilters,
+        aliasTables,
+        qualifyBase: (column) => qualify(column),
+        applyAliasScope: (target, alias) => applyAliasScopes(target, alias),
+        applyFilterOp: (target, column, op, value) => applyJoinFilterOp(target as ResultBuilder, column, op, value),
+        columnExists: (tbl, column) => this.columnExists(tbl, column),
+      })
     }
 
     const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : ['id'])
@@ -662,7 +763,7 @@ export class HybridQueryEngine implements QueryEngine {
     }
     if (!opts.withDeleted) q = q.whereNull(`${alias}.deleted_at`)
 
-    const normalizedFilters = this.normalizeFilters(opts.filters)
+    const normalizedFilters = normalizeFilters(opts.filters)
 
     // Apply filters: cf:* via JSONB; other keys: special-case id/created_at/updated_at/deleted_at, otherwise from doc
     for (const filter of normalizedFilters) {
@@ -812,6 +913,15 @@ export class HybridQueryEngine implements QueryEngine {
     return `${tenantId ?? '__none__'}|${sorted}`
   }
 
+  private resolveVectorService(): VectorIndexService | null {
+    if (!this.vectorServiceResolver) return null
+    try {
+      return this.vectorServiceResolver() ?? null
+    } catch {
+      return null
+    }
+  }
+
   private async indexAnyRows(entity: string): Promise<boolean> {
     const knex = this.getKnex()
     // Prefer coverage snapshots – cheap and already scoped by maintenance jobs.
@@ -832,12 +942,16 @@ export class HybridQueryEngine implements QueryEngine {
   ): Promise<{ baseCount: number; indexedCount: number } | null> {
     try {
       if (!this.isCoverageOptimizationEnabled()) {
-        await refreshCoverageSnapshot(this.em, {
-          entityType: entity,
-          tenantId,
-          organizationId,
-          withDeleted,
-        })
+        await refreshCoverageSnapshot(
+          this.em,
+          {
+            entityType: entity,
+            tenantId,
+            organizationId,
+            withDeleted,
+          },
+          { vectorService: this.resolveVectorService() },
+        )
       }
       const knex = this.getKnex()
       const row = await readCoverageSnapshot(knex, {
@@ -866,10 +980,21 @@ export class HybridQueryEngine implements QueryEngine {
     if (!this.isAutoReindexEnabled()) return
     const bus = this.resolveEventBus()
     if (!bus) return
-    const payload = { entityType: entity, tenantId: opts.tenantId ?? null, force: false }
+    const payload = {
+      entityType: entity,
+      tenantId: opts.tenantId ?? null,
+      organizationId: opts.organizationId ?? null,
+      force: false,
+    }
     const context = stats
-      ? { entity, tenantId: payload.tenantId, baseCount: stats.baseCount, indexedCount: stats.indexedCount }
-      : { entity, tenantId: payload.tenantId }
+      ? {
+          entity,
+          tenantId: payload.tenantId,
+          organizationId: payload.organizationId,
+          baseCount: stats.baseCount,
+          indexedCount: stats.indexedCount,
+        }
+      : { entity, tenantId: payload.tenantId, organizationId: payload.organizationId }
 
     void Promise.resolve()
       .then(async () => {
@@ -976,13 +1101,18 @@ export class HybridQueryEngine implements QueryEngine {
 
   private async columnExists(table: string, column: string): Promise<boolean> {
     const key = `${table}.${column}`
-    if (this.columnCache.has(key)) return this.columnCache.get(key)!
+    if (this.columnCache.has(key)) {
+      const cached = this.columnCache.get(key)
+      if (cached === true) return true
+      this.columnCache.delete(key)
+    }
     const knex = this.getKnex()
     const exists = await knex('information_schema.columns')
       .where({ table_name: table, column_name: column })
       .first()
     const present = !!exists
-    this.columnCache.set(key, present)
+    if (present) this.columnCache.set(key, true)
+    else this.columnCache.delete(key)
     return present
   }
 

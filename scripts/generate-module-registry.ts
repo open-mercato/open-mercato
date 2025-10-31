@@ -123,12 +123,12 @@ function scan() {
           const metaImportName = `M${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
           const metaImportPath = `${fromApp ? imps.appBase : imps.pkgBase}/frontend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
           imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
-          metaExpr = `${metaImportName}.metadata`
+          metaExpr = `(${metaImportName}.metadata as any)`
           // Only import default page when meta file exists
           imports.push(`import ${importName} from '${importPath}'`)
         } else {
           // Fallback: metadata exported from the page module itself
-          metaExpr = `${pageModName}['metadata']`
+          metaExpr = `(${pageModName} as any).metadata`
           imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
         frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`)
@@ -157,12 +157,12 @@ function scan() {
           const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
           const metaImportPath = `${fromApp ? imps.appBase : imps.pkgBase}/frontend/${[...segs, metaImportSub].join('/')}`
           imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
-          metaExpr = `${metaImportName}.metadata`
+          metaExpr = `(${metaImportName}.metadata as any)`
           // Only import default page when meta file exists
           imports.push(`import ${importName} from '${importPath}'`)
         } else {
           // Fallback: metadata exported from the page module itself
-          metaExpr = `${pageModName}['metadata']`
+          metaExpr = `(${pageModName} as any).metadata`
           imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
         frontendRoutes.push(`{ pattern: '${routePath||'/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`)
@@ -287,12 +287,12 @@ function scan() {
           const metaImportName = `BM${importId++}_${toVar(modId)}_${toVar(segs.join('_')||'index')}`
           const metaImportPath = `${fromApp ? imps.appBase : imps.pkgBase}/backend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
           imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
-          metaExpr = `${metaImportName}.metadata`
+          metaExpr = `(${metaImportName}.metadata as any)`
           // Only import default page when meta file exists
           imports.push(`import ${importName} from '${importPath}'`)
         } else {
           // Fallback: metadata exported from the page module itself
-          metaExpr = `${pageModName}['metadata']`
+          metaExpr = `(${pageModName} as any).metadata`
           imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
         backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`)
@@ -325,7 +325,7 @@ function scan() {
           imports.push(`import ${importName} from '${importPath}'`)
         } else {
           // Fallback: metadata exported from the page module itself
-          metaExpr = `${pageModName}['metadata']`
+          metaExpr = `(${pageModName} as any).metadata`
           imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
         }
         backendRoutes.push(`{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`)
@@ -370,7 +370,7 @@ function scan() {
         const sourceFile = fromApp ? appFile : path.join(apiPkg, ...segs, 'route.ts')
         const docsPart = moduleHasExport(sourceFile, 'openApi') ? `, docs: ${importName}.openApi` : ''
         imports.push(`import * as ${importName} from '${importPath}'`)
-        apis.push(`{ path: '${routePath}', metadata: ${importName}.metadata, handlers: ${importName}${docsPart} }`)
+        apis.push(`{ path: '${routePath}', metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
       }
 
       // Single files
@@ -406,7 +406,7 @@ function scan() {
         const sourceFile = fromApp ? appFile : pkgFile
         const docsPart = moduleHasExport(sourceFile, 'openApi') ? `, docs: ${importName}.openApi` : ''
         imports.push(`import * as ${importName} from '${importPath}'`)
-        apis.push(`{ path: '${routePath}', metadata: ${importName}.metadata, handlers: ${importName}${docsPart} }`)
+        apis.push(`{ path: '${routePath}', metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
       }
       // Legacy per-method
       const methods: HttpMethod[] = ['GET','POST','PUT','PATCH','DELETE']
@@ -473,15 +473,15 @@ function scan() {
         const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
         imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
         imports.push(`import ${aName} from '${imps.appBase}/i18n/${locale}.json'`)
-        translations.push(`'${locale}': { ...( ${cName} as Record<string,string> ), ...( ${aName} as Record<string,string> ) }`)
+        translations.push(`'${locale}': { ...( ${cName} as unknown as Record<string,string> ), ...( ${aName} as unknown as Record<string,string> ) }`)
       } else if (appHas) {
         const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
         imports.push(`import ${aName} from '${imps.appBase}/i18n/${locale}.json'`)
-        translations.push(`'${locale}': ${aName} as Record<string,string>`)
+        translations.push(`'${locale}': ${aName} as unknown as Record<string,string>`)
       } else if (coreHas) {
         const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
         imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
-        translations.push(`'${locale}': ${cName} as Record<string,string>`)
+        translations.push(`'${locale}': ${cName} as unknown as Record<string,string>`)
       }
     }
 
@@ -515,7 +515,7 @@ function scan() {
         const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/subscribers/${[...segs, name].join('/')}`
         imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
         const sid = [modId, ...segs, name].filter(Boolean).join(':')
-        subscribers.push(`{ id: (${metaName}.metadata?.id || '${sid}'), event: ${metaName}.metadata?.event, persistent: ${metaName}.metadata?.persistent, handler: ${importName} }`)
+        subscribers.push(`{ id: (((${metaName}.metadata) as any)?.id || '${sid}'), event: ((${metaName}.metadata) as any)?.event, persistent: ((${metaName}.metadata) as any)?.persistent, handler: ${importName} }`)
       }
     }
 
@@ -555,7 +555,7 @@ function scan() {
           const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/widgets/dashboard/${[...segs, base].join('/')}`
           const key = [modId, ...segs, base].filter(Boolean).join(':')
           const source = fromApp ? 'app' : 'package'
-          dashboardWidgets.push(`{ moduleId: '${modId}', key: '${key}', source: '${source}', loader: () => import('${importPath}') }`)
+          dashboardWidgets.push(`{ moduleId: '${modId}', key: '${key}', source: '${source}', loader: () => import('${importPath}').then((mod) => mod.default ?? mod) }`)
           const existing = allDashboardWidgets.get(key)
           if (!existing || (existing.source !== 'app' && source === 'app')) {
             allDashboardWidgets.set(key, { moduleId: modId, source, importPath })
@@ -596,7 +596,10 @@ export const modules: Module[] = [
 export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
 `
   const widgetEntriesList = Array.from(allDashboardWidgets.entries()).sort(([a], [b]) => a.localeCompare(b))
-  const widgetDecls = widgetEntriesList.map(([key, data]) => `  { moduleId: '${data.moduleId}', key: '${key}', source: '${data.source}', loader: () => import('${data.importPath}') }`)
+  const widgetDecls = widgetEntriesList.map(
+    ([key, data]) =>
+      `  { moduleId: '${data.moduleId}', key: '${key}', source: '${data.source}', loader: () => import('${data.importPath}').then((mod) => mod.default ?? mod) }`
+  )
   const widgetsOutput = `// AUTO-GENERATED by scripts/generate-module-registry.ts
 import type { ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
 

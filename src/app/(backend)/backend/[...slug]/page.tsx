@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@/lib/auth/server'
 import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
 import { createRequestContainer } from '@/lib/di/container'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 type Awaitable<T> = T | Promise<T>
 
@@ -23,10 +24,10 @@ export default async function BackendCatchAll(props: { params: Awaitable<{ slug?
       const ok = required.some(r => roles.includes(r))
       if (!ok) redirect('/login?requireRole=' + encodeURIComponent(required.join(',')))
     }
-    const features = (match.route as any).requireFeatures as string[] | undefined
+    const features = match.route.requireFeatures
     if (features && features.length) {
       const container = await createRequestContainer()
-      const rbac = container.resolve<any>('rbacService')
+      const rbac = container.resolve<RbacService>('rbacService')
       let organizationIdForCheck: string | null = auth.orgId ?? null
       const cookieStore = await cookies()
       const cookieSelected = cookieStore.get('om_selected_org')?.value ?? null
@@ -43,10 +44,10 @@ export default async function BackendCatchAll(props: { params: Awaitable<{ slug?
       if (!ok) redirect('/login?requireFeature=' + encodeURIComponent(features.join(',')))
     }
   }
-  const Component = match.route.Component as any
+  const Component = match.route.Component
   return (
     <>
-      <ApplyBreadcrumb breadcrumb={(match.route as any).breadcrumb} title={match.route.title as any} titleKey={(match.route as any).titleKey as any} />
+      <ApplyBreadcrumb breadcrumb={match.route.breadcrumb} title={match.route.title} titleKey={match.route.titleKey} />
       <Component params={match.params} />
     </>
   )

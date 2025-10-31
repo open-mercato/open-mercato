@@ -1,7 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
@@ -43,6 +43,8 @@ type OptionSnapshot = {
   isRequired: boolean
   isMultiple: boolean
   metadata: Record<string, unknown> | null
+  createdAt: string
+  updatedAt: string
   custom: Record<string, unknown> | null
 }
 
@@ -57,6 +59,8 @@ type OptionValueSnapshot = {
   description: string | null
   position: number
   metadata: Record<string, unknown> | null
+  createdAt: string
+  updatedAt: string
   custom: Record<string, unknown> | null
 }
 
@@ -69,6 +73,24 @@ type OptionValueUndoPayload = {
   before?: OptionValueSnapshot | null
   after?: OptionValueSnapshot | null
 }
+
+const OPTION_CHANGE_KEYS = [
+  'code',
+  'label',
+  'description',
+  'position',
+  'isRequired',
+  'isMultiple',
+  'metadata',
+] as const satisfies readonly string[]
+
+const OPTION_VALUE_CHANGE_KEYS = [
+  'code',
+  'label',
+  'description',
+  'position',
+  'metadata',
+] as const satisfies readonly string[]
 
 async function loadOptionSnapshot(
   em: EntityManager,
@@ -95,6 +117,8 @@ async function loadOptionSnapshot(
     isRequired: record.isRequired,
     isMultiple: record.isMultiple,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
     custom: Object.keys(custom).length ? custom : null,
   }
 }
@@ -128,6 +152,8 @@ async function loadOptionValueSnapshot(
     description: record.description ?? null,
     position: record.position,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
     custom: Object.keys(custom).length ? custom : null,
   }
 }
@@ -142,6 +168,8 @@ function applyOptionSnapshot(record: CatalogProductOption, snapshot: OptionSnaps
   record.isRequired = snapshot.isRequired
   record.isMultiple = snapshot.isMultiple
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+  record.createdAt = new Date(snapshot.createdAt)
+  record.updatedAt = new Date(snapshot.updatedAt)
 }
 
 function applyOptionValueSnapshot(
@@ -155,6 +183,8 @@ function applyOptionValueSnapshot(
   record.description = snapshot.description ?? null
   record.position = snapshot.position
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+  record.createdAt = new Date(snapshot.createdAt)
+  record.updatedAt = new Date(snapshot.updatedAt)
 }
 
 const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string }> = {
@@ -166,6 +196,7 @@ const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string 
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
 
+    const now = new Date()
     const record = em.create(CatalogProductOption, {
       organizationId: product.organizationId,
       tenantId: product.tenantId,
@@ -177,6 +208,8 @@ const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string 
       isRequired: parsed.isRequired ?? false,
       isMultiple: parsed.isMultiple ?? false,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      createdAt: now,
+      updatedAt: now,
     })
     em.persist(record)
     await em.flush()
@@ -194,8 +227,9 @@ const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string 
     const em = ctx.container.resolve<EntityManager>('em')
     return loadOptionSnapshot(em, result.optionId)
   },
-  buildLog: async ({ result, snapshots }) => {
-    const after = snapshots.after as OptionSnapshot | undefined
+  buildLog: async ({ result, ctx }) => {
+    const em = ctx.container.resolve<EntityManager>('em')
+    const after = await loadOptionSnapshot(em, result.optionId)
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -286,9 +320,10 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
     const em = ctx.container.resolve<EntityManager>('em')
     return loadOptionSnapshot(em, result.optionId)
   },
-  buildLog: async ({ snapshots }) => {
+  buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as OptionSnapshot | undefined
-    const after = snapshots.after as OptionSnapshot | undefined
+    const em = ctx.container.resolve<EntityManager>('em')
+    const after = await loadOptionSnapshot(em, result.optionId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -299,7 +334,11 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
       organizationId: before.organizationId,
       snapshotBefore: before,
       snapshotAfter: after,
-      changes: buildChanges(before as Record<string, unknown>, after as Record<string, unknown>),
+      changes: buildChanges(
+        before as Record<string, unknown>,
+        after as Record<string, unknown>,
+        OPTION_CHANGE_KEYS
+      ),
       payload: {
         undo: {
           before,
@@ -322,6 +361,15 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
         product,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
+        code: before.code,
+        label: before.label,
+        description: before.description ?? null,
+        position: before.position,
+        isRequired: before.isRequired,
+        isMultiple: before.isMultiple,
+        metadata: before.metadata ? cloneJson(before.metadata) : null,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     }
@@ -379,9 +427,10 @@ const deleteOptionCommand: CommandHandler<
     if (optionValueCount > 0) {
       throw new CrudHttpError(400, { error: 'Remove option values before deleting the option.' })
     }
-    const existingVariantMappings = await em.count(CatalogVariantOptionValue, {
+    const variantFilter: FilterQuery<CatalogVariantOptionValue> = {
       optionValue: { option: record },
-    } as any)
+    }
+    const existingVariantMappings = await em.count(CatalogVariantOptionValue, variantFilter)
     if (existingVariantMappings > 0) {
       throw new CrudHttpError(400, {
         error: 'Remove variant option assignments before deleting the option.',
@@ -390,7 +439,7 @@ const deleteOptionCommand: CommandHandler<
     em.remove(record)
     await em.flush()
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
-      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsIfAny({
           dataEngine: ctx.container.resolve('dataEngine'),
@@ -435,6 +484,15 @@ const deleteOptionCommand: CommandHandler<
         product,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
+        code: before.code,
+        label: before.label,
+        description: before.description ?? null,
+        position: before.position,
+        isRequired: before.isRequired,
+        isMultiple: before.isMultiple,
+        metadata: before.metadata ? cloneJson(before.metadata) : null,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     }
@@ -468,6 +526,7 @@ const createOptionValueCommand: CommandHandler<OptionValueCreateInput, { optionV
       ensureTenantScope(ctx, productEntity.tenantId)
       ensureOrganizationScope(ctx, productEntity.organizationId)
 
+      const now = new Date()
       const record = em.create(CatalogProductOptionValue, {
         organizationId: option.organizationId,
         tenantId: option.tenantId,
@@ -477,6 +536,8 @@ const createOptionValueCommand: CommandHandler<OptionValueCreateInput, { optionV
         description: parsed.description ?? null,
         position: parsed.position ?? 0,
         metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+        createdAt: now,
+        updatedAt: now,
       })
       em.persist(record)
       await em.flush()
@@ -494,8 +555,9 @@ const createOptionValueCommand: CommandHandler<OptionValueCreateInput, { optionV
       const em = ctx.container.resolve<EntityManager>('em')
       return loadOptionValueSnapshot(em, result.optionValueId)
     },
-    buildLog: async ({ result, snapshots }) => {
-      const after = snapshots.after as OptionValueSnapshot | undefined
+    buildLog: async ({ result, ctx }) => {
+      const em = ctx.container.resolve<EntityManager>('em')
+      const after = await loadOptionValueSnapshot(em, result.optionValueId)
       if (!after) return null
       const { translate } = await resolveTranslations()
       return {
@@ -589,9 +651,10 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
       const em = ctx.container.resolve<EntityManager>('em')
       return loadOptionValueSnapshot(em, result.optionValueId)
     },
-    buildLog: async ({ snapshots }) => {
+    buildLog: async ({ result, ctx, snapshots }) => {
       const before = snapshots.before as OptionValueSnapshot | undefined
-      const after = snapshots.after as OptionValueSnapshot | undefined
+      const em = ctx.container.resolve<EntityManager>('em')
+      const after = await loadOptionValueSnapshot(em, result.optionValueId)
       if (!before || !after) return null
       const { translate } = await resolveTranslations()
       return {
@@ -602,7 +665,11 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
         organizationId: before.organizationId,
         snapshotBefore: before,
         snapshotAfter: after,
-        changes: buildChanges(before as Record<string, unknown>, after as Record<string, unknown>),
+        changes: buildChanges(
+          before as Record<string, unknown>,
+          after as Record<string, unknown>,
+          OPTION_VALUE_CHANGE_KEYS
+        ),
         payload: {
           undo: {
             before,
@@ -625,6 +692,13 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
           option,
           organizationId: before.organizationId,
           tenantId: before.tenantId,
+          code: before.code,
+          label: before.label,
+          description: before.description ?? null,
+          position: before.position,
+          metadata: before.metadata ? cloneJson(before.metadata) : null,
+          createdAt: new Date(before.createdAt),
+          updatedAt: new Date(before.updatedAt),
         })
         em.persist(record)
       }
@@ -690,7 +764,7 @@ const deleteOptionValueCommand: CommandHandler<
     em.remove(record)
     await em.flush()
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
-      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsIfAny({
           dataEngine: ctx.container.resolve('dataEngine'),
@@ -736,6 +810,13 @@ const deleteOptionValueCommand: CommandHandler<
         option,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
+        code: before.code,
+        label: before.label,
+        description: before.description ?? null,
+        position: before.position,
+        metadata: before.metadata ? cloneJson(before.metadata) : null,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     }

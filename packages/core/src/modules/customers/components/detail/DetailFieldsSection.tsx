@@ -3,6 +3,7 @@
 import * as React from 'react'
 import type { ComponentProps } from 'react'
 import { InlineTextEditor, InlineMultilineEditor, InlineDictionaryEditor, type InlineFieldType } from './InlineEditors'
+import { AnnualRevenueField } from './AnnualRevenueField'
 import type { InlineFieldProps } from './InlineEditors'
 import type { CustomerDictionaryKind } from '../../lib/dictionaries'
 
@@ -47,10 +48,19 @@ export type DetailDictionaryFieldConfig = DetailFieldCommon & {
   selectClassName?: string
 }
 
+export type DetailAnnualRevenueFieldConfig = DetailFieldCommon & {
+  kind: 'annualRevenue'
+  value: string | null | undefined
+  currency: string | null
+  validator?: NonNullable<InlineFieldProps['validator']>
+  onSave: (payload: { amount: number | null; currency: string | null }) => Promise<void>
+}
+
 export type DetailFieldConfig =
   | DetailTextFieldConfig
   | DetailMultilineFieldConfig
   | DetailDictionaryFieldConfig
+  | DetailAnnualRevenueFieldConfig
 
 export type DetailFieldsSectionProps = {
   fields: DetailFieldConfig[]
@@ -108,6 +118,21 @@ export function DetailFieldsSection({ fields, className }: DetailFieldsSectionPr
                 activateOnClick={activateOnClick}
                 containerClassName={containerClassName}
                 triggerClassName={triggerClassName}
+              />
+            </div>
+          )
+        }
+
+        if (field.kind === 'annualRevenue') {
+          return (
+            <div key={field.key} className={wrapperClassName}>
+              <AnnualRevenueField
+                label={field.label}
+                amount={field.value ?? null}
+                currency={field.currency ?? null}
+                emptyLabel={field.emptyLabel}
+                validator={field.validator}
+                onSave={field.onSave}
               />
             </div>
           )

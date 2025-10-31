@@ -26,4 +26,6 @@ JWT_SECRET=$(openssl rand -hex 32)
 NEXTAUTH_SECRET=$(openssl rand -hex 32)
 ```
 
+Need a refresher on what each environment toggle controls? Review the [System status variables](../framework/operations/system-status#managing-variables) directory for descriptions and defaults before you customize additional flags.
+
 The docs site you are reading lives in `/docs` and has its own dependencies. Install them independently (`pnpm install` or `npm install`) when you want to build or preview the documentation.

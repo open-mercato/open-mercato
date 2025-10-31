@@ -1,4 +1,10 @@
-import type { VectorDriver, VectorDriverDocument, VectorDriverQuery, VectorDriverQueryResult } from '../../types'
+import type {
+  VectorDriver,
+  VectorDriverDocument,
+  VectorDriverQuery,
+  VectorDriverQueryResult,
+  VectorDriverCountParams,
+} from '../../types'
 
 function notImplemented(method: string): never {
   throw new Error(`[vector.qdrant] ${method} not implemented yet`)
@@ -34,6 +40,10 @@ export function createQdrantDriver(): VectorDriver {
       void entityId
       void tenantId
       notImplemented('purge')
+    },
+    async count(params: VectorDriverCountParams) {
+      void params
+      notImplemented('count')
     },
   }
 }

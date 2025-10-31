@@ -114,8 +114,8 @@ const crud = makeCrudRoute({
       const tagIdsRaw = typeof query.tagIds === 'string' ? query.tagIds : ''
       const tagIds = tagIdsRaw
         .split(',')
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0)
+        .map((value: string) => value.trim())
+        .filter((value: string) => value.length > 0)
       const tagIdsEmpty = query.tagIdsEmpty === 'true'
       if (tagIdsEmpty) {
         filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }

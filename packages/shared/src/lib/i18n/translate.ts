@@ -1,13 +1,8 @@
-import type { Dict } from './context'
+import type { Dict, TranslateFn, TranslateParams } from './context'
 
-export type TranslateFn = (key: string, params?: Record<string, string | number>) => string
-export type TranslateWithFallbackFn = (
-  key: string,
-  fallback?: string,
-  params?: Record<string, string | number>,
-) => string
+export type TranslateWithFallbackFn = (key: string, fallback?: string, params?: TranslateParams) => string
 
-function format(template: string, params?: Record<string, string | number>) {
+function format(template: string, params?: TranslateParams) {
   if (!params) return template
   return template.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (match, doubleKey, singleKey) => {
     const key = doubleKey ?? singleKey
@@ -19,16 +14,31 @@ function format(template: string, params?: Record<string, string | number>) {
 }
 
 export function createTranslator(dict: Dict): TranslateFn {
-  return (key, params) => format(dict[key] ?? key, params)
+  const translator = ((key: string, fallbackOrParams?: string | TranslateParams, params?: TranslateParams) => {
+    let fallback: string | undefined
+    let resolvedParams: TranslateParams | undefined
+
+    if (typeof fallbackOrParams === 'string') {
+      fallback = fallbackOrParams
+      resolvedParams = params
+    } else {
+      resolvedParams = fallbackOrParams
+    }
+
+    const template = dict[key] ?? fallback ?? key
+    return format(template, resolvedParams)
+  }) as TranslateFn
+
+  return translator
 }
 
 export function translateWithFallback(
   t: TranslateFn,
   key: string,
   fallback?: string,
-  params?: Record<string, string | number>,
+  params?: TranslateParams,
 ): string {
-  const value = t(key, params)
+  const value = params ? t(key, params) : t(key)
   if (value !== key) return value
   if (fallback === undefined) return key
   return format(fallback, params)

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Shield, Users, Briefcase, Info, Rocket, ArrowRight, BookOpen } from 'lucide-react'
 import { getApiDocsResources, resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
+import Link from 'next/link'
 
 interface RoleTileProps {
   icon: ReactNode
@@ -66,7 +67,7 @@ function RoleTile({
         </>
       ) : (
         <Button asChild variant={variant} className="w-full">
-          <a href={loginUrl}>Login as {title}</a>
+          <Link href={loginUrl}>Login as {title}</Link>
         </Button>
       )}
     </div>
@@ -122,10 +123,10 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
           </div>
           <div className="md:ml-auto">
             <Button asChild className="bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-600 px-6 py-5 text-base font-semibold text-white shadow-md">
-              <a href="/onboarding">
+              <Link href="/onboarding">
                 Start onboarding
                 <ArrowRight className="size-4" aria-hidden />
-              </a>
+              </Link>
             </Button>
           </div>
         </section>

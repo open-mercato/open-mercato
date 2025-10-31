@@ -1,23 +1,28 @@
 import type { Knex } from 'knex'
 
-type PurgeUnprocessedOptions = {
+type PurgeOrphansOptions = {
   entityType: string
-  tenantId: string | null
+  tenantId?: string | null
+  organizationId?: string | null
   partitionIndex: number | null
   partitionCount: number | null
   startedAt: Date
 }
 
-export async function purgeUnprocessedPartitionIndexes(
+export async function purgeOrphans(
   knex: Knex,
-  options: PurgeUnprocessedOptions,
+  options: PurgeOrphansOptions,
 ): Promise<void> {
   const { entityType, tenantId, partitionIndex, partitionCount, startedAt } = options
   await knex('entity_indexes')
     .where('entity_type', entityType)
     .modify((qb) => {
-      qb.andWhereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
-      qb.andWhereRaw('organization_id is null')
+      if (tenantId !== undefined) {
+        qb.andWhereRaw('tenant_id is not distinct from ?', [tenantId ?? null])
+      }
+      if (options.organizationId !== undefined) {
+        qb.andWhereRaw('organization_id is not distinct from ?', [options.organizationId ?? null])
+      }
       if (partitionIndex != null && partitionCount != null) {
         qb.andWhereRaw('mod(abs(hashtext(entity_id::text)), ?) = ?', [partitionCount, partitionIndex])
       }

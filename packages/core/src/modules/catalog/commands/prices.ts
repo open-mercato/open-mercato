@@ -38,6 +38,8 @@ type PriceSnapshot = {
   metadata: Record<string, unknown> | null
   startsAt: string | null
   endsAt: string | null
+  createdAt: string
+  updatedAt: string
   custom: Record<string, unknown> | null
 }
 
@@ -45,6 +47,19 @@ type PriceUndoPayload = {
   before?: PriceSnapshot | null
   after?: PriceSnapshot | null
 }
+
+const PRICE_CHANGE_KEYS = [
+  'currencyCode',
+  'kind',
+  'minQuantity',
+  'maxQuantity',
+  'unitPriceNet',
+  'unitPriceGross',
+  'taxRate',
+  'metadata',
+  'startsAt',
+  'endsAt',
+] as const satisfies readonly string[]
 
 async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSnapshot | null> {
   const record = await em.findOne(CatalogProductPrice, { id })
@@ -72,6 +87,8 @@ async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSn
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     startsAt: record.startsAt ? record.startsAt.toISOString() : null,
     endsAt: record.endsAt ? record.endsAt.toISOString() : null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
     custom: Object.keys(custom).length ? custom : null,
   }
 }
@@ -89,6 +106,8 @@ function applyPriceSnapshot(record: CatalogProductPrice, snapshot: PriceSnapshot
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   record.startsAt = snapshot.startsAt ? new Date(snapshot.startsAt) : null
   record.endsAt = snapshot.endsAt ? new Date(snapshot.endsAt) : null
+  record.createdAt = new Date(snapshot.createdAt)
+  record.updatedAt = new Date(snapshot.updatedAt)
 }
 
 const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> = {
@@ -104,6 +123,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
 
+    const now = new Date()
     const record = em.create(CatalogProductPrice, {
       organizationId: variant.organizationId,
       tenantId: variant.tenantId,
@@ -118,6 +138,8 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       startsAt: parsed.startsAt ?? null,
       endsAt: parsed.endsAt ?? null,
+      createdAt: now,
+      updatedAt: now,
     })
     em.persist(record)
     await em.flush()
@@ -135,8 +157,9 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     const em = ctx.container.resolve<EntityManager>('em')
     return loadPriceSnapshot(em, result.priceId)
   },
-  buildLog: async ({ result, snapshots }) => {
-    const after = snapshots.after as PriceSnapshot | undefined
+  buildLog: async ({ result, ctx }) => {
+    const em = ctx.container.resolve<EntityManager>('em')
+    const after = await loadPriceSnapshot(em, result.priceId)
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -244,9 +267,10 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     const em = ctx.container.resolve<EntityManager>('em')
     return loadPriceSnapshot(em, result.priceId)
   },
-  buildLog: async ({ snapshots }) => {
+  buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as PriceSnapshot | undefined
-    const after = snapshots.after as PriceSnapshot | undefined
+    const em = ctx.container.resolve<EntityManager>('em')
+    const after = await loadPriceSnapshot(em, result.priceId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -257,7 +281,11 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       organizationId: before.organizationId,
       snapshotBefore: before,
       snapshotAfter: after,
-      changes: buildChanges(before as Record<string, unknown>, after as Record<string, unknown>),
+      changes: buildChanges(
+        before as Record<string, unknown>,
+        after as Record<string, unknown>,
+        PRICE_CHANGE_KEYS
+      ),
       payload: {
         undo: {
           before,
@@ -280,6 +308,18 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
         variant,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
+        currencyCode: before.currencyCode,
+        kind: before.kind as 'list' | 'sale' | 'tier' | 'custom',
+        minQuantity: before.minQuantity,
+        maxQuantity: before.maxQuantity ?? null,
+        unitPriceNet: before.unitPriceNet ?? null,
+        unitPriceGross: before.unitPriceGross ?? null,
+        taxRate: before.taxRate ?? null,
+        metadata: before.metadata ? cloneJson(before.metadata) : null,
+        startsAt: before.startsAt ? new Date(before.startsAt) : null,
+        endsAt: before.endsAt ? new Date(before.endsAt) : null,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     }
@@ -340,7 +380,7 @@ const deletePriceCommand: CommandHandler<
     em.remove(record)
     await em.flush()
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
-      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsIfAny({
           dataEngine: ctx.container.resolve('dataEngine'),
@@ -385,6 +425,18 @@ const deletePriceCommand: CommandHandler<
         variant,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
+        currencyCode: before.currencyCode,
+        kind: before.kind as 'list' | 'sale' | 'tier' | 'custom',
+        minQuantity: before.minQuantity,
+        maxQuantity: before.maxQuantity ?? null,
+        unitPriceNet: before.unitPriceNet ?? null,
+        unitPriceGross: before.unitPriceGross ?? null,
+        taxRate: before.taxRate ?? null,
+        metadata: before.metadata ? cloneJson(before.metadata) : null,
+        startsAt: before.startsAt ? new Date(before.startsAt) : null,
+        endsAt: before.endsAt ? new Date(before.endsAt) : null,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     }

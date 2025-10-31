@@ -53,6 +53,8 @@ export class ActionLogService {
       snapshotAfter: data.snapshotAfter ?? null,
       changesJson: data.changes ?? null,
       contextJson: data.context ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     await fork.persistAndFlush(log)
     return log

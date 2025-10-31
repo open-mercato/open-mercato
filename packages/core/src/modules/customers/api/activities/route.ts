@@ -2,6 +2,7 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerActivity, CustomerDictionaryEntry, CustomerDeal } from '../../data/entities'
 import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -291,10 +292,10 @@ const crud = makeCrudRoute({
 
       if (dealIds.size) {
         try {
-          const em = ctx.container.resolve('em') as any
-          const deals = await em.find(CustomerDeal, { id: { $in: Array.from(dealIds) as any } })
+          const em = ctx.container.resolve<EntityManager>('em')
+          const deals = await em.find(CustomerDeal, { id: { $in: Array.from(dealIds) } })
           const map = new Map<string, string>()
-          deals.forEach((deal) => {
+          deals.forEach((deal: CustomerDeal) => {
             if (deal && typeof deal.id === 'string') {
               map.set(deal.id, typeof deal.title === 'string' ? deal.title : '')
             }
@@ -322,7 +323,7 @@ const crud = makeCrudRoute({
           const em = ctx.container.resolve('em') as any
           const users = await em.find(User, { id: { $in: authorIds } })
           const map = new Map<string, { name: string | null; email: string | null }>()
-          users.forEach((user) => {
+          users.forEach((user: User) => {
             map.set(user.id, {
               name: user.name ?? null,
               email: user.email ?? null,

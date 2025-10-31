@@ -104,6 +104,6 @@ You can reuse `fetchVectorResults` in custom UIs to embed vector search in speci
 
 - Vector-specific preferences live in the shared `configs` module (`module_id = 'vector'`).
 - `vector.auto_index_enabled` determines whether query index events trigger automatic vector reindexing.
-- Toggle the setting in **Backend → Settings → Vector Search**; the page talks to `/api/vector/settings` so custom dashboards can reuse the same endpoint.
+- Toggle the setting in **Backend → Configuration → Vector Search**; the page talks to `/api/vector/settings` so custom dashboards can reuse the same endpoint.
 - Setting the environment flag `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` forces the toggle off and disables updates from the UI/API.
 - `yarn mercato configs restore-defaults` (automatically executed by `mercato init`) seeds default values and respects the environment override above.

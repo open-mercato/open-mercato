@@ -48,6 +48,8 @@ type VariantSnapshot = {
   dimensions: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
   optionValueIds: string[]
+  createdAt: string
+  updatedAt: string
   custom: Record<string, unknown> | null
 }
 
@@ -55,6 +57,19 @@ type VariantUndoPayload = {
   before?: VariantSnapshot | null
   after?: VariantSnapshot | null
 }
+
+const VARIANT_CHANGE_KEYS = [
+  'name',
+  'sku',
+  'barcode',
+  'statusEntryId',
+  'isDefault',
+  'isActive',
+  'weightValue',
+  'weightUnit',
+  'dimensions',
+  'metadata',
+] as const satisfies readonly string[]
 
 type VariantOptionConfiguration =
   | {
@@ -101,6 +116,8 @@ async function loadVariantSnapshot(
     dimensions: record.dimensions ? cloneJson(record.dimensions) : null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     optionValueIds,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
     custom: Object.keys(custom).length ? custom : null,
   }
 }
@@ -118,6 +135,8 @@ function applyVariantSnapshot(record: CatalogProductVariant, snapshot: VariantSn
   record.weightUnit = snapshot.weightUnit ?? null
   record.dimensions = snapshot.dimensions ? cloneJson(snapshot.dimensions) : null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+  record.createdAt = new Date(snapshot.createdAt)
+  record.updatedAt = new Date(snapshot.updatedAt)
 }
 
 async function syncVariantOptionValues(
@@ -219,6 +238,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
 
+    const now = new Date()
     const record = em.create(CatalogProductVariant, {
       organizationId: product.organizationId,
       tenantId: product.tenantId,
@@ -233,6 +253,8 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       weightUnit: parsed.weightUnit ?? null,
       dimensions: parsed.dimensions ? cloneJson(parsed.dimensions) : null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      createdAt: now,
+      updatedAt: now,
     })
     em.persist(record)
     await em.flush()
@@ -252,8 +274,9 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     const em = ctx.container.resolve<EntityManager>('em')
     return loadVariantSnapshot(em, result.variantId)
   },
-  buildLog: async ({ result, snapshots }) => {
-    const after = snapshots.after as VariantSnapshot | undefined
+  buildLog: async ({ result, ctx }) => {
+    const em = ctx.container.resolve<EntityManager>('em')
+    const after = await loadVariantSnapshot(em, result.variantId)
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -357,9 +380,10 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     const em = ctx.container.resolve<EntityManager>('em')
     return loadVariantSnapshot(em, result.variantId)
   },
-  buildLog: async ({ snapshots }) => {
+  buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as VariantSnapshot | undefined
-    const after = snapshots.after as VariantSnapshot | undefined
+    const em = ctx.container.resolve<EntityManager>('em')
+    const after = await loadVariantSnapshot(em, result.variantId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -370,7 +394,11 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       organizationId: before.organizationId,
       snapshotBefore: before,
       snapshotAfter: after,
-      changes: buildChanges(before as Record<string, unknown>, after as Record<string, unknown>),
+      changes: buildChanges(
+        before as Record<string, unknown>,
+        after as Record<string, unknown>,
+        VARIANT_CHANGE_KEYS
+      ),
       payload: {
         undo: {
           before,
@@ -393,6 +421,18 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
         product,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
+        name: before.name ?? null,
+        sku: before.sku ?? null,
+        barcode: before.barcode ?? null,
+        statusEntryId: before.statusEntryId ?? null,
+        isDefault: before.isDefault,
+        isActive: before.isActive,
+        weightValue: before.weightValue ?? null,
+        weightUnit: before.weightUnit ?? null,
+        dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
+        metadata: before.metadata ? cloneJson(before.metadata) : null,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     }
@@ -455,7 +495,7 @@ const deleteVariantCommand: CommandHandler<
     em.remove(record)
     await em.flush()
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
-      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsIfAny({
           dataEngine: ctx.container.resolve('dataEngine'),
@@ -500,6 +540,18 @@ const deleteVariantCommand: CommandHandler<
         product,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
+        name: before.name ?? null,
+        sku: before.sku ?? null,
+        barcode: before.barcode ?? null,
+        statusEntryId: before.statusEntryId ?? null,
+        isDefault: before.isDefault,
+        isActive: before.isActive,
+        weightValue: before.weightValue ?? null,
+        weightUnit: before.weightUnit ?? null,
+        dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
+        metadata: before.metadata ? cloneJson(before.metadata) : null,
+        createdAt: new Date(before.createdAt),
+        updatedAt: new Date(before.updatedAt),
       })
       em.persist(record)
     }
