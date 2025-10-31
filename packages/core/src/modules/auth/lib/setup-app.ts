@@ -283,6 +283,8 @@ async function ensureDefaultRoleAcls(
       'query_index.*',
       'vector.*',
       'configs.system_status.view',
+      'configs.cache.view',
+      'configs.cache.manage',
       'configs.manage',
       'catalog.*',
       'sales.*',

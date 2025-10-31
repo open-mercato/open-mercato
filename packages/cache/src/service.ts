@@ -4,6 +4,7 @@ import { createRedisStrategy } from './strategies/redis'
 import { createSqliteStrategy } from './strategies/sqlite'
 import { createJsonFileStrategy } from './strategies/jsonfile'
 import { getCurrentCacheTenant } from './tenantContext'
+import { createHash } from 'node:crypto'
 
 function normalizeTenantKey(raw: string | null | undefined): string {
   const value = typeof raw === 'string' ? raw.trim() : ''
@@ -27,57 +28,78 @@ function resolveTenantPrefixes(): TenantPrefixes {
   }
 }
 
-function prefixKey(key: string, prefixes: TenantPrefixes): string {
-  return `${prefixes.keyPrefix}${key}`
+function hashIdentifier(input: string): string {
+  return createHash('sha1').update(input).digest('hex')
 }
 
-function prefixTag(tag: string, prefixes: TenantPrefixes): string {
-  return `${prefixes.tagPrefix}${tag}`
+function storageKey(originalKey: string, prefixes: TenantPrefixes): string {
+  return `${prefixes.keyPrefix}k:${hashIdentifier(originalKey)}`
 }
 
-function includeScopeTag(tags: string[] | undefined, prefixes: TenantPrefixes): string[] {
+function metaKey(originalKey: string, prefixes: TenantPrefixes): string {
+  return `${prefixes.keyPrefix}meta:${hashIdentifier(originalKey)}`
+}
+
+function hashedTag(tag: string, prefixes: TenantPrefixes): string {
+  return `${prefixes.tagPrefix}t:${hashIdentifier(tag)}`
+}
+
+function buildTagSet(tags: string[] | undefined, prefixes: TenantPrefixes, includeScope: boolean): string[] {
   const scoped = new Set<string>()
-  scoped.add(prefixes.scopeTag)
+  if (includeScope) scoped.add(prefixes.scopeTag)
   if (Array.isArray(tags)) {
     for (const tag of tags) {
-      if (typeof tag === 'string' && tag.length > 0) scoped.add(prefixTag(tag, prefixes))
+      if (typeof tag === 'string' && tag.length > 0) scoped.add(hashedTag(tag, prefixes))
     }
   }
   return Array.from(scoped)
 }
 
-function stripKeyPrefix(key: string, prefixes: TenantPrefixes): string | null {
-  if (!key.startsWith(prefixes.keyPrefix)) return null
-  return key.slice(prefixes.keyPrefix.length)
+function matchPattern(value: string, pattern: string): boolean {
+  const regexPattern = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.')
+  const regex = new RegExp(`^${regexPattern}$`)
+  return regex.test(value)
 }
 
 function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
   const get = async (key: string, options?: CacheGetOptions) => {
     const prefixes = resolveTenantPrefixes()
-    return base.get(prefixKey(key, prefixes), options)
+    return base.get(storageKey(key, prefixes), options)
   }
 
   const set = async (key: string, value: any, options?: CacheSetOptions) => {
     const prefixes = resolveTenantPrefixes()
+    const hashedTags = buildTagSet(options?.tags, prefixes, true)
     const nextOptions: CacheSetOptions | undefined = options
-      ? { ...options, tags: includeScopeTag(options.tags, prefixes) }
-      : { tags: includeScopeTag(undefined, prefixes) }
-    return base.set(prefixKey(key, prefixes), value, nextOptions)
+      ? { ...options, tags: hashedTags }
+      : { tags: hashedTags }
+    await base.set(storageKey(key, prefixes), value, nextOptions)
+    // Persist metadata for original key to support introspection and key listings
+    await base.set(metaKey(key, prefixes), key, {
+      ttl: options?.ttl,
+      tags: hashedTags,
+    })
   }
 
   const has = async (key: string) => {
     const prefixes = resolveTenantPrefixes()
-    return base.has(prefixKey(key, prefixes))
+    return base.has(storageKey(key, prefixes))
   }
 
   const del = async (key: string) => {
     const prefixes = resolveTenantPrefixes()
-    return base.delete(prefixKey(key, prefixes))
+    const primary = await base.delete(storageKey(key, prefixes))
+    await base.delete(metaKey(key, prefixes))
+    return primary
   }
 
   const deleteByTags = async (tags: string[]) => {
     const prefixes = resolveTenantPrefixes()
-    const scopedTags = tags.map((tag) => prefixTag(tag, prefixes))
+    const scopedTags = buildTagSet(tags, prefixes, false)
+    if (!scopedTags.length) return 0
     return base.deleteByTags(scopedTags)
   }
 
@@ -88,22 +110,21 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
 
   const keys = async (pattern?: string) => {
     const prefixes = resolveTenantPrefixes()
-    const searchPattern = prefixKey(pattern ?? '*', prefixes)
-    const scopedKeys = await base.keys(searchPattern)
-    const result: string[] = []
-    for (const key of scopedKeys) {
-      const unwrapped = stripKeyPrefix(key, prefixes)
-      if (unwrapped !== null) {
-        result.push(unwrapped)
-      }
+    const metaPattern = `${prefixes.keyPrefix}meta:*`
+    const metaKeys = await base.keys(metaPattern)
+    const originals: string[] = []
+    for (const metaKey of metaKeys) {
+      const original = await base.get(metaKey)
+      if (typeof original !== 'string' || !original.length) continue
+      if (pattern && !matchPattern(original, pattern)) continue
+      originals.push(original)
     }
-    return result
+    return originals
   }
 
   const stats = async () => {
-    const prefixes = resolveTenantPrefixes()
-    const scopedKeys = await base.keys(prefixKey('*', prefixes))
-    return { size: scopedKeys.length, expired: 0 }
+    const total = await keys()
+    return { size: total.length, expired: 0 }
   }
 
   const cleanup = base.cleanup

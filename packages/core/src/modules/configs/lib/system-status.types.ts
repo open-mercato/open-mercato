@@ -29,27 +29,7 @@ export type SystemStatusCategory = {
   items: SystemStatusItem[]
 }
 
-export type CrudCacheRuntimeStatsEntry = {
-  segment: string
-  resource: string | null
-  method: string | null
-  path: string | null
-  keyCount: number
-  keys: string[]
-}
-
-export type CrudCacheRuntimeStats = {
-  generatedAt: string
-  totalKeys: number
-  segments: CrudCacheRuntimeStatsEntry[]
-}
-
-export type SystemStatusRuntime = {
-  crudCache?: CrudCacheRuntimeStats
-}
-
 export type SystemStatusSnapshot = {
   generatedAt: string
   categories: SystemStatusCategory[]
-  runtime?: SystemStatusRuntime
 }
