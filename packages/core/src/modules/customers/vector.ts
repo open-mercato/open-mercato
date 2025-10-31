@@ -28,13 +28,35 @@ async function getCustomerEntity(ctx: VectorContext, entityId?: string | null) {
   if (customerEntityCache.has(ctx.record)) {
     return customerEntityCache.get(ctx.record)
   }
+  const inline = getInlineCustomerEntity(ctx.record)
+  if (inline) {
+    customerEntityCache.set(ctx.record, inline)
+    return inline
+  }
   const entity = await loadRecord(ctx, 'customers:customer_entity', entityId)
   customerEntityCache.set(ctx.record, entity ?? null)
   return entity ?? null
 }
 
 function resolveCustomerEntityId(record: Record<string, any>): string | null {
-  return record.customer_entity_id ?? record.entityId ?? record.entity_id ?? null
+  const direct =
+    record.customer_entity_id ??
+    record.entityId ??
+    record.entity_id ??
+    record.customerEntityId ??
+    record.customerEntityID ??
+    (typeof record.entity === 'object' && record.entity ? record.entity.id : undefined) ??
+    (typeof record.customer_entity === 'object' && record.customer_entity ? record.customer_entity.id : undefined)
+  const value = typeof direct === 'string' && direct.length ? direct : null
+  return value
+}
+
+function getInlineCustomerEntity(record: Record<string, any>): Record<string, any> | null {
+  const inline =
+    (typeof record.entity === 'object' && record.entity) ||
+    (typeof record.customer_entity === 'object' && record.customer_entity) ||
+    null
+  return inline ?? null
 }
 
 async function getLinkedTodo(ctx: VectorContext) {
@@ -97,6 +119,47 @@ function appendCustomFieldLines(lines: string[], customFields: Record<string, an
   }
 }
 
+function pickValue(source: Record<string, any> | null | undefined, ...keys: string[]): unknown {
+  if (!source) return undefined
+  for (const key of keys) {
+    if (key in source && source[key] != null) return source[key]
+  }
+  return undefined
+}
+
+function pickLabel(...candidates: Array<unknown>): string | null {
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined) continue
+    const value = typeof candidate === 'string' ? candidate : String(candidate)
+    const trimmed = value.trim()
+    if (trimmed.length) return trimmed
+  }
+  return null
+}
+
+function ensureFallbackLines(lines: string[], record: Record<string, any>, options: { includeId?: boolean } = {}) {
+  if (lines.length) return
+  const excluded = new Set(['tenant_id', 'organization_id', 'created_at', 'updated_at', 'deleted_at'])
+  for (const [key, value] of Object.entries(record)) {
+    if (value === null || value === undefined) continue
+    if (excluded.has(key)) continue
+    if (key === 'id') continue
+    appendLine(lines, friendlyLabel(key), value)
+  }
+  if (!lines.length && options.includeId !== false) {
+    const fallbackId =
+      record.id ??
+      record.entity_id ??
+      record.customer_entity_id ??
+      record.entityId ??
+      record.customerEntityId ??
+      null
+    if (fallbackId) {
+      appendLine(lines, 'Record ID', fallbackId)
+    }
+  }
+}
+
 export const vectorConfig: VectorModuleConfig = {
   defaultDriverId: 'pgvector',
   entities: [
@@ -105,34 +168,90 @@ export const vectorConfig: VectorModuleConfig = {
       buildSource: async (ctx) => {
         const lines: string[] = []
         const record = ctx.record
-        appendLine(lines, 'Preferred name', record.preferred_name ?? ctx.customFields.preferred_name)
-        appendLine(lines, 'First name', record.first_name ?? ctx.customFields.first_name)
-        appendLine(lines, 'Last name', record.last_name ?? ctx.customFields.last_name)
-        appendLine(lines, 'Job title', record.job_title ?? ctx.customFields.job_title)
-        appendLine(lines, 'Department', record.department ?? ctx.customFields.department)
-        appendLine(lines, 'Seniority', record.seniority ?? ctx.customFields.seniority)
-        appendLine(lines, 'Timezone', record.timezone ?? ctx.customFields.timezone)
-        appendLine(lines, 'LinkedIn', record.linked_in_url ?? ctx.customFields.linked_in_url)
-        appendLine(lines, 'Twitter', record.twitter_url ?? ctx.customFields.twitter_url)
+        appendLine(
+          lines,
+          'Preferred name',
+          record.preferred_name ?? record.preferredName ?? ctx.customFields.preferred_name,
+        )
+        appendLine(
+          lines,
+          'First name',
+          record.first_name ?? record.firstName ?? ctx.customFields.first_name,
+        )
+        appendLine(
+          lines,
+          'Last name',
+          record.last_name ?? record.lastName ?? ctx.customFields.last_name,
+        )
+        appendLine(
+          lines,
+          'Job title',
+          record.job_title ?? record.jobTitle ?? ctx.customFields.job_title,
+        )
+        appendLine(
+          lines,
+          'Department',
+          record.department ?? record.department_name ?? record.departmentName ?? ctx.customFields.department,
+        )
+        appendLine(
+          lines,
+          'Seniority',
+          record.seniority ?? record.seniority_level ?? record.seniorityLevel ?? ctx.customFields.seniority,
+        )
+        appendLine(
+          lines,
+          'Timezone',
+          record.timezone ?? record.time_zone ?? record.timeZone ?? ctx.customFields.timezone,
+        )
+        appendLine(
+          lines,
+          'LinkedIn',
+          record.linked_in_url ?? record.linkedInUrl ?? ctx.customFields.linked_in_url,
+        )
+        appendLine(
+          lines,
+          'Twitter',
+          record.twitter_url ?? record.twitterUrl ?? ctx.customFields.twitter_url,
+        )
         appendCustomFieldLines(lines, ctx.customFields, 'Person custom')
 
-        const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(record))
+        let entity = getInlineCustomerEntity(record)
+        if (!entity) {
+          entity = await getCustomerEntity(ctx, resolveCustomerEntityId(record))
+        }
         if (entity) {
-          appendLine(lines, 'Customer', entity.display_name ?? entity.id)
-          appendLine(lines, 'Customer email', entity.primary_email)
-          appendLine(lines, 'Customer phone', entity.primary_phone)
-          appendLine(lines, 'Lifecycle stage', entity.lifecycle_stage)
-          appendLine(lines, 'Status', entity.status)
+          appendLine(lines, 'Customer', pickValue(entity, 'display_name', 'displayName') ?? entity.id)
+          appendLine(lines, 'Customer email', pickValue(entity, 'primary_email', 'primaryEmail'))
+          appendLine(lines, 'Customer phone', pickValue(entity, 'primary_phone', 'primaryPhone'))
+          appendLine(lines, 'Lifecycle stage', pickValue(entity, 'lifecycle_stage', 'lifecycleStage'))
+          appendLine(lines, 'Status', pickValue(entity, 'status'))
         }
 
+        ensureFallbackLines(lines, record)
         if (!lines.length) return null
 
         const entityId = resolveCustomerEntityId(record)
+        const firstName = record.first_name ?? record.firstName
+        const lastName = record.last_name ?? record.lastName
+        const nameParts = [firstName, lastName].filter(Boolean).join(' ')
+        const primaryLabel =
+          pickLabel(
+            pickValue(entity, 'display_name', 'displayName'),
+            record.preferred_name,
+            record.preferredName,
+            nameParts,
+            entityId,
+            record.id,
+            'Open person',
+          ) ?? 'Open person'
+        const presenter = resolvePersonPresenter(record, entity, ctx.customFields)
+        logMissingPresenterTitle('person', record, entity, presenter)
+        const presenterLabel = pickLabel(presenter.title, primaryLabel) ?? primaryLabel
         const links: VectorLinkDescriptor[] = []
         if (entityId) {
           const href = buildCustomerUrl('person', entityId)
           if (href) {
-            links.push({ href, label: entity?.display_name ?? record.preferred_name ?? 'Open person', kind: 'primary' })
+            links.push({ href, label: presenterLabel, kind: 'primary' })
           }
         }
 
@@ -144,35 +263,19 @@ export const vectorConfig: VectorModuleConfig = {
 
         return {
           input: lines,
-          presenter: null,
+          presenter,
           links,
           checksumSource,
-          payload: { kind: 'person' },
+          payload: {
+            kind: 'person',
+            entityId: resolveCustomerEntityId(record) ?? entityId ?? null,
+            name: presenter.title,
+          },
         }
       },
       formatResult: async (ctx) => {
         const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(ctx.record))
-        const nameParts = [ctx.record.first_name, ctx.record.last_name].filter(Boolean).join(' ')
-        const title =
-          entity?.display_name ??
-          ctx.record.preferred_name ??
-          (nameParts ? nameParts : undefined) ??
-          (ctx.record.id ? String(ctx.record.id) : undefined) ??
-          'Person'
-        const subtitleParts: string[] = []
-        if (ctx.record.job_title) subtitleParts.push(String(ctx.record.job_title))
-        if (ctx.record.department) subtitleParts.push(String(ctx.record.department))
-        if (entity?.primary_email) subtitleParts.push(String(entity.primary_email))
-        if (entity?.primary_phone) subtitleParts.push(String(entity.primary_phone))
-        const description = snippet(entity?.description)
-        if (description) subtitleParts.push(description)
-        const subtitleJoined = subtitleParts.filter(Boolean).join(' · ')
-        return {
-          title,
-          subtitle: subtitleJoined ? subtitleJoined : undefined,
-          icon: 'user',
-          badge: entity?.display_name ? 'Person' : undefined,
-        } satisfies VectorResultPresenter
+        return resolvePersonPresenter(ctx.record, entity, ctx.customFields)
       },
       resolveUrl: async ({ record }) => buildCustomerUrl('person', resolveCustomerEntityId(record)),
     },
@@ -181,32 +284,59 @@ export const vectorConfig: VectorModuleConfig = {
       buildSource: async (ctx) => {
         const lines: string[] = []
         const record = ctx.record
-        appendLine(lines, 'Legal name', record.legal_name ?? ctx.customFields.legal_name)
-        appendLine(lines, 'Brand name', record.brand_name ?? ctx.customFields.brand_name)
-        appendLine(lines, 'Domain', record.domain ?? ctx.customFields.domain)
-        appendLine(lines, 'Website', record.website_url ?? ctx.customFields.website_url)
+        appendLine(lines, 'Legal name', record.legal_name ?? record.legalName ?? ctx.customFields.legal_name)
+        appendLine(lines, 'Brand name', record.brand_name ?? record.brandName ?? ctx.customFields.brand_name)
+        appendLine(lines, 'Domain', record.domain ?? record.website_domain ?? record.websiteDomain ?? ctx.customFields.domain)
+        appendLine(lines, 'Website', record.website_url ?? record.websiteUrl ?? ctx.customFields.website_url)
         appendLine(lines, 'Industry', record.industry ?? ctx.customFields.industry)
-        appendLine(lines, 'Company size', record.size_bucket ?? ctx.customFields.size_bucket)
-        appendLine(lines, 'Annual revenue', record.annual_revenue ?? ctx.customFields.annual_revenue)
+        appendLine(lines, 'Company size', record.size_bucket ?? record.sizeBucket ?? ctx.customFields.size_bucket)
+        appendLine(
+          lines,
+          'Annual revenue',
+          record.annual_revenue ?? record.annualRevenue ?? ctx.customFields.annual_revenue,
+        )
         appendCustomFieldLines(lines, ctx.customFields, 'Company custom')
 
-        const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(record))
+        let entity = getInlineCustomerEntity(record)
+        if (!entity) {
+          entity = await getCustomerEntity(ctx, resolveCustomerEntityId(record))
+        }
         if (entity) {
-          appendLine(lines, 'Customer', entity.display_name ?? entity.id)
-          appendLine(lines, 'Status', entity.status)
-          appendLine(lines, 'Lifecycle stage', entity.lifecycle_stage)
-          appendLine(lines, 'Primary email', entity.primary_email)
-          appendLine(lines, 'Primary phone', entity.primary_phone)
+          appendLine(lines, 'Customer', pickValue(entity, 'display_name', 'displayName') ?? entity.id)
+          appendLine(lines, 'Status', pickValue(entity, 'status'))
+          appendLine(lines, 'Lifecycle stage', pickValue(entity, 'lifecycle_stage', 'lifecycleStage'))
+          appendLine(lines, 'Primary email', pickValue(entity, 'primary_email', 'primaryEmail'))
+          appendLine(lines, 'Primary phone', pickValue(entity, 'primary_phone', 'primaryPhone'))
         }
 
+        ensureFallbackLines(lines, record)
         if (!lines.length) return null
 
         const entityId = resolveCustomerEntityId(record)
+        const presenter = resolveCompanyPresenter(record, entity, ctx.customFields)
+        logMissingPresenterTitle('company', record, entity, presenter)
+        const primaryLabel =
+          pickLabel(
+            presenter.title,
+            pickValue(entity, 'display_name', 'displayName'),
+            record.brand_name,
+            record.legal_name,
+            record.domain,
+            record.brandName,
+            record.legalName,
+            ctx.customFields.brand_name,
+            ctx.customFields.brandName,
+            ctx.customFields.legal_name,
+            ctx.customFields.legalName,
+            entityId,
+            record.id,
+            'Open company',
+          ) ?? 'Open company'
         const links: VectorLinkDescriptor[] = []
         if (entityId) {
           const href = buildCustomerUrl('company', entityId)
           if (href) {
-            links.push({ href, label: entity?.display_name ?? record.brand_name ?? 'Open company', kind: 'primary' })
+            links.push({ href, label: primaryLabel, kind: 'primary' })
           }
         }
 
@@ -218,34 +348,19 @@ export const vectorConfig: VectorModuleConfig = {
 
         return {
           input: lines,
-          presenter: null,
+          presenter,
           links,
           checksumSource,
-          payload: { kind: 'company' },
+          payload: {
+            kind: 'company',
+            entityId,
+            name: presenter.title,
+          },
         }
       },
       formatResult: async (ctx) => {
         const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(ctx.record))
-        const title =
-          entity?.display_name ??
-          ctx.record.brand_name ??
-          ctx.record.legal_name ??
-          ctx.record.domain ??
-          (ctx.record.id ? String(ctx.record.id) : undefined) ??
-          'Company'
-        const subtitleParts: string[] = []
-        if (ctx.record.industry) subtitleParts.push(String(ctx.record.industry))
-        if (ctx.record.size_bucket) subtitleParts.push(String(ctx.record.size_bucket))
-        if (entity?.primary_email) subtitleParts.push(String(entity.primary_email))
-        const description = snippet(entity?.description ?? ctx.customFields.summary)
-        if (description) subtitleParts.push(description)
-        const subtitleJoined = subtitleParts.filter(Boolean).join(' · ')
-        return {
-          title,
-          subtitle: subtitleJoined ? subtitleJoined : undefined,
-          icon: 'building',
-          badge: entity?.display_name ? 'Company' : undefined,
-        } satisfies VectorResultPresenter
+        return resolveCompanyPresenter(ctx.record, entity, ctx.customFields)
       },
       resolveUrl: async ({ record }) => buildCustomerUrl('company', resolveCustomerEntityId(record)),
     },
@@ -419,3 +534,100 @@ export const vectorConfig: VectorModuleConfig = {
 
 export default vectorConfig
 export const config = vectorConfig
+function resolvePersonPresenter(
+  record: Record<string, any>,
+  entity: Record<string, any> | null,
+  customFields: Record<string, any>,
+): VectorResultPresenter {
+  const fallbackEntityId = resolveCustomerEntityId(record)
+  const firstName = record.first_name ?? record.firstName ?? customFields.first_name ?? customFields.firstName ?? ''
+  const lastName = record.last_name ?? record.lastName ?? customFields.last_name ?? customFields.lastName ?? ''
+  const nameParts = [firstName, lastName].filter(Boolean).join(' ')
+  const title =
+    (pickValue(entity, 'display_name', 'displayName') as string | undefined) ??
+    record.preferred_name ??
+    record.preferredName ??
+    (nameParts.length ? nameParts : undefined) ??
+    fallbackEntityId ??
+    record.id ??
+    'Person'
+  const subtitlePieces: string[] = []
+  const jobTitle = record.job_title ?? record.jobTitle ?? customFields.job_title ?? customFields.jobTitle
+  if (jobTitle) subtitlePieces.push(String(jobTitle))
+  const department = record.department ?? customFields.department
+  if (department) subtitlePieces.push(String(department))
+  const primaryEmail = pickValue(entity, 'primary_email', 'primaryEmail')
+  if (primaryEmail) subtitlePieces.push(String(primaryEmail))
+  const primaryPhone = pickValue(entity, 'primary_phone', 'primaryPhone')
+  if (primaryPhone) subtitlePieces.push(String(primaryPhone))
+  const summary = snippet(
+    (pickValue(entity, 'description') as string | undefined) ??
+      customFields.summary ??
+      customFields.description,
+  )
+  if (summary) subtitlePieces.push(summary)
+  return {
+    title: String(title),
+    subtitle: subtitlePieces.length ? subtitlePieces.join(' · ') : undefined,
+    icon: 'user',
+    badge: pickValue(entity, 'display_name', 'displayName') ? 'Person' : undefined,
+  }
+}
+
+function resolveCompanyPresenter(
+  record: Record<string, any>,
+  entity: Record<string, any> | null,
+  customFields: Record<string, any>,
+): VectorResultPresenter {
+  const fallbackEntityId = resolveCustomerEntityId(record)
+  const title =
+    (pickValue(entity, 'display_name', 'displayName') as string | undefined) ??
+    record.brand_name ??
+    record.legal_name ??
+    record.domain ??
+    record.brandName ??
+    record.legalName ??
+    fallbackEntityId ??
+    record.id ??
+    'Company'
+  const subtitlePieces: string[] = []
+  const industry = record.industry
+  if (industry) subtitlePieces.push(String(industry))
+  const sizeBucket = record.size_bucket ?? record.sizeBucket
+  if (sizeBucket) subtitlePieces.push(String(sizeBucket))
+  if (entity) {
+    const primaryEmail = pickValue(entity, 'primary_email', 'primaryEmail')
+    if (primaryEmail) subtitlePieces.push(String(primaryEmail))
+  }
+  const summary = snippet(
+    (pickValue(entity, 'description') as string | undefined) ??
+      customFields.summary ??
+      customFields.description ??
+      record.summary ??
+      record.description,
+  )
+  if (summary) subtitlePieces.push(summary)
+  return {
+    title: String(title),
+    subtitle: subtitlePieces.length ? subtitlePieces.join(' · ') : undefined,
+    icon: 'building',
+    badge: pickValue(entity, 'display_name', 'displayName') ? 'Company' : undefined,
+  }
+}
+
+function logMissingPresenterTitle(
+  kind: 'person' | 'company',
+  record: Record<string, any>,
+  entity: Record<string, any> | null,
+  presenter: VectorResultPresenter,
+) {
+  const fallbackId = record.id ?? record.entity_id ?? resolveCustomerEntityId(record)
+  if (!fallbackId) return
+  if (presenter.title && presenter.title !== String(fallbackId)) return
+  console.warn('[vector.customers] Presenter fell back to record id', {
+    kind,
+    recordId: fallbackId,
+    entityId: resolveCustomerEntityId(record),
+    entityDisplayName: entity?.display_name ?? null,
+  })
+}

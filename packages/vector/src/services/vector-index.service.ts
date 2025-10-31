@@ -35,6 +35,24 @@ const ENRICHMENT_FIELD_HINTS: Record<EntityId, string[]> = {
   'customers:customer_activity': ['id', 'entity_id', 'activity_type', 'subject', 'body', 'deal_id'],
   'customers:customer_deal': ['id', 'title', 'pipeline_stage', 'status', 'value_amount', 'value_currency'],
   'customers:customer_todo_link': ['id', 'entity_id', 'todo_id', 'todo_source'],
+  'customers:customer_person_profile': [
+    'id',
+    'entity_id',
+    'first_name',
+    'last_name',
+    'preferred_name',
+    'job_title',
+    'department',
+  ],
+  'customers:customer_company_profile': [
+    'id',
+    'entity_id',
+    'brand_name',
+    'legal_name',
+    'domain',
+    'industry',
+    'size_bucket',
+  ],
 }
 
 export type VectorIndexServiceOptions = {

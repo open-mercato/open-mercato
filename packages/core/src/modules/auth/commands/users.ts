@@ -24,6 +24,7 @@ import {
   buildCustomFieldResetMap,
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 
 type SerializedUser = {
   email: string
@@ -607,11 +608,19 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
     }
   }
 
+  const normalizedTenantId = normalizeTenantId(tenantId ?? null) ?? null
+
   for (const name of unique) {
     if (!currentNames.has(name)) {
-      let role = await em.findOne(Role, { name })
+      let role = await em.findOne(Role, { name, tenantId: normalizedTenantId })
+      if (!role && normalizedTenantId !== null) {
+        role = await em.findOne(Role, { name, tenantId: null })
+      }
       if (!role) {
-        role = em.create(Role, { name, tenantId })
+        role = em.create(Role, { name, tenantId: normalizedTenantId })
+        await em.persistAndFlush(role)
+      } else if (normalizedTenantId !== null && role.tenantId !== normalizedTenantId) {
+        role.tenantId = normalizedTenantId
         await em.persistAndFlush(role)
       }
       em.persist(em.create(UserRole, { user, role }))

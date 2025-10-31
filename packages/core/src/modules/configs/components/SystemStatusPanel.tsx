@@ -1,0 +1,245 @@
+"use client"
+
+import * as React from 'react'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { useT } from '@/lib/i18n/context'
+import type {
+  SystemStatusSnapshot,
+  SystemStatusItem,
+  SystemStatusState,
+} from '../lib/system-status.types'
+
+const API_PATH = '/api/configs/system-status'
+
+const STATUS_LABEL_KEYS: Record<SystemStatusState, string> = {
+  enabled: 'configs.systemStatus.state.enabled',
+  disabled: 'configs.systemStatus.state.disabled',
+  set: 'configs.systemStatus.state.set',
+  unset: 'configs.systemStatus.state.unset',
+  unknown: 'configs.systemStatus.state.unknown',
+}
+
+const STATUS_BADGE_CLASSES: Record<SystemStatusState, string> = {
+  enabled: 'border border-emerald-300 bg-emerald-50 text-emerald-700',
+  disabled: 'border border-slate-300 bg-slate-100 text-slate-700',
+  set: 'border border-blue-300 bg-blue-50 text-blue-700',
+  unset: 'border border-dashed border-slate-200 text-slate-500',
+  unknown: 'border border-amber-300 bg-amber-50 text-amber-700',
+}
+
+function isSystemStatusSnapshot(payload: unknown): payload is SystemStatusSnapshot {
+  if (!payload || typeof payload !== 'object') return false
+  const value = payload as { categories?: unknown }
+  if (!Array.isArray(value.categories)) return false
+  return value.categories.every((category) => {
+    if (!category || typeof category !== 'object') return false
+    const entry = category as { key?: unknown; items?: unknown }
+    if (typeof entry.key !== 'string') return false
+    if (!Array.isArray(entry.items)) return false
+    return entry.items.every((item) => {
+      if (!item || typeof item !== 'object') return false
+      const asItem = item as { key?: unknown; state?: unknown }
+      return typeof asItem.key === 'string' && typeof asItem.state === 'string'
+    })
+  })
+}
+
+function formatValueWithLocalization(item: SystemStatusItem, translate: (key: string, fallback?: string) => string): string {
+  const notSet = translate('configs.systemStatus.value.notSet', 'Not set')
+  if (!item.value) return notSet
+  if (item.kind === 'boolean') {
+    const normalized = item.normalizedValue?.toLowerCase()
+    if (normalized === 'true') return translate('configs.systemStatus.boolean.true', 'True')
+    if (normalized === 'false') return translate('configs.systemStatus.boolean.false', 'False')
+    return `${translate('configs.systemStatus.boolean.custom', 'Custom value')}: ${item.value}`
+  }
+  return item.value
+}
+
+function formatDefaultValue(item: SystemStatusItem, translate: (key: string, fallback?: string) => string): string {
+  const notSet = translate('configs.systemStatus.value.notSet', 'Not set')
+  if (!item.defaultValue) return notSet
+  if (item.kind === 'boolean') {
+    const normalized = item.defaultValue.trim().toLowerCase()
+    if (normalized === 'true') return translate('configs.systemStatus.boolean.true', 'True')
+    if (normalized === 'false') return translate('configs.systemStatus.boolean.false', 'False')
+  }
+  return item.defaultValue
+}
+
+function StatusBadge({ state }: { state: SystemStatusState }) {
+  const t = useT()
+  return (
+    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE_CLASSES[state]}`}>
+      {t(STATUS_LABEL_KEYS[state])}
+    </span>
+  )
+}
+
+type FetchState = {
+  loading: boolean
+  error: string | null
+  snapshot: SystemStatusSnapshot | null
+}
+
+export function SystemStatusPanel() {
+  const t = useT()
+  const [state, setState] = React.useState<FetchState>({ loading: true, error: null, snapshot: null })
+
+  const loadSnapshot = React.useCallback(async () => {
+    setState((current) => ({ ...current, loading: true, error: null }))
+    try {
+      const response = await apiFetch(API_PATH)
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const message =
+          typeof payload?.error === 'string'
+            ? payload.error
+            : t('configs.systemStatus.error', 'Failed to load system status')
+        setState({ loading: false, error: message, snapshot: null })
+        return
+      }
+      if (!isSystemStatusSnapshot(payload)) {
+        setState({
+          loading: false,
+          error: t('configs.systemStatus.invalidResponse', 'Unexpected response when loading system status'),
+          snapshot: null,
+        })
+        return
+      }
+      setState({ loading: false, error: null, snapshot: payload })
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : t('configs.systemStatus.error', 'Failed to load system status')
+      setState({ loading: false, error: message, snapshot: null })
+    }
+  }, [t])
+
+  React.useEffect(() => {
+    loadSnapshot().catch(() => {})
+  }, [loadSnapshot])
+
+  if (state.loading) {
+    return (
+      <section className="space-y-3 rounded-lg border bg-background p-6">
+        <header className="space-y-1">
+          <h2 className="text-lg font-semibold">{t('configs.systemStatus.title', 'System status')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {t(
+              'configs.systemStatus.description',
+              'Review debugging, cache, and logging flags that shape backend behaviour.'
+            )}
+          </p>
+        </header>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner className="h-4 w-4" />
+          {t('configs.systemStatus.loading', 'Loading status snapshot…')}
+        </div>
+      </section>
+    )
+  }
+
+  if (state.error) {
+    return (
+      <section className="space-y-3 rounded-lg border bg-background p-6">
+        <header className="space-y-1">
+          <h2 className="text-lg font-semibold">{t('configs.systemStatus.title', 'System status')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {t(
+              'configs.systemStatus.description',
+              'Review debugging, cache, and logging flags that shape backend behaviour.'
+            )}
+          </p>
+        </header>
+        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {state.error}
+        </div>
+        <Button variant="outline" onClick={() => loadSnapshot().catch(() => {})}>
+          {t('configs.systemStatus.retry', 'Retry')}
+        </Button>
+      </section>
+    )
+  }
+
+  const snapshot = state.snapshot
+  if (!snapshot) return null
+
+  return (
+    <section className="space-y-6 rounded-lg border bg-background p-6">
+      <header className="space-y-1">
+        <h2 className="text-lg font-semibold">{t('configs.systemStatus.title', 'System status')}</h2>
+        <p className="text-sm text-muted-foreground">
+          {t('configs.systemStatus.description', 'Review debugging, cache, and logging flags that shape backend behaviour.')}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            'configs.systemStatus.generatedAt',
+            'Snapshot generated {{timestamp}}',
+            { timestamp: new Date(snapshot.generatedAt).toLocaleString() }
+          )}
+        </p>
+      </header>
+      <div className="space-y-6">
+        {snapshot.categories.map((category) => (
+          <div key={category.key} className="space-y-4">
+            <div className="space-y-1">
+              <h3 className="text-base font-semibold">{t(category.labelKey)}</h3>
+              {category.descriptionKey ? (
+                <p className="text-sm text-muted-foreground">{t(category.descriptionKey)}</p>
+              ) : null}
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {category.items.map((item) => (
+                <article key={item.key} className="flex flex-col gap-4 rounded-lg border bg-card p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-semibold">{t(item.labelKey)}</h4>
+                      <p className="text-xs text-muted-foreground">{t(item.descriptionKey)}</p>
+                    </div>
+                    <StatusBadge state={item.state} />
+                  </div>
+                  <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                        {t('configs.systemStatus.details.currentValue', 'Current value')}
+                      </dt>
+                      <dd className="text-sm font-medium">
+                        {formatValueWithLocalization(item, t)}
+                      </dd>
+                    </div>
+                    <div className="space-y-1">
+                      <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                        {t('configs.systemStatus.details.defaultValue', 'Default')}
+                      </dt>
+                      <dd className="text-sm font-medium">
+                        {formatDefaultValue(item, t)}
+                      </dd>
+                    </div>
+                  </dl>
+                  {item.docUrl ? (
+                    <div>
+                      <a
+                        href={item.docUrl}
+                        className="text-sm font-medium text-primary hover:underline"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {t('configs.systemStatus.viewDocs', 'View documentation')}
+                      </a>
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+export default SystemStatusPanel

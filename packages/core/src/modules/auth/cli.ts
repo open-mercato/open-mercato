@@ -6,6 +6,7 @@ import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entit
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { ensureRoles, setupInitialTenant } from './lib/setup-app'
+import { normalizeTenantId } from './lib/tenantAccess'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -28,13 +29,23 @@ const addUser: ModuleCli = {
     const em = resolve('em') as any
     const org = await em.findOneOrFail(Organization, { id: organizationId }, { populate: ['tenant'] })
     const orgTenantId = org.tenant?.id ? String(org.tenant.id) : null
+    const normalizedTenantId = normalizeTenantId(orgTenantId ?? null) ?? null
     const u = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organizationId: org.id, tenantId: org.tenant.id })
     await em.persistAndFlush(u)
     if (rolesCsv) {
       const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
       for (const name of names) {
-        let role = await em.findOne(Role, { name })
-        if (!role) { role = em.create(Role, { name, tenantId: orgTenantId }); await em.persistAndFlush(role) }
+        let role = await em.findOne(Role, { name, tenantId: normalizedTenantId })
+        if (!role && normalizedTenantId !== null) {
+          role = await em.findOne(Role, { name, tenantId: null })
+        }
+        if (!role) {
+          role = em.create(Role, { name, tenantId: normalizedTenantId })
+          await em.persistAndFlush(role)
+        } else if (normalizedTenantId !== null && role.tenantId !== normalizedTenantId) {
+          role.tenantId = normalizedTenantId
+          await em.persistAndFlush(role)
+        }
         const link = em.create(UserRole, { user: u, role })
         await em.persistAndFlush(link)
       }
@@ -45,11 +56,19 @@ const addUser: ModuleCli = {
 
 const seedRoles: ModuleCli = {
   command: 'seed-roles',
-  async run() {
+  async run(rest) {
+    const args: Record<string, string> = {}
+    for (let i = 0; i < rest.length; i += 2) {
+      const key = rest[i]?.replace(/^--/, '')
+      if (!key) continue
+      const value = rest[i + 1]
+      if (value) args[key] = value
+    }
+    const tenantId = args.tenantId ?? args.tenant ?? args.tenant_id ?? null
     const { resolve } = await createRequestContainer()
     const em = resolve<EntityManager>('em')
-    await ensureRoles(em)
-    console.log('Roles ensured')
+    await ensureRoles(em, { tenantId })
+    console.log('Roles ensured', tenantId ? `for tenant ${tenantId}` : '(global)')
   },
 }
 
