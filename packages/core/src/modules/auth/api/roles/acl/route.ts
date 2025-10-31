@@ -85,7 +85,9 @@ export async function PUT(req: Request) {
 
   const requestedFeatures = normalizeFeatureList(parsed.data.features)
   let acl = await em.findOne(RoleAcl, { role: role as any, tenantId: auth.tenantId as any })
-  if (!acl) { acl = em.create(RoleAcl, { role: role as any, tenantId: auth.tenantId as any }) }
+  if (!acl) {
+    acl = em.create(RoleAcl, { role: role as any, tenantId: auth.tenantId as any, createdAt: new Date() })
+  }
 
   const existingIsSuperAdmin = !!acl.isSuperAdmin
   const requestedIsSuperAdmin = parsed.data.isSuperAdmin ?? existingIsSuperAdmin

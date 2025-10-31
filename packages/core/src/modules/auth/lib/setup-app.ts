@@ -29,7 +29,7 @@ async function ensureRolesInContext(
         continue
       }
     }
-    em.persist(em.create(Role, { name, tenantId }))
+    em.persist(em.create(Role, { name, tenantId, createdAt: new Date() }))
   }
 }
 
@@ -326,6 +326,7 @@ async function ensureRoleAclFor(
       tenantId,
       featuresJson: features,
       isSuperAdmin: !!options.isSuperAdmin,
+      createdAt: new Date(),
     })
     await em.persistAndFlush(acl)
     return

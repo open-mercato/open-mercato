@@ -697,6 +697,7 @@ async function restoreUserAcls(em: EntityManager, user: User, acls: UserAclSnaps
       featuresJson: acl.features ?? null,
       isSuperAdmin: acl.isSuperAdmin,
       organizationsJson: acl.organizations ?? null,
+      createdAt: new Date(),
     })
     em.persist(entity)
   }

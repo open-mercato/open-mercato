@@ -40,7 +40,7 @@ const addUser: ModuleCli = {
           role = await em.findOne(Role, { name, tenantId: null })
         }
         if (!role) {
-          role = em.create(Role, { name, tenantId: normalizedTenantId })
+        role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
           await em.persistAndFlush(role)
         } else if (normalizedTenantId !== null && role.tenantId !== normalizedTenantId) {
           role.tenantId = normalizedTenantId
