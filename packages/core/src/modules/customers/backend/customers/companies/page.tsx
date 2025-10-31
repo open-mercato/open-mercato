@@ -118,7 +118,11 @@ export default function CustomersCompaniesPage() {
     sources: {},
     'lifecycle-stages': {},
     'address-types': {},
+    'activity-types': {},
+    'deal-statuses': {},
+    'pipeline-stages': {},
     'job-titles': {},
+    industries: {},
   })
   const [tagIdToLabel, setTagIdToLabel] = React.useState<Record<string, string>>({})
   const scopeVersion = useOrganizationScopeVersion()
@@ -218,7 +222,7 @@ export default function CustomersCompaniesPage() {
     let cancelled = false
     async function loadAll() {
       if (cancelled) return
-      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {}, 'job-titles': {} })
+      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {}, 'activity-types': {}, 'deal-statuses': {}, 'pipeline-stages': {}, 'job-titles': {}, industries: {} })
       await Promise.all([
         fetchDictionaryEntries('statuses'),
         fetchDictionaryEntries('sources'),

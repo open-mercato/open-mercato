@@ -62,7 +62,21 @@ type ErrorLog = {
   occurredAt: string
 }
 
-type Resp = { items: Row[]; errors: ErrorLog[] }
+type StatusLog = {
+  id: string
+  source: string
+  handler: string
+  level: 'info' | 'warn'
+  entityType: string | null
+  recordId: string | null
+  tenantId: string | null
+  organizationId: string | null
+  message: string
+  details: unknown
+  occurredAt: string
+}
+
+type Resp = { items: Row[]; errors: ErrorLog[]; logs: StatusLog[] }
 
 function formatCount(value: number | null): string {
   if (value == null) return '—'
@@ -113,7 +127,10 @@ function translateScopeStatus(
   return t('query_index.table.status.scope.completed')
 }
 
-function buildScopeLabel(log: ErrorLog, t: Translator): string {
+function buildScopeLabel(
+  log: { tenantId: string | null; organizationId: string | null },
+  t: Translator,
+): string {
   const parts: string[] = []
   if (log.tenantId) parts.push(t('query_index.table.errors.scope.tenant', { tenantId: log.tenantId }))
   if (log.organizationId) parts.push(t('query_index.table.errors.scope.organization', { organizationId: log.organizationId }))
@@ -260,6 +277,7 @@ export default function QueryIndexesTable() {
 
   const rowsAll = data?.items || []
   const errors = data?.errors || []
+  const logs = data?.logs || []
   const rows = React.useMemo(() => {
     if (!search) return rowsAll
     const q = search.toLowerCase()
@@ -274,6 +292,35 @@ export default function QueryIndexesTable() {
       if (!res.ok && typeof window !== 'undefined') {
         const label =
           action === 'purge' ? t('query_index.table.actions.purge') : t('query_index.table.actions.reindex')
+        window.alert(t('query_index.table.errors.actionFailed', { action: label }))
+      }
+      qc.invalidateQueries({ queryKey: ['query-index-status'] })
+    },
+    [qc, t],
+  )
+
+  const triggerVector = React.useCallback(
+    async (action: 'reindex' | 'purge', entityId: string) => {
+      if (action === 'purge' && typeof window !== 'undefined') {
+        const confirmed = window.confirm(t('query_index.table.confirm.vectorPurge'))
+        if (!confirmed) return
+      }
+
+      let res: Response
+      if (action === 'reindex') {
+        res = await apiFetch('/api/vector/reindex', {
+          method: 'POST',
+          body: JSON.stringify({ entityId }),
+        })
+      } else {
+        const url = `/api/vector/index?entityId=${encodeURIComponent(entityId)}`
+        res = await apiFetch(url, { method: 'DELETE' })
+      }
+
+      if (!res.ok && typeof window !== 'undefined') {
+        const label = action === 'purge'
+          ? t('query_index.table.actions.vectorPurge')
+          : t('query_index.table.actions.vectorReindex')
         window.alert(t('query_index.table.errors.actionFailed', { action: label }))
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
@@ -310,21 +357,111 @@ export default function QueryIndexesTable() {
         sorting={sorting}
         onSortingChange={setSorting}
         perspective={{ tableId: 'query_index.status.list' }}
-        rowActions={(row) => (
-          <RowActions
-            items={[
-              { label: t('query_index.table.actions.reindex'), onSelect: () => trigger('reindex', row.entityId) },
+        rowActions={(row) => {
+          const items: Array<{ label: string; onSelect: () => void; destructive?: boolean }> = [
+            { label: t('query_index.table.actions.reindex'), onSelect: () => trigger('reindex', row.entityId) },
+            {
+              label: t('query_index.table.actions.reindexForce'),
+              onSelect: () => trigger('reindex', row.entityId, { force: true }),
+            },
+            {
+              label: t('query_index.table.actions.purge'),
+              destructive: true,
+              onSelect: () => trigger('purge', row.entityId),
+            },
+          ]
+
+          if (row.vectorEnabled) {
+            items.push(
               {
-                label: t('query_index.table.actions.reindexForce'),
-                onSelect: () => trigger('reindex', row.entityId, { force: true }),
+                label: t('query_index.table.actions.vectorReindex'),
+                onSelect: () => triggerVector('reindex', row.entityId),
               },
-              { label: t('query_index.table.actions.purge'), destructive: true, onSelect: () => trigger('purge', row.entityId) },
-            ]}
-          />
-        )}
+              {
+                label: t('query_index.table.actions.vectorPurge'),
+                destructive: true,
+                onSelect: () => triggerVector('purge', row.entityId),
+              },
+            )
+          }
+
+          return <RowActions items={items} />
+        }}
         pagination={{ page, pageSize: 50, total: rows.length, totalPages: 1, onPageChange: setPage }}
         isLoading={isLoading}
       />
+
+      <div className="overflow-hidden rounded-md border bg-card">
+        <div className="border-b px-4 py-3">
+          <h2 className="text-sm font-medium">{t('query_index.table.logs.title')}</h2>
+          <p className="text-xs text-muted-foreground">
+            {t('query_index.table.logs.subtitle')}
+          </p>
+        </div>
+        {logs.length === 0 ? (
+          <div className="px-4 py-6 text-xs text-muted-foreground">
+            {t('query_index.table.logs.empty')}
+          </div>
+        ) : (
+          <div className="max-h-72 overflow-x-auto overflow-y-auto">
+            <table className="w-full table-fixed text-xs">
+              <thead className="sticky top-0 bg-card">
+                <tr className="border-b text-left">
+                  <th className="w-40 px-4 py-2 font-medium">{t('query_index.table.logs.columns.timestamp')}</th>
+                  <th className="w-28 px-4 py-2 font-medium">{t('query_index.table.logs.columns.source')}</th>
+                  <th className="px-4 py-2 font-medium">{t('query_index.table.logs.columns.message')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((log) => {
+                  const timestamp = formatTimestamp(log.occurredAt)
+                  const scopeLabel = buildScopeLabel(log, t)
+                  const detailsText = formatPayload(log.details)
+                  const levelLabel = t(`query_index.table.logs.level.${log.level}`)
+                  const badgeBase = 'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase'
+                  const badgeTone =
+                    log.level === 'warn'
+                      ? 'bg-orange-100 text-orange-700'
+                      : 'bg-muted text-muted-foreground'
+                  const badgeClass = `${badgeBase} ${badgeTone}`
+                  return (
+                    <tr key={log.id} className="border-b last:border-0">
+                      <td className="whitespace-nowrap px-4 py-2 align-top">{timestamp}</td>
+                      <td className="px-4 py-2 align-top">
+                        <div className="font-medium">{log.source}</div>
+                        <div className="break-all text-muted-foreground">{log.handler}</div>
+                      </td>
+                      <td className="px-4 py-2 align-top">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="break-words font-medium">{log.message}</span>
+                            <span className={badgeClass}>{levelLabel}</span>
+                          </div>
+                          <div className="break-words text-muted-foreground">
+                            {log.entityType ?? '—'}
+                            {log.recordId ? ` · ${log.recordId}` : ''}
+                            {scopeLabel ? ` · ${scopeLabel}` : ''}
+                          </div>
+                          {detailsText && (
+                            <details className="mt-1 space-y-2">
+                              <summary className="cursor-pointer select-none text-muted-foreground">
+                                {t('query_index.table.logs.viewDetails')}
+                              </summary>
+                              <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded bg-muted/80 p-2 text-[11px] leading-tight">
+                                {detailsText}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       <div className="overflow-hidden rounded-md border bg-card">
         <div className="border-b px-4 py-3">

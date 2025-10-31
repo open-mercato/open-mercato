@@ -4,10 +4,9 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import * as LucideIcons from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import type { VectorSearchHit, VectorIndexEntry } from '@open-mercato/vector'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -36,9 +35,10 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
     header: () => t('vector.table.columns.result'),
     cell: ({ row }) => {
       const item = row.original
+      const title = resolveRowTitle(item)
       const iconName = item.presenter?.icon
       const Icon = iconName ? resolveIcon(iconName) : null
-      const typeLabel = formatEntityId(item.entityId)
+      const typeLabel = formatEntityLabel(item, t)
       const snapshot = item.presenter?.subtitle ?? extractSnapshot(item.metadata)
       const links = normalizeLinks(item.links)
       return (
@@ -47,7 +47,7 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
             {Icon ? <Icon className="mt-0.5 h-5 w-5 text-muted-foreground" /> : null}
             <div className="flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{item.presenter?.title ?? item.recordId}</span>
+                <span className="font-medium">{title}</span>
                 <span className="rounded border border-muted-foreground/40 px-2 py-0.5 text-xs text-muted-foreground">
                   {typeLabel}
                 </span>
@@ -113,13 +113,13 @@ function toPascalCase(input: string): string {
     .join('')
 }
 
-type LucideIconComponent = React.ComponentType<{ className?: string }>
+type LucideIconComponent = LucideIcon
 
 function resolveIcon(name?: string): LucideIconComponent | null {
   if (!name) return null
   const key = toPascalCase(name)
   const Icon = (LucideIcons as Record<string, LucideIconComponent | undefined>)[key]
-  return typeof Icon === 'function' ? Icon : null
+  return Icon ?? null
 }
 
 function humanizeSegment(segment: string): string {
@@ -136,6 +136,47 @@ function formatEntityId(entityId: string): string {
   const moduleLabel = humanizeSegment(module)
   const entityLabel = humanizeSegment(entity)
   return `${moduleLabel} · ${entityLabel}`
+}
+
+function deriveCustomerEntityKind(row: Row): 'person' | 'company' | null {
+  const metadataKindRaw = row.metadata?.kind
+  if (typeof metadataKindRaw === 'string') {
+    const normalized = metadataKindRaw.toLowerCase()
+    if (normalized === 'person' || normalized === 'company') return normalized
+  }
+  const badgeRaw = row.presenter?.badge
+  if (typeof badgeRaw === 'string') {
+    const normalized = badgeRaw.toLowerCase()
+    if (normalized === 'person' || normalized === 'company') return normalized
+  }
+  const icon = row.presenter?.icon
+  if (icon === 'user') return 'person'
+  if (icon === 'building') return 'company'
+  return null
+}
+
+function formatEntityLabel(row: Row, t: Translator): string {
+  if (row.entityId === 'customers:customer_entity') {
+    const kind = deriveCustomerEntityKind(row)
+    if (kind === 'person') return t('vector.table.labels.customerPerson', 'Customers - Person')
+    if (kind === 'company') return t('vector.table.labels.customerCompany', 'Customers - Company')
+  }
+  return formatEntityId(row.entityId)
+}
+
+function resolveRowTitle(row: Row): string {
+  const metadata = row.metadata as { taskTitle?: unknown } | null
+  const taskTitle = metadata?.taskTitle
+  if (typeof taskTitle === 'string') {
+    const trimmed = taskTitle.trim()
+    if (trimmed.length) return trimmed
+  }
+  const presenterTitle = row.presenter?.title
+  if (typeof presenterTitle === 'string') {
+    const trimmed = presenterTitle.trim()
+    if (trimmed.length) return trimmed
+  }
+  return row.recordId
 }
 
 function extractSnapshot(metadata: Record<string, unknown> | null): string | null {
@@ -190,8 +231,6 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
   const [page, setPage] = React.useState(1)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(apiKeyAvailable ? null : missingKeyMessage)
-  const [reindexing, setReindexing] = React.useState(false)
-  const [purging, setPurging] = React.useState(false)
   const debounceRef = React.useRef<number | null>(null)
   const abortRef = React.useRef<AbortController | null>(null)
   const t = useT()
@@ -240,7 +279,8 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (item.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(normalizeErrorMessage(data.error) ?? null)
+          const message = data.error ? normalizeErrorMessage(data.error, t('vector.table.errors.searchFailed')) : null
+          setError(message ?? null)
         } else {
           const data = await fetchVectorIndexEntries({ limit: 50, signal: controller.signal })
           const mapped = data.entries.map<Row>((entry: VectorIndexEntry) => ({
@@ -255,13 +295,14 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
             metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
           }))
           setRows(mapped)
-          setError(normalizeErrorMessage(data.error) ?? null)
+          const message = data.error ? normalizeErrorMessage(data.error, t('vector.table.errors.indexFetchFailed')) : null
+          setError(message ?? null)
         }
         setPage(1)
       } catch (err: any) {
         if (controller.signal.aborted) return
         if (err?.name === 'AbortError') return
-        setError(normalizeErrorMessage(err, 'Vector search failed'))
+        setError(normalizeErrorMessage(err, t('vector.table.errors.searchFailed')))
         setRows([])
       } finally {
         if (!controller.signal.aborted) setLoading(false)
@@ -272,101 +313,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
       controller.abort()
       if (debounceRef.current) window.clearTimeout(debounceRef.current)
     }
-  }, [searchValue, apiKeyAvailable, missingKeyMessage])
-
-  const handleReindex = React.useCallback(async () => {
-    if (!apiKeyAvailable || reindexing || purging) return
-    setReindexing(true)
-    try {
-      const res = await apiFetch('/api/vector/reindex', {
-        method: 'POST',
-        body: JSON.stringify({ purgeFirst: true }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        const message = normalizeErrorMessage(body?.error, 'Vector reindex failed')
-        setError(message)
-        return
-      }
-      if (typeof window !== 'undefined') {
-        window.alert('Vector reindex started. Results will refresh once embeddings complete.')
-      }
-      setError(null)
-      const trimmed = searchValue.trim()
-      if (trimmed.length >= MIN_QUERY_LENGTH) {
-        try {
-          const data = await fetchVectorResults(trimmed, 50)
-          const mapped = data.results.map<Row>((item: VectorSearchHit) => ({
-            entityId: item.entityId,
-            recordId: item.recordId,
-            driverId: item.driverId,
-            score: typeof item.score === 'number' ? item.score : null,
-            url: item.url ?? null,
-            presenter: item.presenter ?? null,
-            links: item.links ?? null,
-            updatedAt: null,
-            metadata: (item.metadata as Record<string, unknown> | null) ?? null,
-          }))
-          setRows(mapped)
-          setError(normalizeErrorMessage(data.error) ?? null)
-        } catch (err: any) {
-          setError(normalizeErrorMessage(err, 'Vector search failed'))
-        }
-      } else {
-        try {
-          const data = await fetchVectorIndexEntries({ limit: 50 })
-          const mapped = data.entries.map<Row>((entry: VectorIndexEntry) => ({
-            entityId: entry.entityId,
-            recordId: entry.recordId,
-            driverId: entry.driverId,
-            score: entry.score ?? null,
-            url: entry.url ?? null,
-            presenter: entry.presenter ?? null,
-            links: entry.links ?? null,
-            updatedAt: entry.updatedAt ?? null,
-            metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
-          }))
-          setRows(mapped)
-          setError(normalizeErrorMessage(data.error) ?? null)
-        } catch (err: any) {
-          setError(normalizeErrorMessage(err, 'Vector index fetch failed'))
-        }
-      }
-    } catch (err: any) {
-      setError(normalizeErrorMessage(err, 'Vector reindex failed'))
-    } finally {
-      setReindexing(false)
-    }
-  }, [apiKeyAvailable, reindexing, purging, searchValue])
-
-  const handlePurge = React.useCallback(async () => {
-    if (!apiKeyAvailable || purging || reindexing) return
-    if (typeof window !== 'undefined') {
-      const confirmed = window.confirm('Remove all vector entries for this tenant? This cannot be undone.')
-      if (!confirmed) return
-    }
-    setPurging(true)
-    try {
-      const res = await apiFetch('/api/vector/index', {
-        method: 'DELETE',
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        const message = normalizeErrorMessage(body?.error, 'Vector purge failed')
-        setError(message)
-        return
-      }
-      if (typeof window !== 'undefined') {
-        window.alert('Vector index purged. Reindex to rebuild embeddings.')
-      }
-      setRows([])
-      setError(null)
-    } catch (err: any) {
-      setError(normalizeErrorMessage(err, 'Vector purge failed'))
-    } finally {
-      setPurging(false)
-    }
-  }, [apiKeyAvailable, purging, reindexing])
+  }, [searchValue, apiKeyAvailable, missingKeyMessage, t])
 
   React.useEffect(() => {
     if (!error) return
@@ -384,48 +331,24 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
         </div>
       ) : null}
       <DataTable<Row>
-        title="Vector Search Index"
+        title={t('vector.table.title')}
         columns={columns}
         data={rows}
         searchValue={searchValue}
         onSearchChange={(value) => { setSearchValue(value); setPage(1) }}
-        searchPlaceholder="Search vector index"
+        searchPlaceholder={t('vector.table.searchPlaceholder')}
         isLoading={apiKeyAvailable ? loading : false}
         pagination={{ page, pageSize: rows.length || 1, total: rows.length, totalPages: 1, onPageChange: setPage }}
-        actions={(
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!apiKeyAvailable || purging || reindexing}
-              onClick={handleReindex}
-            >
-              {reindexing ? 'Reindexing…' : 'Reindex vectors'}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!apiKeyAvailable || purging || reindexing}
-              onClick={handlePurge}
-            >
-              {purging ? 'Purging…' : 'Purge index'}
-            </Button>
-          </div>
-        )}
         onRowClick={(row) => openRow(row)}
         rowActions={(row) => {
           const primaryHref = pickPrimaryLink(row)
-          const items = [] as { label: string; href?: string }[]
-          if (primaryHref) items.push({ label: 'Open', href: primaryHref })
-          normalizeLinks(row.links).forEach((link) => {
-            items.push({ label: link.label ?? link.href, href: link.href })
-          })
-          return <RowActions items={items} />
+          if (!primaryHref) return null
+          return <RowActions items={[{ label: t('vector.table.actions.open'), href: primaryHref }]} />
         }}
         embedded
       />
     </div>
   )
 }
+
+export default VectorSearchTable

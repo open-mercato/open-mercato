@@ -61,6 +61,7 @@ export async function saveSidebarPreference(
       organizationId,
       locale,
       settingsJson: normalized,
+      createdAt: new Date(),
     })
   } else {
     pref.settingsJson = normalized
@@ -140,6 +141,7 @@ export async function saveRoleSidebarPreference(
       tenantId,
       locale,
       settingsJson: normalized,
+      createdAt: new Date(),
     })
   } else {
     pref.settingsJson = normalized

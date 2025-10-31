@@ -8,6 +8,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { VectorSearchHit } from '@open-mercato/vector'
+import { useT } from '@/lib/i18n/context'
 import { fetchVectorResults } from '../utils'
 
 type VectorLink = { href: string; label?: string; kind?: string }
@@ -58,6 +59,7 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
   const [selectedIndex, setSelectedIndex] = React.useState(0)
   const inputRef = React.useRef<HTMLInputElement | null>(null)
   const abortRef = React.useRef<AbortController | null>(null)
+  const t = useT()
 
   const resetState = React.useCallback(() => {
     setQuery('')
@@ -128,7 +130,7 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
       } catch (err: any) {
         if (controller.signal.aborted) return
         if (err?.name === 'AbortError') return
-        setError(err instanceof Error ? err.message : 'Vector search failed')
+        setError(err instanceof Error ? err.message : t('vector.dialog.errors.searchFailed'))
         setResults([])
       } finally {
         if (!controller.signal.aborted) setLoading(false)
@@ -185,16 +187,23 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
     <>
       <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)} className="hidden sm:inline-flex items-center gap-2">
         <Search className="h-4 w-4" />
-        <span>Search</span>
+        <span>{t('vector.dialog.actions.search')}</span>
         <span className="ml-2 rounded border px-1 text-xs text-muted-foreground">⌘K</span>
       </Button>
-      <Button type="button" variant="ghost" size="icon" className="sm:hidden" onClick={() => setOpen(true)} aria-label="Open global search">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="sm:hidden"
+        onClick={() => setOpen(true)}
+        aria-label={t('vector.dialog.actions.openGlobalSearch')}
+      >
         <Search className="h-4 w-4" />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl p-0" aria-describedby="vector-search-description">
           <span id="vector-search-description" className="sr-only">
-            Type to search across indexed records. Use arrow keys to navigate results.
+            {t('vector.dialog.instructions')}
           </span>
           <div className="flex flex-col gap-3 border-b px-4 pb-3 pt-4">
             <div className="flex items-center gap-2 rounded border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
@@ -204,7 +213,7 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Search customers, notes, deals, todos…"
+                placeholder={t('vector.dialog.input.placeholder')}
                 className="border-none px-0 shadow-none focus-visible:ring-0"
                 autoFocus
                 disabled={!apiKeyAvailable}
@@ -219,8 +228,8 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
             {results.length === 0 && !loading && !error ? (
               <div className="px-4 py-6 text-sm text-muted-foreground">
                 {query.trim().length < MIN_QUERY_LENGTH
-                  ? 'Type at least two characters to search indexed records.'
-                  : 'No results found.'}
+                  ? t('vector.dialog.empty.hint')
+                  : t('vector.dialog.empty.none')}
               </div>
             ) : null}
             <ul className="flex flex-col">
@@ -276,8 +285,11 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
                         </div>
                         <div className="flex flex-col items-end gap-2 text-xs text-muted-foreground">
                           {distance ? (
-                            <span className="rounded bg-muted px-2 py-1 font-medium text-foreground/80" title="Vector distance">
-                              Distance {distance}
+                            <span
+                              className="rounded bg-muted px-2 py-1 font-medium text-foreground/80"
+                              title={t('vector.dialog.distance.title')}
+                            >
+                              {t('vector.dialog.distance.value', { distance })}
                             </span>
                           ) : null}
                           {presenter?.icon ? (
@@ -292,10 +304,10 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
             </ul>
           </div>
           <div className="flex items-center justify-between border-t px-4 py-3">
-            <span className="text-xs text-muted-foreground">Press ⌘K to toggle · ⌘⏎ to open</span>
+            <span className="text-xs text-muted-foreground">{t('vector.dialog.shortcuts.hint')}</span>
             <div className="flex items-center gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
-                Cancel (Esc)
+                {t('vector.dialog.actions.cancel')}
               </Button>
               <Button
                 type="button"
@@ -303,7 +315,7 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
                 onClick={() => openResult(results[selectedIndex])}
                 disabled={!results.length}
               >
-                Open (⌘⏎)
+                {t('vector.dialog.actions.openSelected')}
               </Button>
             </div>
           </div>
@@ -312,3 +324,5 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
     </>
   )
 }
+
+export default VectorSearchDialog

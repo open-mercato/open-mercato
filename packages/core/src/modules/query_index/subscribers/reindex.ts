@@ -1,12 +1,20 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerError } from '@/lib/indexers/error-log'
+import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { reindexEntity } from '../lib/reindexer'
+import type { VectorIndexService } from '@open-mercato/vector'
 
 export const metadata = { event: 'query_index.reindex', persistent: true }
 
 export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
   const em = ctx.resolve<EntityManager>('em')
   const eventBus = ctx.resolve<any>('eventBus')
+  let vectorService: VectorIndexService | null = null
+  try {
+    vectorService = ctx.resolve<VectorIndexService>('vectorIndexService')
+  } catch {
+    vectorService = null
+  }
   const entityType = String(payload?.entityType || '')
   if (!entityType) return
   // Keep undefined to mean "no filter"; null to mean "global-only"
@@ -19,9 +27,28 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   const resetCoverage = typeof payload?.resetCoverage === 'boolean' ? payload.resetCoverage : undefined
 
   try {
-    await reindexEntity(em, {
+    await recordIndexerLog(
+      { em },
+      {
+        source: 'query_index',
+        handler: 'event:query_index.reindex',
+        message: `Reindex started for ${entityType}`,
+        entityType,
+        tenantId: tenantId ?? null,
+        organizationId: organizationId ?? null,
+        details: {
+          force: forceFull,
+          batchSize: batchSize ?? null,
+          partitionCount: partitionCount ?? null,
+          partitionIndex: partitionIndex ?? null,
+          resetCoverage: resetCoverage ?? null,
+        },
+      },
+    )
+    const result = await reindexEntity(em, {
       entityType,
       tenantId,
+      organizationId,
       force: forceFull,
       batchSize,
       eventBus,
@@ -29,8 +56,41 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       partitionCount,
       partitionIndex,
       resetCoverage,
+      vectorService,
     })
+    await recordIndexerLog(
+      { em },
+      {
+        source: 'query_index',
+        handler: 'event:query_index.reindex',
+        message: `Reindex completed for ${entityType}`,
+        entityType,
+        tenantId: tenantId ?? null,
+        organizationId: organizationId ?? null,
+        details: {
+          processed: result.processed,
+          total: result.total,
+          tenantScopes: result.tenantScopes,
+          scopes: result.scopes,
+        },
+      },
+    )
   } catch (error) {
+    await recordIndexerLog(
+      { em },
+      {
+        source: 'query_index',
+        handler: 'event:query_index.reindex',
+        level: 'warn',
+        message: `Reindex failed for ${entityType}`,
+        entityType,
+        tenantId: tenantId ?? null,
+        organizationId: organizationId ?? null,
+        details: {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      },
+    ).catch(() => undefined)
     await recordIndexerError(
       { em },
       {

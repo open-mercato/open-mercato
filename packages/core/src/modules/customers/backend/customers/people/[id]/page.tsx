@@ -202,15 +202,14 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         ? data.deals
             .map((deal) => {
               if (!deal || typeof deal !== 'object') return null
-              const id = typeof (deal as Record<string, unknown>).id === 'string' ? (deal as Record<string, unknown>).id : ''
+              const record = deal as Record<string, unknown>
+              const id = typeof record.id === 'string' ? record.id : ''
               if (!id) return null
-              const title =
-                typeof (deal as Record<string, unknown>).title === 'string' && (deal as Record<string, unknown>).title.trim().length
-                  ? ((deal as Record<string, unknown>).title as string).trim()
-                  : id
-              return { id, label: title }
+              const rawTitle = typeof record.title === 'string' ? record.title.trim() : ''
+              const label = rawTitle.length ? rawTitle : id
+              return { id, label }
             })
-            .filter((option): option is { id: string; label: string } => !!option)
+            .filter((option): option is { id: string; label: string } => option !== null)
         : [],
     [data?.deals],
   )
@@ -240,12 +239,13 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       setIsLoading(false)
       return
     }
+    const personId = id
     let cancelled = false
     async function load() {
       setIsLoading(true)
       setError(null)
       try {
-        const res = await apiFetch(`/api/customers/people/${encodeURIComponent(id)}?include=todos`)
+        const res = await apiFetch(`/api/customers/people/${encodeURIComponent(personId)}?include=todos`)
         if (!res.ok) {
           const payload = await res.json().catch(() => ({}))
           const message =

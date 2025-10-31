@@ -119,9 +119,9 @@ const crud = makeCrudRoute({
       const items = Array.isArray(payload.items) ? payload.items : []
       if (!items.length) return
       const dealIds = Array.from(
-        new Set(
+        new Set<string>(
           items
-            .map((item) => {
+            .map((item: unknown) => {
               if (!item || typeof item !== 'object') return null
               const record = item as Record<string, unknown>
               const raw =
@@ -132,7 +132,10 @@ const crud = makeCrudRoute({
                     : null
               return raw && raw.trim().length ? raw : null
             })
-            .filter((value): value is string => !!value),
+            .filter(
+              (value: string | null): value is string =>
+                typeof value === 'string' && value.length > 0,
+            ),
         ),
       )
       if (!dealIds.length) return
@@ -140,10 +143,10 @@ const crud = makeCrudRoute({
         const em = ctx.container.resolve<EntityManager>('em')
         const deals = await em.find(CustomerDeal, { id: { $in: dealIds } })
         const map = new Map<string, string>()
-        deals.forEach((deal) => {
+        deals.forEach((deal: CustomerDeal) => {
           if (deal.id) map.set(deal.id, deal.title ?? '')
         })
-        items.forEach((item) => {
+        items.forEach((item: unknown) => {
           if (!item || typeof item !== 'object') return
           const record = item as Record<string, unknown>
           const raw =

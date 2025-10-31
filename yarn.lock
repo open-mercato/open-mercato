@@ -1111,10 +1111,6 @@
   resolved "https://registry.npmjs.org/@nolyfill/is-core-module/-/is-core-module-1.0.39.tgz"
   integrity sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==
 
-"@opentelemetry/api@1.9.0":
-  version "1.9.0"
-  resolved "https://registry.yarnpkg.com/@opentelemetry/api/-/api-1.9.0.tgz#d03eba68273dc0f7509e2a3d5cba21eae10379fe"
-  integrity sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==
 "@npmcli/agent@^3.0.0":
   version "3.0.0"
   resolved "https://registry.yarnpkg.com/@npmcli/agent/-/agent-3.0.0.tgz#1685b1fbd4a1b7bb4f930cbb68ce801edfe7aa44"
@@ -1373,6 +1369,11 @@
   integrity sha512-rR+5VRjhYSer7sC51krfCctQhVTmjyUMAaShfPB8mscVa8tSoLyon3coxQmXu0ahJoLVWl8dSGD/3OGZlFV44Q==
   dependencies:
     "@octokit/openapi-types" "^26.0.0"
+
+"@opentelemetry/api@1.9.0":
+  version "1.9.0"
+  resolved "https://registry.yarnpkg.com/@opentelemetry/api/-/api-1.9.0.tgz#d03eba68273dc0f7509e2a3d5cba21eae10379fe"
+  integrity sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==
 
 "@pkgjs/parseargs@^0.11.0":
   version "0.11.0"
@@ -2577,17 +2578,6 @@ acorn@^8.15.0:
   resolved "https://registry.npmjs.org/acorn/-/acorn-8.15.0.tgz"
   integrity sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==
 
-ai@^4.0.0:
-  version "4.3.19"
-  resolved "https://registry.yarnpkg.com/ai/-/ai-4.3.19.tgz#e94f5b37f3885bc9c9637f892e13bddd0a1857e5"
-  integrity sha512-dIE2bfNpqHN3r6IINp9znguYdhIOheKW2LDigAMrgt/upT3B8eBGPSCblENvaZGoq+hxaN9fSMzjWpbqloP+7Q==
-  dependencies:
-    "@ai-sdk/provider" "1.1.3"
-    "@ai-sdk/provider-utils" "2.2.8"
-    "@ai-sdk/react" "1.2.12"
-    "@ai-sdk/ui-utils" "1.2.11"
-    "@opentelemetry/api" "1.9.0"
-    jsondiffpatch "0.6.0"
 agent-base@^7.1.0, agent-base@^7.1.2:
   version "7.1.4"
   resolved "https://registry.npmjs.org/agent-base/-/agent-base-7.1.4.tgz"
@@ -2608,6 +2598,18 @@ aggregate-error@^5.0.0:
   dependencies:
     clean-stack "^5.2.0"
     indent-string "^5.0.0"
+
+ai@^4.0.0:
+  version "4.3.19"
+  resolved "https://registry.yarnpkg.com/ai/-/ai-4.3.19.tgz#e94f5b37f3885bc9c9637f892e13bddd0a1857e5"
+  integrity sha512-dIE2bfNpqHN3r6IINp9znguYdhIOheKW2LDigAMrgt/upT3B8eBGPSCblENvaZGoq+hxaN9fSMzjWpbqloP+7Q==
+  dependencies:
+    "@ai-sdk/provider" "1.1.3"
+    "@ai-sdk/provider-utils" "2.2.8"
+    "@ai-sdk/react" "1.2.12"
+    "@ai-sdk/ui-utils" "1.2.11"
+    "@opentelemetry/api" "1.9.0"
+    jsondiffpatch "0.6.0"
 
 ajv-draft-04@~1.0.0:
   version "1.0.0"
@@ -7440,7 +7442,6 @@ ms@^2.1.1, ms@^2.1.2, ms@^2.1.3:
   resolved "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz"
   integrity sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==
 
-nanoid@^3.3.11, nanoid@^3.3.6, nanoid@^3.3.8:
 mute-stream@^2.0.0:
   version "2.0.0"
   resolved "https://registry.yarnpkg.com/mute-stream/-/mute-stream-2.0.0.tgz#a5446fc0c512b71c83c44d908d5c7b7b4c493b2b"
@@ -7455,7 +7456,7 @@ mz@^2.4.0:
     object-assign "^4.0.1"
     thenify-all "^1.0.0"
 
-nanoid@^3.3.11, nanoid@^3.3.6:
+nanoid@^3.3.11, nanoid@^3.3.6, nanoid@^3.3.8:
   version "3.3.11"
   resolved "https://registry.yarnpkg.com/nanoid/-/nanoid-3.3.11.tgz#4f4f112cefbe303202f2199838128936266d185b"
   integrity sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==
@@ -9881,10 +9882,6 @@ test-exclude@^6.0.0:
     glob "^7.1.4"
     minimatch "^3.0.4"
 
-throttleit@2.1.0:
-  version "2.1.0"
-  resolved "https://registry.yarnpkg.com/throttleit/-/throttleit-2.1.0.tgz#a7e4aa0bf4845a5bd10daa39ea0c783f631a07b4"
-  integrity sha512-nt6AMGKW1p/70DF/hGBdJB57B8Tspmbp5gfJ8ilhLnt7kkr2ye7hzD6NVG8GGErk2HWF34igrL2CXmNIkzKqKw==
 text-table@~0.2.0:
   version "0.2.0"
   resolved "https://registry.yarnpkg.com/text-table/-/text-table-0.2.0.tgz#7f5ee823ae805207c00af2df4a84ec3fcfa570b4"
@@ -9903,6 +9900,11 @@ thenify-all@^1.0.0:
   integrity sha512-RVZSIV5IG10Hk3enotrhvz0T9em6cyHBLkH/YAZuKqd8hRkKhSfCGIcP2KUY0EPxndzANBmNllzWPwak+bheSw==
   dependencies:
     any-promise "^1.0.0"
+
+throttleit@2.1.0:
+  version "2.1.0"
+  resolved "https://registry.yarnpkg.com/throttleit/-/throttleit-2.1.0.tgz#a7e4aa0bf4845a5bd10daa39ea0c783f631a07b4"
+  integrity sha512-nt6AMGKW1p/70DF/hGBdJB57B8Tspmbp5gfJ8ilhLnt7kkr2ye7hzD6NVG8GGErk2HWF34igrL2CXmNIkzKqKw==
 
 through2@~2.0.0:
   version "2.0.5"
@@ -10335,7 +10337,6 @@ use-sync-external-store@^1.4.0:
   resolved "https://registry.yarnpkg.com/use-sync-external-store/-/use-sync-external-store-1.6.0.tgz#b174bfa65cb2b526732d9f2ac0a408027876f32d"
   integrity sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==
 
-util-deprecate@^1.0.1:
 util-deprecate@^1.0.1, util-deprecate@^1.0.2, util-deprecate@~1.0.1:
   version "1.0.2"
   resolved "https://registry.npmjs.org/util-deprecate/-/util-deprecate-1.0.2.tgz"

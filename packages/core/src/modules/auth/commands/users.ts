@@ -24,6 +24,7 @@ import {
   buildCustomFieldResetMap,
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 
 type SerializedUser = {
   email: string
@@ -75,7 +76,7 @@ const updateSchema = z.object({
   roles: z.array(z.string()).optional(),
 })
 
-export const userCrudEvents: CrudEventsConfig<User> = {
+export const userCrudEvents: CrudEventsConfig = {
   module: 'auth',
   entity: 'user',
   persistent: true,
@@ -86,7 +87,7 @@ export const userCrudEvents: CrudEventsConfig<User> = {
   }),
 }
 
-export const userCrudIndexer: CrudIndexerConfig<User> = {
+export const userCrudIndexer: CrudIndexerConfig = {
   entityType: E.auth.user,
   buildUpsertPayload: (ctx) => ({
     entityType: E.auth.user,
@@ -213,7 +214,8 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const reset = buildCustomFieldResetMap(undefined, snapshot.custom)
       if (Object.keys(reset).length) {
-        await de.setCustomFields({
+        await setCustomFieldsIfAny({
+          dataEngine: de,
           entityId: E.auth.user,
           recordId: userId,
           organizationId: snapshot.organizationId,
@@ -251,7 +253,8 @@ function isUniqueViolation(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const code = (error as { code?: string }).code
   if (code === '23505') return true
-  const message = typeof (error as { message?: string }).message === 'string' ? (error as { message?: string }).message : ''
+  const messageRaw = (error as { message?: string })?.message
+  const message = typeof messageRaw === 'string' ? messageRaw : ''
   return message.toLowerCase().includes('duplicate key')
 }
 
@@ -420,7 +423,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         entity.organizationId = before.organizationId ?? null
         entity.tenantId = before.tenantId ?? null
         entity.passwordHash = before.passwordHash ?? null
-        entity.name = before.name ?? null
+        entity.name = before.name ?? undefined
         entity.isConfirmed = before.isConfirmed
       },
     })
@@ -432,7 +435,8 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
     const reset = buildCustomFieldResetMap(before.custom, after?.custom)
     if (Object.keys(reset).length) {
-      await de.setCustomFields({
+      await setCustomFieldsIfAny({
+        dataEngine: de,
         entityId: E.auth.user,
         recordId: before.id,
         organizationId: before.organizationId ?? null,
@@ -545,7 +549,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       user.organizationId = before.organizationId ?? null
       user.tenantId = before.tenantId ?? null
       user.passwordHash = before.passwordHash ?? null
-      user.name = before.name ?? null
+      user.name = before.name ?? undefined
       user.isConfirmed = before.isConfirmed
       await em.flush()
     } else {
@@ -572,7 +576,8 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
 
     const reset = buildCustomFieldResetMap(before.custom, undefined)
     if (Object.keys(reset).length) {
-      await de.setCustomFields({
+      await setCustomFieldsIfAny({
+        dataEngine: de,
         entityId: E.auth.user,
         recordId: before.id,
         organizationId: before.organizationId ?? null,
@@ -607,14 +612,22 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
     }
   }
 
+  const normalizedTenantId = normalizeTenantId(tenantId ?? null) ?? null
+
   for (const name of unique) {
     if (!currentNames.has(name)) {
-      let role = await em.findOne(Role, { name })
+      let role = await em.findOne(Role, { name, tenantId: normalizedTenantId })
+      if (!role && normalizedTenantId !== null) {
+        role = await em.findOne(Role, { name, tenantId: null })
+      }
       if (!role) {
-        role = em.create(Role, { name, tenantId })
+        role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
+        await em.persistAndFlush(role)
+      } else if (normalizedTenantId !== null && role.tenantId !== normalizedTenantId) {
+        role.tenantId = normalizedTenantId
         await em.persistAndFlush(role)
       }
-      em.persist(em.create(UserRole, { user, role }))
+      em.persist(em.create(UserRole, { user, role, createdAt: new Date() }))
     }
   }
 
@@ -684,6 +697,7 @@ async function restoreUserAcls(em: EntityManager, user: User, acls: UserAclSnaps
       featuresJson: acl.features ?? null,
       isSuperAdmin: acl.isSuperAdmin,
       organizationsJson: acl.organizations ?? null,
+      createdAt: new Date(),
     })
     em.persist(entity)
   }

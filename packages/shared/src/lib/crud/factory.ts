@@ -38,6 +38,7 @@ import {
   normalizeTagSegment,
   resolveCrudCache,
 } from './cache'
+import { deriveCrudSegmentTag } from './cache-stats'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
@@ -873,6 +874,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const items = Array.isArray((payload as any).items) ? (payload as any).items : []
         const tags = new Set<string>()
         const scopeOrgIds = collectScopeOrganizationIds(ctx)
+        const crudSegment = deriveCrudSegmentTag(resourceKind, request)
         for (const target of resourceTargets) {
           for (const tag of buildCollectionTags(target, tenantForScope, scopeOrgIds)) {
             tags.add(tag)
@@ -883,6 +885,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           for (const target of resourceTargets) {
             tags.add(buildRecordTag(target, tenantForScope, recordId))
           }
+        }
+        if (crudSegment) {
+          tags.add(`crud:segment:${crudSegment}`)
         }
         if (!tags.size) return
         try {

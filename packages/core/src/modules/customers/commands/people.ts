@@ -37,6 +37,9 @@ import {
   syncEntityTags,
   loadEntityTagIds,
   ensureDictionaryEntry,
+  emitQueryIndexDeleteEvents,
+  emitQueryIndexUpsertEvents,
+  type QueryIndexEventEntry,
 } from './shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -496,7 +499,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       action: 'created',
       entity,
       identifiers: {
-        id: entity.id,
+        id: profile.id ?? entity.id,
         tenantId,
         organizationId,
       },
@@ -649,7 +652,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       action: 'updated',
       entity: record,
       identifiers: {
-        id: record.id,
+        id: profile.id ?? record.id,
         tenantId: record.tenantId,
         organizationId: record.organizationId,
       },
@@ -806,7 +809,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       action: 'updated',
       entity: await em.findOne(CustomerEntity, { id: before.entity.id }),
       identifiers: {
-        id: before.entity.id,
+        id: before.profile.id ?? before.entity.id,
         organizationId: before.entity.organizationId,
         tenantId: before.entity.tenantId,
       },
@@ -832,6 +835,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
     async execute(input, ctx) {
       const id = requireId(input, 'Person id required')
       const em = ctx.container.resolve<EntityManager>('em').fork()
+      const snapshot = await loadPersonSnapshot(em, id)
       const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
       const record = assertRecordFound(entity, 'Person not found')
       ensureTenantScope(ctx, record.tenantId)
@@ -847,18 +851,68 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       em.remove(record)
       await em.flush()
 
+      const indexDeletes: QueryIndexEventEntry[] = []
+      const dealUpserts: QueryIndexEventEntry[] = []
+      if (snapshot) {
+        for (const activity of snapshot.activities ?? []) {
+          indexDeletes.push({
+            entityType: E.customers.customer_activity,
+            recordId: activity.id,
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
+        }
+        for (const comment of snapshot.comments ?? []) {
+          indexDeletes.push({
+            entityType: E.customers.customer_comment,
+            recordId: comment.id,
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
+        }
+        for (const address of snapshot.addresses ?? []) {
+          indexDeletes.push({
+            entityType: E.customers.customer_address,
+            recordId: address.id,
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
+        }
+        for (const todo of snapshot.todos ?? []) {
+          indexDeletes.push({
+            entityType: E.customers.customer_todo_link,
+            recordId: todo.id,
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
+        }
+        for (const deal of snapshot.deals ?? []) {
+          if (deal.dealId) {
+            dealUpserts.push({
+              entityType: E.customers.customer_deal,
+              recordId: deal.dealId,
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+            })
+          }
+        }
+      }
+
       const de = ctx.container.resolve<DataEngine>('dataEngine')
       await emitCrudSideEffects({
         dataEngine: de,
         action: 'deleted',
         entity: record,
         identifiers: {
-          id: record.id,
+          id: profile?.id ?? record.id,
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         },
         indexer: personCrudIndexer,
       })
+
+      await emitQueryIndexDeleteEvents(ctx, indexDeletes)
+      await emitQueryIndexUpsertEvents(ctx, dealUpserts)
       return { entityId: record.id }
     },
     buildLog: async ({ snapshots }) => {
@@ -1091,16 +1145,63 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         action: 'created',
         entity,
         identifiers: {
-          id: entity.id,
+          id: profile.id ?? entity.id,
           organizationId: entity.organizationId,
           tenantId: entity.tenantId,
         },
         indexer: personCrudIndexer,
       })
+
+      const upsertEntries: QueryIndexEventEntry[] = []
+      for (const activity of before.activities ?? []) {
+        upsertEntries.push({
+          entityType: E.customers.customer_activity,
+          recordId: activity.id,
+          tenantId: entity.tenantId,
+          organizationId: entity.organizationId,
+        })
+      }
+      for (const comment of before.comments ?? []) {
+        upsertEntries.push({
+          entityType: E.customers.customer_comment,
+          recordId: comment.id,
+          tenantId: entity.tenantId,
+          organizationId: entity.organizationId,
+        })
+      }
+      for (const address of before.addresses ?? []) {
+        upsertEntries.push({
+          entityType: E.customers.customer_address,
+          recordId: address.id,
+          tenantId: entity.tenantId,
+          organizationId: entity.organizationId,
+        })
+      }
+      for (const todo of beforeTodos ?? []) {
+        upsertEntries.push({
+          entityType: E.customers.customer_todo_link,
+          recordId: todo.id,
+          tenantId: entity.tenantId,
+          organizationId: entity.organizationId,
+        })
+      }
+      const dealUpserts: QueryIndexEventEntry[] = []
+      for (const deal of before.deals ?? []) {
+        if (deal.dealId) {
+          dealUpserts.push({
+            entityType: E.customers.customer_deal,
+            recordId: deal.dealId,
+            tenantId: entity.tenantId,
+            organizationId: entity.organizationId,
+          })
+        }
+      }
       const resetValues = buildCustomFieldResetMap(before.custom, null)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsForPerson(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }
+      await emitQueryIndexUpsertEvents(ctx, upsertEntries)
+      await emitQueryIndexUpsertEvents(ctx, dealUpserts)
     },
   }
 

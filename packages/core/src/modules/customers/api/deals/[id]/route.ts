@@ -81,7 +81,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     return notFound('Deal not found')
   }
 
-  const container = await createRequestContainer(request)
+  const container = await createRequestContainer()
   const auth = await getAuthFromRequest(request)
   if (!auth?.sub && !auth?.isApiKey) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
@@ -105,7 +105,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     return forbidden('Access denied')
   }
 
-  const scope = await resolveOrganizationScopeForRequest(request, container)
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
   const em = container.resolve<EntityManager>('em')
 
   const deal = await em.findOne(
@@ -146,33 +146,21 @@ export async function GET(request: Request, context: { params?: Record<string, u
     { populate: ['company', 'company.companyProfile'] },
   )
 
-  const people: DealAssociation[] = personLinks
-    .map((link) => {
-      const entity = link.person as CustomerEntity | null
-      if (!entity || entity.deletedAt) return null
-      const { label, subtitle } = normalizePersonAssociation(entity)
-      return {
-        id: entity.id,
-        label,
-        subtitle,
-        kind: 'person' as const,
-      }
-    })
-    .filter((entry): entry is DealAssociation => !!entry)
+  const people: DealAssociation[] = personLinks.reduce<DealAssociation[]>((acc, link) => {
+    const entity = link.person as CustomerEntity | null
+    if (!entity || entity.deletedAt) return acc
+    const { label, subtitle } = normalizePersonAssociation(entity)
+    acc.push({ id: entity.id, label, subtitle, kind: 'person' })
+    return acc
+  }, [])
 
-  const companies: DealAssociation[] = companyLinks
-    .map((link) => {
-      const entity = link.company as CustomerEntity | null
-      if (!entity || entity.deletedAt) return null
-      const { label, subtitle } = normalizeCompanyAssociation(entity)
-      return {
-        id: entity.id,
-        label,
-        subtitle,
-        kind: 'company' as const,
-      }
-    })
-    .filter((entry): entry is DealAssociation => !!entry)
+  const companies: DealAssociation[] = companyLinks.reduce<DealAssociation[]>((acc, link) => {
+    const entity = link.company as CustomerEntity | null
+    if (!entity || entity.deletedAt) return acc
+    const { label, subtitle } = normalizeCompanyAssociation(entity)
+    acc.push({ id: entity.id, label, subtitle, kind: 'company' })
+    return acc
+  }, [])
 
   const customFieldValues = await loadCustomFieldValues({
     em,

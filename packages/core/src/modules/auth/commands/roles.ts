@@ -60,7 +60,7 @@ const updateSchema = z.object({
   tenantId: z.string().uuid().nullable().optional(),
 })
 
-export const roleCrudEvents: CrudEventsConfig<Role> = {
+export const roleCrudEvents: CrudEventsConfig = {
   module: 'auth',
   entity: 'role',
   persistent: true,
@@ -70,7 +70,7 @@ export const roleCrudEvents: CrudEventsConfig<Role> = {
   }),
 }
 
-export const roleCrudIndexer: CrudIndexerConfig<Role> = {
+export const roleCrudIndexer: CrudIndexerConfig = {
   entityType: E.auth.role,
   buildUpsertPayload: (ctx) => ({
     entityType: E.auth.role,
@@ -162,7 +162,8 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     if (undo.custom && Object.keys(undo.custom).length) {
       const reset = buildCustomFieldResetMap(undefined, undo.custom)
       if (Object.keys(reset).length) {
-        await de.setCustomFields({
+        await setCustomFieldsIfAny({
+          dataEngine: de,
           entityId: E.auth.role,
           recordId: undo.id,
           organizationId: null,
@@ -308,7 +309,8 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     }
     const reset = buildCustomFieldResetMap(before.custom, after?.custom)
     if (Object.keys(reset).length) {
-      await de.setCustomFields({
+      await setCustomFieldsIfAny({
+        dataEngine: de,
         entityId: E.auth.role,
         recordId: before.id,
         organizationId: null,
@@ -423,7 +425,8 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     await restoreRoleAcls(em, before.id, before.acls)
     const reset = buildCustomFieldResetMap(before.custom, undefined)
     if (Object.keys(reset).length) {
-      await de.setCustomFields({
+      await setCustomFieldsIfAny({
+        dataEngine: de,
         entityId: E.auth.role,
         recordId: before.id,
         organizationId: null,
@@ -503,6 +506,7 @@ async function restoreRoleAcls(em: EntityManager, roleId: string, acls: RoleAclS
       featuresJson: acl.features ?? null,
       isSuperAdmin: acl.isSuperAdmin,
       organizationsJson: acl.organizations ?? null,
+      createdAt: new Date(),
     })
     em.persist(entity)
   }

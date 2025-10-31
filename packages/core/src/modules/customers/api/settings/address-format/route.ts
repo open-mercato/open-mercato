@@ -7,8 +7,9 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { customerSettingsUpsertSchema } from '../../../data/validators'
+import { customerSettingsUpsertSchema, type CustomerSettingsUpsertInput } from '../../../data/validators'
 import { loadCustomerSettings } from '../../../commands/settings'
+import type { CustomerAddressFormat } from '../../../data/entities'
 import { withScopedPayload } from '../../utils'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
@@ -83,7 +84,10 @@ export async function PUT(req: Request) {
     const input = customerSettingsUpsertSchema.parse(scoped)
 
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
-    const { result } = await commandBus.execute('customers.settings.save', { input, ctx })
+    const { result } = await commandBus.execute<CustomerSettingsUpsertInput, { settingsId: string; addressFormat: CustomerAddressFormat }>(
+      'customers.settings.save',
+      { input, ctx },
+    )
 
     return NextResponse.json({
       addressFormat: result?.addressFormat ?? input.addressFormat,

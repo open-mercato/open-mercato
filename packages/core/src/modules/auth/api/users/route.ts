@@ -87,8 +87,10 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     create: {
       commandId: 'auth.users.create',
       schema: rawBodySchema,
-      mapInput: async ({ parsed, req }) => {
-        await assertCanAssignRoles(req, parsed.roles)
+      mapInput: async ({ parsed, ctx }) => {
+        if (ctx.request) {
+          await assertCanAssignRoles(ctx.request, parsed.roles)
+        }
         return parsed
       },
       response: ({ result }) => ({ id: String(result.id) }),
@@ -97,8 +99,10 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     update: {
       commandId: 'auth.users.update',
       schema: rawBodySchema,
-      mapInput: async ({ parsed, req }) => {
-        await assertCanAssignRoles(req, parsed.roles)
+      mapInput: async ({ parsed, ctx }) => {
+        if (ctx.request) {
+          await assertCanAssignRoles(ctx.request, parsed.roles)
+        }
         return parsed
       },
       response: () => ({ ok: true }),

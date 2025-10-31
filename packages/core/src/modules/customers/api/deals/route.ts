@@ -203,12 +203,12 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       const items = Array.isArray(payload.items) ? payload.items : []
       if (!items.length) return
       const ids = items
-        .map((item) => {
+        .map((item: unknown) => {
           if (!item || typeof item !== 'object') return null
           const candidate = (item as Record<string, unknown>).id
           return typeof candidate === 'string' && candidate.trim().length ? candidate : null
         })
-        .filter((value): value is string => !!value)
+        .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
       if (!ids.length) {
         payload.items = []
         payload.total = 0
@@ -297,7 +297,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
         }
 
         const enhancedItems = items
-          .map((item) => {
+          .map((item: unknown) => {
             if (!item || typeof item !== 'object') return null
             const data = item as Record<string, unknown>
             const candidate = typeof data.id === 'string' ? data.id : null
@@ -331,7 +331,9 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
               organizationId,
             }
           })
-          .filter((item): item is Record<string, unknown> => !!item)
+          .filter(
+            (item: Record<string, unknown> | null): item is Record<string, unknown> => item !== null,
+          )
 
         payload.items = enhancedItems
         if (hasPersonFilter || hasCompanyFilter) {

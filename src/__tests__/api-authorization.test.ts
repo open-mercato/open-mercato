@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { GET, POST, PUT, PATCH, DELETE } from '@/app/api/[...slug]/route'
 import { getAuthFromRequest } from '@/lib/auth/server'
+import type { Module, HttpMethod, ModuleApiRouteFile } from '@open-mercato/shared/modules/registry'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 // Mock the auth module
 jest.mock('@/lib/auth/server', () => ({
@@ -8,67 +10,74 @@ jest.mock('@/lib/auth/server', () => ({
 }))
 
 // Mock DI container to provide rbacService
-const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockRbac = {
+  userHasAllFeatures: jest.fn<
+    ReturnType<RbacService['userHasAllFeatures']>,
+    Parameters<RbacService['userHasAllFeatures']>
+  >()
+}
 jest.mock('@/lib/di/container', () => ({
-  createRequestContainer: async () => ({ resolve: (k: string) => (k === 'rbacService' ? mockRbac : null) }),
+  createRequestContainer: async () => ({
+    resolve: <T>(key: string): T | null => (key === 'rbacService' ? (mockRbac as unknown as T) : null)
+  }),
 }))
+
+type RouteMetadata = {
+  requireAuth?: boolean
+  requireRoles?: string[]
+  requireFeatures?: string[]
+}
+
+type ModuleApiRouteFileWithMeta = ModuleApiRouteFile & {
+  metadata?: Partial<Record<HttpMethod, RouteMetadata>>
+}
+
+const createResponseHandler = (label: string) => async () => new Response(`${label} success`)
+
+const exampleRoute: ModuleApiRouteFileWithMeta = {
+  path: '/example/test',
+  handlers: {
+    GET: createResponseHandler('GET'),
+    POST: createResponseHandler('POST'),
+    PUT: createResponseHandler('PUT'),
+    PATCH: createResponseHandler('PATCH'),
+    DELETE: createResponseHandler('DELETE'),
+  },
+  metadata: {
+    GET: {
+      requireAuth: true,
+      requireRoles: ['admin'],
+      requireFeatures: ['example.todos.view']
+    },
+    POST: {
+      requireAuth: true,
+      requireRoles: ['admin', 'superuser'],
+      requireFeatures: ['example.todos.manage']
+    },
+    PUT: {
+      requireAuth: false
+    },
+    PATCH: {
+      requireAuth: true,
+      requireRoles: ['user']
+    },
+    DELETE: {
+      requireAuth: true,
+      requireRoles: ['superuser']
+    }
+  }
+}
+
+const mockedModules: Module[] = [
+  {
+    id: 'example',
+    apis: [exampleRoute],
+  }
+]
 
 // Mock the modules registry
 jest.mock('@/generated/modules.generated', () => ({
-  modules: [
-    {
-      id: 'example',
-      apis: [
-        {
-          path: '/example/test',
-          metadata: {
-            GET: {
-              requireAuth: true,
-              requireRoles: ['admin'],
-              requireFeatures: ['example.todos.view']
-            },
-            POST: {
-              requireAuth: true,
-              requireRoles: ['admin', 'superuser'],
-              requireFeatures: ['example.todos.manage']
-            },
-            PUT: {
-              requireAuth: false
-            },
-            PATCH: {
-              requireAuth: true,
-              requireRoles: ['user']
-            },
-            DELETE: {
-              requireAuth: true,
-              requireRoles: ['superuser']
-            }
-          },
-          handlers: {
-            GET: jest.fn().mockResolvedValue(new Response('GET success')),
-            POST: jest.fn().mockResolvedValue(new Response('POST success')),
-            PUT: jest.fn().mockResolvedValue(new Response('PUT success')),
-            PATCH: jest.fn().mockResolvedValue(new Response('PATCH success')),
-            DELETE: jest.fn().mockResolvedValue(new Response('DELETE success'))
-          }
-        }
-      ]
-    }
-  ]
-}))
-
-// Mock findApi function
-jest.mock('@open-mercato/shared/modules/registry', () => ({
-  findApi: jest.fn((modules, method, pathname) => {
-    const module = modules.find((m: any) => m.id === 'example')
-    const api = module?.apis.find((a: any) => a.path === pathname)
-    if (!api) return null
-    
-    return {
-      ...api,
-      handler: jest.fn().mockResolvedValue(new Response(`${method} success`))
-    }
-  })
+  modules: mockedModules,
 }))
 
 const mockGetAuthFromRequest = getAuthFromRequest as jest.MockedFunction<typeof getAuthFromRequest>

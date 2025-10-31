@@ -3,6 +3,7 @@ import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
 import type { VectorIndexOperationResult, VectorIndexService } from '@open-mercato/vector'
 import { resolveVectorAutoIndexingEnabled } from '../lib/auto-indexing'
+import { logVectorOperation } from '../../../lib/vector-logs'
 
 export const metadata = { event: 'query_index.vectorize_one', persistent: false }
 
@@ -28,6 +29,13 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
     em = ctx.resolve<any>('em')
   } catch {
     em = null
+  }
+
+  let eventBus: { emitEvent(event: string, payload: any, options?: any): Promise<void> } | null = null
+  try {
+    eventBus = ctx.resolve('eventBus')
+  } catch {
+    eventBus = null
   }
 
   if ((organizationId == null || tenantId == null) && em) {
@@ -60,23 +68,47 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
       organizationId: organizationId ?? null,
     })
     const delta = computeVectorDelta(result)
-    if (delta !== 0 && em) {
-      try {
-        const adjustments = createCoverageAdjustments({
-          entityType,
-          tenantId: String(tenantId),
-          organizationId: organizationId ?? null,
-          baseDelta: 0,
-          indexDelta: 0,
-          vectorDelta: delta,
-        })
-        if (adjustments.length) {
-          await applyCoverageAdjustments(em, adjustments)
+    if (delta !== 0) {
+      let adjustmentsApplied = false
+      if (em) {
+        try {
+          const adjustments = createCoverageAdjustments({
+            entityType,
+            tenantId: String(tenantId),
+            organizationId: organizationId ?? null,
+            baseDelta: 0,
+            indexDelta: 0,
+            vectorDelta: delta,
+          })
+          if (adjustments.length) {
+            await applyCoverageAdjustments(em, adjustments)
+            adjustmentsApplied = true
+          }
+        } catch (coverageError) {
+          console.warn('[vector] Failed to adjust vector coverage', coverageError)
         }
-      } catch (coverageError) {
-        console.warn('[vector] Failed to adjust vector coverage', coverageError)
+      }
+      if (!adjustmentsApplied && eventBus) {
+        try {
+          await eventBus.emitEvent('query_index.coverage.refresh', {
+            entityType,
+            tenantId: tenantId ? String(tenantId) : null,
+            organizationId: organizationId ?? null,
+            withDeleted: false,
+            delayMs: 1000,
+          })
+        } catch (emitError) {
+          console.warn('[vector] Failed to enqueue coverage refresh', emitError)
+        }
       }
     }
+    await logVectorOperation({
+      em,
+      handler: 'event:query_index.vectorize_one',
+      entityType,
+      recordId,
+      result,
+    })
   } catch (error) {
     console.warn('[vector] Failed to update vector index', error)
     await recordIndexerError(

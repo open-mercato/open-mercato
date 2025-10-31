@@ -5,10 +5,12 @@ import AddressFormatSettings from '../../../components/AddressFormatSettings'
 export default function CustomersConfigurationPage() {
   return (
     <Page>
-      <PageBody className="space-y-8">
+    <PageBody>
+      <div className="space-y-8">
         <AddressFormatSettings />
         <DictionarySettings />
-      </PageBody>
+      </div>
+    </PageBody>
     </Page>
   )
 }

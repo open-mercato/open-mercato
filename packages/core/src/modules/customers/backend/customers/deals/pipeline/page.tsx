@@ -495,11 +495,15 @@ export default function SalesPipelinePage(): React.ReactElement {
               <Spinner />
             </div>
           ) : dealsQuery.isError ? (
-            <ErrorNotice className="max-w-xl">
-              {dealsQuery.error instanceof Error
-                ? dealsQuery.error.message
-                : translate('customers.deals.pipeline.loadError', 'Failed to load deals.')}
-            </ErrorNotice>
+            <div className="max-w-xl">
+              <ErrorNotice
+                message={
+                  dealsQuery.error instanceof Error
+                    ? dealsQuery.error.message
+                    : translate('customers.deals.pipeline.loadError', 'Failed to load deals.')
+                }
+              />
+            </div>
           ) : (
             <div className="flex flex-col gap-3">
               {total > deals.length ? (

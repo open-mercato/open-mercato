@@ -50,6 +50,7 @@ export type ModuleRoute = {
   groupKey?: string
   icon?: ReactNode
   order?: number
+  priority?: number
   navHidden?: boolean
   visible?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
   enabled?: (ctx: RouteVisibilityContext) => boolean | Promise<boolean>
@@ -73,6 +74,7 @@ export type ModuleApiRouteFile = {
   // Note: per-method feature requirements should be expressed inside metadata
   requireFeatures?: string[]
   docs?: OpenApiRouteDoc
+  metadata?: Partial<Record<HttpMethod, unknown>>
 }
 
 export type ModuleApi = ModuleApiLegacy | ModuleApiRouteFile

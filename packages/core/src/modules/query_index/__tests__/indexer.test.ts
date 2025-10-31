@@ -4,10 +4,13 @@ function createFakeKnex(data: {
   baseTable: string
   baseRows: any[]
   cfValues: any[]
+  indexRows?: any[]
 }) {
   const calls: any[] = []
   const inserts: any[] = []
   const updates: any[] = []
+  const deletes: any[] = []
+  const indexRows = Array.isArray(data.indexRows) ? [...data.indexRows] : []
 
   function raw(sql: string, params?: any[]) { return { toString: () => sql, sql, params } }
 
@@ -37,6 +40,7 @@ function createFakeKnex(data: {
       },
       first: async function () {
         if (table === data.baseTable) return data.baseRows[0]
+        if (table === 'entity_indexes') return indexRows[0]
         return undefined
       },
       then: function (resolve: any) {
@@ -53,6 +57,8 @@ function createFakeKnex(data: {
         }
       },
       update: function (payload: any) { updates.push({ table, wheres: ops.wheres, payload }); return Promise.resolve(1) },
+      delete: function () { deletes.push({ table, wheres: ops.wheres }); if (table === 'entity_indexes') indexRows.length = 0; return Promise.resolve(1) },
+      del: function () { deletes.push({ table, wheres: ops.wheres }); if (table === 'entity_indexes') indexRows.length = 0; return Promise.resolve(1) },
       raw,
     }
     calls.push(b)
@@ -62,6 +68,7 @@ function createFakeKnex(data: {
   fn._calls = calls
   fn._inserts = inserts
   fn._updates = updates
+  fn._deletes = deletes
   fn.raw = raw
   fn.fn = { now: () => 'now()' }
   return fn
@@ -104,23 +111,33 @@ describe('Indexer', () => {
     expect(lastInsert.merge.doc['cf:vip']).toBe(false)
   })
 
-  test('upsertIndexRow marks deleted when base row missing', async () => {
-    const fakeKnex = createFakeKnex({ baseTable: 'todos', baseRows: [], cfValues: [] })
+  test('upsertIndexRow removes index row when base row missing', async () => {
+    const fakeKnex = createFakeKnex({
+      baseTable: 'todos',
+      baseRows: [],
+      cfValues: [],
+      indexRows: [{ entity_type: 'example:todo', entity_id: 'x', organization_id: 'org1', deleted_at: null }],
+    })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     await upsertIndexRow(em, { entityType: 'example:todo', recordId: 'x', organizationId: 'org1' })
-    const lastUpdate = fakeKnex._updates[fakeKnex._updates.length - 1]
-    expect(lastUpdate.table).toBe('entity_indexes')
+    const lastDelete = fakeKnex._deletes[fakeKnex._deletes.length - 1]
+    expect(lastDelete.table).toBe('entity_indexes')
     // Ensure where contains expected matching keys
-    const whereObj = lastUpdate.wheres.find((w: any) => typeof w === 'object')
+    const whereObj = lastDelete.wheres.find((w: any) => typeof w === 'object')
     expect(whereObj.entity_type).toBe('example:todo')
     expect(whereObj.entity_id).toBe('x')
   })
 
-  test('markDeleted updates deleted_at for index row', async () => {
-    const fakeKnex = createFakeKnex({ baseTable: 'todos', baseRows: [], cfValues: [] })
+  test('markDeleted removes index row', async () => {
+    const fakeKnex = createFakeKnex({
+      baseTable: 'todos',
+      baseRows: [],
+      cfValues: [],
+      indexRows: [{ entity_type: 'example:todo', entity_id: '1', organization_id: 'org1', deleted_at: null }],
+    })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     await markDeleted(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1' })
-    const upd = fakeKnex._updates[fakeKnex._updates.length - 1]
-    expect(upd.table).toBe('entity_indexes')
+    const del = fakeKnex._deletes[fakeKnex._deletes.length - 1]
+    expect(del.table).toBe('entity_indexes')
   })
 })

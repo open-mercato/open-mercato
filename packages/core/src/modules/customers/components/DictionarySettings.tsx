@@ -71,6 +71,11 @@ export default function DictionarySettings() {
       description: t('customers.config.dictionaries.sections.sources.description', 'Capture how customers were acquired.'),
     },
     {
+      kind: 'industries',
+      title: t('customers.config.dictionaries.sections.industries.title', 'Industries'),
+      description: t('customers.config.dictionaries.sections.industries.description', 'Manage the industries used by companies.'),
+    },
+    {
       kind: 'lifecycle-stages',
       title: t('customers.config.dictionaries.sections.lifecycle.title', 'Lifecycle stages'),
       description: t('customers.config.dictionaries.sections.lifecycle.description', 'Configure lifecycle stages to track customer progress.'),

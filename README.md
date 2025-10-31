@@ -131,7 +131,7 @@ Full installation guide (including prerequisites and cloud deployment): [docs.op
 
 ## Contributing
 
-We welcome contributions of all sizes—from fixes and docs updates to new modules. Start by checking the open issues or proposing an idea in a discussion, then:
+We welcome contributions of all sizes—from fixes and docs updates to new modules. Start by reading [CONTRIBUTING.md](CONTRIBUTING.md) for branching conventions (`main`, `develop`, `feat/<feature>`), release flow, and the full PR checklist. Then check the open issues or propose an idea in a discussion, and:
 
 1. Fork the repository and create a branch that reflects your change.
 2. Install dependencies with `yarn install` and bootstrap via `yarn mercato init` (add `--no-examples` to skip demo CRM content; `--stresstest` for thousands of synthetic contacts, companies, deals, and timeline interactions; or `--stresstest --lite` for high-volume contacts without the heavier extras).

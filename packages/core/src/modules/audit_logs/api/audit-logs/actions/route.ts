@@ -44,8 +44,8 @@ const auditActionItemSchema = z.object({
   updatedAt: z.string(),
   snapshotBefore: z.unknown().nullable(),
   snapshotAfter: z.unknown().nullable(),
-  changes: z.record(z.unknown()).nullable(),
-  context: z.record(z.unknown()).nullable(),
+  changes: z.record(z.string(), z.unknown()).nullable(),
+  context: z.record(z.string(), z.unknown()).nullable(),
 })
 
 const auditActionResponseSchema = z.object({

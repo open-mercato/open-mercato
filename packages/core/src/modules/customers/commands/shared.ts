@@ -218,3 +218,88 @@ export async function ensureDictionaryEntry(
   em.persist(entry)
   return entry
 }
+
+export type QueryIndexEventEntry = {
+  entityType: string
+  recordId: string
+  tenantId: string | null
+  organizationId: string | null
+}
+
+type QueryIndexEventKind = 'delete' | 'upsert'
+
+function normalizeEventEntries(entries: readonly QueryIndexEventEntry[]): QueryIndexEventEntry[] {
+  const map = new Map<string, QueryIndexEventEntry>()
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') continue
+    const entityType = String(entry.entityType ?? '')
+    const recordId = String(entry.recordId ?? '')
+    if (!entityType || !recordId) continue
+    const key = [
+      entityType,
+      recordId,
+      entry.organizationId ?? '__org__',
+      entry.tenantId ?? '__tenant__',
+    ].join('|')
+    if (!map.has(key)) {
+      map.set(key, {
+        entityType,
+        recordId,
+        organizationId: entry.organizationId ?? null,
+        tenantId: entry.tenantId ?? null,
+      })
+    }
+  }
+  return Array.from(map.values())
+}
+
+async function emitQueryIndexEvents(
+  ctx: CommandRuntimeContext,
+  entries: readonly QueryIndexEventEntry[],
+  kind: QueryIndexEventKind,
+): Promise<void> {
+  const normalized = normalizeEventEntries(entries)
+  if (!normalized.length) return
+
+  let bus: { emitEvent(event: string, payload: any, options?: any): Promise<void> } | null = null
+  try {
+    bus = ctx.container.resolve('eventBus')
+  } catch {
+    bus = null
+  }
+  if (!bus) return
+
+  const eventName = kind === 'delete' ? 'query_index.delete_one' : 'query_index.upsert_one'
+  const crudAction = kind === 'delete' ? 'deleted' : 'updated'
+
+  await Promise.all(
+    normalized.map((entry) =>
+      bus!
+        .emitEvent(
+          eventName,
+          {
+            entityType: entry.entityType,
+            recordId: entry.recordId,
+            organizationId: entry.organizationId ?? null,
+            tenantId: entry.tenantId ?? null,
+            crudAction,
+          },
+        )
+        .catch(() => undefined),
+    ),
+  )
+}
+
+export async function emitQueryIndexDeleteEvents(
+  ctx: CommandRuntimeContext,
+  entries: readonly QueryIndexEventEntry[],
+): Promise<void> {
+  await emitQueryIndexEvents(ctx, entries, 'delete')
+}
+
+export async function emitQueryIndexUpsertEvents(
+  ctx: CommandRuntimeContext,
+  entries: readonly QueryIndexEventEntry[],
+): Promise<void> {
+  await emitQueryIndexEvents(ctx, entries, 'upsert')
+}

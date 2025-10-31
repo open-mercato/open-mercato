@@ -194,7 +194,7 @@ export async function PUT(req: Request) {
   const availableRoles = canApplyToRoles
     ? await em.find(Role, roleScope as any, { orderBy: { name: 'asc' } })
     : []
-  const roleMap = new Map(availableRoles.map((role: Role) => [role.id, role]))
+  const roleMap = new Map<string, Role>(availableRoles.map((role: Role) => [String(role.id), role]))
 
   let updatedRoleIds: string[] = []
   if (applyToRoles.length > 0) {

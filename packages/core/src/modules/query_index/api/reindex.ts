@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexOkSchema, queryIndexReindexRequestSchema } from './openapi'
-import { DEFAULT_REINDEX_PARTITIONS } from '../lib/reindexer'
+import { recordIndexerLog } from '@/lib/indexers/status-log'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['query_index.reindex'] },
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   const partitionCountInput = Number(body?.partitionCount)
   const partitionCount = Number.isFinite(partitionCountInput)
     ? Math.max(1, Math.trunc(partitionCountInput))
-    : DEFAULT_REINDEX_PARTITIONS
+    : 1
   const partitionIndexInput = Number(body?.partitionIndex)
   const partitionIndex = Number.isFinite(partitionIndexInput) ? Math.max(0, Math.trunc(partitionIndexInput)) : undefined
   if (partitionIndex !== undefined && partitionIndex >= partitionCount) {
@@ -28,31 +28,91 @@ export async function POST(req: Request) {
   }
 
   const { resolve } = await createRequestContainer()
+  let em: any | null = null
+  try {
+    em = resolve('em')
+  } catch {}
   const bus = resolve('eventBus') as any
   const partitions = partitionIndex !== undefined
     ? [partitionIndex]
     : Array.from({ length: partitionCount }, (_, idx) => idx)
   const firstPartition = partitions[0] ?? 0
-  await Promise.all(
-    partitions.map((part) => {
-      const payload: Record<string, unknown> = {
-        entityType,
+  await recordIndexerLog(
+    { em: em ?? undefined },
+    {
+      source: 'query_index',
+      handler: 'api:query_index.reindex',
+      message: `Reindex requested for ${entityType}`,
+      entityType,
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+      details: {
         force,
-        batchSize,
+        batchSize: batchSize ?? null,
         partitionCount,
-        partitionIndex: part,
-        resetCoverage: part === firstPartition,
-      }
-      if (auth.tenantId !== undefined) {
-        payload.tenantId = auth.tenantId ?? null
-      }
-      return bus.emitEvent(
-        'query_index.reindex',
-        payload,
-        { persistent: true },
-      )
-    }),
-  )
+        partitionIndex: partitionIndex ?? null,
+      },
+    },
+  ).catch(() => undefined)
+  try {
+    await Promise.all(
+      partitions.map((part) => {
+        const payload: Record<string, unknown> = {
+          entityType,
+          force,
+          batchSize,
+          partitionCount,
+          partitionIndex: part,
+          resetCoverage: part === firstPartition,
+        }
+        if (auth.tenantId !== undefined) {
+          payload.tenantId = auth.tenantId ?? null
+        }
+        if (auth.orgId !== undefined) {
+          payload.organizationId = auth.orgId ?? null
+        }
+        return bus.emitEvent(
+          'query_index.reindex',
+          payload,
+          { persistent: true },
+        )
+      }),
+    )
+    await recordIndexerLog(
+      { em: em ?? undefined },
+      {
+        source: 'query_index',
+        handler: 'api:query_index.reindex',
+        message: `Reindex queued for ${entityType}`,
+        entityType,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        details: {
+          force,
+          batchSize: batchSize ?? null,
+          partitionCount,
+          partitionIndex: partitionIndex ?? null,
+        },
+      },
+    ).catch(() => undefined)
+  } catch (error) {
+    await recordIndexerLog(
+      { em: em ?? undefined },
+      {
+        source: 'query_index',
+        handler: 'api:query_index.reindex',
+        level: 'warn',
+        message: `Failed to queue reindex for ${entityType}`,
+        entityType,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        details: {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      },
+    ).catch(() => undefined)
+    throw error
+  }
   return NextResponse.json({ ok: true })
 }
 

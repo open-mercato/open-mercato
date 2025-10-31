@@ -1,6 +1,6 @@
 {
   "name": "open-mercato",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -85,7 +85,9 @@
     "typescript": "^5"
   },
   "release": {
-    "branches": ["main"],
+    "branches": [
+      "main"
+    ],
     "plugins": [
       "@semantic-release/commit-analyzer",
       "@semantic-release/release-notes-generator",
@@ -99,7 +101,10 @@
       [
         "@semantic-release/git",
         {
-          "assets": ["CHANGELOG.md", "README.md"],
+          "assets": [
+            "CHANGELOG.md",
+            "README.md"
+          ],
           "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
         }
       ],

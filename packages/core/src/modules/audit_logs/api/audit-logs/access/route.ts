@@ -37,7 +37,7 @@ const auditAccessItemSchema = z.object({
   organizationId: z.string().uuid().nullable(),
   organizationName: z.string().nullable(),
   fields: z.array(z.string()),
-  context: z.record(z.unknown()).nullable(),
+  context: z.record(z.string(), z.unknown()).nullable(),
   createdAt: z.string(),
 })
 

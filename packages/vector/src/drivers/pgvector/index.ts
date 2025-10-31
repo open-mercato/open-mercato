@@ -16,7 +16,9 @@ import type {
   VectorDriverQuery,
   VectorDriverQueryResult,
   VectorDriverListParams,
+  VectorDriverCountParams,
   VectorIndexEntry,
+  VectorDriverRemoveOrphansParams,
 } from '../../types'
 
 type PgVectorDriverOptions = {
@@ -343,27 +345,32 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     const limit = Math.max(1, Math.min(params.limit ?? 50, 200))
     const offset = Math.max(0, params.offset ?? 0)
     const orderColumn = params.orderBy === 'created' ? 'created_at' : 'updated_at'
-    const res = await pool.query<{
-      entity_id: string
-      record_id: string
-      tenant_id: string
-      organization_id: string | null
-      checksum: string
-      url: string | null
-      presenter: string | null
-      links: string | null
-      payload: string | null
-      result_title: string | null
-      result_subtitle: string | null
-      result_icon: string | null
-      result_badge: string | null
-      result_snapshot: string | null
-      primary_link_href: string | null
-      primary_link_label: string | null
-      created_at: Date | string
-      updated_at: Date | string
-    }>(
-      `
+    const conditions: string[] = [
+      'driver_id = $1',
+      'tenant_id = $2::uuid',
+    ]
+    const values: any[] = [DRIVER_ID, params.tenantId]
+    let nextParam = 3
+
+    if (params.organizationId === null) {
+      conditions.push('organization_id IS NULL')
+    } else if (typeof params.organizationId === 'string' && params.organizationId.length) {
+      conditions.push(`(organization_id = $${nextParam}::uuid OR organization_id IS NULL)`)
+      values.push(params.organizationId)
+      nextParam += 1
+    }
+
+    if (params.entityId) {
+      conditions.push(`entity_id = $${nextParam}::text`)
+      values.push(params.entityId)
+      nextParam += 1
+    }
+
+    const limitParam = nextParam
+    const offsetParam = nextParam + 1
+    values.push(limit, offset)
+
+    const sql = `
         SELECT
           entity_id,
           record_id,
@@ -384,25 +391,31 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           created_at,
           updated_at
         FROM ${tableIdent}
-        WHERE driver_id = $1
-          AND tenant_id = $2::uuid
-          AND (
-            ($3::uuid IS NULL AND organization_id IS NULL)
-            OR ($3::uuid IS NOT NULL AND (organization_id = $3::uuid OR organization_id IS NULL))
-          )
-          AND ($4::text IS NULL OR entity_id = $4::text)
+        WHERE ${conditions.join('\n          AND ')}
         ORDER BY ${orderColumn} DESC
-        LIMIT $5 OFFSET $6
-      `,
-      [
-        DRIVER_ID,
-        params.tenantId,
-        params.organizationId ?? null,
-        params.entityId ?? null,
-        limit,
-        offset,
-      ],
-    )
+        LIMIT $${limitParam} OFFSET $${offsetParam}
+      `
+
+    const res = await pool.query<{
+      entity_id: string
+      record_id: string
+      tenant_id: string
+      organization_id: string | null
+      checksum: string
+      url: string | null
+      presenter: string | null
+      links: string | null
+      payload: string | null
+      result_title: string | null
+      result_subtitle: string | null
+      result_icon: string | null
+      result_badge: string | null
+      result_snapshot: string | null
+      primary_link_href: string | null
+      primary_link_label: string | null
+      created_at: Date | string
+      updated_at: Date | string
+    }>(sql, values)
     return res.rows.map<VectorIndexEntry>((row) => {
       const presenter = parseJsonColumn(row.presenter)
       const links = parseJsonColumn(row.links)
@@ -441,6 +454,70 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     })
   }
 
+  const count = async (params: VectorDriverCountParams): Promise<number> => {
+    await ensureReady()
+    const conditions: string[] = [
+      'driver_id = $1',
+      'tenant_id = $2::uuid',
+    ]
+    const values: any[] = [DRIVER_ID, params.tenantId]
+    let nextParam = 3
+
+    if (params.organizationId === null) {
+      conditions.push('organization_id IS NULL')
+    } else if (typeof params.organizationId === 'string' && params.organizationId.length) {
+      conditions.push(`(organization_id = $${nextParam}::uuid OR organization_id IS NULL)`)
+      values.push(params.organizationId)
+      nextParam += 1
+    }
+    if (params.entityId) {
+      conditions.push(`entity_id = $${nextParam}::text`)
+      values.push(params.entityId)
+      nextParam += 1
+    }
+
+    const sql = `
+        SELECT count(*)::bigint AS total
+        FROM ${tableIdent}
+        WHERE ${conditions.join('\n          AND ')}
+      `
+    const res = await pool.query<{ total: string }>(sql, values)
+    const raw = res.rows?.[0]?.total
+    if (!raw) return 0
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
+  const removeOrphans = async (params: VectorDriverRemoveOrphansParams): Promise<number> => {
+    await ensureReady()
+    const conditions: string[] = [
+      'driver_id = $1',
+      'entity_id = $2',
+      'updated_at < $3::timestamptz',
+    ]
+    const values: any[] = [DRIVER_ID, params.entityId, (params.olderThan instanceof Date ? params.olderThan : new Date(params.olderThan)).toISOString()]
+    let nextParam = 4
+
+    if (params.tenantId !== undefined) {
+      conditions.push(`tenant_id is not distinct from $${nextParam}::uuid`)
+      values.push(params.tenantId)
+      nextParam += 1
+    }
+
+    if (params.organizationId !== undefined) {
+      conditions.push(`organization_id is not distinct from $${nextParam}::uuid`)
+      values.push(params.organizationId)
+      nextParam += 1
+    }
+
+    const sql = `
+        DELETE FROM ${tableIdent}
+        WHERE ${conditions.join('\n          AND ')}
+      `
+    const res = await pool.query(sql, values)
+    return res.rowCount ?? 0
+  }
+
   return {
     id: 'pgvector',
     ensureReady,
@@ -450,5 +527,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     purge,
     query,
     list,
+    count,
+    removeOrphans,
   }
 }

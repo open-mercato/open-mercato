@@ -36,13 +36,19 @@ export async function GET(req: Request) {
 
   let entityIds = generatedIds.slice()
 
-  let vectorEnabledEntities = new Set<string>()
+  let vectorService: VectorIndexService | null = null
   try {
-    const vectorService = resolve('vectorIndexService') as VectorIndexService
-    if (vectorService && typeof vectorService.listEnabledEntities === 'function') {
+    vectorService = resolve('vectorIndexService') as VectorIndexService
+  } catch {
+    vectorService = null
+  }
+
+  let vectorEnabledEntities = new Set<string>()
+  if (vectorService && typeof vectorService.listEnabledEntities === 'function') {
+    try {
       vectorEnabledEntities = new Set(vectorService.listEnabledEntities())
-    }
-  } catch {}
+    } catch {}
+  }
 
   // Limit to entities that have active custom field definitions in current scope
   try {
@@ -60,7 +66,7 @@ export async function GET(req: Request) {
   const HEARTBEAT_STALE_MS = 60_000
   const COVERAGE_STALE_MS = 60_000
 
-  async function fetchJobSummary(entityType: string, tenantIdParam: string | null) {
+  async function fetchJobSummary(entityType: string, tenantIdParam: string | null, organizationIdParam: string | null) {
     try {
       const rows = await knex('entity_index_jobs')
         .where({ entity_type: entityType })
@@ -71,39 +77,52 @@ export async function GET(req: Request) {
             qb.whereRaw('tenant_id is not distinct from ?', [null])
           }
         })
+        .andWhere((qb) => {
+          if (organizationIdParam != null) {
+            qb.whereRaw('organization_id is not distinct from ?', [organizationIdParam]).orWhereNull('organization_id')
+          } else {
+            qb.whereRaw('organization_id is not distinct from ?', [null])
+          }
+        })
         .orderBy('started_at', 'desc')
 
       if (!rows.length) {
         return { status: 'idle' as const, partitions: [] as any[] }
       }
 
-      const partitionRows = new Map<string, { row: any; startedTs: number; tenantMatch: boolean }>()
-      let scopeRow: { row: any; startedTs: number } | null = null
+      const preferOrg = organizationIdParam != null && rows.some((row) => row.organization_id === organizationIdParam)
+      const pickPreferred = <T extends { startedTs: number; tenantMatch: boolean; orgMatch: boolean }>(
+        existing: T | null,
+        candidate: T,
+      ): T => {
+        if (!existing) return candidate
+        if (preferOrg) {
+          if (candidate.orgMatch && !existing.orgMatch) return candidate
+          if (!candidate.orgMatch && existing.orgMatch) return existing
+        }
+        if (candidate.tenantMatch && !existing.tenantMatch) return candidate
+        if (!candidate.tenantMatch && existing.tenantMatch) return existing
+        return candidate.startedTs > existing.startedTs ? candidate : existing
+      }
+
+      const partitionRows = new Map<string, { row: any; startedTs: number; tenantMatch: boolean; orgMatch: boolean }>()
+      let scopeRow: { row: any; startedTs: number; tenantMatch: boolean; orgMatch: boolean } | null = null
       for (const row of rows) {
         const key = String(row.partition_index ?? '__null__')
         const startedTs = row.started_at ? new Date(row.started_at).getTime() : 0
         const tenantMatch = tenantIdParam != null ? row.tenant_id === tenantIdParam : true
+        const orgMatch = organizationIdParam != null ? row.organization_id === organizationIdParam : row.organization_id == null
+        const candidate = { row, startedTs, tenantMatch, orgMatch }
         if (row.partition_index == null) {
-          if (!scopeRow || startedTs > scopeRow.startedTs) {
-            scopeRow = { row, startedTs }
-          }
+          scopeRow = pickPreferred(scopeRow, candidate)
           continue
         }
         const existing = partitionRows.get(key)
-        if (!existing) {
-          partitionRows.set(key, { row, startedTs, tenantMatch })
-          continue
-        }
-        if (tenantMatch && !existing.tenantMatch) {
-          partitionRows.set(key, { row, startedTs, tenantMatch })
-          continue
-        }
-        if (tenantMatch === existing.tenantMatch && startedTs > existing.startedTs) {
-          partitionRows.set(key, { row, startedTs, tenantMatch })
-        }
+        partitionRows.set(key, pickPreferred(existing ?? null, candidate))
       }
 
       const partitions = Array.from(partitionRows.values())
+        .filter((entry) => !preferOrg || entry.orgMatch)
         .map(({ row }) => {
           const heartbeatDate = row.heartbeat_at ? new Date(row.heartbeat_at) : null
           const startedDate = row.started_at ? new Date(row.started_at) : null
@@ -147,20 +166,21 @@ export async function GET(req: Request) {
       const jobTotalCount = partitions.reduce((sum, p) => sum + (p.totalCount ?? 0), 0)
       const processedSum = partitions.reduce((sum, p) => sum + (p.processedCount ?? 0), 0)
       const processedCount = jobTotalCount ? Math.min(jobTotalCount, processedSum) : processedSum || null
+      const scopeCandidate = !preferOrg || !scopeRow || scopeRow.orgMatch ? scopeRow : null
 
       return {
         status,
         startedAt,
         finishedAt,
         heartbeatAt,
-        processedCount: jobTotalCount ? processedCount : scopeRow?.row?.processed_count ?? null,
-        totalCount: jobTotalCount ? jobTotalCount : scopeRow?.row?.total_count ?? null,
+        processedCount: jobTotalCount ? processedCount : scopeCandidate?.row?.processed_count ?? null,
+        totalCount: jobTotalCount ? jobTotalCount : scopeCandidate?.row?.total_count ?? null,
         partitions,
-        scope: scopeRow
+        scope: scopeCandidate
           ? {
               status: (() => {
-                const heartbeatDate = scopeRow!.row.heartbeat_at ? new Date(scopeRow!.row.heartbeat_at) : null
-                const finishedDate = scopeRow!.row.finished_at ? new Date(scopeRow!.row.finished_at) : null
+                const heartbeatDate = scopeCandidate!.row.heartbeat_at ? new Date(scopeCandidate!.row.heartbeat_at) : null
+                const finishedDate = scopeCandidate!.row.finished_at ? new Date(scopeCandidate!.row.finished_at) : null
                 if (finishedDate) return 'completed'
                 if (
                   !heartbeatDate ||
@@ -168,10 +188,10 @@ export async function GET(req: Request) {
                 ) {
                   return 'stalled'
                 }
-                return (scopeRow!.row.status as string) || 'reindexing'
+                return (scopeCandidate!.row.status as string) || 'reindexing'
               })(),
-              processedCount: scopeRow.row.processed_count ?? null,
-              totalCount: scopeRow.row.total_count ?? null,
+              processedCount: scopeCandidate.row.processed_count ?? null,
+              totalCount: scopeCandidate.row.total_count ?? null,
             }
           : null,
       }
@@ -205,7 +225,7 @@ export async function GET(req: Request) {
           : null
       const stale = !snapshot || !refreshedAt || (Date.now() - refreshedAt.getTime() > COVERAGE_STALE_MS)
       if (forceRefresh || stale) {
-        await refreshCoverageSnapshot(em, scope).catch(() => undefined)
+        await refreshCoverageSnapshot(em, scope, { vectorService }).catch(() => undefined)
         snapshot = await readCoverageSnapshot(knex, scope)
       }
       const finalRefreshed = snapshot?.refreshed_at instanceof Date
@@ -221,7 +241,7 @@ export async function GET(req: Request) {
     coverageSnapshots.push(await ensureSnapshot())
   }
 
-  const jobs = await Promise.all(entityIds.map((eid) => fetchJobSummary(eid, tenantId)))
+  const jobs = await Promise.all(entityIds.map((eid) => fetchJobSummary(eid, tenantId, orgId)))
 
   const items: any[] = []
   for (let idx = 0; idx < entityIds.length; idx += 1) {
@@ -310,8 +330,45 @@ export async function GET(req: Request) {
     }
   })
 
-  const response = NextResponse.json({ items, errors })
-  const partial = items.find((item) => item.ok === false)
+  const logRows = await knex('indexer_status_logs')
+    .modify((qb) => {
+      if (tenantId != null) {
+        qb.where((inner) => {
+          inner.where('tenant_id', tenantId).orWhereNull('tenant_id')
+        })
+      } else {
+        qb.whereNull('tenant_id')
+      }
+    })
+    .andWhere((qb) => {
+      qb.whereNull('organization_id').orWhere('organization_id', orgId)
+    })
+    .orderBy('occurred_at', 'desc')
+    .limit(100)
+
+  const logs = logRows.map((row: any) => {
+    const occurredAt = row.occurred_at instanceof Date ? row.occurred_at : row.occurred_at ? new Date(row.occurred_at) : null
+    const level = row.level === 'warn' ? 'warn' : 'info'
+    return {
+      id: String(row.id),
+      source: String(row.source ?? ''),
+      handler: String(row.handler ?? ''),
+      level,
+      entityType: row.entity_type ?? null,
+      recordId: row.record_id ?? null,
+      tenantId: row.tenant_id ?? null,
+      organizationId: row.organization_id ?? null,
+      message: String(row.message ?? ''),
+      details: row.details ?? null,
+      occurredAt: occurredAt ? occurredAt.toISOString() : new Date().toISOString(),
+    }
+  })
+
+  const response = NextResponse.json({ items, errors, logs })
+  const partial = items.find((item) => {
+    if (item.baseCount == null || item.indexCount == null) return true
+    return item.baseCount !== item.indexCount
+  })
   if (partial) {
     response.headers.set(
       'x-om-partial-index',
