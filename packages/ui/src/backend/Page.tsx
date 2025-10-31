@@ -1,7 +1,8 @@
 import * as React from 'react'
+import { cn } from '@/lib/utils'
 
-export function Page({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-6">{children}</div>
+export function Page({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={cn('space-y-6', className)}>{children}</div>
 }
 
 export function PageHeader({
@@ -24,7 +25,6 @@ export function PageHeader({
   )
 }
 
-export function PageBody({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-4">{children}</div>
+export function PageBody({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={cn('space-y-4', className)}>{children}</div>
 }
-
