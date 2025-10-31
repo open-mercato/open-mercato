@@ -152,11 +152,26 @@ export async function setupInitialTenant(
       return
     }
 
-    const tenant = tem.create(Tenant, { name: `${options.orgName} Tenant` })
+    const tenant = tem.create(Tenant, {
+      name: `${options.orgName} Tenant`,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
     tem.persist(tenant)
     await tem.flush()
 
-    const organization = tem.create(Organization, { name: options.orgName, tenant })
+    const organization = tem.create(Organization, {
+      name: options.orgName,
+      tenant,
+      isActive: true,
+      depth: 0,
+      ancestorIds: [],
+      childIds: [],
+      descendantIds: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
     tem.persist(organization)
     await tem.flush()
 
