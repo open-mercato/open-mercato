@@ -17,6 +17,8 @@
   "configs.systemStatus.boolean.custom": "Wartość niestandardowa",
   "configs.systemStatus.details.currentValue": "Bieżąca wartość",
   "configs.systemStatus.details.defaultValue": "Domyślna",
+  "configs.systemStatus.details.updateHint": "Zmień, uruchamiając `export {{key}}=wartość` lub modyfikując `.env`, a następnie zrestartuj aplikację.",
+  "configs.systemStatus.details.updateDocs": "Przewodnik konfiguracji środowiska",
   "configs.systemStatus.viewDocs": "Zobacz dokumentację",
   "configs.systemStatus.generatedAt": "Migawka wygenerowana {{timestamp}}",
   "configs.systemStatus.categories.profiling": "Profilowanie",

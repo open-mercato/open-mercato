@@ -17,6 +17,8 @@
   "configs.systemStatus.boolean.custom": "Custom value",
   "configs.systemStatus.details.currentValue": "Current value",
   "configs.systemStatus.details.defaultValue": "Default",
+  "configs.systemStatus.details.updateHint": "Update by running `export {{key}}=value` or editing `.env`, then restart the app.",
+  "configs.systemStatus.details.updateDocs": "Environment configuration guide",
   "configs.systemStatus.viewDocs": "View documentation",
   "configs.systemStatus.generatedAt": "Snapshot generated {{timestamp}}",
   "configs.systemStatus.categories.profiling": "Profiling",

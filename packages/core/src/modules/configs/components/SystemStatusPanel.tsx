@@ -8,6 +8,7 @@ import { useT } from '@/lib/i18n/context'
 import type { SystemStatusSnapshot, SystemStatusItem, SystemStatusState } from '../lib/system-status.types'
 
 const API_PATH = '/api/configs/system-status'
+const ENV_GUIDE_URL = 'https://docs.openmercato.com/docs/framework/operations/system-status#managing-variables'
 
 const STATUS_LABEL_KEYS: Record<SystemStatusState, string> = {
   enabled: 'configs.systemStatus.state.enabled',
@@ -218,6 +219,21 @@ export function SystemStatusPanel() {
                       </dd>
                     </div>
                   </dl>
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      'configs.systemStatus.details.updateHint',
+                      'Update by running `export {{key}}=value` or editing `.env`, then restart the app.',
+                      { key: item.key }
+                    )}{' '}
+                    <a
+                      href={ENV_GUIDE_URL}
+                      className="font-medium text-primary hover:underline"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {t('configs.systemStatus.details.updateDocs', 'Environment configuration guide')}
+                    </a>
+                  </p>
                   {item.docUrl ? (
                     <div>
                       <a

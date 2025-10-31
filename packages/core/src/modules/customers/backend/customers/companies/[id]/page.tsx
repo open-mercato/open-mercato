@@ -559,17 +559,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       onSave: (value) => updateProfileField('brandName', value),
     },
     {
-      key: 'websiteUrl',
-      kind: 'text',
-      label: t('customers.companies.detail.fields.website', 'Website'),
-      value: profile?.websiteUrl ?? null,
-      placeholder: t('customers.companies.detail.fields.websitePlaceholder', 'https://example.com'),
-      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      inputType: 'url',
-      validator: validators.website,
-      onSave: (value) => updateProfileField('websiteUrl', value),
-    },
-    {
       key: 'description',
       kind: 'multiline',
       label: t('customers.companies.detail.fields.description', 'Description'),
@@ -645,6 +634,17 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
       validator: validators.annualRevenue,
       onSave: handleAnnualRevenueChange,
+    },
+    {
+      key: 'websiteUrl',
+      kind: 'text',
+      label: t('customers.companies.detail.fields.website', 'Website'),
+      value: profile?.websiteUrl ?? null,
+      placeholder: t('customers.companies.detail.fields.websitePlaceholder', 'https://example.com'),
+      emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
+      inputType: 'url',
+      validator: validators.website,
+      onSave: (value) => updateProfileField('websiteUrl', value),
     },
   ]
 
