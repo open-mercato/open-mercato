@@ -41,8 +41,8 @@ type NavGroup = {
 
 export default async function BackendLayout({ children, params }: { children: React.ReactNode; params: Promise<{ slug?: string[] }> }) {
   const auth = await getAuthFromCookies()
-  const cookieStore = cookies()
-  const headerStore = headers()
+  const cookieStore = await cookies()
+  const headerStore = await headers()
   let path = headerStore.get('x-next-url') ?? ''
   if (path.includes('?')) path = path.split('?')[0]
   let resolvedParams: { slug?: string[] } = {}
