@@ -5,6 +5,7 @@ import { Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useT } from '@/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import type { InlineFieldProps } from './InlineEditors'
 
@@ -151,8 +152,39 @@ export function AnnualRevenueField({
     }
   }, [draftAmount, draftCurrency, onSave, saving, t, validator])
 
+  const containerClasses = React.useMemo(
+    () =>
+      cn('group rounded border bg-muted/20 p-3', {
+        'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring': !editing,
+      }),
+    [editing],
+  )
+
+  const handleActivate = React.useCallback(() => {
+    if (!editing) setEditing(true)
+  }, [editing])
+
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (editing) return
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        handleActivate()
+      }
+    },
+    [editing, handleActivate],
+  )
+
   return (
-    <div className="rounded border bg-muted/20 p-3">
+    <div
+      className={containerClasses}
+      role={editing ? undefined : 'button'}
+      tabIndex={editing ? -1 : 0}
+      onClick={() => {
+        if (!editing) handleActivate()
+      }}
+      onKeyDown={handleKeyDown}
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
