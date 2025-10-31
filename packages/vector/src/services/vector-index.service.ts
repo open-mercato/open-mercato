@@ -196,6 +196,13 @@ export class VectorIndexService {
       }
     }
 
+    if (record.entity_id == null && record.entityId == null && entityId.endsWith('_company_profile')) {
+      console.warn('[vector.index] company profile missing entity id in payload', {
+        id: record.id,
+        keys: Object.keys(record),
+      })
+    }
+
     return { record, customFields }
   }
 

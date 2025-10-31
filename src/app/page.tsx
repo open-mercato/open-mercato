@@ -5,6 +5,7 @@ import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/
 import { StartPageContent } from '@/components/StartPageContent'
 import { cookies } from 'next/headers'
 import Image from 'next/image'
+import Link from 'next/link'
 
 function FeatureBadge({ label }: { label: string }) {
   return (
@@ -16,7 +17,7 @@ function FeatureBadge({ label }: { label: string }) {
 
 export default async function Home() {
   // Check if user wants to see the start page
-  const cookieStore = await cookies()
+  const cookieStore = cookies()
   const showStartPageCookie = cookieStore.get('show_start_page')
   const showStartPage = showStartPageCookie?.value !== 'false'
 
@@ -31,8 +32,9 @@ export default async function Home() {
     tenantsCount = await em.count(Tenant, {})
     orgsCount = await em.count(Organization, {})
     dbStatus = 'Connected'
-  } catch (e: any) {
-    dbStatus = `Error: ${e?.message ?? 'no connection'}`
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'no connection'
+    dbStatus = `Error: ${message}`
   }
 
   const onboardingAvailable =
@@ -109,15 +111,15 @@ export default async function Home() {
       <section className="rounded-lg border bg-card p-4">
         <div className="text-sm font-medium mb-2">Quick Links</div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <a className="underline hover:text-primary transition-colors" href="/login">Login</a>
+          <Link className="underline hover:text-primary transition-colors" href="/login">Login</Link>
           <span className="text-muted-foreground">·</span>
-          <a className="underline hover:text-primary transition-colors" href="/example">Example Page</a>
+          <Link className="underline hover:text-primary transition-colors" href="/example">Example Page</Link>
           <span className="text-muted-foreground">·</span>
-          <a className="underline hover:text-primary transition-colors" href="/backend/example">Example Admin</a>
+          <Link className="underline hover:text-primary transition-colors" href="/backend/example">Example Admin</Link>
           <span className="text-muted-foreground">·</span>
-          <a className="underline hover:text-primary transition-colors" href="/backend/todos">Example Todos with Custom Fields</a>
+          <Link className="underline hover:text-primary transition-colors" href="/backend/todos">Example Todos with Custom Fields</Link>
           <span className="text-muted-foreground">·</span>
-          <a className="underline hover:text-primary transition-colors" href="/blog/123">Example Blog Post</a>
+          <Link className="underline hover:text-primary transition-colors" href="/blog/123">Example Blog Post</Link>
         </div>
       </section>
 

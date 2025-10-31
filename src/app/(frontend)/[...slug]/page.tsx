@@ -3,6 +3,7 @@ import { findFrontendMatch } from '@open-mercato/shared/modules/registry'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromCookies } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 export default async function SiteCatchAll({ params }: { params: Promise<{ slug: string[] }> }) {
   const p = await params
@@ -18,14 +19,14 @@ export default async function SiteCatchAll({ params }: { params: Promise<{ slug:
       const ok = required.some(r => roles.includes(r))
       if (!ok) redirect('/login?requireRole=' + encodeURIComponent(required.join(',')))
     }
-    const features = (match.route as any).requireFeatures as string[] | undefined
+    const features = match.route.requireFeatures
     if (features && features.length) {
       const container = await createRequestContainer()
-      const rbac = container.resolve<any>('rbacService')
+      const rbac = container.resolve<RbacService>('rbacService')
       const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: auth.orgId })
       if (!ok) redirect('/login?requireFeature=' + encodeURIComponent(features.join(',')))
     }
   }
-  const Component = match.route.Component as any
+  const Component = match.route.Component
   return <Component params={match.params} />
 }

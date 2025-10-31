@@ -1,34 +1,58 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { findApi } from '@open-mercato/shared/modules/registry'
+import { findApi, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { enforceTenantSelection, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 
+type MethodMetadata = {
+  requireAuth?: boolean
+  requireRoles?: string[]
+  requireFeatures?: string[]
+}
+
+type HandlerContext = {
+  params: Record<string, string | string[]>
+  auth: AuthContext
+}
+
+function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMetadata | null {
+  if (!metadata || typeof metadata !== 'object') return null
+  const entry = (metadata as Partial<Record<HttpMethod, unknown>>)[method]
+  if (!entry || typeof entry !== 'object') return null
+  const source = entry as Record<string, unknown>
+  const normalized: MethodMetadata = {}
+  if (typeof source.requireAuth === 'boolean') normalized.requireAuth = source.requireAuth
+  if (Array.isArray(source.requireRoles)) {
+    normalized.requireRoles = source.requireRoles.filter((role): role is string => typeof role === 'string' && role.length > 0)
+  }
+  if (Array.isArray(source.requireFeatures)) {
+    normalized.requireFeatures = source.requireFeatures.filter((feature): feature is string => typeof feature === 'string' && feature.length > 0)
+  }
+  return normalized
+}
+
 async function checkAuthorization(
-  methodMetadata: any,
-  auth: any,
+  methodMetadata: MethodMetadata | null,
+  auth: AuthContext,
   req: NextRequest
 ): Promise<NextResponse | null> {
   if (methodMetadata?.requireAuth && !auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const requiredRoles: string[] = Array.isArray(methodMetadata?.requireRoles)
-    ? methodMetadata.requireRoles.filter((role: unknown): role is string => typeof role === 'string' && role.length > 0)
-    : []
-  const requiredFeatures: string[] = Array.isArray(methodMetadata?.requireFeatures)
-    ? methodMetadata.requireFeatures.filter((feature: unknown): feature is string => typeof feature === 'string' && feature.length > 0)
-    : []
+  const requiredRoles = methodMetadata?.requireRoles ?? []
+  const requiredFeatures = methodMetadata?.requireFeatures ?? []
 
   if (
     requiredRoles.length &&
     (!auth || !Array.isArray(auth.roles) || !requiredRoles.some((role) => auth.roles!.includes(role)))
   ) {
-    return NextResponse.json({ error: 'Forbidden', requiredRoles: methodMetadata.requireRoles }, { status: 403 })
+    return NextResponse.json({ error: 'Forbidden', requiredRoles }, { status: 403 })
   }
 
   let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
@@ -75,7 +99,6 @@ async function checkAuthorization(
     if (!ok) {
       try {
         const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId })
-        // eslint-disable-next-line no-console
         console.warn('[api] Forbidden - missing required features', {
           path: req.nextUrl.pathname,
           method: req.method,
@@ -90,7 +113,6 @@ async function checkAuthorization(
         })
       } catch (err) {
         try {
-          // eslint-disable-next-line no-console
           console.warn('[api] Forbidden - could not resolve ACL for logging', {
             path: req.nextUrl.pathname,
             method: req.method,
@@ -100,7 +122,9 @@ async function checkAuthorization(
             requiredFeatures,
             error: err instanceof Error ? err.message : err,
           })
-        } catch {}
+        } catch {
+          // best-effort logging; ignore secondary failures
+        }
       }
       return NextResponse.json({ error: 'Forbidden', requiredFeatures }, { status: 403 })
     }
@@ -155,67 +179,41 @@ async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
   return undefined
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  const p = await params
-  const pathname = '/' + (p.slug?.join('/') ?? '')
-  const api = findApi(modules, 'GET', pathname)
+async function handleRequest(
+  method: HttpMethod,
+  req: NextRequest,
+  paramsPromise: Promise<{ slug: string[] }>
+): Promise<Response> {
+  const params = await paramsPromise
+  const pathname = '/' + (params.slug?.join('/') ?? '')
+  const api = findApi(modules, method, pathname)
   if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
-  const auth = await getAuthFromRequest(req as any as Request)
-  
-  const authError = await checkAuthorization(api.metadata?.GET, auth, req)
+  const auth = await getAuthFromRequest(req)
+
+  const methodMetadata = extractMethodMetadata(api.metadata, method)
+  const authError = await checkAuthorization(methodMetadata, auth, req)
   if (authError) return authError
-  
-  return (api.handler as any)(req, { params: api.params, auth })
+
+  const handlerContext: HandlerContext = { params: api.params, auth }
+  return api.handler(req, handlerContext)
+}
+
+export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
+  return handleRequest('GET', req, params)
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  const p = await params
-  const pathname = '/' + (p.slug?.join('/') ?? '')
-  const api = findApi(modules, 'POST', pathname)
-  if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
-  const auth = await getAuthFromRequest(req as any as Request)
-  
-  const authError = await checkAuthorization(api.metadata?.POST, auth, req)
-  if (authError) return authError
-  
-  return (api.handler as any)(req, { params: api.params, auth })
+  return handleRequest('POST', req, params)
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  const p = await params
-  const pathname = '/' + (p.slug?.join('/') ?? '')
-  const api = findApi(modules, 'PUT', pathname)
-  if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
-  const auth = await getAuthFromRequest(req as any as Request)
-  
-  const authError = await checkAuthorization(api.metadata?.PUT, auth, req)
-  if (authError) return authError
-  
-  return (api.handler as any)(req, { params: api.params, auth })
+  return handleRequest('PUT', req, params)
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  const p = await params
-  const pathname = '/' + (p.slug?.join('/') ?? '')
-  const api = findApi(modules, 'PATCH', pathname)
-  if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
-  const auth = await getAuthFromRequest(req as any as Request)
-  
-  const authError = await checkAuthorization(api.metadata?.PATCH, auth, req)
-  if (authError) return authError
-  
-  return (api.handler as any)(req, { params: api.params, auth })
+  return handleRequest('PATCH', req, params)
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  const p = await params
-  const pathname = '/' + (p.slug?.join('/') ?? '')
-  const api = findApi(modules, 'DELETE', pathname)
-  if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
-  const auth = await getAuthFromRequest(req as any as Request)
-  
-  const authError = await checkAuthorization(api.metadata?.DELETE, auth, req)
-  if (authError) return authError
-  
-  return (api.handler as any)(req, { params: api.params, auth })
+  return handleRequest('DELETE', req, params)
 }

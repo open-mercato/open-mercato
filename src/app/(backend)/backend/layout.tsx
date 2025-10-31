@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+import { cookies, headers } from 'next/headers'
 import { modules } from '@/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@/lib/auth/server'
@@ -9,56 +11,72 @@ import { VectorSearchDialog } from '@open-mercato/vector/modules/vector/frontend
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { applySidebarPreference, loadFirstRoleSidebarPreference, loadSidebarPreference } from '@open-mercato/core/modules/auth/services/sidebarPreferencesService'
+import {
+  applySidebarPreference,
+  loadFirstRoleSidebarPreference,
+  loadSidebarPreference,
+} from '@open-mercato/core/modules/auth/services/sidebarPreferencesService'
+import type { SidebarPreferencesSettings } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { FilterQuery } from '@mikro-orm/core'
+
+type NavItem = {
+  href: string
+  title: string
+  defaultTitle: string
+  enabled: boolean
+  hidden?: boolean
+  icon?: ReactNode
+  children?: NavItem[]
+}
+
+type NavGroup = {
+  id: string
+  name: string
+  defaultName: string
+  items: NavItem[]
+  weight: number
+}
 
 export default async function BackendLayout({ children, params }: { children: React.ReactNode; params?: { slug?: string[] } }) {
   const auth = await getAuthFromCookies()
-  let cookieStore: any = null
-  try {
-    const { cookies } = await import('next/headers')
-    cookieStore = await cookies()
-  } catch {}
-
-  // Prefer pathname injected by middleware; fallback to params-based path
-  let path = ''
-  try {
-    const { headers } = await import('next/headers')
-    const h = await headers()
-    path = h.get('x-next-url') || ''
-  } catch {}
-  // Ensure we pass only a pathname
+  const cookieStore = cookies()
+  const headerStore = headers()
+  let path = headerStore.get('x-next-url') ?? ''
   if (path.includes('?')) path = path.split('?')[0]
   if (!path) {
     const slug = params?.slug ?? []
     path = '/backend' + (Array.isArray(slug) && slug.length ? '/' + slug.join('/') : '')
   }
 
-  const ctxAuth = auth ? { 
-    roles: auth.roles || [], 
-    sub: auth.sub, 
-    tenantId: auth.tenantId, 
-    orgId: auth.orgId 
-  } : undefined
+  const ctxAuth = auth
+    ? {
+        roles: auth.roles || [],
+        sub: auth.sub,
+        tenantId: auth.tenantId,
+        orgId: auth.orgId,
+      }
+    : undefined
   const ctx = { auth: ctxAuth, path }
-  
-  // Build initial nav (SSR) using module metadata to preserve icons
+
   const { translate, locale } = await resolveTranslations()
   const vectorApiKeyAvailable = Boolean(process.env.OPENAI_API_KEY)
   const vectorMissingKeyMessage = translate('vector.messages.missingKey', 'Vector search requires configuring OPENAI_API_KEY.')
   const entries = await buildAdminNav(
-    modules as any[],
+    modules,
     ctx,
     undefined,
     (key, fallback) => (key ? translate(key, fallback) : fallback),
   )
+
   const groupMap = new Map<string, {
-    id: string,
-    key?: string,
-    name: string,
-    defaultName: string,
-    items: AdminNavItem[],
-    weight: number,
+    id: string
+    key?: string
+    name: string
+    defaultName: string
+    items: AdminNavItem[]
+    weight: number
   }>()
   for (const entry of entries) {
     const weight = entry.priority ?? entry.order ?? 10_000
@@ -79,7 +97,7 @@ export default async function BackendLayout({ children, params }: { children: Re
     }
   }
 
-  const mapItem = (item: AdminNavItem) => ({
+  const mapItem = (item: AdminNavItem): NavItem => ({
     href: item.href,
     title: item.title,
     defaultTitle: item.defaultTitle,
@@ -89,30 +107,30 @@ export default async function BackendLayout({ children, params }: { children: Re
     children: item.children?.map(mapItem),
   })
 
-  const baseGroups = Array.from(groupMap.values()).map((group) => ({
+  const baseGroups: NavGroup[] = Array.from(groupMap.values()).map((group) => ({
     id: group.id,
     name: group.name,
     defaultName: group.defaultName,
     weight: group.weight,
-    items: group.items.map((item) => mapItem(item)),
+    items: group.items.map(mapItem),
   }))
   baseGroups.sort((a, b) => a.weight - b.weight)
 
-  let rolePreference = null
-  let sidebarPreference = null
+  let rolePreference: SidebarPreferencesSettings | null = null
+  let sidebarPreference: SidebarPreferencesSettings | null = null
   if (auth) {
     try {
       const container = await createRequestContainer()
-      const em = container.resolve('em') as any
+      const em = container.resolve<EntityManager>('em')
       if (Array.isArray(auth.roles) && auth.roles.length) {
-        const roleScope = auth.tenantId
+        const roleScope: FilterQuery<Role> = auth.tenantId
           ? { $or: [{ tenantId: auth.tenantId }, { tenantId: null }] }
           : { tenantId: null }
         const roleRecords = await em.find(Role, {
           name: { $in: auth.roles },
           ...roleScope,
-        } as any)
-        const roleIds = roleRecords.map((role: Role) => role.id)
+        })
+        const roleIds = roleRecords.map((role) => role.id)
         if (roleIds.length) {
           rolePreference = await loadFirstRoleSidebarPreference(em, {
             roleIds,
@@ -127,14 +145,16 @@ export default async function BackendLayout({ children, params }: { children: Re
         organizationId: auth.orgId ?? null,
         locale,
       })
-    } catch {}
+    } catch {
+      // ignore preference loading failures; render with default navigation
+    }
   }
 
   const groupsWithRole = rolePreference ? applySidebarPreference(baseGroups, rolePreference) : baseGroups
   const baseForUser = adoptSidebarDefaults(groupsWithRole)
   const appliedGroups = sidebarPreference ? applySidebarPreference(baseForUser, sidebarPreference) : baseForUser
 
-  const materializeItem = (item: ReturnType<typeof mapItem>) => ({
+  const materializeItem = (item: NavItem): NavItem => ({
     href: item.href,
     title: item.title,
     defaultTitle: item.defaultTitle,
@@ -144,31 +164,30 @@ export default async function BackendLayout({ children, params }: { children: Re
     children: item.children?.map(materializeItem),
   })
 
-  const groups = appliedGroups.map((group) => ({
+  const groups: NavGroup[] = appliedGroups.map((group) => ({
     id: group.id,
     name: group.name,
     defaultName: group.defaultName,
-    items: group.items.map((item) => materializeItem(item)),
+    items: group.items.map(materializeItem),
     weight: group.weight,
   }))
 
-  // Derive current title from path and fetched groups
-  const allEntries: Array<{ href: string; title: string; group: string; children?: any[] }> = groups.flatMap((g) => g.items.map((i: any) => ({ ...i, group: g.name })))
-  const current = allEntries.find((i) => path.startsWith(i.href))
+  type NavEntry = NavItem & { group: string }
+  const allEntries: NavEntry[] = groups.flatMap((group) =>
+    group.items.map((item) => ({ ...item, group: group.name })),
+  )
+  const current = allEntries.find((item) => path.startsWith(item.href))
   const currentTitle = current?.title || ''
-  const match = findBackendMatch(modules as any[], path)
-  const rawBreadcrumb = (match?.route as any)?.breadcrumb as Array<{ label?: string; labelKey?: string; href?: string }> | undefined
+  const match = findBackendMatch(modules, path)
+  const rawBreadcrumb = match?.route.breadcrumb
   const breadcrumb = rawBreadcrumb?.map((item) => {
-    const fallback = typeof item.label === 'string' ? item.label : ''
+    const fallback = item.label
     const label = item.labelKey ? translate(item.labelKey, fallback || item.labelKey) : fallback
     return { ...item, label }
   })
-  // Read collapsed state from cookie for SSR-perfect initial render
-  let initialCollapsed = false
-  if (cookieStore) {
-    const v = cookieStore.get('om_sidebar_collapsed')?.value
-    initialCollapsed = v === '1'
-  }
+
+  const collapsedCookie = cookieStore.get('om_sidebar_collapsed')?.value
+  const initialCollapsed = collapsedCookie === '1'
 
   const rightHeaderContent = (
     <>
@@ -181,15 +200,25 @@ export default async function BackendLayout({ children, params }: { children: Re
   const productName = translate('appShell.productName', 'Open Mercato')
 
   return (
-    <AppShell key={path} productName={productName} email={auth?.email} groups={groups} currentTitle={currentTitle} breadcrumb={breadcrumb} sidebarCollapsedDefault={initialCollapsed} rightHeaderSlot={rightHeaderContent} adminNavApi="/api/auth/admin/nav"> 
+    <AppShell
+      key={path}
+      productName={productName}
+      email={auth?.email}
+      groups={groups}
+      currentTitle={currentTitle}
+      breadcrumb={breadcrumb}
+      sidebarCollapsedDefault={initialCollapsed}
+      rightHeaderSlot={rightHeaderContent}
+      adminNavApi="/api/auth/admin/nav"
+    >
       {children}
     </AppShell>
   )
 }
 export const dynamic = 'force-dynamic'
 
-function adoptSidebarDefaults(groups: ReturnType<typeof applySidebarPreference>) {
-  const adoptItems = (items: any[]) =>
+function adoptSidebarDefaults(groups: NavGroup[]): NavGroup[] {
+  const adoptItems = (items: NavItem[]): NavItem[] =>
     items.map((item) => ({
       ...item,
       defaultTitle: item.title,

@@ -38,6 +38,29 @@ async function getCustomerEntity(ctx: VectorContext, entityId?: string | null) {
   return entity ?? null
 }
 
+async function ensureEntityId(ctx: VectorContext, record: Record<string, any>, entityType: string): Promise<string | null> {
+  let entityId = resolveCustomerEntityId(record)
+  if (entityId) return entityId
+  if (!ctx.queryEngine || !record.id) return null
+  try {
+    const res = await ctx.queryEngine.query(entityType, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId ?? undefined,
+      filters: { id: record.id },
+      fields: ['entity_id'],
+    })
+    const raw = res.items[0] as Record<string, any> | undefined
+    entityId = raw?.entity_id ?? raw?.entityId ?? null
+    if (entityId) {
+      record.entity_id = entityId
+      record.entityId = entityId
+    }
+    return entityId
+  } catch {
+    return null
+  }
+}
+
 function resolveCustomerEntityId(record: Record<string, any>): string | null {
   const direct =
     record.customer_entity_id ??
@@ -216,8 +239,19 @@ export const vectorConfig: VectorModuleConfig = {
         appendCustomFieldLines(lines, ctx.customFields, 'Person custom')
 
         let entity = getInlineCustomerEntity(record)
+        let entityId = resolveCustomerEntityId(record)
+        if (!entityId) {
+          entityId = await ensureEntityId(ctx, record, 'customers:customer_person_profile')
+        }
+        if (!entity && entityId) {
+          entity = await getCustomerEntity(ctx, entityId)
+        }
         if (!entity) {
-          entity = await getCustomerEntity(ctx, resolveCustomerEntityId(record))
+          console.warn('[vector.customers] Failed to load customer entity for person profile', {
+            recordId: record.id,
+            entityId,
+            recordKeys: Object.keys(record),
+          })
         }
         if (entity) {
           appendLine(lines, 'Customer', pickValue(entity, 'display_name', 'displayName') ?? entity.id)
@@ -230,7 +264,12 @@ export const vectorConfig: VectorModuleConfig = {
         ensureFallbackLines(lines, record)
         if (!lines.length) return null
 
-        const entityId = resolveCustomerEntityId(record)
+        if (!entityId) {
+          console.warn('[vector.customers] person profile missing entity id', {
+            recordId: record.id,
+            recordKeys: Object.keys(record),
+          })
+        }
         const firstName = record.first_name ?? record.firstName
         const lastName = record.last_name ?? record.lastName
         const nameParts = [firstName, lastName].filter(Boolean).join(' ')
@@ -268,7 +307,7 @@ export const vectorConfig: VectorModuleConfig = {
           checksumSource,
           payload: {
             kind: 'person',
-            entityId: resolveCustomerEntityId(record) ?? entityId ?? null,
+            entityId: entityId ?? null,
             name: presenter.title,
           },
         }
@@ -298,8 +337,12 @@ export const vectorConfig: VectorModuleConfig = {
         appendCustomFieldLines(lines, ctx.customFields, 'Company custom')
 
         let entity = getInlineCustomerEntity(record)
-        if (!entity) {
-          entity = await getCustomerEntity(ctx, resolveCustomerEntityId(record))
+        let entityId = resolveCustomerEntityId(record)
+        if (!entityId) {
+          entityId = await ensureEntityId(ctx, record, 'customers:customer_company_profile')
+        }
+        if (!entity && entityId) {
+          entity = await getCustomerEntity(ctx, entityId)
         }
         if (entity) {
           appendLine(lines, 'Customer', pickValue(entity, 'display_name', 'displayName') ?? entity.id)
@@ -312,13 +355,16 @@ export const vectorConfig: VectorModuleConfig = {
         ensureFallbackLines(lines, record)
         if (!lines.length) return null
 
-        const entityId = resolveCustomerEntityId(record)
+        const finalEntityId = entityId ?? resolveCustomerEntityId(record)
+        console.log(record)
         const presenter = resolveCompanyPresenter(record, entity, ctx.customFields)
         logMissingPresenterTitle('company', record, entity, presenter)
         const primaryLabel =
           pickLabel(
             presenter.title,
             pickValue(entity, 'display_name', 'displayName'),
+            ctx.customFields.display_name,
+            ctx.customFields.displayName,
             record.brand_name,
             record.legal_name,
             record.domain,
@@ -328,13 +374,13 @@ export const vectorConfig: VectorModuleConfig = {
             ctx.customFields.brandName,
             ctx.customFields.legal_name,
             ctx.customFields.legalName,
-            entityId,
+            finalEntityId,
             record.id,
             'Open company',
           ) ?? 'Open company'
         const links: VectorLinkDescriptor[] = []
-        if (entityId) {
-          const href = buildCustomerUrl('company', entityId)
+        if (finalEntityId) {
+          const href = buildCustomerUrl('company', finalEntityId)
           if (href) {
             links.push({ href, label: primaryLabel, kind: 'primary' })
           }
@@ -353,7 +399,7 @@ export const vectorConfig: VectorModuleConfig = {
           checksumSource,
           payload: {
             kind: 'company',
-            entityId,
+            entityId: finalEntityId ?? null,
             name: presenter.title,
           },
         }
@@ -579,14 +625,18 @@ function resolveCompanyPresenter(
   entity: Record<string, any> | null,
   customFields: Record<string, any>,
 ): VectorResultPresenter {
+  console.log('RECORD', record, 'ENTITY', entity, customFields);
   const fallbackEntityId = resolveCustomerEntityId(record)
   const title =
     (pickValue(entity, 'display_name', 'displayName') as string | undefined) ??
+    customFields.display_name ??
+    customFields.displayName ??
     record.brand_name ??
     record.legal_name ??
     record.domain ??
     record.brandName ??
     record.legalName ??
+    (entity?.id && entity?.display_name ? entity.display_name : undefined) ??
     fallbackEntityId ??
     record.id ??
     'Company'
@@ -607,6 +657,13 @@ function resolveCompanyPresenter(
       record.description,
   )
   if (summary) subtitlePieces.push(summary)
+  if (!entity && (!title || title === fallbackEntityId)) {
+    console.warn('[vector.customers] Missing customer entity during company presenter build', {
+      recordId: record.id ?? null,
+      entityId: fallbackEntityId,
+      recordKeys: Object.keys(record),
+    })
+  }
   return {
     title: String(title),
     subtitle: subtitlePieces.length ? subtitlePieces.join(' · ') : undefined,

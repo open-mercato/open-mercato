@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     const res = NextResponse.json({ ok: true })
     res.cookies.set('locale', locale as Locale, { path: '/', maxAge: 60 * 60 * 24 * 365 })
     return res
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'bad request' }, { status: 400 })
   }
 }
