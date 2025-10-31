@@ -55,7 +55,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'string',
     labelKey: 'configs.systemStatus.variables.omProfile.label',
     descriptionKey: 'configs.systemStatus.variables.omProfile.description',
-    docUrl: 'https://docs.openmercato.dev/framework/performance/profiling',
+    docUrl: 'https://docs.openmercato.com/docs/framework/performance/profiling',
     defaultValue: '',
   },
   {
@@ -64,7 +64,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'string',
     labelKey: 'configs.systemStatus.variables.nextPublicOmProfile.label',
     descriptionKey: 'configs.systemStatus.variables.nextPublicOmProfile.description',
-    docUrl: 'https://docs.openmercato.dev/framework/performance/profiling',
+    docUrl: 'https://docs.openmercato.com/docs/framework/performance/profiling',
     defaultValue: '',
   },
   {
@@ -73,7 +73,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'string',
     labelKey: 'configs.systemStatus.variables.omCrudProfile.label',
     descriptionKey: 'configs.systemStatus.variables.omCrudProfile.description',
-    docUrl: 'https://docs.openmercato.dev/framework/performance/profiling',
+    docUrl: 'https://docs.openmercato.com/docs/framework/performance/profiling',
     defaultValue: '',
   },
   {
@@ -82,7 +82,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'string',
     labelKey: 'configs.systemStatus.variables.omQeProfile.label',
     descriptionKey: 'configs.systemStatus.variables.omQeProfile.description',
-    docUrl: 'https://docs.openmercato.dev/framework/performance/profiling',
+    docUrl: 'https://docs.openmercato.com/docs/framework/performance/profiling',
     defaultValue: '',
   },
   {
@@ -91,7 +91,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'boolean',
     labelKey: 'configs.systemStatus.variables.queryEngineDebugSql.label',
     descriptionKey: 'configs.systemStatus.variables.queryEngineDebugSql.description',
-    docUrl: 'https://docs.openmercato.dev/framework/database/query-index',
+    docUrl: 'https://docs.openmercato.com/docs/framework/database/query-index',
     defaultValue: 'false',
   },
   {
@@ -100,7 +100,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'string',
     labelKey: 'configs.systemStatus.variables.logVerbosity.label',
     descriptionKey: 'configs.systemStatus.variables.logVerbosity.description',
-    docUrl: 'https://docs.openmercato.dev/framework/operations/logging',
+    docUrl: 'https://docs.openmercato.com/docs/framework/operations/logging',
     defaultValue: '',
   },
   {
@@ -109,7 +109,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'string',
     labelKey: 'configs.systemStatus.variables.logLevel.label',
     descriptionKey: 'configs.systemStatus.variables.logLevel.description',
-    docUrl: 'https://docs.openmercato.dev/framework/operations/logging',
+    docUrl: 'https://docs.openmercato.com/docs/framework/operations/logging',
     defaultValue: '',
   },
   {
@@ -118,7 +118,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'boolean',
     labelKey: 'configs.systemStatus.variables.enableCrudApiCache.label',
     descriptionKey: 'configs.systemStatus.variables.enableCrudApiCache.description',
-    docUrl: 'https://docs.openmercato.dev/framework/performance/cache',
+    docUrl: 'https://docs.openmercato.com/docs/framework/performance/cache',
     defaultValue: 'false',
   },
   {
@@ -127,7 +127,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'string',
     labelKey: 'configs.systemStatus.variables.cacheStrategy.label',
     descriptionKey: 'configs.systemStatus.variables.cacheStrategy.description',
-    docUrl: 'https://docs.openmercato.dev/framework/performance/cache',
+    docUrl: 'https://docs.openmercato.com/docs/framework/performance/cache',
     defaultValue: 'memory',
   },
   {
@@ -136,7 +136,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'string',
     labelKey: 'configs.systemStatus.variables.cacheTtl.label',
     descriptionKey: 'configs.systemStatus.variables.cacheTtl.description',
-    docUrl: 'https://docs.openmercato.dev/framework/performance/cache',
+    docUrl: 'https://docs.openmercato.com/docs/framework/performance/cache',
     defaultValue: '',
   },
   {
@@ -145,7 +145,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'string',
     labelKey: 'configs.systemStatus.variables.cacheSqlitePath.label',
     descriptionKey: 'configs.systemStatus.variables.cacheSqlitePath.description',
-    docUrl: 'https://docs.openmercato.dev/framework/performance/cache',
+    docUrl: 'https://docs.openmercato.com/docs/framework/performance/cache',
     defaultValue: './data/cache.db',
   },
   {
@@ -154,7 +154,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'boolean',
     labelKey: 'configs.systemStatus.variables.scheduleAutoReindex.label',
     descriptionKey: 'configs.systemStatus.variables.scheduleAutoReindex.description',
-    docUrl: 'https://docs.openmercato.dev/framework/database/query-index',
+    docUrl: 'https://docs.openmercato.com/docs/framework/database/query-index',
     defaultValue: 'true',
   },
   {
@@ -163,7 +163,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'boolean',
     labelKey: 'configs.systemStatus.variables.optimizeIndexCoverageStats.label',
     descriptionKey: 'configs.systemStatus.variables.optimizeIndexCoverageStats.description',
-    docUrl: 'https://docs.openmercato.dev/framework/database/query-index',
+    docUrl: 'https://docs.openmercato.com/docs/framework/database/query-index',
     defaultValue: 'false',
   },
   {
@@ -172,7 +172,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'boolean',
     labelKey: 'configs.systemStatus.variables.forceQueryIndexOnPartialIndexes.label',
     descriptionKey: 'configs.systemStatus.variables.forceQueryIndexOnPartialIndexes.description',
-    docUrl: 'https://docs.openmercato.dev/framework/database/query-index',
+    docUrl: 'https://docs.openmercato.com/docs/framework/database/query-index',
     defaultValue: 'true',
   },
   {
@@ -181,7 +181,7 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     kind: 'boolean',
     labelKey: 'configs.systemStatus.variables.entitiesBackcompatEav.label',
     descriptionKey: 'configs.systemStatus.variables.entitiesBackcompatEav.description',
-    docUrl: 'https://docs.openmercato.dev/framework/database/entities',
+    docUrl: 'https://docs.openmercato.com/docs/framework/database/entities',
     defaultValue: 'false',
   },
 ]

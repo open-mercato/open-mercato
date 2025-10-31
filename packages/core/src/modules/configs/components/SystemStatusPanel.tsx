@@ -5,11 +5,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
-import type {
-  SystemStatusSnapshot,
-  SystemStatusItem,
-  SystemStatusState,
-} from '../lib/system-status.types'
+import type { SystemStatusSnapshot, SystemStatusItem, SystemStatusState } from '../lib/system-status.types'
 
 const API_PATH = '/api/configs/system-status'
 
@@ -46,27 +42,29 @@ function isSystemStatusSnapshot(payload: unknown): payload is SystemStatusSnapsh
   })
 }
 
-function formatValueWithLocalization(item: SystemStatusItem, translate: (key: string, fallback?: string) => string): string {
-  const notSet = translate('configs.systemStatus.value.notSet', 'Not set')
-  if (!item.value) return notSet
-  if (item.kind === 'boolean') {
-    const normalized = item.normalizedValue?.toLowerCase()
-    if (normalized === 'true') return translate('configs.systemStatus.boolean.true', 'True')
-    if (normalized === 'false') return translate('configs.systemStatus.boolean.false', 'False')
-    return `${translate('configs.systemStatus.boolean.custom', 'Custom value')}: ${item.value}`
+function renderEnvAssignment(
+  item: SystemStatusItem,
+  rawValue: string | null | undefined,
+  translate: (key: string, fallback?: string) => string,
+): React.ReactNode {
+  const value = typeof rawValue === 'string' ? rawValue : ''
+  const hasValue = value.trim().length > 0
+  const codeClass =
+    'block w-full break-all whitespace-pre-wrap rounded bg-muted px-1.5 py-0.5 font-mono text-xs sm:text-sm'
+  if (!hasValue) {
+    const notSet = translate('configs.systemStatus.value.notSet', 'Not set')
+    return (
+      <div className="space-y-1">
+        <code className={codeClass}>{item.key}</code>
+        <span className="text-xs text-muted-foreground sm:text-sm">({notSet})</span>
+      </div>
+    )
   }
-  return item.value
-}
-
-function formatDefaultValue(item: SystemStatusItem, translate: (key: string, fallback?: string) => string): string {
-  const notSet = translate('configs.systemStatus.value.notSet', 'Not set')
-  if (!item.defaultValue) return notSet
-  if (item.kind === 'boolean') {
-    const normalized = item.defaultValue.trim().toLowerCase()
-    if (normalized === 'true') return translate('configs.systemStatus.boolean.true', 'True')
-    if (normalized === 'false') return translate('configs.systemStatus.boolean.false', 'False')
-  }
-  return item.defaultValue
+  return (
+    <code className={codeClass}>
+      {`${item.key}=${value}`}
+    </code>
+  )
 }
 
 function StatusBadge({ state }: { state: SystemStatusState }) {
@@ -208,7 +206,7 @@ export function SystemStatusPanel() {
                         {t('configs.systemStatus.details.currentValue', 'Current value')}
                       </dt>
                       <dd className="text-sm font-medium">
-                        {formatValueWithLocalization(item, t)}
+                        {renderEnvAssignment(item, item.value, t)}
                       </dd>
                     </div>
                     <div className="space-y-1">
@@ -216,7 +214,7 @@ export function SystemStatusPanel() {
                         {t('configs.systemStatus.details.defaultValue', 'Default')}
                       </dt>
                       <dd className="text-sm font-medium">
-                        {formatDefaultValue(item, t)}
+                        {renderEnvAssignment(item, item.defaultValue, t)}
                       </dd>
                     </div>
                   </dl>

@@ -10,7 +10,7 @@ export const metadata = {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.userId) {
+  if (!auth?.sub) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

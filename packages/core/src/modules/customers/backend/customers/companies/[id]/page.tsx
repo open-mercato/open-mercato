@@ -122,8 +122,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
-  const { company, profile } = data!
-  const companyId = company.id
+  const currentCompanyId = data?.company?.id ?? null
   const companyName =
     data?.company?.displayName && data.company.displayName.trim().length
       ? data.company.displayName
@@ -424,7 +423,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   )
 
   const handleDelete = React.useCallback(async () => {
-    if (!companyId) return
+    if (!currentCompanyId) return
     const confirmed =
       typeof window === 'undefined'
         ? true
@@ -432,7 +431,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     if (!confirmed) return
     setIsDeleting(true)
     try {
-      const res = await apiFetch(`/api/customers/companies?id=${encodeURIComponent(companyId)}`, {
+      const res = await apiFetch(`/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`, {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
       })
@@ -450,7 +449,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     } finally {
       setIsDeleting(false)
     }
-  }, [companyId, companyName, router, t])
+  }, [currentCompanyId, companyName, router, t])
 
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
@@ -488,8 +487,8 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   }, [])
 
   const dealsScope = React.useMemo(
-    () => (companyId ? ({ kind: 'company', entityId: companyId } as const) : null),
-    [companyId],
+    () => (currentCompanyId ? ({ kind: 'company', entityId: currentCompanyId } as const) : null),
+    [currentCompanyId],
   )
 
   if (isLoading) {
@@ -521,6 +520,9 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       </Page>
     )
   }
+
+  const { company, profile } = data
+  const companyId = company.id
 
   const annualRevenueCurrency =
     typeof data.customFields?.cf_annual_revenue_currency === 'string'
