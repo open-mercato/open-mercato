@@ -116,6 +116,21 @@ function getProfileCache(record: Record<string, any>): Partial<Record<CustomerPr
   return cache
 }
 
+function subtractCustomFields(
+  primary: Record<string, any>,
+  secondary: Record<string, any>,
+): Record<string, any> {
+  if (!secondary || Object.keys(secondary).length === 0) return {}
+  const primaryKeys = new Set(Object.keys(primary))
+  const result: Record<string, any> = {}
+  for (const [key, value] of Object.entries(secondary)) {
+    if (!primaryKeys.has(key)) {
+      result[key] = value
+    }
+  }
+  return result
+}
+
 type CustomerEntityQueryOptions = {
   entityId?: string | null
   profileKind?: CustomerProfileKind
@@ -166,11 +181,17 @@ async function loadCustomerEntityForProfile(ctx: VectorContext, kind: CustomerPr
   const cache = getProfileCache(ctx.record)
   if (cache[kind] !== undefined) return cache[kind] ?? null
   const entityIdHint = resolveCustomerEntityId(ctx.record)
-  if (!entityIdHint) {
+  const profileIdRaw = ctx.record.id ?? null
+  const profileId = profileIdRaw != null ? String(profileIdRaw) : null
+  if (!entityIdHint && !profileId) {
     cache[kind] = null
     return null
   }
-  const loaded = await loadCustomerEntityBundle(ctx, { entityId: entityIdHint, profileKind: kind })
+  const loaded = await loadCustomerEntityBundle(ctx, {
+    entityId: entityIdHint,
+    profileKind: kind,
+    profileId,
+  })
   cache[kind] = loaded ?? null
   const resolvedId = loaded?.entity?.id ?? entityIdHint
   if (resolvedId) {
@@ -216,6 +237,47 @@ async function getCustomerEntity(ctx: VectorContext, entityId?: string | null): 
   const resolvedId = entityId ?? resolveCustomerEntityId(ctx.record)
   const loaded = await loadCustomerEntityById(ctx, resolvedId)
   return loaded?.entity ?? null
+}
+
+type HydratedProfileContext = {
+  entity: Record<string, any> | null
+  entityId: string | null
+  profileCustomFields: Record<string, any>
+  entityCustomFields: Record<string, any>
+  entityOnlyCustomFields: Record<string, any>
+}
+
+async function hydrateProfileContext(ctx: VectorContext, kind: CustomerProfileKind): Promise<HydratedProfileContext> {
+  const profileCustomFields = ctx.customFields ?? {}
+  const loaded = await loadCustomerEntityForProfile(ctx, kind)
+  let entity = loaded?.entity ?? getInlineCustomerEntity(ctx.record)
+  let entityCustomFields = loaded?.customFields ?? {}
+  let entityId = entity?.id ?? resolveCustomerEntityId(ctx.record)
+  if (!entity && entityId) {
+    const fetched = await loadCustomerEntityById(ctx, entityId)
+    entity = fetched?.entity ?? null
+    if (fetched?.customFields) {
+      entityCustomFields = Object.keys(entityCustomFields).length ? entityCustomFields : fetched.customFields
+    }
+  }
+  if (!entity && !entityId) {
+    entityId = resolveCustomerEntityId(ctx.record)
+  }
+  if (entity?.id) {
+    entityId = entity.id
+    ctx.record.entity_id ??= entity.id
+    ctx.record.entityId ??= entity.id
+    if (!ctx.record.entity) ctx.record.entity = entity
+    if (!ctx.record.customer_entity) ctx.record.customer_entity = entity
+  }
+  const entityOnlyCustomFields = subtractCustomFields(profileCustomFields, entityCustomFields)
+  return {
+    entity: entity ?? null,
+    entityId: entityId ?? null,
+    profileCustomFields,
+    entityCustomFields,
+    entityOnlyCustomFields,
+  }
 }
 
 async function loadRecord(ctx: VectorContext, entityId: string, recordId?: string | null) {
@@ -329,6 +391,19 @@ function pickLabel(...candidates: Array<unknown>): string | null {
   return null
 }
 
+function appendCustomerEntityLines(
+  lines: string[],
+  entity: Record<string, any> | null,
+  contactLabel: 'Customer' | 'Primary' = 'Customer',
+) {
+  if (!entity) return
+  appendLine(lines, 'Customer', pickValue(entity, 'display_name', 'displayName') ?? entity.id)
+  appendLine(lines, `${contactLabel} email`, pickValue(entity, 'primary_email', 'primaryEmail'))
+  appendLine(lines, `${contactLabel} phone`, pickValue(entity, 'primary_phone', 'primaryPhone'))
+  appendLine(lines, 'Lifecycle stage', pickValue(entity, 'lifecycle_stage', 'lifecycleStage'))
+  appendLine(lines, 'Status', pickValue(entity, 'status'))
+}
+
 function ensureFallbackLines(lines: string[], record: Record<string, any>, options: { includeId?: boolean } = {}) {
   if (lines.length) return
   const excluded = new Set(['tenant_id', 'organization_id', 'created_at', 'updated_at', 'deleted_at'])
@@ -405,26 +480,12 @@ export const vectorConfig: VectorModuleConfig = {
           'Twitter',
           record.twitter_url ?? record.twitterUrl ?? ctx.customFields.twitter_url,
         )
-        const profileCustomFields = ctx.customFields ?? {}
+        const { entity, entityId, profileCustomFields, entityCustomFields, entityOnlyCustomFields } =
+          await hydrateProfileContext(ctx, 'person')
         appendCustomFieldLines(lines, profileCustomFields, 'Person custom')
-
-        const loaded = await loadCustomerEntityForProfile(ctx, 'person')
-        let entity = loaded?.entity ?? getInlineCustomerEntity(record)
-        if (entity?.id) {
-          record.entity_id ??= entity.id
-          record.entityId ??= entity.id
+        if (Object.keys(entityOnlyCustomFields).length) {
+          appendCustomFieldLines(lines, entityOnlyCustomFields, 'Customer custom')
         }
-        const entityCustomFields = loaded?.customFields ?? {}
-        if (Object.keys(entityCustomFields).length) {
-          const profileKeys = new Set(Object.keys(profileCustomFields))
-          const entityOnlyCustomFields = Object.fromEntries(
-            Object.entries(entityCustomFields).filter(([key]) => !profileKeys.has(key)),
-          )
-          if (Object.keys(entityOnlyCustomFields).length) {
-            appendCustomFieldLines(lines, entityOnlyCustomFields, 'Customer custom')
-          }
-        }
-        const entityId = entity?.id ?? resolveCustomerEntityId(record)
         if (!entity) {
           console.warn('[vector.customers] Failed to load customer entity for person profile', {
             recordId: record.id,
@@ -432,13 +493,7 @@ export const vectorConfig: VectorModuleConfig = {
             recordKeys: Object.keys(record),
           })
         }
-        if (entity) {
-          appendLine(lines, 'Customer', pickValue(entity, 'display_name', 'displayName') ?? entity.id)
-          appendLine(lines, 'Customer email', pickValue(entity, 'primary_email', 'primaryEmail'))
-          appendLine(lines, 'Customer phone', pickValue(entity, 'primary_phone', 'primaryPhone'))
-          appendLine(lines, 'Lifecycle stage', pickValue(entity, 'lifecycle_stage', 'lifecycleStage'))
-          appendLine(lines, 'Status', pickValue(entity, 'status'))
-        }
+        appendCustomerEntityLines(lines, entity, 'Customer')
 
         ensureFallbackLines(lines, record)
         if (!lines.length) return null
@@ -514,33 +569,13 @@ export const vectorConfig: VectorModuleConfig = {
           'Annual revenue',
           record.annual_revenue ?? record.annualRevenue ?? ctx.customFields.annual_revenue,
         )
-        const profileCustomFields = ctx.customFields ?? {}
+        const { entity, entityId, profileCustomFields, entityCustomFields, entityOnlyCustomFields } =
+          await hydrateProfileContext(ctx, 'company')
         appendCustomFieldLines(lines, profileCustomFields, 'Company custom')
-
-        const loaded = await loadCustomerEntityForProfile(ctx, 'company')
-        let entity = loaded?.entity ?? getInlineCustomerEntity(record)
-        if (entity?.id) {
-          record.entity_id ??= entity.id
-          record.entityId ??= entity.id
+        if (Object.keys(entityOnlyCustomFields).length) {
+          appendCustomFieldLines(lines, entityOnlyCustomFields, 'Customer custom')
         }
-        const entityCustomFields = loaded?.customFields ?? {}
-        if (Object.keys(entityCustomFields).length) {
-          const profileKeys = new Set(Object.keys(profileCustomFields))
-          const entityOnlyCustomFields = Object.fromEntries(
-            Object.entries(entityCustomFields).filter(([key]) => !profileKeys.has(key)),
-          )
-          if (Object.keys(entityOnlyCustomFields).length) {
-            appendCustomFieldLines(lines, entityOnlyCustomFields, 'Customer custom')
-          }
-        }
-        const entityId = entity?.id ?? resolveCustomerEntityId(record)
-        if (entity) {
-          appendLine(lines, 'Customer', pickValue(entity, 'display_name', 'displayName') ?? entity.id)
-          appendLine(lines, 'Status', pickValue(entity, 'status'))
-          appendLine(lines, 'Lifecycle stage', pickValue(entity, 'lifecycle_stage', 'lifecycleStage'))
-          appendLine(lines, 'Primary email', pickValue(entity, 'primary_email', 'primaryEmail'))
-          appendLine(lines, 'Primary phone', pickValue(entity, 'primary_phone', 'primaryPhone'))
-        }
+        appendCustomerEntityLines(lines, entity, 'Primary')
 
         ensureFallbackLines(lines, record)
         if (!lines.length) return null

@@ -29,7 +29,7 @@ export default async function BackendCatchAll(props: { params: Awaitable<{ slug?
       const container = await createRequestContainer()
       const rbac = container.resolve<RbacService>('rbacService')
       let organizationIdForCheck: string | null = auth.orgId ?? null
-      const cookieStore = cookies()
+      const cookieStore = await cookies()
       const cookieSelected = cookieStore.get('om_selected_org')?.value ?? null
       try {
         const { organizationId, allowedOrganizationIds } = await resolveFeatureCheckContext({ container, auth, selectedId: cookieSelected })
