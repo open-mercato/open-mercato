@@ -3,7 +3,7 @@ import { createRequestContainer, type AppContainer } from '@/lib/di/container'
 import { cf } from '@/modules/dsl'
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
@@ -1305,6 +1305,9 @@ async function seedCurrencyDictionary(em: EntityManager, { tenantId, organizatio
       organizationId,
       isSystem: true,
       isActive: true,
+      managerVisibility: 'default' satisfies DictionaryManagerVisibility,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(dictionary)
     await em.flush()
@@ -1341,6 +1344,8 @@ async function seedCurrencyDictionary(em: EntityManager, { tenantId, organizatio
       label,
       color: null,
       icon: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(entry)
   }
@@ -1433,6 +1438,8 @@ async function seedCustomerExamples(
       status: company.status ?? null,
       source: company.source ?? null,
       isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     const companyProfile = em.create(CustomerCompanyProfile, {
       organizationId,

@@ -68,8 +68,8 @@ export function useEmailDuplicateCheck(
                 ? { id, displayName, email: emailValue }
                 : null
             })
-            .filter((entry): entry is EmailDuplicateMatch => !!entry)
-            .find((entry) => {
+            .filter((entry: EmailDuplicateMatch | null): entry is EmailDuplicateMatch => !!entry)
+            .find((entry: EmailDuplicateMatch) => {
               if (entry.id === recordId) return false
               return matchMode === 'prefix'
                 ? entry.email.startsWith(normalized)

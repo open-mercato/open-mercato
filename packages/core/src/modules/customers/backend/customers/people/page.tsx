@@ -58,6 +58,20 @@ type DictionaryMap = CustomerDictionaryMap
 
 const NO_MATCH_TAG_SENTINEL = '__no_match__'
 
+function createEmptyDictionaryMaps(): Record<DictionaryKindKey, DictionaryMap> {
+  return {
+    statuses: {},
+    sources: {},
+    'lifecycle-stages': {},
+    'address-types': {},
+    'activity-types': {},
+    'deal-statuses': {},
+    'pipeline-stages': {},
+    'job-titles': {},
+    industries: {},
+  }
+}
+
 function formatDate(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback
   const date = new Date(value)
@@ -115,13 +129,7 @@ export default function CustomersPeoplePage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
-  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>({
-    statuses: {},
-    sources: {},
-    'lifecycle-stages': {},
-    'address-types': {},
-    'job-titles': {},
-  })
+  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>(createEmptyDictionaryMaps())
   const [tagIdToLabel, setTagIdToLabel] = React.useState<Record<string, string>>({})
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
@@ -220,7 +228,7 @@ export default function CustomersPeoplePage() {
     let cancelled = false
     async function loadAll() {
       if (cancelled) return
-      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {}, 'job-titles': {} })
+      setDictionaryMaps(createEmptyDictionaryMaps())
       await Promise.all([
         fetchDictionaryEntries('statuses'),
         fetchDictionaryEntries('sources'),
