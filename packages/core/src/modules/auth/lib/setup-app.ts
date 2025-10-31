@@ -143,7 +143,7 @@ export async function setupInitialTenant(
       for (const roleName of requiredRoleSet) {
         if (!currentRoles.has(roleName)) {
           const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
-          tem.persist(tem.create(UserRole, { user: existingUser, role }))
+          tem.persist(tem.create(UserRole, { user: existingUser, role, createdAt: new Date() }))
         }
       }
       await tem.flush()
