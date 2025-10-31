@@ -7,8 +7,6 @@ import * as LucideIcons from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import type { VectorSearchHit, VectorIndexEntry } from '@open-mercato/vector'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -233,8 +231,6 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
   const [page, setPage] = React.useState(1)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(apiKeyAvailable ? null : missingKeyMessage)
-  const [reindexing, setReindexing] = React.useState(false)
-  const [purging, setPurging] = React.useState(false)
   const debounceRef = React.useRef<number | null>(null)
   const abortRef = React.useRef<AbortController | null>(null)
   const t = useT()
@@ -317,99 +313,7 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
       controller.abort()
       if (debounceRef.current) window.clearTimeout(debounceRef.current)
     }
-  }, [searchValue, apiKeyAvailable, missingKeyMessage])
-
-  const handleReindex = React.useCallback(async () => {
-    if (!apiKeyAvailable || reindexing || purging) return
-    setReindexing(true)
-    try {
-      const res = await apiFetch('/api/vector/reindex', {
-        method: 'POST',
-        body: JSON.stringify({ purgeFirst: true }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        const message = normalizeErrorMessage(body?.error, t('vector.table.errors.reindexFailed'))
-        setError(message)
-        return
-      }
-      if (typeof window !== 'undefined') window.alert(t('vector.table.alert.reindexStarted'))
-      setError(null)
-      const trimmed = searchValue.trim()
-      if (trimmed.length >= MIN_QUERY_LENGTH) {
-        try {
-          const data = await fetchVectorResults(trimmed, 50)
-          const mapped = data.results.map<Row>((item: VectorSearchHit) => ({
-            entityId: item.entityId,
-            recordId: item.recordId,
-            driverId: item.driverId,
-            score: typeof item.score === 'number' ? item.score : null,
-            url: item.url ?? null,
-            presenter: item.presenter ?? null,
-            links: item.links ?? null,
-            updatedAt: null,
-            metadata: (item.metadata as Record<string, unknown> | null) ?? null,
-          }))
-          setRows(mapped)
-          const message = data.error ? normalizeErrorMessage(data.error, t('vector.table.errors.searchFailed')) : null
-          setError(message ?? null)
-        } catch (err: any) {
-          setError(normalizeErrorMessage(err, t('vector.table.errors.searchFailed')))
-        }
-      } else {
-        try {
-          const data = await fetchVectorIndexEntries({ limit: 50 })
-          const mapped = data.entries.map<Row>((entry: VectorIndexEntry) => ({
-            entityId: entry.entityId,
-            recordId: entry.recordId,
-            driverId: entry.driverId,
-            score: entry.score ?? null,
-            url: entry.url ?? null,
-            presenter: entry.presenter ?? null,
-            links: entry.links ?? null,
-            updatedAt: entry.updatedAt ?? null,
-            metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
-          }))
-          setRows(mapped)
-          const message = data.error ? normalizeErrorMessage(data.error, t('vector.table.errors.indexFetchFailed')) : null
-          setError(message ?? null)
-        } catch (err: any) {
-          setError(normalizeErrorMessage(err, t('vector.table.errors.indexFetchFailed')))
-        }
-      }
-    } catch (err: any) {
-      setError(normalizeErrorMessage(err, t('vector.table.errors.reindexFailed')))
-    } finally {
-      setReindexing(false)
-    }
-  }, [apiKeyAvailable, reindexing, purging, searchValue, t])
-
-  const handlePurge = React.useCallback(async () => {
-    if (!apiKeyAvailable || purging || reindexing) return
-    if (typeof window !== 'undefined') {
-      const confirmed = window.confirm(t('vector.table.confirm.purge'))
-      if (!confirmed) return
-    }
-    setPurging(true)
-    try {
-      const res = await apiFetch('/api/vector/index', {
-        method: 'DELETE',
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        const message = normalizeErrorMessage(body?.error, t('vector.table.errors.purgeFailed'))
-        setError(message)
-        return
-      }
-      if (typeof window !== 'undefined') window.alert(t('vector.table.alert.purgeCompleted'))
-      setRows([])
-      setError(null)
-    } catch (err: any) {
-      setError(normalizeErrorMessage(err, t('vector.table.errors.purgeFailed')))
-    } finally {
-      setPurging(false)
-    }
-  }, [apiKeyAvailable, purging, reindexing, t])
+  }, [searchValue, apiKeyAvailable, missingKeyMessage, t])
 
   React.useEffect(() => {
     if (!error) return
@@ -435,28 +339,6 @@ export function VectorSearchTable({ apiKeyAvailable, missingKeyMessage }: { apiK
         searchPlaceholder={t('vector.table.searchPlaceholder')}
         isLoading={apiKeyAvailable ? loading : false}
         pagination={{ page, pageSize: rows.length || 1, total: rows.length, totalPages: 1, onPageChange: setPage }}
-        actions={(
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!apiKeyAvailable || purging || reindexing}
-              onClick={handleReindex}
-            >
-              {reindexing ? t('vector.table.actions.reindexing') : t('vector.table.actions.reindex')}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!apiKeyAvailable || purging || reindexing}
-              onClick={handlePurge}
-            >
-              {purging ? t('vector.table.actions.purging') : t('vector.table.actions.purge')}
-            </Button>
-          </div>
-        )}
         onRowClick={(row) => openRow(row)}
         rowActions={(row) => {
           const primaryHref = pickPrimaryLink(row)
