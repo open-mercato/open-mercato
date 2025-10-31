@@ -171,7 +171,7 @@ export class VectorIndexService {
     return byId
   }
 
-  private extractRecordPayload(raw: Record<string, any>) {
+  private extractRecordPayload(entityId: EntityId, raw: Record<string, any>) {
     const record: Record<string, any> = {}
     const customFields: Record<string, any> = {}
     const multiMap = new Map<string, boolean>()
@@ -214,7 +214,7 @@ export class VectorIndexService {
     opts: { skipDelete?: boolean } = {},
   ): Promise<VectorIndexOperationResult> {
     const scopeOrg = args.organizationId ?? null
-    const { record, customFields } = this.extractRecordPayload(raw)
+    const { record, customFields } = this.extractRecordPayload(args.entityId, raw)
     const source = await this.resolveSource(args.entityId, entry.config, {
       record,
       customFields,
