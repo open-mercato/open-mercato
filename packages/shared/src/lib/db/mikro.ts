@@ -3,20 +3,36 @@ import 'reflect-metadata'
 import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 
-type OrmGlobals = typeof globalThis & {
-  __omOrmInstance?: MikroORM<PostgreSqlDriver> | null
-  __omOrmInitPromise?: Promise<MikroORM<PostgreSqlDriver>> | null
+const ORM_STATE_KEY = Symbol.for('open-mercato.shared.db.mikro.state')
+
+type OrmState = {
+  instance: MikroORM<PostgreSqlDriver> | null
+  initPromise: Promise<MikroORM<PostgreSqlDriver>> | null
+  closingPromise: Promise<void> | null
+  shutdownRegistered: boolean
 }
 
-const ormGlobals = globalThis as OrmGlobals
+type GlobalWithOrmState = typeof globalThis & {
+  [ORM_STATE_KEY]?: OrmState
+}
 
-if (process.env.NODE_ENV !== 'production') {
-  const existing = ormGlobals.__omOrmInstance
+const globalWithOrmState = globalThis as GlobalWithOrmState
+
+function resolveOrmState(): OrmState {
+  const existing = globalWithOrmState[ORM_STATE_KEY]
   if (existing) {
-    void existing.close(true).catch(() => undefined)
+    return existing
   }
-  ormGlobals.__omOrmInstance = null
-  ormGlobals.__omOrmInitPromise = null
+
+  const initialState: OrmState = {
+    instance: null,
+    initPromise: null,
+    closingPromise: null,
+    shutdownRegistered: false,
+  }
+
+  globalWithOrmState[ORM_STATE_KEY] = initialState
+  return initialState
 }
 
 async function initOrm() {
@@ -24,10 +40,10 @@ async function initOrm() {
   const clientUrl = process.env.DATABASE_URL
   if (!clientUrl) throw new Error('DATABASE_URL is not set')
 
-  const poolMin = parseInt(process.env.DB_POOL_MIN || '2')
-  const poolMax = parseInt(process.env.DB_POOL_MAX || '10')
-  const poolIdleTimeout = parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '30000')
-  const poolAcquireTimeout = parseInt(process.env.DB_POOL_ACQUIRE_TIMEOUT || '60000')
+  const poolMin = parseInt(process.env.DB_POOL_MIN || '2', 10)
+  const poolMax = parseInt(process.env.DB_POOL_MAX || '10', 10)
+  const poolIdleTimeout = parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '30000', 10)
+  const poolAcquireTimeout = parseInt(process.env.DB_POOL_ACQUIRE_TIMEOUT || '60000', 10)
 
   return MikroORM.init<PostgreSqlDriver>({
     driver: PostgreSqlDriver,
@@ -52,19 +68,70 @@ async function initOrm() {
   })
 }
 
-export async function getOrm() {
-  if (ormGlobals.__omOrmInstance) {
-    return ormGlobals.__omOrmInstance
+function registerShutdownHooks(state: OrmState) {
+  if (state.shutdownRegistered) return
+
+  if (typeof process === 'undefined' || typeof process.once !== 'function') {
+    state.shutdownRegistered = true
+    return
   }
 
-  if (!ormGlobals.__omOrmInitPromise) {
-    ormGlobals.__omOrmInitPromise = initOrm()
+  const handleTermination = async (code?: number) => {
+    try {
+      await closeOrm()
+    } catch {
+      // ignore shutdown errors
+    } finally {
+      if (typeof code === 'number') {
+        process.exit(code)
+      }
+    }
   }
 
-  const orm = await ormGlobals.__omOrmInitPromise
-  ormGlobals.__omOrmInstance = orm
-  ormGlobals.__omOrmInitPromise = null
-  return orm
+  process.once('beforeExit', () => {
+    void closeOrm()
+  })
+
+  process.once('SIGINT', () => {
+    void handleTermination(0)
+  })
+
+  process.once('SIGTERM', () => {
+    void handleTermination(0)
+  })
+
+  state.shutdownRegistered = true
+}
+
+export async function getOrm(): Promise<MikroORM<PostgreSqlDriver>> {
+  const state = resolveOrmState()
+  registerShutdownHooks(state)
+
+  if (state.closingPromise) {
+    await state.closingPromise
+  }
+
+  if (state.instance) {
+    return state.instance
+  }
+
+  if (state.initPromise) {
+    return state.initPromise
+  }
+
+  const initPromise = initOrm()
+    .then((orm) => {
+      state.instance = orm
+      state.initPromise = null
+      return orm
+    })
+    .catch((error) => {
+      state.initPromise = null
+      throw error
+    })
+
+  state.initPromise = initPromise
+  return initPromise
 }
 
 export async function getEm() {
@@ -72,11 +139,32 @@ export async function getEm() {
   return orm.em.fork({ clear: true })
 }
 
-export async function closeOrm() {
-  const orm = ormGlobals.__omOrmInstance ?? (await ormGlobals.__omOrmInitPromise?.catch(() => null))
-  if (!orm) return
+export async function closeOrm(): Promise<void> {
+  const state = resolveOrmState()
 
-  await orm.close(true)
-  ormGlobals.__omOrmInstance = null
-  ormGlobals.__omOrmInitPromise = null
+  if (state.closingPromise) {
+    await state.closingPromise
+    return
+  }
+
+  if (!state.instance && !state.initPromise) {
+    return
+  }
+
+  const closing = (async () => {
+    try {
+      const instance =
+        state.instance ?? (await state.initPromise?.catch(() => null)) ?? null
+      if (instance) {
+        await instance.close(true)
+      }
+    } finally {
+      state.instance = null
+      state.initPromise = null
+      state.closingPromise = null
+    }
+  })()
+
+  state.closingPromise = closing
+  await closing
 }
