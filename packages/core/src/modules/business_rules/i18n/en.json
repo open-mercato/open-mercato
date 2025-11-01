@@ -1,0 +1,107 @@
+{
+  "business_rules.nav.group": "Business Rules",
+  "business_rules.nav.rules": "Rules",
+  "business_rules.nav.rules.create": "New Rule",
+  "business_rules.nav.rule_sets": "Rule Sets",
+  "business_rules.nav.execution_logs": "Execution Logs",
+  "business_rules.nav.analytics": "Analytics",
+
+  "business_rules.module.title": "Business Rules Engine",
+  "business_rules.module.description": "Define, manage, and execute business logic and automation rules",
+
+  "business_rules.rules.list.title": "Business Rules",
+  "business_rules.rules.list.description": "Manage your business rules and automation logic",
+  "business_rules.rules.list.empty": "No rules found",
+  "business_rules.rules.list.create": "Create Rule",
+  "business_rules.rules.list.search": "Search rules...",
+
+  "business_rules.rules.types.GUARD": "Guard",
+  "business_rules.rules.types.VALIDATION": "Validation",
+  "business_rules.rules.types.CALCULATION": "Calculation",
+  "business_rules.rules.types.ACTION": "Action",
+  "business_rules.rules.types.ASSIGNMENT": "Assignment",
+
+  "business_rules.rules.status.enabled": "Enabled",
+  "business_rules.rules.status.disabled": "Disabled",
+
+  "business_rules.rules.form.basic.title": "Basic Information",
+  "business_rules.rules.form.ruleId": "Rule ID",
+  "business_rules.rules.form.ruleName": "Rule Name",
+  "business_rules.rules.form.description": "Description",
+  "business_rules.rules.form.ruleType": "Rule Type",
+  "business_rules.rules.form.ruleCategory": "Category",
+  "business_rules.rules.form.entityType": "Entity Type",
+  "business_rules.rules.form.eventType": "Event Type",
+  "business_rules.rules.form.priority": "Priority",
+  "business_rules.rules.form.enabled": "Enabled",
+
+  "business_rules.rules.form.conditions.title": "Conditions",
+  "business_rules.rules.form.conditions.description": "Define when this rule should apply",
+  "business_rules.rules.form.conditions.add": "Add Condition",
+  "business_rules.rules.form.conditions.addGroup": "Add Group",
+
+  "business_rules.rules.form.actions.title": "Actions",
+  "business_rules.rules.form.actions.success": "On Success",
+  "business_rules.rules.form.actions.failure": "On Failure",
+  "business_rules.rules.form.actions.add": "Add Action",
+
+  "business_rules.rules.form.metadata.title": "Metadata",
+  "business_rules.rules.form.effectiveFrom": "Effective From",
+  "business_rules.rules.form.effectiveTo": "Effective To",
+  "business_rules.rules.form.version": "Version",
+
+  "business_rules.rules.actions.edit": "Edit",
+  "business_rules.rules.actions.delete": "Delete",
+  "business_rules.rules.actions.duplicate": "Duplicate",
+  "business_rules.rules.actions.toggle": "Enable/Disable",
+  "business_rules.rules.actions.execute": "Execute",
+
+  "business_rules.logs.title": "Execution Logs",
+  "business_rules.logs.description": "View rule execution history and results",
+  "business_rules.logs.filter.rule": "Filter by rule",
+  "business_rules.logs.filter.entity": "Filter by entity",
+  "business_rules.logs.filter.result": "Filter by result",
+  "business_rules.logs.filter.dateRange": "Date range",
+
+  "business_rules.logs.columns.timestamp": "Timestamp",
+  "business_rules.logs.columns.rule": "Rule",
+  "business_rules.logs.columns.entity": "Entity",
+  "business_rules.logs.columns.result": "Result",
+  "business_rules.logs.columns.executionTime": "Execution Time",
+  "business_rules.logs.columns.user": "User",
+
+  "business_rules.logs.result.SUCCESS": "Success",
+  "business_rules.logs.result.FAILURE": "Failure",
+  "business_rules.logs.result.ERROR": "Error",
+
+  "business_rules.sets.title": "Rule Sets",
+  "business_rules.sets.description": "Group and organize related rules",
+  "business_rules.sets.create": "Create Rule Set",
+  "business_rules.sets.empty": "No rule sets found",
+
+  "business_rules.sets.form.name": "Rule Set Name",
+  "business_rules.sets.form.description": "Description",
+  "business_rules.sets.form.entityType": "Entity Type",
+  "business_rules.sets.form.enabled": "Enabled",
+  "business_rules.sets.form.rules": "Rules",
+  "business_rules.sets.form.addRule": "Add Rule",
+
+  "business_rules.analytics.title": "Analytics",
+  "business_rules.analytics.description": "Monitor rule performance and usage",
+  "business_rules.analytics.executionCount": "Total Executions",
+  "business_rules.analytics.successRate": "Success Rate",
+  "business_rules.analytics.avgExecutionTime": "Avg Execution Time",
+  "business_rules.analytics.mostUsed": "Most Used Rules",
+  "business_rules.analytics.slowest": "Slowest Rules",
+  "business_rules.analytics.recentFailures": "Recent Failures",
+
+  "business_rules.errors.notFound": "Rule not found",
+  "business_rules.errors.invalidCondition": "Invalid condition",
+  "business_rules.errors.executionFailed": "Rule execution failed",
+  "business_rules.errors.unauthorized": "You don't have permission to perform this action",
+
+  "business_rules.success.created": "Rule created successfully",
+  "business_rules.success.updated": "Rule updated successfully",
+  "business_rules.success.deleted": "Rule deleted successfully",
+  "business_rules.success.executed": "Rule executed successfully"
+}

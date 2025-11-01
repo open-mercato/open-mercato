@@ -1,0 +1,107 @@
+{
+  "business_rules.nav.group": "Reguły Biznesowe",
+  "business_rules.nav.rules": "Reguły",
+  "business_rules.nav.rules.create": "Nowa Reguła",
+  "business_rules.nav.rule_sets": "Zestawy Reguł",
+  "business_rules.nav.execution_logs": "Logi Wykonań",
+  "business_rules.nav.analytics": "Analityka",
+
+  "business_rules.module.title": "Silnik Reguł Biznesowych",
+  "business_rules.module.description": "Definiuj, zarządzaj i wykonuj logikę biznesową oraz reguły automatyzacji",
+
+  "business_rules.rules.list.title": "Reguły Biznesowe",
+  "business_rules.rules.list.description": "Zarządzaj swoimi regułami biznesowymi i logiką automatyzacji",
+  "business_rules.rules.list.empty": "Nie znaleziono reguł",
+  "business_rules.rules.list.create": "Utwórz Regułę",
+  "business_rules.rules.list.search": "Szukaj reguł...",
+
+  "business_rules.rules.types.GUARD": "Strażnik",
+  "business_rules.rules.types.VALIDATION": "Walidacja",
+  "business_rules.rules.types.CALCULATION": "Kalkulacja",
+  "business_rules.rules.types.ACTION": "Akcja",
+  "business_rules.rules.types.ASSIGNMENT": "Przypisanie",
+
+  "business_rules.rules.status.enabled": "Włączona",
+  "business_rules.rules.status.disabled": "Wyłączona",
+
+  "business_rules.rules.form.basic.title": "Podstawowe Informacje",
+  "business_rules.rules.form.ruleId": "ID Reguły",
+  "business_rules.rules.form.ruleName": "Nazwa Reguły",
+  "business_rules.rules.form.description": "Opis",
+  "business_rules.rules.form.ruleType": "Typ Reguły",
+  "business_rules.rules.form.ruleCategory": "Kategoria",
+  "business_rules.rules.form.entityType": "Typ Encji",
+  "business_rules.rules.form.eventType": "Typ Zdarzenia",
+  "business_rules.rules.form.priority": "Priorytet",
+  "business_rules.rules.form.enabled": "Włączona",
+
+  "business_rules.rules.form.conditions.title": "Warunki",
+  "business_rules.rules.form.conditions.description": "Określ, kiedy ta reguła powinna być stosowana",
+  "business_rules.rules.form.conditions.add": "Dodaj Warunek",
+  "business_rules.rules.form.conditions.addGroup": "Dodaj Grupę",
+
+  "business_rules.rules.form.actions.title": "Akcje",
+  "business_rules.rules.form.actions.success": "Po Sukcesie",
+  "business_rules.rules.form.actions.failure": "Po Porażce",
+  "business_rules.rules.form.actions.add": "Dodaj Akcję",
+
+  "business_rules.rules.form.metadata.title": "Metadane",
+  "business_rules.rules.form.effectiveFrom": "Obowiązuje Od",
+  "business_rules.rules.form.effectiveTo": "Obowiązuje Do",
+  "business_rules.rules.form.version": "Wersja",
+
+  "business_rules.rules.actions.edit": "Edytuj",
+  "business_rules.rules.actions.delete": "Usuń",
+  "business_rules.rules.actions.duplicate": "Duplikuj",
+  "business_rules.rules.actions.toggle": "Włącz/Wyłącz",
+  "business_rules.rules.actions.execute": "Wykonaj",
+
+  "business_rules.logs.title": "Logi Wykonań",
+  "business_rules.logs.description": "Zobacz historię wykonań reguł i wyniki",
+  "business_rules.logs.filter.rule": "Filtruj według reguły",
+  "business_rules.logs.filter.entity": "Filtruj według encji",
+  "business_rules.logs.filter.result": "Filtruj według wyniku",
+  "business_rules.logs.filter.dateRange": "Zakres dat",
+
+  "business_rules.logs.columns.timestamp": "Czas",
+  "business_rules.logs.columns.rule": "Reguła",
+  "business_rules.logs.columns.entity": "Encja",
+  "business_rules.logs.columns.result": "Wynik",
+  "business_rules.logs.columns.executionTime": "Czas Wykonania",
+  "business_rules.logs.columns.user": "Użytkownik",
+
+  "business_rules.logs.result.SUCCESS": "Sukces",
+  "business_rules.logs.result.FAILURE": "Porażka",
+  "business_rules.logs.result.ERROR": "Błąd",
+
+  "business_rules.sets.title": "Zestawy Reguł",
+  "business_rules.sets.description": "Grupuj i organizuj powiązane reguły",
+  "business_rules.sets.create": "Utwórz Zestaw Reguł",
+  "business_rules.sets.empty": "Nie znaleziono zestawów reguł",
+
+  "business_rules.sets.form.name": "Nazwa Zestawu Reguł",
+  "business_rules.sets.form.description": "Opis",
+  "business_rules.sets.form.entityType": "Typ Encji",
+  "business_rules.sets.form.enabled": "Włączony",
+  "business_rules.sets.form.rules": "Reguły",
+  "business_rules.sets.form.addRule": "Dodaj Regułę",
+
+  "business_rules.analytics.title": "Analityka",
+  "business_rules.analytics.description": "Monitoruj wydajność i użycie reguł",
+  "business_rules.analytics.executionCount": "Całkowita Liczba Wykonań",
+  "business_rules.analytics.successRate": "Wskaźnik Sukcesu",
+  "business_rules.analytics.avgExecutionTime": "Średni Czas Wykonania",
+  "business_rules.analytics.mostUsed": "Najczęściej Używane Reguły",
+  "business_rules.analytics.slowest": "Najwolniejsze Reguły",
+  "business_rules.analytics.recentFailures": "Ostatnie Niepowodzenia",
+
+  "business_rules.errors.notFound": "Nie znaleziono reguły",
+  "business_rules.errors.invalidCondition": "Nieprawidłowy warunek",
+  "business_rules.errors.executionFailed": "Wykonanie reguły nie powiodło się",
+  "business_rules.errors.unauthorized": "Nie masz uprawnień do wykonania tej akcji",
+
+  "business_rules.success.created": "Reguła została utworzona pomyślnie",
+  "business_rules.success.updated": "Reguła została zaktualizowana pomyślnie",
+  "business_rules.success.deleted": "Reguła została usunięta pomyślnie",
+  "business_rules.success.executed": "Reguła została wykonana pomyślnie"
+}
