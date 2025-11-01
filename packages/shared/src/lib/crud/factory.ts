@@ -218,7 +218,7 @@ function prepareExportData(items: any[], list: ListConfig<any>): PreparedExport 
   if (list.export?.columns && list.export.columns.length > 0) {
     return buildExportFromColumns(items, list.export.columns)
   }
-  if (list.csv && list.csv.headers && list.csv.row) {
+  if (list.csv) {
     return buildExportFromCsv(items, list.csv)
   }
   const prepared = buildDefaultExport(items)
@@ -1269,11 +1269,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return response
       }
 
-      let input = opts.create.schema.parse(body)
+      const createConfig = opts.create
+      if (!createConfig) throw new Error('Create configuration missing')
+
+      let input = createConfig.schema.parse(body)
       const modified = await opts.hooks?.beforeCreate?.(input as any, ctx)
       if (modified) input = modified
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      const entityData = opts.create.mapToEntity(input as any, ctx)
+      const entityData = createConfig.mapToEntity(input as any, ctx)
       // Inject org/tenant
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField) {
@@ -1287,8 +1290,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const entity = await de.createOrmEntity({ entity: ormCfg.entity, data: entityData })
 
       // Custom fields
-      if (opts.create.customFields && (opts.create.customFields as any).enabled) {
-        const cfc = opts.create.customFields as Exclude<CustomFieldsConfig, false>
+      if (createConfig.customFields && (createConfig.customFields as any).enabled) {
+        const cfc = createConfig.customFields as Exclude<CustomFieldsConfig, false>
         const values = cfc.map
           ? cfc.map(body)
           : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
@@ -1317,7 +1320,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'created', resourceTargets)
 
-      const payload = opts.create.response ? opts.create.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
+      const payload = createConfig.response ? createConfig.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
       return json(payload, { status: 201 })
     } catch (e) {
       return handleError(e)
@@ -1367,11 +1370,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return response
       }
 
-      let input = opts.update.schema.parse(body)
+      const updateConfig = opts.update
+      if (!updateConfig) throw new Error('Update configuration missing')
+
+      let input = updateConfig.schema.parse(body)
       const modified = await opts.hooks?.beforeUpdate?.(input as any, ctx)
       if (modified) input = modified
 
-      const id = opts.update.getId ? opts.update.getId(input as any) : (input as any).id
+      const id = updateConfig.getId ? updateConfig.getId(input as any) : (input as any).id
       if (!isUuid(id)) return json({ error: 'Invalid id' }, { status: 400 })
 
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
@@ -1389,12 +1395,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           softDeleteField: ormCfg.softDeleteField,
         }
       )
-      const entity = await de.updateOrmEntity({ entity: ormCfg.entity, where, apply: (e: any) => opts.update!.applyToEntity(e, input as any, ctx) })
+      const entity = await de.updateOrmEntity({
+        entity: ormCfg.entity,
+        where,
+        apply: (e: any) => updateConfig.applyToEntity(e, input as any, ctx),
+      })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })
 
       // Custom fields
-      if (opts.update.customFields && (opts.update.customFields as any).enabled) {
-        const cfc = opts.update.customFields as Exclude<CustomFieldsConfig, false>
+      if (updateConfig.customFields && (updateConfig.customFields as any).enabled) {
+        const cfc = updateConfig.customFields as Exclude<CustomFieldsConfig, false>
         const values = cfc.map
           ? cfc.map(body)
           : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
@@ -1421,7 +1431,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       })
       await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'updated', resourceTargets)
-      const payload = opts.update.response ? opts.update.response(entity) : { success: true }
+      const payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
       return json(payload)
     } catch (e) {
       return handleError(e)
@@ -1498,7 +1508,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
       )
       await opts.hooks?.beforeDelete?.(id!, ctx)
-      const entity = await de.deleteOrmEntity({ entity: ormCfg.entity, where, soft: opts.del?.softDelete !== false, softDeleteField: ormCfg.softDeleteField })
+      const entity = await de.deleteOrmEntity({
+        entity: ormCfg.entity,
+        where,
+        soft: opts.del?.softDelete !== false,
+        softDeleteField: ormCfg.softDeleteField ?? undefined,
+      })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })
       await opts.hooks?.afterDelete?.(id!, ctx)
       if (entity) {

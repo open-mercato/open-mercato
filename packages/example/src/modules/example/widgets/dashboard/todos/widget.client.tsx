@@ -27,7 +27,7 @@ async function fetchTodos(settings: TodoSettings): Promise<TodoItem[]> {
   const json = await res.json().catch(() => ({}))
   const items = Array.isArray(json.items) ? json.items : []
   return items
-    .map((candidate): TodoItem | null => {
+    .map((candidate: unknown): TodoItem | null => {
       if (!candidate || typeof candidate !== 'object') return null
       const record = candidate as Record<string, unknown>
       const id = typeof record.id === 'string' || typeof record.id === 'number' ? String(record.id) : ''
@@ -37,7 +37,7 @@ async function fetchTodos(settings: TodoSettings): Promise<TodoItem[]> {
       if (!id || !title) return null
       return { id, title, is_done: isDone }
     })
-    .filter((todo): todo is TodoItem => todo !== null)
+    .filter((todo: TodoItem | null): todo is TodoItem => todo !== null)
 }
 
 async function createTodo(title: string): Promise<void> {
