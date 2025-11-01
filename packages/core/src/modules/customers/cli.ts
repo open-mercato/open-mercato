@@ -163,7 +163,7 @@ type ExamplePerson = {
 
 type ExampleDealParticipant = {
   slug: string
-  role?: string
+  participantRole?: string
 }
 
 type ExampleActivity = {
@@ -363,8 +363,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           requires_legal_review: true,
         },
         people: [
-          { slug: 'mia-johnson', role: 'Project Sponsor' },
-          { slug: 'daniel-cho', role: 'Executive Sponsor' },
+          { slug: 'mia-johnson', participantRole: 'Project Sponsor' },
+          { slug: 'daniel-cho', participantRole: 'Executive Sponsor' },
         ],
         activities: [
           {
@@ -417,7 +417,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           estimated_seats: 28,
           requires_legal_review: false,
         },
-        people: [{ slug: 'mia-johnson', role: 'Point of Contact' }],
+        people: [{ slug: 'mia-johnson', participantRole: 'Point of Contact' }],
         activities: [
           {
             slug: 'sunset-energy-audit',
@@ -562,8 +562,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           requires_legal_review: false,
         },
         people: [
-          { slug: 'arjun-patel', role: 'Executive Sponsor' },
-          { slug: 'lena-ortiz', role: 'Account Lead' },
+          { slug: 'arjun-patel', participantRole: 'Executive Sponsor' },
+          { slug: 'lena-ortiz', participantRole: 'Account Lead' },
         ],
         activities: [
           {
@@ -616,7 +616,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           estimated_seats: 120,
           requires_legal_review: true,
         },
-        people: [{ slug: 'lena-ortiz', role: 'Account Lead' }],
+        people: [{ slug: 'lena-ortiz', participantRole: 'Account Lead' }],
         activities: [
           {
             slug: 'midwest-forecasting-call',
@@ -762,8 +762,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           requires_legal_review: true,
         },
         people: [
-          { slug: 'taylor-brooks', role: 'Principal Designer' },
-          { slug: 'naomi-harris', role: 'Project Lead' },
+          { slug: 'taylor-brooks', participantRole: 'Principal Designer' },
+          { slug: 'naomi-harris', participantRole: 'Project Lead' },
         ],
         activities: [
           {
@@ -801,7 +801,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           estimated_seats: 8,
           requires_legal_review: false,
         },
-        people: [{ slug: 'taylor-brooks', role: 'Principal Designer' }],
+        people: [{ slug: 'taylor-brooks', participantRole: 'Principal Designer' }],
         activities: [
           {
             slug: 'cedar-creek-loss-note',
@@ -1692,7 +1692,7 @@ async function seedCustomerExamples(
         const link = em.create(CustomerDealPersonLink, {
           deal,
           person: personEntity,
-          role: participant.role ?? null,
+          participantRole: participant.participantRole ?? null,
           createdAt: new Date(),
         })
         em.persist(link)

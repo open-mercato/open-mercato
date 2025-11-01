@@ -8,6 +8,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 
+type CliProgressBar = {
+  update(completed: number): void
+  complete(): void
+}
+
 type ParsedArgs = Record<string, string | boolean>
 
 function parseArgs(rest: string[]): ParsedArgs {
@@ -299,7 +304,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
             partitionVectorService = null
           }
           try {
-            let progressBar: ReturnType<typeof createProgressBar> | null = null
+            let progressBar: CliProgressBar | null = null
             const useBar = partitionTargets.length === 1
             const stats = await reindexEntity(partitionEm, {
               entityType,
@@ -324,7 +329,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
                 }
               },
             })
-            progressBar?.complete()
+            if (progressBar) (progressBar as CliProgressBar).complete()
             if (!useBar) {
               renderProgress(part, { processed: stats.processed, total: stats.total })
             } else {

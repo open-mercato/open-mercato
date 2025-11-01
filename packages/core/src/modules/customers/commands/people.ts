@@ -140,7 +140,7 @@ type PersonSnapshot = {
   deals: Array<{
     id: string
     dealId: string
-    role: string | null
+    participantRole: string | null
     createdAt: Date
   }>
   activities: PersonActivitySnapshot[]
@@ -256,7 +256,7 @@ function serializePersonSnapshot(
       .map((link) => ({
         id: link.id,
         dealId: link.deal.id,
-        role: link.role ?? null,
+        participantRole: link.participantRole ?? null,
         createdAt: link.createdAt,
       })),
     activities: activities.map((activity) => ({
@@ -1054,7 +1054,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           id: link.id,
           deal,
           person: entity,
-          role: link.role,
+          participantRole: link.participantRole,
           createdAt: link.createdAt,
         })
         em.persist(restoredLink)

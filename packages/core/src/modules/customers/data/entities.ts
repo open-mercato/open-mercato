@@ -329,7 +329,7 @@ export class CustomerDealPersonLink {
   id!: string
 
   @Property({ name: 'role', type: 'text', nullable: true })
-  role?: string | null
+  participantRole?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

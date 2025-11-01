@@ -22,19 +22,20 @@ export function LastOperationBanner() {
   const isPending = pendingToken === operation.undoToken
 
   async function handleUndo() {
-    if (!operation.undoToken || isPending) return
-    setPendingToken(operation.undoToken)
+    const undoToken = operation?.undoToken
+    if (!undoToken || isPending) return
+    setPendingToken(undoToken)
     try {
       const res = await apiFetch('/api/audit_logs/audit-logs/actions/undo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ undoToken: operation.undoToken }),
+        body: JSON.stringify({ undoToken }),
       })
       if (!res.ok) {
         const message = await res.text().catch(() => '')
         throw new Error(message || 'Failed to undo')
       }
-      markUndoSuccess(operation.undoToken)
+      markUndoSuccess(undoToken)
       flash(t('audit_logs.banner.undo_success'), 'success')
       router.refresh()
       if (typeof window !== 'undefined') {

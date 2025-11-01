@@ -67,18 +67,19 @@ export async function fetchCustomFieldDefs(entityIds: string | string[], fetchIm
   return items
 }
 
-export type UseCustomFieldDefsOptions = {
+export type UseCustomFieldDefsOptions<TData = CustomFieldDefDto[]> = {
   enabled?: boolean
   staleTime?: number
   gcTime?: number
   fetchImpl?: typeof fetch
   keyExtras?: Array<string | number | boolean | null | undefined>
+  select?: (data: CustomFieldDefDto[]) => TData
 }
 
-export function useCustomFieldDefs(
+export function useCustomFieldDefs<TData = CustomFieldDefDto[]>(
   entityIds: string | string[] | null | undefined,
-  options: UseCustomFieldDefsOptions = {}
-): UseQueryResult<CustomFieldDefDto[]> {
+  options: UseCustomFieldDefsOptions<TData> = {}
+): UseQueryResult<TData> {
   const {
     enabled: enabledOption = true,
     staleTime,
@@ -95,12 +96,13 @@ export function useCustomFieldDefs(
   )
   const enabled = enabledOption && normalizedIds.length > 0
 
-  return useQuery<CustomFieldDefDto[]>({
+  return useQuery<CustomFieldDefDto[], Error, TData>({
     queryKey,
     queryFn: () => fetchCustomFieldDefs(normalizedIds, fetchImpl),
     enabled,
     staleTime: staleTime ?? 5 * 60 * 1000,
     gcTime: gcTime ?? 30 * 60 * 1000,
+    select: options.select,
   })
 }
 

@@ -5,6 +5,7 @@ import type {
   SystemStatusSnapshot,
   SystemStatusVariableKind,
   SystemStatusState,
+  SystemStatusRuntimeMode,
 } from './system-status.types'
 
 type SystemStatusVariableDefinition = {
@@ -245,6 +246,16 @@ function buildCategorySnapshot(
   }
 }
 
+function resolveRuntimeMode(env: Record<string, string | undefined>): SystemStatusRuntimeMode {
+  const raw = env.NODE_ENV
+  if (typeof raw !== 'string') return 'unknown'
+  const value = raw.trim().toLowerCase()
+  if (value === 'development') return 'development'
+  if (value === 'production') return 'production'
+  if (value === 'test') return 'test'
+  return 'unknown'
+}
+
 export function buildSystemStatusSnapshot(
   env: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
 ): SystemStatusSnapshot {
@@ -267,6 +278,7 @@ export function buildSystemStatusSnapshot(
 
   return {
     generatedAt: new Date().toISOString(),
+    runtimeMode: resolveRuntimeMode(env),
     categories,
   }
 }

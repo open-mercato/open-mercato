@@ -19,6 +19,8 @@ import type {
   VectorDriverCountParams,
   VectorIndexEntry,
   VectorDriverRemoveOrphansParams,
+  VectorResultPresenter,
+  VectorLinkDescriptor,
 } from '../../types'
 
 type PgVectorDriverOptions = {
@@ -325,9 +327,9 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
         recordId: row.record_id,
         checksum: row.checksum,
         url: row.url ?? null,
-        presenter: parseJsonColumn(row.presenter),
-        links: parseJsonColumn(row.links),
-        payload: parseJsonColumn(row.payload),
+        presenter: parseJsonColumn<VectorResultPresenter>(row.presenter),
+        links: parseJsonColumn<VectorLinkDescriptor[]>(row.links),
+        payload: parseJsonColumn<Record<string, unknown>>(row.payload),
         resultTitle: row.result_title ?? '',
         resultSubtitle: row.result_subtitle ?? null,
         resultIcon: row.result_icon ?? null,
@@ -417,9 +419,9 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       updated_at: Date | string
     }>(sql, values)
     return res.rows.map<VectorIndexEntry>((row) => {
-      const presenter = parseJsonColumn(row.presenter)
-      const links = parseJsonColumn(row.links)
-      const payload = parseJsonColumn(row.payload)
+      const presenter = parseJsonColumn<VectorResultPresenter>(row.presenter)
+      const links = parseJsonColumn<VectorLinkDescriptor[]>(row.links)
+      const payload = parseJsonColumn<Record<string, unknown>>(row.payload)
       const createdAt =
         row.created_at instanceof Date
           ? row.created_at.toISOString()

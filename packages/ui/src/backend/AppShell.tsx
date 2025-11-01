@@ -191,7 +191,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       const responseOrder = Array.isArray(rawSettings?.groupOrder)
         ? rawSettings.groupOrder
             .map((id: unknown) => (typeof id === 'string' ? id.trim() : ''))
-            .filter((id): id is string => typeof id === 'string' && id.length > 0)
+            .filter((id: string) => id.length > 0)
         : []
       const responseGroupLabels: Record<string, string> = {}
       if (rawSettings?.groupLabels && typeof rawSettings.groupLabels === 'object') {
@@ -214,7 +214,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       const responseHiddenItems = Array.isArray(rawSettings?.hiddenItems)
         ? rawSettings.hiddenItems
             .map((href: unknown) => (typeof href === 'string' ? href.trim() : ''))
-            .filter((href): href is string => typeof href === 'string' && href.length > 0)
+            .filter((href: string) => href.length > 0)
         : []
       const canManageRoles = data?.canApplyToRoles === true
       setCanApplyToRoles(canManageRoles)

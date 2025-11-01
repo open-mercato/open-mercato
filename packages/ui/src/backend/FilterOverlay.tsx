@@ -224,9 +224,9 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
                     const arr: string[] = Array.isArray(values[f.id]) ? values[f.id] : []
                     const staticOptions = f.options || dynamicOptions[f.id] || []
                     const loadSuggestions = (f as any).loadOptions
-                      ? async (q: string) => {
+                      ? async (q?: string) => {
                           try {
-                            const opts = await (f as any).loadOptions(q)
+                            const opts = await (f as any).loadOptions(q ?? '')
                             return opts.map((o: FilterOption) => o.label)
                           } catch {
                             return []

@@ -4,7 +4,12 @@ import * as React from 'react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
-import type { SystemStatusSnapshot, SystemStatusItem, SystemStatusState } from '../lib/system-status.types'
+import type {
+  SystemStatusSnapshot,
+  SystemStatusItem,
+  SystemStatusState,
+  SystemStatusRuntimeMode,
+} from '../lib/system-status.types'
 
 const API_PATH = '/api/configs/system-status'
 const ENV_GUIDE_URL = 'https://docs.openmercato.com/docs/framework/operations/system-status#managing-variables'
@@ -25,10 +30,21 @@ const STATUS_BADGE_CLASSES: Record<SystemStatusState, string> = {
   unknown: 'border border-amber-300 bg-amber-50 text-amber-700',
 }
 
+const RUNTIME_MODE_LABEL_KEYS: Record<SystemStatusRuntimeMode, string> = {
+  development: 'configs.systemStatus.runtime.development',
+  production: 'configs.systemStatus.runtime.production',
+  test: 'configs.systemStatus.runtime.test',
+  unknown: 'configs.systemStatus.runtime.unknown',
+}
+
+const KNOWN_RUNTIME_MODES = new Set<SystemStatusRuntimeMode>(['development', 'production', 'test', 'unknown'])
+
 function isSystemStatusSnapshot(payload: unknown): payload is SystemStatusSnapshot {
   if (!payload || typeof payload !== 'object') return false
-  const value = payload as { categories?: unknown }
+  const value = payload as { categories?: unknown; runtimeMode?: unknown }
   if (!Array.isArray(value.categories)) return false
+  if (typeof value.runtimeMode !== 'string') return false
+  if (!KNOWN_RUNTIME_MODES.has(value.runtimeMode as SystemStatusRuntimeMode)) return false
   return value.categories.every((category) => {
     if (!category || typeof category !== 'object') return false
     const entry = category as { key?: unknown; items?: unknown }
@@ -176,6 +192,13 @@ export function SystemStatusPanel() {
         <h2 className="text-lg font-semibold">{t('configs.systemStatus.title', 'System status')}</h2>
         <p className="text-sm text-muted-foreground">
           {t('configs.systemStatus.description', 'Review debugging, cache, and logging flags that shape backend behaviour.')}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            'configs.systemStatus.runtimeMode',
+            'Runtime mode: {{mode}}',
+            { mode: t(RUNTIME_MODE_LABEL_KEYS[snapshot.runtimeMode]) }
+          )}
         </p>
         <p className="text-xs text-muted-foreground">
           {t(

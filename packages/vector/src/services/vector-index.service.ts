@@ -766,8 +766,9 @@ export class VectorIndexService {
     try {
       const container = this.opts.containerResolver()
       if (!container || typeof (container as any).resolve !== 'function') return null
-      const em = (container as any).resolve<EntityManager>('em')
-      return em ?? null
+      const resolver = container as { resolve(name: string): unknown }
+      const em = resolver.resolve('em')
+      return (em as EntityManager | null) ?? null
     } catch {
       return null
     }

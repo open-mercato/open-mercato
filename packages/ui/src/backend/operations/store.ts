@@ -43,10 +43,14 @@ function loadState(): OperationStoreState {
     const parsed = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object') return DEFAULT_STATE
     const stack = Array.isArray(parsed.stack) ? parsed.stack.filter(isValidEntry).map(hydrateEntry) : []
-    const undone = Array.isArray(parsed.undone) ? parsed.undone.filter(isValidEntry).map(hydrateEntry).map((entry) => ({
-      ...entry,
-      undoneAt: typeof entry.undoneAt === 'number' ? entry.undoneAt : now(),
-    })) : []
+    const undone = Array.isArray(parsed.undone)
+      ? parsed.undone.filter(isValidEntry).map((raw: unknown) => {
+          const hydrated = hydrateEntry(raw)
+          const candidate = raw as { undoneAt?: unknown }
+          const undoneAt = typeof candidate.undoneAt === 'number' ? candidate.undoneAt : now()
+          return { ...hydrated, undoneAt }
+        })
+      : []
     return pruneState({ stack, undone })
   } catch {
     return DEFAULT_STATE
@@ -54,13 +58,15 @@ function loadState(): OperationStoreState {
 }
 
 function isValidEntry(entry: unknown): entry is OperationEntry {
-  return entry
-    && typeof entry === 'object'
-    && typeof entry.id === 'string'
-    && typeof entry.undoToken === 'string'
-    && typeof entry.commandId === 'string'
-    && typeof entry.receivedAt === 'number'
-    && typeof entry.executedAt === 'string'
+  if (entry == null || typeof entry !== 'object') return false
+  const candidate = entry as Record<string, unknown>
+  return (
+    typeof candidate.id === 'string'
+    && typeof candidate.undoToken === 'string'
+    && typeof candidate.commandId === 'string'
+    && typeof candidate.receivedAt === 'number'
+    && typeof candidate.executedAt === 'string'
+  )
 }
 
 function hydrateEntry(entry: unknown): OperationEntry {
