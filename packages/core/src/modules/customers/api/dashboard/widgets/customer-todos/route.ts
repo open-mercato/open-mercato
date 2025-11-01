@@ -130,7 +130,7 @@ export async function GET(req: Request) {
       }
     )
 
-    const queryEngine = container.resolve<QueryEngine>('queryEngine')
+    const queryEngine = (container.resolve('queryEngine') as QueryEngine)
     const todoSummaries = await resolveTodoSummaries(queryEngine, links, tenantId, organizationIds)
 
     const items = links.map((link) => {

@@ -191,7 +191,7 @@ const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string 
   id: 'catalog.options.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(optionCreateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const product = await requireProduct(em, parsed.productId)
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
@@ -224,12 +224,11 @@ const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string 
     return { optionId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return loadOptionSnapshot(em, result.optionId)
   },
-  buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve<EntityManager>('em')
-    const after = await loadOptionSnapshot(em, result.optionId)
+  buildLog: async ({ result, snapshots }) => {
+    const after = snapshots.after as OptionSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -250,7 +249,7 @@ const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string 
     const payload = extractUndoPayload<OptionUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductOption, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -275,7 +274,7 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
   id: 'catalog.options.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Option id is required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadOptionSnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
@@ -285,7 +284,7 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(optionUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductOption, { id: parsed.id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog option not found' })
     const product = record.product as CatalogProduct | string
@@ -317,13 +316,12 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
     return { optionId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return loadOptionSnapshot(em, result.optionId)
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as OptionSnapshot | undefined
-    const em = ctx.container.resolve<EntityManager>('em')
-    const after = await loadOptionSnapshot(em, result.optionId)
+    const after = snapshots.after as OptionSnapshot | undefined
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -352,7 +350,7 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
     const before = payload?.before
     if (!before) return
     const after = payload?.after
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductOption, { id: before.id })
     if (!record) {
       const product = await requireProduct(em, before.productId)
@@ -401,7 +399,7 @@ const deleteOptionCommand: CommandHandler<
   id: 'catalog.options.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Option id is required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadOptionSnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
@@ -411,7 +409,7 @@ const deleteOptionCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Option id is required')
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductOption, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog option not found' })
     const product = record.product as CatalogProduct | string
@@ -420,7 +418,7 @@ const deleteOptionCommand: CommandHandler<
     ensureTenantScope(ctx, productEntity.tenantId)
     ensureOrganizationScope(ctx, productEntity.organizationId)
 
-    const baseEm = ctx.container.resolve<EntityManager>('em')
+    const baseEm = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadOptionSnapshot(baseEm, id)
 
     const optionValueCount = await em.count(CatalogProductOptionValue, { option: record })
@@ -475,7 +473,7 @@ const deleteOptionCommand: CommandHandler<
     const payload = extractUndoPayload<OptionUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductOption, { id: before.id })
     if (!record) {
       const product = await requireProduct(em, before.productId)
@@ -518,7 +516,7 @@ const createOptionValueCommand: CommandHandler<OptionValueCreateInput, { optionV
     id: 'catalog.option-values.create',
     async execute(rawInput, ctx) {
       const { parsed, custom } = parseWithCustomFields(optionValueCreateSchema, rawInput)
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const option = await requireOption(em, parsed.optionId)
       const product = option.product as CatalogProduct | string
       const productEntity =
@@ -552,12 +550,11 @@ const createOptionValueCommand: CommandHandler<OptionValueCreateInput, { optionV
       return { optionValueId: record.id }
     },
     captureAfter: async (_input, result, ctx) => {
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       return loadOptionValueSnapshot(em, result.optionValueId)
     },
-    buildLog: async ({ result, ctx }) => {
-      const em = ctx.container.resolve<EntityManager>('em')
-      const after = await loadOptionValueSnapshot(em, result.optionValueId)
+    buildLog: async ({ result, snapshots }) => {
+      const after = snapshots.after as OptionValueSnapshot | undefined
       if (!after) return null
       const { translate } = await resolveTranslations()
       return {
@@ -578,7 +575,7 @@ const createOptionValueCommand: CommandHandler<OptionValueCreateInput, { optionV
       const payload = extractUndoPayload<OptionValueUndoPayload>(logEntry)
       const after = payload?.after
       if (!after) return
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const record = await em.findOne(CatalogProductOptionValue, { id: after.id })
       if (!record) return
       ensureTenantScope(ctx, record.tenantId)
@@ -605,7 +602,7 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
     id: 'catalog.option-values.update',
     async prepare(input, ctx) {
       const id = requireId(input, 'Option value id is required')
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const snapshot = await loadOptionValueSnapshot(em, id)
       if (snapshot) {
         ensureTenantScope(ctx, snapshot.tenantId)
@@ -615,7 +612,7 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
     },
     async execute(rawInput, ctx) {
       const { parsed, custom } = parseWithCustomFields(optionValueUpdateSchema, rawInput)
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const record = await em.findOne(CatalogProductOptionValue, { id: parsed.id })
       if (!record) throw new CrudHttpError(404, { error: 'Option value not found' })
       const option = record.option as CatalogProductOption | string
@@ -648,13 +645,12 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
       return { optionValueId: record.id }
     },
     captureAfter: async (_input, result, ctx) => {
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       return loadOptionValueSnapshot(em, result.optionValueId)
     },
     buildLog: async ({ result, ctx, snapshots }) => {
       const before = snapshots.before as OptionValueSnapshot | undefined
-      const em = ctx.container.resolve<EntityManager>('em')
-      const after = await loadOptionValueSnapshot(em, result.optionValueId)
+      const after = snapshots.after as OptionValueSnapshot | undefined
       if (!before || !after) return null
       const { translate } = await resolveTranslations()
       return {
@@ -683,7 +679,7 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
       const before = payload?.before
       if (!before) return
       const after = payload?.after
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       let record = await em.findOne(CatalogProductOptionValue, { id: before.id })
       if (!record) {
         const option = await requireOption(em, before.optionId)
@@ -730,7 +726,7 @@ const deleteOptionValueCommand: CommandHandler<
   id: 'catalog.option-values.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Option value id is required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadOptionValueSnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
@@ -740,7 +736,7 @@ const deleteOptionValueCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Option value id is required')
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductOptionValue, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Option value not found' })
     const option = record.option as CatalogProductOption | string
@@ -752,7 +748,7 @@ const deleteOptionValueCommand: CommandHandler<
     ensureTenantScope(ctx, productEntity.tenantId)
     ensureOrganizationScope(ctx, productEntity.organizationId)
 
-    const baseEm = ctx.container.resolve<EntityManager>('em')
+    const baseEm = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadOptionValueSnapshot(baseEm, id)
 
     const usageCount = await em.count(CatalogVariantOptionValue, { optionValue: record })
@@ -801,7 +797,7 @@ const deleteOptionValueCommand: CommandHandler<
     const before = payload?.before
     if (!before) return
     const after = payload?.after
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductOptionValue, { id: before.id })
     if (!record) {
       const option = await requireOption(em, before.optionId)

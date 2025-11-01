@@ -140,7 +140,7 @@ const crud = makeCrudRoute({
       )
       if (!dealIds.length) return
       try {
-        const em = ctx.container.resolve<EntityManager>('em')
+        const em = (ctx.container.resolve('em') as EntityManager)
         const deals = await em.find(CustomerDeal, { id: { $in: dealIds } })
         const map = new Map<string, string>()
         deals.forEach((deal: CustomerDeal) => {

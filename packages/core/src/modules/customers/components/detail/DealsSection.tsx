@@ -113,7 +113,10 @@ function sanitizeCustomFieldEntries(
   return Array.from(map.values())
 }
 
-type NormalizedDeal = DealSummary & {
+type NormalizedDeal = Omit<DealSummary, 'valueAmount' | 'probability' | 'expectedCloseAt' | 'customValues' | 'customFields'> & {
+  valueAmount: number | null
+  probability: number | null
+  expectedCloseAt: string | null
   customValues: Record<string, unknown> | null
   customFields: DealCustomFieldEntry[]
 }
@@ -241,9 +244,19 @@ function buildInitialValues(deal: NormalizedDeal): Partial<DealFormBaseValues & 
     title: deal.title,
     status: deal.status ?? '',
     pipelineStage: deal.pipelineStage ?? '',
-    valueAmount: deal.valueAmount ?? null,
+    valueAmount: (() => {
+      if (typeof deal.valueAmount === 'number') return deal.valueAmount
+      if (deal.valueAmount == null) return null
+      const parsed = Number(deal.valueAmount)
+      return Number.isFinite(parsed) ? parsed : null
+    })(),
     valueCurrency: deal.valueCurrency ?? '',
-    probability: deal.probability ?? null,
+    probability: (() => {
+      if (typeof deal.probability === 'number') return deal.probability
+      if (deal.probability == null) return null
+      const parsed = Number(deal.probability)
+      return Number.isFinite(parsed) ? parsed : null
+    })(),
     expectedCloseAt: deal.expectedCloseAt ?? null,
     description: deal.description ?? '',
     personIds: Array.isArray(deal.personIds) ? deal.personIds : [],
@@ -381,7 +394,7 @@ export function DealsSection({
         throw new Error(message)
       }
       const rawItems = Array.isArray(payload?.items) ? payload.items : []
-      const mapped = rawItems.map((item) => {
+      const mapped: NormalizedDeal[] = rawItems.map((item: unknown) => {
         const record = (item && typeof item === 'object') ? (item as Record<string, unknown>) : {}
         const id =
           typeof record.id === 'string' && record.id.trim().length ? record.id : generateTempId()
@@ -397,13 +410,13 @@ export function DealsSection({
             : typeof record.pipeline_stage === 'string' && record.pipeline_stage.trim().length
               ? record.pipeline_stage.trim()
               : null
-        const valueAmount = record.valueAmount ?? record.value_amount ?? null
+        const valueAmount = toNumber(record.valueAmount ?? record.value_amount)
         const valueCurrencyRaw = record.valueCurrency ?? record.value_currency ?? null
         const valueCurrency =
           typeof valueCurrencyRaw === 'string' && valueCurrencyRaw.trim().length
             ? valueCurrencyRaw.trim().toUpperCase()
             : null
-        const probability = record.probability ?? null
+        const probability = toNumber(record.probability)
         const expectedCloseAt =
           typeof record.expectedCloseAt === 'string' && record.expectedCloseAt.trim().length
             ? record.expectedCloseAt
@@ -460,9 +473,9 @@ export function DealsSection({
           title,
           status,
           pipelineStage,
-          valueAmount: valueAmount as number | string | null,
+          valueAmount,
           valueCurrency,
-          probability: probability as number | string | null,
+          probability,
           expectedCloseAt,
           description,
           ownerUserId,
@@ -817,7 +830,7 @@ export function DealsSection({
       ) : null}
       <div className="space-y-4">
         {sortedDeals.map((deal) => {
-          const valueLabel = formatValueLabel(deal.valueAmount ?? null, deal.valueCurrency ?? null, emptyLabel)
+          const valueLabel = formatValueLabel(deal.valueAmount, deal.valueCurrency ?? null, emptyLabel)
           const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) ?? emptyLabel : emptyLabel
           const probabilityLabel =
             typeof deal.probability === 'number' ? `${deal.probability}%` : emptyLabel

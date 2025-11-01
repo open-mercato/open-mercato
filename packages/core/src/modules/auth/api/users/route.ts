@@ -129,7 +129,7 @@ export async function GET(req: Request) {
   })
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const container = await createRequestContainer()
-  const em = container.resolve<EntityManager>('em')
+  const em = (container.resolve('em') as EntityManager)
   let isSuperAdmin = false
   try {
     if (auth.sub) {

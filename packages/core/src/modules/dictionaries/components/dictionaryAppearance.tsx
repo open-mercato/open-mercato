@@ -453,23 +453,22 @@ export function renderDictionaryColor(color: string | null | undefined, classNam
 
 export function normalizeDictionaryEntries(items: unknown): DictionaryDisplayEntry[] {
   if (!Array.isArray(items)) return []
-  return items
-    .map((item) => {
-      if (!item || typeof item !== 'object') return null
-      const candidate = item as Record<string, unknown>
-      const rawValue = typeof candidate.value === 'string' ? candidate.value.trim() : ''
-      if (!rawValue) return null
-      const label =
-        typeof candidate.label === 'string' && candidate.label.trim().length ? candidate.label.trim() : rawValue
-      const color =
-        typeof candidate.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(candidate.color)
-          ? `#${candidate.color.slice(1).toLowerCase()}`
-          : null
-      const icon = typeof candidate.icon === 'string' && candidate.icon.trim().length ? candidate.icon.trim() : null
-      return { value: rawValue, label, color, icon }
-    })
-    .filter((entry): entry is DictionaryDisplayEntry => !!entry)
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+  const entries: DictionaryDisplayEntry[] = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const candidate = item as Record<string, unknown>
+    const rawValue = typeof candidate.value === 'string' ? candidate.value.trim() : ''
+    if (!rawValue) continue
+    const label =
+      typeof candidate.label === 'string' && candidate.label.trim().length ? candidate.label.trim() : rawValue
+    const color =
+      typeof candidate.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(candidate.color)
+        ? `#${candidate.color.slice(1).toLowerCase()}`
+        : null
+    const icon = typeof candidate.icon === 'string' && candidate.icon.trim().length ? candidate.icon.trim() : null
+    entries.push({ value: rawValue, label, color, icon })
+  }
+  return entries.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
 }
 
 export function createDictionaryMap(entries: DictionaryDisplayEntry[]): DictionaryMap {
@@ -516,4 +515,3 @@ export function DictionaryValue({
     </span>
   )
 }
-

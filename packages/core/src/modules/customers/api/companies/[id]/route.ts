@@ -305,7 +305,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
-  const em = container.resolve<EntityManager>('em')
+  const em = (container.resolve('em') as EntityManager)
 
   const company = await em.findOne(
     CustomerEntity,
@@ -344,7 +344,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
   let todoDetails = new Map<string, TodoDetail>()
   if (includeTodos && todoLinks.length) {
-    const queryEngine = container.resolve<QueryEngine>('queryEngine')
+    const queryEngine = (container.resolve('queryEngine') as QueryEngine)
     try {
       todoDetails = await resolveTodoDetails(
         queryEngine,

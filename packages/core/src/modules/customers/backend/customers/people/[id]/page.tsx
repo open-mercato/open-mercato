@@ -334,7 +334,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     const confirmed =
       typeof window === 'undefined'
         ? true
-        : window.confirm(t('customers.people.list.deleteConfirm', { name: personName }))
+        : window.confirm(t('customers.people.list.deleteConfirm', undefined, { name: personName }))
     if (!confirmed) return
     setIsDeleting(true)
     try {

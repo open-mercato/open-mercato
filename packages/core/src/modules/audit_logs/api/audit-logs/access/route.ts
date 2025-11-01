@@ -77,9 +77,9 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const { organizationId: defaultOrganizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
 
-  const rbac = container.resolve<RbacService>('rbacService')
-  const accessLogs = container.resolve<AccessLogService>('accessLogService')
-  const em = container.resolve<EntityManager>('em')
+  const rbac = (container.resolve('rbacService') as RbacService)
+  const accessLogs = (container.resolve('accessLogService') as AccessLogService)
+  const em = (container.resolve('em') as EntityManager)
 
   const canViewTenant = await rbac.userHasAllFeatures(
     auth.sub,

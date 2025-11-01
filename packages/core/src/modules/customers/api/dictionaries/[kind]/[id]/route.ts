@@ -36,7 +36,7 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
     const payload = patchSchema.parse(await req.json().catch(() => ({})))
-    const commandBus = routeContext.container.resolve<CommandBus>('commandBus')
+    const commandBus = (routeContext.container.resolve('commandBus') as CommandBus)
     let commandResult: CommandExecuteResult<{ entryId: string; changed: boolean }>
     try {
       commandResult = (await commandBus.execute('customers.dictionaryEntries.update', {
@@ -120,7 +120,7 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
     const routeContext = await resolveDictionaryRouteContext(req)
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
-    const commandBus = routeContext.container.resolve<CommandBus>('commandBus')
+    const commandBus = (routeContext.container.resolve('commandBus') as CommandBus)
     let deleteResult: CommandExecuteResult<{ entryId: string }>
     try {
       deleteResult = (await commandBus.execute('customers.dictionaryEntries.delete', {

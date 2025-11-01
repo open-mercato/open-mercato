@@ -151,7 +151,7 @@ const crud = makeCrudRoute<
         throw json({ items: [], total: 0, page, pageSize, totalPages: 0 })
       }
 
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const qb = em.createQueryBuilder(ApiKey, 'k')
       qb.where({ deletedAt: null })
       qb.andWhere({ tenantId: auth.tenantId })
@@ -233,7 +233,7 @@ const crud = makeCrudRoute<
       const secretData = generateApiKeySecret()
       scopedCtx.__apiKeySecret = secretData
 
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const roleTokens = Array.isArray(input.roles) ? input.roles.filter((value) => typeof value === 'string' && value.trim().length > 0) : []
       const roleEntities: Role[] = []
       const roleIds: string[] = []
@@ -277,7 +277,7 @@ const crud = makeCrudRoute<
       if (secretData) (entity as ApiKeyEntityWithMeta).__apiKeySecret = secretData.secret
       if (roles) (entity as ApiKeyEntityWithMeta).__apiKeyRoles = roles
       try {
-        const rbac = ctx.container.resolve<RbacService>('rbacService')
+        const rbac = (ctx.container.resolve('rbacService') as RbacService)
         await rbac.invalidateUserCache(`api_key:${entity.id}`)
       } catch {}
     },
@@ -285,7 +285,7 @@ const crud = makeCrudRoute<
       const auth = ctx.auth
       const { translate } = await resolveTranslations()
       if (!auth?.tenantId) throw json({ error: translate('api_keys.errors.tenantRequired', 'Tenant context required') }, { status: 400 })
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const record = await em.findOne(ApiKey, { id, deletedAt: null })
       if (!record) throw json({ error: translate('api_keys.errors.notFound', 'Not found') }, { status: 404 })
       const scopedCtx = ctx as ApiKeyCrudCtx
@@ -303,7 +303,7 @@ const crud = makeCrudRoute<
     },
     afterDelete: async (id, ctx) => {
       try {
-        const rbac = ctx.container.resolve<RbacService>('rbacService')
+        const rbac = (ctx.container.resolve('rbacService') as RbacService)
         await rbac.invalidateUserCache(`api_key:${id}`)
       } catch {}
     },

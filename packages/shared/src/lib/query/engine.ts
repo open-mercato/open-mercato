@@ -216,7 +216,13 @@ export class BasicQueryEngine implements QueryEngine {
               inner.where({ tenant_id: tenantId }).orWhereNull('tenant_id')
             })
           })
-        const sorted = rows.map((row: any) => {
+        type CustomFieldDefinitionRow = {
+          key: string
+          entityId: string
+          kind: string
+          config: Record<string, unknown>
+        }
+        const sorted: CustomFieldDefinitionRow[] = rows.map((row: any) => {
           const raw = row.config_json
           let cfg: Record<string, any> = {}
           if (raw && typeof raw === 'string') {
@@ -231,7 +237,7 @@ export class BasicQueryEngine implements QueryEngine {
             config: cfg,
           }
         })
-        sorted.sort((a, b) => {
+        sorted.sort((a: CustomFieldDefinitionRow, b: CustomFieldDefinitionRow) => {
           const ai = entityOrder.get(a.entityId) ?? Number.MAX_SAFE_INTEGER
           const bi = entityOrder.get(b.entityId) ?? Number.MAX_SAFE_INTEGER
           if (ai !== bi) return ai - bi

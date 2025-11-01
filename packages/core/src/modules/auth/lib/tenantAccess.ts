@@ -42,7 +42,7 @@ export async function resolveIsSuperAdmin(ctx: TenantGuardCtx): Promise<boolean>
     return true
   }
   try {
-    const rbac = ctx.container.resolve<RbacService>('rbacService')
+    const rbac = (ctx.container.resolve('rbacService') as RbacService)
     const acl = await rbac.loadAcl(auth.sub, {
       tenantId: auth.tenantId ?? null,
       organizationId: auth.orgId ?? null,

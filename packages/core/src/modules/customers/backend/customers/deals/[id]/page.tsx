@@ -404,11 +404,11 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const peopleSummaryLabel =
     data.people.length === 1
       ? t('customers.deals.detail.peopleSummaryOne')
-      : t('customers.deals.detail.peopleSummaryMany', { count: data.people.length })
+      : t('customers.deals.detail.peopleSummaryMany', undefined, { count: data.people.length })
   const companiesSummaryLabel =
     data.companies.length === 1
       ? t('customers.deals.detail.companiesSummaryOne')
-      : t('customers.deals.detail.companiesSummaryMany', { count: data.companies.length })
+      : t('customers.deals.detail.companiesSummaryMany', undefined, { count: data.companies.length })
 
   const viewer = data.viewer ?? null
 
@@ -435,7 +435,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                 </Button>
               </div>
               <p className="text-sm text-muted-foreground">
-                {t('customers.deals.detail.summary', {
+                {t('customers.deals.detail.summary', undefined, {
                   status: statusLabel,
                   pipeline: pipelineLabel ?? t('customers.deals.detail.noPipeline', 'No pipeline'),
                 })}

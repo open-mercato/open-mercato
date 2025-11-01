@@ -145,7 +145,7 @@ export async function seedExampleTodos(
   }
   await em.flush()
 
-  const de = container.resolve<DataEngine>('dataEngine')
+  const de = (container.resolve('dataEngine') as DataEngine)
   for (let i = 0; i < todos.length; i++) {
     const todo = todos[i]
     const seed = EXAMPLE_TODO_SEEDS[i]
@@ -190,7 +190,7 @@ const seedTodos: ModuleCli = {
     const orgId = orgIdArg as string
     const tenantId = tenantIdArg as string
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
+    const em = (container.resolve('em') as EntityManager)
 
     await seedExampleTodos(em, container, { organizationId: orgId, tenantId }, { logger: (message) => console.log(message) })
   },

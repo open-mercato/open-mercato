@@ -68,7 +68,7 @@ const CURRENCY_PRIORITY = ['EUR', 'USD', 'GBP', 'PLN'] as const
 
 const schema = z.object({
   title: z
-    .string({ required_error: 'customers.people.detail.deals.titleRequired' })
+    .string()
     .trim()
     .min(1, 'customers.people.detail.deals.titleRequired')
     .max(200, 'customers.people.detail.deals.titleTooLong'),
@@ -501,8 +501,8 @@ export function DealForm({
     }
     const items = Array.isArray(payload.items) ? payload.items : []
     return items
-      .map((item) => (item && typeof item === 'object' ? extractPersonOption(item as Record<string, unknown>) : null))
-      .filter((entry): entry is EntityOption => !!entry)
+      .map((item: unknown) => (item && typeof item === 'object' ? extractPersonOption(item as Record<string, unknown>) : null))
+      .filter((entry: EntityOption | null): entry is EntityOption => entry !== null)
   }, [])
 
   const fetchPeopleByIds = React.useCallback(async (ids: string[]): Promise<EntityOption[]> => {
@@ -515,8 +515,8 @@ export function DealForm({
         if (!res.ok) throw new Error()
         const items = Array.isArray(payload.items) ? payload.items : []
         const option = items
-          .map((item) => (item && typeof item === 'object' ? extractPersonOption(item as Record<string, unknown>) : null))
-          .find((candidate): candidate is EntityOption => !!candidate)
+          .map((item: unknown) => (item && typeof item === 'object' ? extractPersonOption(item as Record<string, unknown>) : null))
+          .find((candidate: EntityOption | null): candidate is EntityOption => candidate !== null)
         return option ?? { id, label: id }
       } catch {
         return { id, label: id }
@@ -539,8 +539,8 @@ export function DealForm({
     }
     const items = Array.isArray(payload.items) ? payload.items : []
     return items
-      .map((item) => (item && typeof item === 'object' ? extractCompanyOption(item as Record<string, unknown>) : null))
-      .filter((entry): entry is EntityOption => !!entry)
+      .map((item: unknown) => (item && typeof item === 'object' ? extractCompanyOption(item as Record<string, unknown>) : null))
+      .filter((entry: EntityOption | null): entry is EntityOption => entry !== null)
   }, [])
 
   const fetchCompaniesByIds = React.useCallback(async (ids: string[]): Promise<EntityOption[]> => {
@@ -552,9 +552,9 @@ export function DealForm({
         const payload = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error()
         const items = Array.isArray(payload.items) ? payload.items : []
-        const option = items
-          .map((item) => (item && typeof item === 'object' ? extractCompanyOption(item as Record<string, unknown>) : null))
-          .find((candidate): candidate is EntityOption => !!candidate)
+      const option = items
+        .map((item: unknown) => (item && typeof item === 'object' ? extractCompanyOption(item as Record<string, unknown>) : null))
+        .find((candidate: EntityOption | null): candidate is EntityOption => candidate !== null)
         return option ?? { id, label: id }
       } catch {
         return { id, label: id }

@@ -105,6 +105,8 @@ export type DataTableProps<T> = {
   onSortingChange?: (s: SortingState) => void
   pagination?: PaginationProps
   isLoading?: boolean
+  emptyState?: React.ReactNode
+  error?: React.ReactNode | string | null
   // Optional per-row actions renderer. When provided, an extra trailing column is rendered.
   rowActions?: (row: T) => React.ReactNode
   // Optional row click handler. When provided, rows become clickable and show pointer cursor.
@@ -135,7 +137,7 @@ const EXPORT_LABELS: Record<DataTableExportFormat, string> = {
   xml: 'XML',
   markdown: 'Markdown',
 }
-const EMPTY_FILTER_DEFS: FilterDef[] = Object.freeze([]) as FilterDef[]
+const EMPTY_FILTER_DEFS: FilterDef[] = []
 const EMPTY_FILTER_VALUES: FilterValues = Object.freeze({}) as FilterValues
 
 type ResolvedExportSection = {
@@ -303,7 +305,7 @@ function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): Persp
         if (!id || forbidden.has(id)) return null
         return { id, desc: Boolean(item?.desc) }
       })
-      .filter((item): item is { id: string; desc?: boolean } => item !== null)
+      .filter((item): item is { id: string; desc: boolean } => item !== null)
     if (sorting.length) result.sorting = sorting
   }
 
@@ -468,6 +470,8 @@ export function DataTable<T>({
   onSortingChange,
   pagination,
   isLoading,
+  emptyState,
+  error,
   rowActions,
   onRowClick,
   searchValue,
@@ -530,7 +534,7 @@ export function DataTable<T>({
         if (!res.ok) throw new Error(`feature-check failed (${res.status})`)
         const data = await res.json().catch(() => ({}))
         const granted = Array.isArray(data?.granted) ? data.granted.map((f: any) => String(f)) : []
-        const has = (feature: string) => granted.some((grantedFeature) => {
+        const has = (feature: string) => granted.some((grantedFeature: string) => {
           if (grantedFeature === '*') return true
           if (grantedFeature === feature) return true
           if (grantedFeature.endsWith('.*')) {
@@ -790,8 +794,12 @@ export function DataTable<T>({
     if (normalized.columnVisibility) setColumnVisibility(normalized.columnVisibility)
     else setColumnVisibility({})
     if (normalized.sorting) {
-      setSorting(normalized.sorting)
-      onSortingChange?.(normalized.sorting)
+      const sortingState: SortingState = normalized.sorting.map((item) => ({
+        id: item.id,
+        desc: item.desc === true,
+      }))
+      setSorting(sortingState)
+      onSortingChange?.(sortingState)
     } else {
       setSorting([])
       onSortingChange?.([])
@@ -871,14 +879,7 @@ export function DataTable<T>({
     if (typeof meta?.title === 'string' && meta.title.trim().length > 0) return meta.title.trim()
     const header = column.columnDef.header
     if (typeof header === 'string') return header
-    if (typeof header === 'function') {
-      try {
-        const result = header(column.getContext())
-        if (typeof result === 'string') return result
-      } catch {
-        // ignore header rendering errors
-      }
-    }
+    if (typeof header === 'function') return normalizeLabel(column.id)
     return normalizeLabel(column.id)
   }, [])
 
@@ -1330,6 +1331,12 @@ export function DataTable<T>({
                   </div>
                 </TableCell>
               </TableRow>
+            ) : error ? (
+              <TableRow>
+                <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-destructive">
+                  {typeof error === 'string' ? error : error}
+                </TableCell>
+              </TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => {
                 const isClickable = onRowClick || (rowActions && rowActions(row.original as T))
@@ -1398,7 +1405,7 @@ export function DataTable<T>({
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
-                  No results.
+                  {emptyState ?? 'No results.'}
                 </TableCell>
               </TableRow>
             )}
@@ -1423,7 +1430,7 @@ export function DataTable<T>({
           columnOptions={columnOptions}
           onToggleColumn={handleToggleColumn}
           onMoveColumn={handleMoveColumn}
-          saving={savePerspectiveMutation.isLoading}
+          saving={savePerspectiveMutation.isPending}
           deletingIds={deletingIds}
           roleClearingIds={roleClearingIds}
           apiWarning={perspectiveApiWarning}

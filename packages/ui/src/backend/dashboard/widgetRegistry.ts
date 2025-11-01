@@ -26,7 +26,16 @@ export async function loadDashboardWidgetModule(loaderKey: string): Promise<Load
   const entry = await findEntry(loaderKey)
   if (!entry) return null
   if (!cache.has(loaderKey)) {
-    cache.set(loaderKey, entry.loader().then((mod) => (mod.default ?? mod) as LoadedWidgetModule))
+    cache.set(
+      loaderKey,
+      entry
+        .loader()
+        .then((mod) => {
+          const candidate = mod as LoadedWidgetModule
+          const maybeDefault = (mod as { default?: LoadedWidgetModule }).default
+          return maybeDefault ?? candidate
+        })
+    )
   }
   return cache.get(loaderKey) ?? null
 }

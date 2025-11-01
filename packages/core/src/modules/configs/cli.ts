@@ -18,7 +18,7 @@ const restoreDefaults: ModuleCli = {
     try {
       let service: ModuleConfigService
       try {
-        service = container.resolve<ModuleConfigService>('moduleConfigService')
+        service = (container.resolve('moduleConfigService') as ModuleConfigService)
       } catch {
         console.error('[configs] moduleConfigService is not registered in the container.')
         return

@@ -63,9 +63,14 @@ export async function closeOrm() {
   }
 }
 
-// In dev mode, handle reloads cleanly
-if (process.env.NODE_ENV !== 'production') {
+async function closeOrmIfLoaded(): Promise<void> {
   if (ormInstance) {
-    await ormInstance.close(true);
+    await ormInstance.close(true)
+    ormInstance = null
   }
+}
+
+// In dev mode, handle reloads cleanly without leaving dangling connections.
+if (process.env.NODE_ENV !== 'production') {
+  void closeOrmIfLoaded()
 }

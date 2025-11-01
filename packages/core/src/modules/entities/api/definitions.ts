@@ -191,7 +191,6 @@ export async function GET(req: Request) {
         maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
         acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
         entityId,
-        priority: typeof d.configJson?.priority === 'number' ? d.configJson.priority : 0,
       } as any
       const metrics = computeDefinitionScore(d, candidateBase, entityOrder.get(entityId) ?? Number.MAX_SAFE_INTEGER)
       const candidate = { ...candidateBase, __score: metrics }
@@ -379,7 +378,7 @@ const upsertDefinitionResponseSchema = z.object({
     id: z.string().uuid(),
     key: z.string(),
     kind: z.string(),
-    configJson: z.record(z.any()),
+    configJson: z.record(z.string(), z.any()),
     isActive: z.boolean().optional(),
   }),
 })

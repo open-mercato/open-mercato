@@ -61,9 +61,9 @@ export function DictionariesManager() {
               item.managerVisibility === 'hidden' ? 'hidden' : 'default',
           }))
         : []
-      const filtered = list.filter((dictionary) => dictionary.managerVisibility !== 'hidden')
+      const filtered = list.filter((dictionary: DictionarySummary) => dictionary.managerVisibility !== 'hidden')
       setItems(filtered)
-      if (!filtered.find((dict) => dict.id === selectedId)) {
+      if (!filtered.find((dict: DictionarySummary) => dict.id === selectedId)) {
         setSelectedId(filtered.length ? filtered[0].id : null)
       }
     } catch (err) {

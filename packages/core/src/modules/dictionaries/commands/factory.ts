@@ -30,12 +30,16 @@ export type DictionaryEntrySnapshot = {
   label: string
   color: string | null
   icon: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export type DictionaryEntryUndoPayload = {
   before?: DictionaryEntrySnapshot | null
   after?: DictionaryEntrySnapshot | null
 }
+
+const ENTRY_CHANGE_KEYS = ['value', 'label', 'color', 'icon'] as const
 
 type ResolveDictionaryForCreate<TCreate> = (options: {
   em: EntityManager
@@ -89,13 +93,21 @@ async function loadSnapshot(em: EntityManager, id: string): Promise<DictionaryEn
   return {
     id: entry.id,
     dictionaryId: entry.dictionary.id,
-    dictionaryKey: entry.dictionary.key,
+   dictionaryKey: entry.dictionary.key,
     organizationId: entry.organizationId,
     tenantId: entry.tenantId,
     value: entry.value,
     label: entry.label,
     color: entry.color ?? null,
     icon: entry.icon ?? null,
+    createdAt:
+      entry.createdAt instanceof Date
+        ? entry.createdAt.toISOString()
+        : new Date(entry.createdAt).toISOString(),
+    updatedAt:
+      entry.updatedAt instanceof Date
+        ? entry.updatedAt.toISOString()
+        : new Date(entry.updatedAt).toISOString(),
   }
 }
 
@@ -107,6 +119,8 @@ function applySnapshot(entry: DictionaryEntry, snapshot: DictionaryEntrySnapshot
   entry.icon = snapshot.icon ?? null
   entry.organizationId = snapshot.organizationId
   entry.tenantId = snapshot.tenantId
+  entry.createdAt = new Date(snapshot.createdAt)
+  entry.updatedAt = new Date(snapshot.updatedAt)
 }
 
 type UndoEnvelope<T> = {
@@ -220,7 +234,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
     id: `${config.commandPrefix}.create`,
     async execute(rawInput, ctx) {
       const parsed = config.createSchema.parse(rawInput)
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { dictionary, scope } = await config.resolveDictionaryForCreate({ em, ctx, parsed })
       scopeEnsurer(ctx, scope)
 
@@ -244,13 +258,15 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
         label,
         color,
         icon,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(entry)
       await em.flush()
       return { entryId: entry.id }
     },
     captureAfter: async (_input, result, ctx) => {
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       return loadSnapshot(em, result.entryId)
     },
     buildLog: async ({ result, snapshots }) => {
@@ -276,7 +292,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
         (logEntry?.snapshotAfter as DictionaryEntrySnapshot | null | undefined) ??
         null
       if (!after) return
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       scopeEnsurer(ctx, { tenantId: after.tenantId, organizationId: after.organizationId })
       const entry = await em.findOne(DictionaryEntry, after.id)
       if (entry) {
@@ -294,7 +310,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
     id: `${config.commandPrefix}.update`,
     async prepare(input, ctx) {
       const id = requireId(input, 'Dictionary entry id is required')
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const snapshot = await loadSnapshot(em, id)
       if (snapshot) {
         scopeEnsurer(ctx, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
@@ -303,7 +319,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
     },
     async execute(rawInput, ctx) {
       const parsed = config.updateSchema.parse(rawInput)
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const id = requireId(parsed, 'Dictionary entry id is required')
       const { entry, dictionary, scope } = await config.resolveEntry({ em, ctx, id, parsed })
       scopeEnsurer(ctx, scope)
@@ -341,7 +357,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
       return { entryId: entry.id }
     },
     captureAfter: async (_input, result, ctx) => {
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       return loadSnapshot(em, result.entryId)
     },
     buildLog: async ({ snapshots }) => {
@@ -357,7 +373,11 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
         organizationId: before.organizationId,
         snapshotBefore: before,
         snapshotAfter: after,
-        changes: buildChanges(before as Record<string, unknown>, after as Record<string, unknown>),
+        changes: buildChanges(
+          before as Record<string, unknown>,
+          after as Record<string, unknown>,
+          ENTRY_CHANGE_KEYS,
+        ),
         payload: {
           undo: { before, after } satisfies DictionaryEntryUndoPayload,
         },
@@ -370,7 +390,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
         (logEntry?.snapshotBefore as DictionaryEntrySnapshot | null | undefined) ??
         null
       if (!before) return
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       scopeEnsurer(ctx, { tenantId: before.tenantId, organizationId: before.organizationId })
       const dictionary = await ensureDictionaryForUndo({ em, ctx, snapshot: before })
       if (!dictionary) return
@@ -386,6 +406,8 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
           label: before.label,
           color: before.color,
           icon: before.icon,
+          createdAt: new Date(before.createdAt),
+          updatedAt: new Date(before.updatedAt),
         })
         em.persist(entry)
       } else {
@@ -403,7 +425,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
     id: `${config.commandPrefix}.delete`,
     async prepare(input, ctx) {
       const id = requireId(input, 'Dictionary entry id is required')
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const snapshot = await loadSnapshot(em, id)
       if (snapshot) {
         scopeEnsurer(ctx, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
@@ -412,7 +434,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Dictionary entry id is required')
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { entry, scope } = await config.resolveEntry({ em, ctx, id })
       scopeEnsurer(ctx, scope)
       em.remove(entry)
@@ -442,7 +464,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
         (logEntry?.snapshotBefore as DictionaryEntrySnapshot | null | undefined) ??
         null
       if (!before) return
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       scopeEnsurer(ctx, { tenantId: before.tenantId, organizationId: before.organizationId })
       const dictionary = await ensureDictionaryForUndo({ em, ctx, snapshot: before })
       if (!dictionary) return
@@ -458,6 +480,8 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
           label: before.label,
           color: before.color,
           icon: before.icon,
+          createdAt: new Date(before.createdAt),
+          updatedAt: new Date(before.updatedAt),
         })
         em.persist(entry)
       } else {

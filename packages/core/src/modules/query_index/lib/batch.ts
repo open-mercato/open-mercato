@@ -54,7 +54,7 @@ export async function upsertIndexBatch(
       'organization_id',
       'tenant_id',
     ])
-    .where({ entity_id: entityType })
+    .where('entity_id', entityType)
     .whereIn('record_id', recordIds)
 
   const customFieldMap = new Map<string, CustomFieldRow[]>()
@@ -159,4 +159,3 @@ export async function upsertIndexBatch(
     })
   }
 }
-

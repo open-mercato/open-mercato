@@ -520,7 +520,7 @@ export function ActivitiesSection({
               const authorLabel = activity.authorName ?? activity.authorEmail ?? null
               const loggedByText = authorLabel
                 ? (() => {
-                    const translated = t('customers.people.detail.activities.loggedBy', { user: authorLabel })
+                    const translated = t('customers.people.detail.activities.loggedBy', undefined, { user: authorLabel })
                     if (
                       !translated ||
                       translated === 'customers.people.detail.activities.loggedBy' ||

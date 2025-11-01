@@ -40,11 +40,11 @@ export async function POST(req: Request) {
   if (!undoToken) return NextResponse.json({ error: 'Invalid undo token' }, { status: 400 })
 
   const container = await createRequestContainer()
-  const commandBus = container.resolve<CommandBus>('commandBus')
-  const logs = container.resolve<ActionLogService>('actionLogService')
+  const commandBus = (container.resolve('commandBus') as CommandBus)
+  const logs = (container.resolve('actionLogService') as ActionLogService)
   let rbac: RbacService | null = null
   try {
-    rbac = container.resolve<RbacService>('rbacService')
+    rbac = (container.resolve('rbacService') as RbacService)
   } catch {
     rbac = null
   }

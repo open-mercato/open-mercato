@@ -418,7 +418,7 @@ export default function CustomersCompaniesPage() {
   const handleDelete = React.useCallback(async (company: CompanyRow) => {
     if (!company?.id) return
     const name = company.name || t('customers.companies.list.deleteFallbackName')
-    const confirmed = window.confirm(t('customers.companies.list.deleteConfirm', { name }))
+    const confirmed = window.confirm(t('customers.companies.list.deleteConfirm', undefined, { name }))
     if (!confirmed) return
     try {
       const res = await apiFetch(`/api/customers/companies?id=${encodeURIComponent(company.id)}`, {

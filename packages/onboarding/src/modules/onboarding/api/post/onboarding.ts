@@ -75,7 +75,7 @@ export async function POST(req: Request) {
 
   try {
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
+    const em = (container.resolve('em') as EntityManager)
 
     const existingUser = await em.findOne(User, { email: parsed.data.email })
     if (existingUser) {

@@ -16,13 +16,13 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 
-export const tenantCrudEvents: CrudEventsConfig<Tenant> = {
+export const tenantCrudEvents: CrudEventsConfig = {
   module: 'directory',
   entity: 'tenant',
   persistent: true,
 }
 
-export const tenantCrudIndexer: CrudIndexerConfig<Tenant> = {
+export const tenantCrudIndexer: CrudIndexerConfig = {
   entityType: E.directory.tenant,
 }
 
@@ -44,7 +44,7 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
   id: 'directory.tenants.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(tenantCreateSchema, rawInput)
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
     const tenant = await de.createOrmEntity({
       entity: Tenant,
@@ -96,14 +96,14 @@ const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
   id: 'directory.tenants.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(tenantUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const current = await em.findOne(Tenant, { id: parsed.id, deletedAt: null })
     if (!current) throw new CrudHttpError(404, { error: 'Tenant not found' })
     return { before: serializeTenant(current) }
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(tenantUpdateSchema, rawInput)
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const tenant = await de.updateOrmEntity({
       entity: Tenant,
       where: { id: parsed.id, deletedAt: null } as FilterQuery<Tenant>,
@@ -161,13 +161,13 @@ const deleteTenantCommand: CommandHandler<{ body: any; query: Record<string, str
   id: 'directory.tenants.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Tenant id required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await em.findOne(Tenant, { id, deletedAt: null })
     return existing ? { before: serializeTenant(existing) } : {}
   },
   async execute(rawInput, ctx) {
     const id = requireId(rawInput, 'Tenant id required')
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const tenant = await de.deleteOrmEntity({
       entity: Tenant,
       where: { id, deletedAt: null } as FilterQuery<Tenant>,

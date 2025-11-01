@@ -133,22 +133,26 @@ function extractValidationDetails(error: unknown): AddressValidationDetail[] {
 function resolveFieldMessage(detail: AddressValidationDetail, fieldLabel: string, t: Translator): string {
   switch (detail.code) {
     case 'invalid_type':
-      return t('customers.people.detail.addresses.validation.invalid', { field: fieldLabel })
+      return t('customers.people.detail.addresses.validation.invalid', undefined, { field: fieldLabel })
     case 'too_small':
       if (detail.minimum === 1 && detail.type === 'string') {
-        return t('customers.people.detail.addresses.validation.required', { field: fieldLabel })
+        return t('customers.people.detail.addresses.validation.required', undefined, { field: fieldLabel })
       }
-      return t('customers.people.detail.addresses.validation.generic', { field: fieldLabel })
+      return t('customers.people.detail.addresses.validation.generic', undefined, { field: fieldLabel })
     case 'too_big':
       if (typeof detail.maximum === 'number') {
-        return t('customers.people.detail.addresses.validation.tooLong', {
-          field: fieldLabel,
-          max: detail.maximum,
-        })
+        return t(
+          'customers.people.detail.addresses.validation.tooLong',
+          undefined,
+          {
+            field: fieldLabel,
+            max: detail.maximum,
+          }
+        )
       }
-      return t('customers.people.detail.addresses.validation.generic', { field: fieldLabel })
+      return t('customers.people.detail.addresses.validation.generic', undefined, { field: fieldLabel })
     default:
-      return t('customers.people.detail.addresses.validation.generic', { field: fieldLabel })
+      return t('customers.people.detail.addresses.validation.generic', undefined, { field: fieldLabel })
   }
 }
 
@@ -419,9 +423,11 @@ export function CustomerAddressTiles({
   const handleSave = React.useCallback(async () => {
     const trimmedLine1 = draft.addressLine1.trim()
     if (!trimmedLine1.length) {
-      const message = t('customers.people.detail.addresses.validation.required', {
-        field: fieldLabels.addressLine1,
-      })
+      const message = t(
+        'customers.people.detail.addresses.validation.required',
+        undefined,
+        { field: fieldLabels.addressLine1 }
+      )
       setFieldErrors((prev) => ({ ...prev, addressLine1: message }))
       setGeneralError(message)
       return

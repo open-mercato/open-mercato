@@ -148,7 +148,7 @@ async function upsertCoverageRow(
 export async function readCoverageSnapshot(
   knex: Knex,
   scope: CoverageScope
-): Promise<(CoverageRow & { baseCount: number; indexedCount: number }) | null> {
+): Promise<(CoverageRow & { baseCount: number; indexedCount: number; vectorIndexedCount: number }) | null> {
   const entityType = String(scope.entityType || '')
   if (!entityType) return null
   const row = await fetchCoverageRow(knex, {

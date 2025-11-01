@@ -33,7 +33,7 @@ export const metadata = {
 export async function GET(request: Request) {
   try {
     const container = await createRequestContainer()
-    const queryEngine = container.resolve<QueryEngine>('queryEngine')
+    const queryEngine = (container.resolve('queryEngine') as QueryEngine)
     const auth = await getAuthFromCookies()
     
     if (!auth?.tenantId) {

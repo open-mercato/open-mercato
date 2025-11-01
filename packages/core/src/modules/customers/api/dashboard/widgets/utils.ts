@@ -41,7 +41,7 @@ export async function resolveWidgetScope(
     throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
   }
 
-  const em = container.resolve<EntityManager>('em')
+  const em = (container.resolve('em') as EntityManager)
 
   return {
     container,

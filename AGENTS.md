@@ -68,6 +68,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - Use DI (Awilix) to inject services; avoid new-ing classes directly in handlers.
 - Hash passwords with `bcryptjs` (cost ≥10). Never log credentials.
 - Return minimal error messages for auth (avoid revealing whether email exists).
+- Always confirm the project still builds after your changes and surface build failures immediately.
 
 ## Profiling
 - Enable the tree profiler by exporting `OM_PROFILE` (or `NEXT_PUBLIC_OM_PROFILE` in the browser) with comma-separated filters (`*`, `all`, `customers.*`, etc.). Legacy flags (`OM_CRUD_PROFILE`, `OM_QE_PROFILE`) still work but should be avoided in new work.

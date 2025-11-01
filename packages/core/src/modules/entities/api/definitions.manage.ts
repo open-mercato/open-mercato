@@ -87,7 +87,7 @@ const managedDefinitionSchema = z.object({
   id: z.string().uuid(),
   key: z.string(),
   kind: z.string(),
-  configJson: z.record(z.any()).nullable().optional(),
+  configJson: z.record(z.string(), z.any()).nullable().optional(),
   isActive: z.boolean().optional(),
   organizationId: z.string().uuid().nullable(),
   tenantId: z.string().uuid().nullable(),

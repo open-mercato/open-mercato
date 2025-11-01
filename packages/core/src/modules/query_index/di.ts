@@ -16,21 +16,21 @@ function toEntityTypeFromEvent(event: string): string | null {
 export function register(container: AppContainer) {
   // Override queryEngine with hybrid that prefers JSONB index when available
   try {
-    const em = container.resolve<any>('em')
+    const em = (container.resolve('em') as any)
     const basic = new BasicQueryEngine(em)
     const hybrid = new HybridQueryEngine(
       em,
       basic,
       () => {
         try {
-          return container.resolve<EventBus>('eventBus')
+          return (container.resolve('eventBus') as EventBus)
         } catch {
           return null
         }
       },
       () => {
         try {
-          return container.resolve<VectorIndexService>('vectorIndexService')
+          return (container.resolve('vectorIndexService') as VectorIndexService)
         } catch {
           return null
         }
@@ -43,7 +43,7 @@ export function register(container: AppContainer) {
   // Subscribe to CRUD events and forward to query_index subscribers for unified handling
   const setup = () => {
     let bus: any
-    try { bus = container.resolve<any>('eventBus') } catch { bus = null }
+    try { bus = (container.resolve('eventBus') as any) } catch { bus = null }
     if (!bus) { setTimeout(setup, 0); return }
 
     const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any) => {
@@ -105,7 +105,7 @@ export function register(container: AppContainer) {
 
     // Build list of entity ids to subscribe to
     try {
-      const em = container.resolve<any>('em')
+      const em = (container.resolve('em') as any)
       const knex = (em as any).getConnection().getKnex()
       const cfEntityIds: string[] = []
       knex('custom_field_defs').distinct('entity_id')

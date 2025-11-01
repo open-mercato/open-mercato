@@ -88,7 +88,7 @@ export async function POST(req: Request) {
   try {
     let service: ModuleConfigService
     try {
-      service = container.resolve<ModuleConfigService>('moduleConfigService')
+      service = (container.resolve('moduleConfigService') as ModuleConfigService)
     } catch {
       return configUnavailable()
     }

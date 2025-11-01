@@ -29,6 +29,7 @@ import {
   loadCustomFieldSnapshot,
   diffCustomFieldChanges,
   buildCustomFieldResetMap,
+  type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -63,6 +64,10 @@ type DealSnapshot = {
 type DealUndoPayload = {
   before?: DealSnapshot | null
   after?: DealSnapshot | null
+}
+
+type DealChangeMap = Record<string, { from: unknown; to: unknown }> & {
+  custom?: CustomFieldChangeSet
 }
 
 async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnapshot | null> {
@@ -163,7 +168,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = em.create(CustomerDeal, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -185,7 +190,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     await syncDealCompanies(em, deal, parsed.companyIds ?? [])
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({
       dataEngine: de,
       entityId: DEAL_ENTITY_ID,
@@ -211,12 +216,12 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     return { dealId: deal.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return await loadDealSnapshot(em, result.dealId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadDealSnapshot(em, result.dealId)
     return {
       actionLabel: translate('customers.audit.deals.create', 'Create deal'),
@@ -235,7 +240,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   undo: async ({ logEntry, ctx }) => {
     const dealId = logEntry?.resourceId
     if (!dealId) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = await em.findOne(CustomerDeal, { id: dealId })
     if (!deal) return
     await em.nativeDelete(CustomerDealPersonLink, { deal })
@@ -249,13 +254,13 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
   id: 'customers.deals.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(dealUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadDealSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(dealUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = await em.findOne(CustomerDeal, { id: parsed.id, deletedAt: null })
     const record = deal ?? null
     if (!record) throw new CrudHttpError(404, { error: 'Deal not found' })
@@ -277,7 +282,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     await syncDealCompanies(em, record, parsed.companyIds)
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({
       dataEngine: de,
       entityId: DEAL_ENTITY_ID,
@@ -306,7 +311,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as DealSnapshot | undefined
     if (!before) return null
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const afterSnapshot = await loadDealSnapshot(em, before.deal.id)
     const changeKeys: readonly string[] = [
       'title',
@@ -320,7 +325,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       'ownerUserId',
       'source',
     ]
-    const coreChanges =
+    const coreChanges: DealChangeMap =
       afterSnapshot && afterSnapshot.deal
         ? buildChanges(
             before.deal as Record<string, unknown>,
@@ -328,7 +333,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             changeKeys
           )
         : {}
-    const changes = { ...coreChanges }
+    const changes: DealChangeMap = { ...coreChanges }
     if (!arraysEqual(before.people, afterSnapshot?.people)) {
       changes.people = { from: before.people, to: afterSnapshot?.people ?? [] }
     }
@@ -360,7 +365,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     const payload = extractUndoPayload<DealUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let deal = await em.findOne(CustomerDeal, { id: before.deal.id })
     if (!deal) {
       deal = em.create(CustomerDeal, {
@@ -396,7 +401,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     await syncDealCompanies(em, deal, before.companies)
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -429,13 +434,13 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     id: 'customers.deals.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Deal id required')
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const snapshot = await loadDealSnapshot(em, id)
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Deal id required')
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const deal = await em.findOne(CustomerDeal, { id, deletedAt: null })
       const record = deal ?? null
       if (!record) throw new CrudHttpError(404, { error: 'Deal not found' })
@@ -446,7 +451,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       em.remove(record)
       await em.flush()
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudSideEffects({
         dataEngine: de,
         action: 'deleted',
@@ -482,7 +487,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       const payload = extractUndoPayload<DealUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       let deal = await em.findOne(CustomerDeal, { id: before.deal.id })
       if (!deal) {
         deal = em.create(CustomerDeal, {
@@ -507,7 +512,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       await syncDealCompanies(em, deal, before.companies)
       await em.flush()
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({
         dataEngine: de,
         action: 'created',
@@ -520,7 +525,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         indexer: dealCrudIndexer,
       })
 
-      const resetValues = buildCustomFieldResetMap(before.custom, null)
+      const resetValues = buildCustomFieldResetMap(before.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsIfAny({
           dataEngine: de,

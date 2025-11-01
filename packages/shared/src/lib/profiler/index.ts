@@ -1,5 +1,6 @@
 const ROUND_PRECISION = 1000
-const NS_PER_MS = 1_000_000n
+const NS_PER_MS = BigInt(1_000_000)
+const BIGINT_ZERO = BigInt(0)
 
 export type ProfilerExtra = Record<string, unknown>
 
@@ -81,7 +82,7 @@ function now(): bigint {
 }
 
 function roundDuration(ns: bigint): number {
-  if (ns <= 0n) return 0
+  if (ns <= BIGINT_ZERO) return 0
   const ms = Number(ns) / Number(NS_PER_MS)
   return Math.round(ms * ROUND_PRECISION) / ROUND_PRECISION
 }
@@ -134,7 +135,7 @@ class ProfilerImpl implements Profiler {
       type: 'mark',
       label,
       start: timestamp,
-      durationNs: duration >= 0n ? duration : 0n,
+      durationNs: duration >= BIGINT_ZERO ? duration : BIGINT_ZERO,
       extra: extra ? { ...extra } : undefined,
     }
     this.appendNode(node)
@@ -179,7 +180,7 @@ class ProfilerImpl implements Profiler {
       type: 'record',
       label,
       start: this.lastTimestamp,
-      durationNs: durationNs >= 0n ? durationNs : 0n,
+      durationNs: durationNs >= BIGINT_ZERO ? durationNs : BIGINT_ZERO,
       extra: extra ? { ...extra } : undefined,
     }
     this.appendNode(node)
@@ -193,7 +194,7 @@ class ProfilerImpl implements Profiler {
       type: 'span',
       label,
       start: timestamp,
-      durationNs: 0n,
+      durationNs: BIGINT_ZERO,
       extra: extra ? { ...extra } : undefined,
       children: [],
       lastTimestamp: timestamp,
@@ -299,12 +300,13 @@ export type CreateProfilerOptions = {
 export function createProfiler(options: CreateProfilerOptions): Profiler {
   if (options.enabled === false) return disabledProfiler
   const startedAt = now()
+  const enabledFlag = options.enabled !== undefined ? options.enabled : true
   const root: ProfilerRootState = {
     scope: options.scope,
     target: options.target,
     label: options.label ?? options.scope,
     loggerLabel: options.loggerLabel ?? '[profile]',
-    enabled: options.enabled !== false,
+    enabled: enabledFlag,
     startedAt,
     lastTimestamp: startedAt,
     nodes: [],

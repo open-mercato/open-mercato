@@ -37,7 +37,7 @@ export async function enforceRoleTenantAccess(
   const roleId = typeof roleIdCandidate === 'string' ? roleIdCandidate : null
   if (!roleId) return input
 
-  const em = ctx.container.resolve<EntityManager>('em')
+  const em = (ctx.container.resolve('em') as EntityManager)
   const existing = await em.findOne(Role, { id: roleId, deletedAt: null })
   if (!existing) return input
 

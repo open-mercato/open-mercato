@@ -215,7 +215,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
         return
       }
       try {
-        const em = ctx.container.resolve<EntityManager>('em')
+        const em = (ctx.container.resolve('em') as EntityManager)
         const [allPersonLinks, allCompanyLinks] = await Promise.all([
           em.find(CustomerDealPersonLink, { deal: { $in: ids } }, { populate: ['person'] }),
           em.find(CustomerDealCompanyLink, { deal: { $in: ids } }, { populate: ['company'] }),

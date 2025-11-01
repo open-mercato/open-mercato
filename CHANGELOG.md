@@ -1,11 +1,4 @@
-# [1.3.0](https://github.com/open-mercato/open-mercato/compare/v1.2.0...v1.3.0) (2025-10-31)
-
-
-### Features
-
-* rewritten indexes, vector-search indexer migrated to the query_indexes infrastructure, fixed build error logs, cache statistics and segmentation ([#86](https://github.com/open-mercato/open-mercato/issues/86)) ([37fac01](https://github.com/open-mercato/open-mercato/commit/37fac01abb00cdf92728a537aece75701bad6b08))
-
-# 0.3.0 (2025-02-19)
+# 0.3.0 (2025-11-31)
 
 ## Highlights
 - Consolidated modular architecture across auth, customers, sales, dictionaries, query index, and vector search modules.

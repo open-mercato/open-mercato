@@ -159,9 +159,9 @@ export default function DirectoryOrganizationsPage() {
       const res = await apiFetch(`/api/directory/organizations?id=${encodeURIComponent(org.id)}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete organization'))
       await queryClient.invalidateQueries({ queryKey: ['directory-organizations'] })
-      flash.success('Organization deleted')
+      flash('Organization deleted', 'success')
     } catch (err: any) {
-      flash.error(err?.message || 'Failed to delete organization')
+      flash(err?.message || 'Failed to delete organization', 'error')
     }
   }, [queryClient])
 

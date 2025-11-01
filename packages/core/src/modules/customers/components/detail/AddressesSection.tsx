@@ -336,16 +336,16 @@ export function AddressesSection({
   const displayAddresses = React.useMemo<CustomerAddressValue[]>(() => {
     return addresses.map((address) => ({
       id: address.id,
-      name: address.name ?? null,
-      purpose: address.purpose ?? null,
+      name: address.name ?? undefined,
+      purpose: address.purpose ?? undefined,
       addressLine1: address.addressLine1,
-      addressLine2: address.addressLine2 ?? null,
-      buildingNumber: address.buildingNumber ?? null,
-      flatNumber: address.flatNumber ?? null,
-      city: address.city ?? null,
-      region: address.region ?? null,
-      postalCode: address.postalCode ?? null,
-      country: address.country ?? null,
+      addressLine2: address.addressLine2 ?? undefined,
+      buildingNumber: address.buildingNumber ?? undefined,
+      flatNumber: address.flatNumber ?? undefined,
+      city: address.city ?? undefined,
+      region: address.region ?? undefined,
+      postalCode: address.postalCode ?? undefined,
+      country: address.country ?? undefined,
       isPrimary: address.isPrimary ?? false,
     }))
   }, [addresses])

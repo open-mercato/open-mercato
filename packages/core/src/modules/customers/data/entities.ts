@@ -8,6 +8,7 @@ import {
   OneToMany,
   ManyToOne,
   Collection,
+  OptionalProps,
 } from '@mikro-orm/core'
 
 export type CustomerEntityKind = 'person' | 'company'
@@ -17,25 +18,27 @@ export type CustomerAddressFormat = 'line_first' | 'street_first'
 @Index({ name: 'customer_entities_org_tenant_kind_idx', properties: ['organizationId', 'tenantId', 'kind'] })
 @Index({
   name: 'idx_ce_tenant_org_person_id',
-  properties: ['tenantId', 'organizationId', 'id'],
-  where: "deleted_at is null and kind = 'person'",
+  expression:
+    `create index "idx_ce_tenant_org_person_id" on "customer_entities" ("tenant_id", "organization_id", "id") where deleted_at is null and kind = 'person'`,
 })
 @Index({
   name: 'idx_ce_tenant_org_company_id',
-  properties: ['tenantId', 'organizationId', 'id'],
-  where: "deleted_at is null and kind = 'company'",
+  expression:
+    `create index "idx_ce_tenant_org_company_id" on "customer_entities" ("tenant_id", "organization_id", "id") where deleted_at is null and kind = 'company'`,
 })
 @Index({
   name: 'idx_ce_tenant_company_id',
-  properties: ['tenantId', 'id'],
-  where: "deleted_at is null and kind = 'company'",
+  expression:
+    `create index "idx_ce_tenant_company_id" on "customer_entities" ("tenant_id", "id") where deleted_at is null and kind = 'company'`,
 })
 @Index({
   name: 'idx_ce_tenant_person_id',
-  properties: ['tenantId', 'id'],
-  where: "deleted_at is null and kind = 'person'",
+  expression:
+    `create index "idx_ce_tenant_person_id" on "customer_entities" ("tenant_id", "id") where deleted_at is null and kind = 'person'`,
 })
 export class CustomerEntity {
+  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -138,6 +141,8 @@ export class CustomerEntity {
     `create index "idx_customer_people_entity_id" on "customer_people" ("entity_id")`,
 })
 export class CustomerPersonProfile {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -201,6 +206,8 @@ export class CustomerPersonProfile {
     `create index "idx_customer_companies_entity_id" on "customer_companies" ("entity_id")`,
 })
 export class CustomerCompanyProfile {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -248,6 +255,8 @@ export class CustomerCompanyProfile {
 @Entity({ tableName: 'customer_deals' })
 @Index({ name: 'customer_deals_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 export class CustomerDeal {
+  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -314,11 +323,13 @@ export class CustomerDeal {
 @Index({ name: 'customer_deal_people_person_idx', properties: ['person'] })
 @Unique({ name: 'customer_deal_people_unique', properties: ['deal', 'person'] })
 export class CustomerDealPersonLink {
+  [OptionalProps]?: 'createdAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
   @Property({ name: 'role', type: 'text', nullable: true })
-  role?: string | null
+  participantRole?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -335,6 +346,8 @@ export class CustomerDealPersonLink {
 @Index({ name: 'customer_deal_companies_company_idx', properties: ['company'] })
 @Unique({ name: 'customer_deal_companies_unique', properties: ['deal', 'company'] })
 export class CustomerDealCompanyLink {
+  [OptionalProps]?: 'createdAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -353,6 +366,8 @@ export class CustomerDealCompanyLink {
 @Index({ name: 'customer_activities_entity_idx', properties: ['entity'] })
 @Index({ name: 'customer_activities_entity_occurred_created_idx', properties: ['entity', 'occurredAt', 'createdAt'] })
 export class CustomerActivity {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -400,6 +415,8 @@ export class CustomerActivity {
 @Index({ name: 'customer_comments_entity_idx', properties: ['entity'] })
 @Index({ name: 'customer_comments_entity_created_idx', properties: ['entity', 'createdAt'] })
 export class CustomerComment {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -440,6 +457,8 @@ export class CustomerComment {
 @Entity({ tableName: 'customer_addresses' })
 @Index({ name: 'customer_addresses_entity_idx', properties: ['entity'] })
 export class CustomerAddress {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -501,6 +520,8 @@ export class CustomerAddress {
 @Entity({ tableName: 'customer_settings' })
 @Unique({ name: 'customer_settings_scope_unique', properties: ['organizationId', 'tenantId'] })
 export class CustomerSettings {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -524,6 +545,8 @@ export class CustomerSettings {
 @Index({ name: 'customer_tags_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Unique({ name: 'customer_tags_org_slug_unique', properties: ['organizationId', 'tenantId', 'slug'] })
 export class CustomerTag {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -559,6 +582,8 @@ export class CustomerTag {
 @Index({ name: 'customer_tag_assignments_entity_idx', properties: ['entity'] })
 @Unique({ name: 'customer_tag_assignments_unique', properties: ['tag', 'entity'] })
 export class CustomerTagAssignment {
+  [OptionalProps]?: 'createdAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -582,6 +607,8 @@ export class CustomerTagAssignment {
 @Index({ name: 'customer_dictionary_entries_scope_idx', properties: ['organizationId', 'tenantId', 'kind'] })
 @Unique({ name: 'customer_dictionary_entries_unique', properties: ['organizationId', 'tenantId', 'kind', 'normalizedValue'] })
 export class CustomerDictionaryEntry {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -621,6 +648,8 @@ export class CustomerDictionaryEntry {
 @Index({ name: 'customer_todo_links_entity_created_idx', properties: ['entity', 'createdAt'] })
 @Unique({ name: 'customer_todo_links_unique', properties: ['entity', 'todoId', 'todoSource'] })
 export class CustomerTodoLink {
+  [OptionalProps]?: 'createdAt' | 'createdByUserId'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 

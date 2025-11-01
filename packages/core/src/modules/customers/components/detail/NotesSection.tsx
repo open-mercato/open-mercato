@@ -39,10 +39,10 @@ function MarkdownEditorFallback() {
   )
 }
 
-const UiMarkdownEditor = dynamic<UiMarkdownEditorProps>(() => import('@uiw/react-md-editor'), {
+const UiMarkdownEditor = dynamic(() => import('@uiw/react-md-editor'), {
   ssr: false,
   loading: () => <MarkdownEditorFallback />,
-})
+}) as unknown as React.ComponentType<UiMarkdownEditorProps>
 
 type AppearanceDialogState =
   | { mode: 'create'; icon: string | null; color: string | null }

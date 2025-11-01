@@ -218,7 +218,7 @@ function prepareExportData(items: any[], list: ListConfig<any>): PreparedExport 
   if (list.export?.columns && list.export.columns.length > 0) {
     return buildExportFromColumns(items, list.export.columns)
   }
-  if (list.csv && list.csv.headers && list.csv.row) {
+  if (list.csv) {
     return buildExportFromCsv(items, list.csv)
   }
   const prepared = buildDefaultExport(items)
@@ -694,7 +694,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       cfProfiler.end(extra)
     }
     try {
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const organizationIds =
         Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
           ? ctx.organizationIds
@@ -963,7 +963,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       // Prefer query engine when configured
       if (opts.list.entityId && opts.list.fields) {
         profiler.mark('query_engine_prepare')
-        const qe = ctx.container.resolve<QueryEngine>('queryEngine')
+        const qe = (ctx.container.resolve('queryEngine') as QueryEngine)
         profiler.mark('query_engine_resolved')
         const sortFieldRaw = (queryParams as any).sortField || 'id'
         const sortDirRaw = ((queryParams as any).sortDir || 'asc').toLowerCase() === 'desc' ? SortDir.Desc : SortDir.Asc
@@ -1128,7 +1128,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       // Fallback: plain ORM list
       profiler.mark('orm_fallback_prepare')
-      const em = ctx.container.resolve<any>('em')
+      const em = (ctx.container.resolve('em') as any)
       const repo = em.getRepository(ormCfg.entity)
       profiler.mark('orm_repo_ready')
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
@@ -1248,7 +1248,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const body = await request.json().catch(() => ({}))
 
       if (useCommand) {
-        const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+        const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
         const action = opts.actions!.create!
         const parsed = action.schema ? action.schema.parse(body) : body
         const input = action.mapInput ? await action.mapInput({ parsed, raw: body, ctx }) : parsed
@@ -1269,11 +1269,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return response
       }
 
-      let input = opts.create.schema.parse(body)
+      const createConfig = opts.create
+      if (!createConfig) throw new Error('Create configuration missing')
+
+      let input = createConfig.schema.parse(body)
       const modified = await opts.hooks?.beforeCreate?.(input as any, ctx)
       if (modified) input = modified
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
-      const entityData = opts.create.mapToEntity(input as any, ctx)
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      const entityData = createConfig.mapToEntity(input as any, ctx)
       // Inject org/tenant
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField) {
@@ -1287,13 +1290,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const entity = await de.createOrmEntity({ entity: ormCfg.entity, data: entityData })
 
       // Custom fields
-      if (opts.create.customFields && (opts.create.customFields as any).enabled) {
-        const cfc = opts.create.customFields as Exclude<CustomFieldsConfig, false>
+      if (createConfig.customFields && (createConfig.customFields as any).enabled) {
+        const cfc = createConfig.customFields as Exclude<CustomFieldsConfig, false>
         const values = cfc.map
           ? cfc.map(body)
           : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
         if (values && Object.keys(values).length > 0) {
-          const de = ctx.container.resolve<DataEngine>('dataEngine')
+          const de = (ctx.container.resolve('dataEngine') as DataEngine)
           await de.setCustomFields({
             entityId: cfc.entityId as any,
             recordId: String((entity as any)[ormCfg.idField!]),
@@ -1317,7 +1320,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'created', resourceTargets)
 
-      const payload = opts.create.response ? opts.create.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
+      const payload = createConfig.response ? createConfig.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
       return json(payload, { status: 201 })
     } catch (e) {
       return handleError(e)
@@ -1344,7 +1347,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const body = await request.json().catch(() => ({}))
 
       if (useCommand) {
-        const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+        const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
         const action = opts.actions!.update!
         const parsed = action.schema ? action.schema.parse(body) : body
         const input = action.mapInput ? await action.mapInput({ parsed, raw: body, ctx }) : parsed
@@ -1367,17 +1370,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return response
       }
 
-      let input = opts.update.schema.parse(body)
+      const updateConfig = opts.update
+      if (!updateConfig) throw new Error('Update configuration missing')
+
+      let input = updateConfig.schema.parse(body)
       const modified = await opts.hooks?.beforeUpdate?.(input as any, ctx)
       if (modified) input = modified
 
-      const id = opts.update.getId ? opts.update.getId(input as any) : (input as any).id
+      const id = updateConfig.getId ? updateConfig.getId(input as any) : (input as any).id
       if (!isUuid(id)) return json({ error: 'Invalid id' }, { status: 400 })
 
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       const where: any = buildScopedWhere(
         { [ormCfg.idField!]: id },
         {
@@ -1389,17 +1395,21 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           softDeleteField: ormCfg.softDeleteField,
         }
       )
-      const entity = await de.updateOrmEntity({ entity: ormCfg.entity, where, apply: (e: any) => opts.update!.applyToEntity(e, input as any, ctx) })
+      const entity = await de.updateOrmEntity({
+        entity: ormCfg.entity,
+        where,
+        apply: (e: any) => updateConfig.applyToEntity(e, input as any, ctx),
+      })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })
 
       // Custom fields
-      if (opts.update.customFields && (opts.update.customFields as any).enabled) {
-        const cfc = opts.update.customFields as Exclude<CustomFieldsConfig, false>
+      if (updateConfig.customFields && (updateConfig.customFields as any).enabled) {
+        const cfc = updateConfig.customFields as Exclude<CustomFieldsConfig, false>
         const values = cfc.map
           ? cfc.map(body)
           : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
         if (values && Object.keys(values).length > 0) {
-          const de = ctx.container.resolve<DataEngine>('dataEngine')
+          const de = (ctx.container.resolve('dataEngine') as DataEngine)
           await de.setCustomFields({
             entityId: cfc.entityId as any,
             recordId: String((entity as any)[ormCfg.idField!]),
@@ -1421,7 +1431,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       })
       await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'updated', resourceTargets)
-      const payload = opts.update.response ? opts.update.response(entity) : { success: true }
+      const payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
       return json(payload)
     } catch (e) {
       return handleError(e)
@@ -1453,7 +1463,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const parsed = action.schema ? action.schema.parse(raw) : raw
         const input = action.mapInput ? await action.mapInput({ parsed, raw, ctx }) : parsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed, raw, ctx }) : null
-        const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+        const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
         const candidateId = normalizeIdentifierValue(
           (input as Record<string, unknown> | null | undefined)?.id
             ?? (raw.query as Record<string, unknown> | null | undefined)?.id
@@ -1485,7 +1495,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       const where: any = buildScopedWhere(
         { [ormCfg.idField!]: id },
         {
@@ -1498,7 +1508,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
       )
       await opts.hooks?.beforeDelete?.(id!, ctx)
-      const entity = await de.deleteOrmEntity({ entity: ormCfg.entity, where, soft: opts.del?.softDelete !== false, softDeleteField: ormCfg.softDeleteField })
+      const entity = await de.deleteOrmEntity({
+        entity: ormCfg.entity,
+        where,
+        soft: opts.del?.softDelete !== false,
+        softDeleteField: ormCfg.softDeleteField ?? undefined,
+      })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })
       await opts.hooks?.afterDelete?.(id!, ctx)
       if (entity) {

@@ -85,10 +85,10 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
 
   let cache: CacheStrategy | undefined
   try {
-    cache = container.resolve<CacheStrategy>('cache')
+    cache = (container.resolve('cache') as CacheStrategy)
   } catch {}
 
-  const em = container.resolve<EntityManager>('em')
+  const em = (container.resolve('em') as EntityManager)
   const readableOrganizationIds: string[] = [organizationId]
   try {
     const organization = await em.findOne(Organization, {

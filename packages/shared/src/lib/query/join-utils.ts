@@ -206,12 +206,10 @@ export async function applyJoinFilters({
     for (const cfg of chain.slice(1)) {
       const joinArgs = { [cfg.alias]: cfg.table }
       const parent = resolveAliasName(cfg.fromAlias)
-      const joinFn = function (this: Knex.QueryBuilder) {
-        if (parent === baseTable) {
-          this.on(`${cfg.alias}.${cfg.toField}`, '=', knex.raw('??', [qualifyBase(cfg.fromField)]))
-        } else {
-          this.on(`${cfg.alias}.${cfg.toField}`, '=', knex.raw('??', [`${parent}.${cfg.fromField}`]))
-        }
+      const joinFn = function (this: Knex.JoinClause) {
+        const left = `${cfg.alias}.${cfg.toField}`
+        const right = parent === baseTable ? qualifyBase(cfg.fromField) : `${parent}.${cfg.fromField}`
+        this.on(knex.raw('?? = ??', [left, right]))
       }
       if (cfg.type === 'inner') sub.join(joinArgs, joinFn)
       else sub.leftJoin(joinArgs, joinFn)

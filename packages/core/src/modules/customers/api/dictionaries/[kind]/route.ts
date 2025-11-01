@@ -114,7 +114,7 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
     const context = await resolveDictionaryRouteContext(req)
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const body = postSchema.parse(await req.json().catch(() => ({})))
-    const commandBus = context.container.resolve<CommandBus>('commandBus')
+    const commandBus = (context.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } =
       (await commandBus.execute('customers.dictionaryEntries.create', {
         input: {

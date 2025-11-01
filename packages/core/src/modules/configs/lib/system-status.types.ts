@@ -9,6 +9,8 @@ export type SystemStatusVariableKind = 'boolean' | 'string'
 
 export type SystemStatusState = 'enabled' | 'disabled' | 'set' | 'unset' | 'unknown'
 
+export type SystemStatusRuntimeMode = 'development' | 'production' | 'test' | 'unknown'
+
 export type SystemStatusItem = {
   key: string
   category: SystemStatusCategoryKey
@@ -31,5 +33,6 @@ export type SystemStatusCategory = {
 
 export type SystemStatusSnapshot = {
   generatedAt: string
+  runtimeMode: SystemStatusRuntimeMode
   categories: SystemStatusCategory[]
 }

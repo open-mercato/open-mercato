@@ -67,13 +67,18 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     const rawBody = await req.json().catch(() => ({}))
     const payload = updateDictionaryEntrySchema.parse(rawBody)
     // These nested routes don't use the CRUD factory, so invoke the command bus explicitly.
-    const commandBus = context.container.resolve<CommandBus>('commandBus')
+    const commandBus = (context.container.resolve('commandBus') as CommandBus)
     const input = { ...(payload as Record<string, unknown>), id: entryId }
     const { result, logEntry } = await commandBus.execute('dictionaries.entries.update', {
       input,
       ctx: context.ctx,
     })
-    const updated = await context.em.fork().findOne(DictionaryEntry, result.entryId, { populate: ['dictionary'] })
+    const updateResult = (result ?? {}) as { entryId?: string | null }
+    const updatedEntryId = typeof updateResult.entryId === 'string' ? updateResult.entryId : null
+    if (!updatedEntryId) {
+      throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_update_failed', 'Failed to update dictionary entry') })
+    }
+    const updated = await context.em.fork().findOne(DictionaryEntry, updatedEntryId, { populate: ['dictionary'] })
     if (!updated) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_update_failed', 'Failed to update dictionary entry') })
     }
@@ -95,7 +100,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
           commandId: logEntry.commandId,
           actionLabel: logEntry.actionLabel ?? null,
           resourceKind: logEntry.resourceKind ?? 'dictionaries.entry',
-          resourceId: result.entryId,
+          resourceId: updatedEntryId,
           executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
         })
       )
@@ -119,7 +124,7 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     })
     const dictionary = await loadDictionary(context, dictionaryId)
     const entry = await loadEntry(context, dictionary, entryId)
-    const commandBus = context.container.resolve<CommandBus>('commandBus')
+    const commandBus = (context.container.resolve('commandBus') as CommandBus)
     const { logEntry } = await commandBus.execute('dictionaries.entries.delete', {
       input: { body: { id: entry.id } },
       ctx: context.ctx,

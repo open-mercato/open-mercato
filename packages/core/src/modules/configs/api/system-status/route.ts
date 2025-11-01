@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     let cache: CacheStrategy | null = null
     try {
-      cache = container.resolve<CacheStrategy>('cache')
+      cache = (container.resolve('cache') as CacheStrategy)
     } catch {
       cache = null
     }

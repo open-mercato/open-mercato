@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import type { Knex } from 'knex'
 
 type BuildDocParams = {
   entityType: string // '<module>:<entity>'
@@ -9,7 +10,7 @@ type BuildDocParams = {
 }
 
 export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): Promise<Record<string, any> | null> {
-  const knex = (em as any).getConnection().getKnex()
+  const knex = (em as any).getConnection().getKnex() as Knex
   const baseTable = resolveEntityTableName(em, params.entityType)
 
   // Fetch base row
@@ -61,7 +62,7 @@ export async function upsertIndexRow(
   em: EntityManager,
   args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
 ): Promise<UpsertIndexResult> {
-  const knex = (em as any).getConnection().getKnex()
+  const knex = (em as any).getConnection().getKnex() as Knex
   const baseScopeQuery = knex('entity_indexes')
     .select(['id', 'deleted_at'])
     .where({
@@ -131,7 +132,7 @@ export async function markDeleted(
   em: EntityManager,
   args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
 ): Promise<{ wasActive: boolean }> {
-  const knex = (em as any).getConnection().getKnex()
+  const knex = (em as any).getConnection().getKnex() as Knex
   const existing = await knex('entity_indexes')
     .select(['deleted_at'])
     .where({

@@ -140,13 +140,14 @@ export function DetailFieldsSection({ fields, className }: DetailFieldsSectionPr
 
         return (
           <div key={field.key} className={wrapperClassName}>
+            { /* InlineDictionaryEditor does not support 'plain'; fallback to default */ }
             <InlineDictionaryEditor
               label={field.label}
               value={field.value}
               emptyLabel={field.emptyLabel}
               onSave={field.onSave}
               kind={field.dictionaryKind}
-              variant={variant}
+              variant={variant === 'plain' ? 'default' : variant}
               activateOnClick={activateOnClick}
               containerClassName={containerClassName}
               triggerClassName={triggerClassName}
