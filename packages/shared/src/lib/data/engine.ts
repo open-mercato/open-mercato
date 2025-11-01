@@ -129,7 +129,7 @@ export class DefaultDataEngine implements DataEngine {
     if (opts.notify !== false) {
       let bus: EventBus | null = null
       try {
-        bus = this.container.resolve<EventBus>('eventBus')
+        bus = (this.container.resolve('eventBus') as EventBus)
       } catch {
         bus = null
       }
@@ -399,7 +399,7 @@ export class DefaultDataEngine implements DataEngine {
 
     let bus: EventBus | null = null
     try {
-      bus = this.container.resolve<EventBus>('eventBus')
+      bus = (this.container.resolve('eventBus') as EventBus)
     } catch {
       bus = null
     }

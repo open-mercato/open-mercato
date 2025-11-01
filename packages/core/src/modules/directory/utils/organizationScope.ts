@@ -161,8 +161,8 @@ export async function resolveOrganizationScopeForRequest({
 
   let em: EntityManager | null = null
   let rbac: RbacService | null = null
-  try { em = container.resolve<EntityManager>('em') } catch { em = null }
-  try { rbac = container.resolve<RbacService>('rbacService') } catch { rbac = null }
+  try { em = (container.resolve('em') as EntityManager) } catch { em = null }
+  try { rbac = (container.resolve('rbacService') as RbacService) } catch { rbac = null }
   if (!em || !rbac) {
     const fallbackSelected = selectedId ?? auth.orgId ?? null
     return {

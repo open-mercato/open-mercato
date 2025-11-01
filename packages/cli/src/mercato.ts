@@ -317,7 +317,7 @@ export async function run(argv = process.argv) {
           const limit = limitArg ? Number(limitArg.split('=')[1]) : undefined
           const { createRequestContainer } = await import('@/lib/di/container')
           const container = await createRequestContainer()
-          const bus = container.resolve<any>('eventBus')
+          const bus = (container.resolve('eventBus') as any)
           const res = await bus.processOffline({ limit })
           console.log(`Processed ${res.processed} events${res.lastId ? `, lastId=${res.lastId}` : ''}`)
         },
@@ -327,7 +327,7 @@ export async function run(argv = process.argv) {
         run: async () => {
           const { createRequestContainer } = await import('@/lib/di/container')
           const container = await createRequestContainer()
-          const bus = container.resolve<any>('eventBus')
+          const bus = (container.resolve('eventBus') as any)
           const res = await bus.clearQueue()
           console.log(`Cleared queue, removed ${res.removed} events`)
         },
@@ -337,7 +337,7 @@ export async function run(argv = process.argv) {
         run: async () => {
           const { createRequestContainer } = await import('@/lib/di/container')
           const container = await createRequestContainer()
-          const bus = container.resolve<any>('eventBus')
+          const bus = (container.resolve('eventBus') as any)
           const res = await bus.clearProcessed()
           console.log(`Cleared processed events, removed ${res.removed}${res.lastId ? ` up to id=${res.lastId}` : ''}`)
         },
@@ -358,7 +358,7 @@ export async function run(argv = process.argv) {
           }
           const { createRequestContainer } = await import('@/lib/di/container')
           const container = await createRequestContainer()
-          const bus = container.resolve<any>('eventBus')
+          const bus = (container.resolve('eventBus') as any)
           await bus.emitEvent(eventName, payload, { persistent })
           console.log(`Emitted "${eventName}"${persistent ? ' (persistent)' : ''}`)
         },

@@ -22,7 +22,7 @@ export default async function SiteCatchAll({ params }: { params: Promise<{ slug:
     const features = match.route.requireFeatures
     if (features && features.length) {
       const container = await createRequestContainer()
-      const rbac = container.resolve<RbacService>('rbacService')
+      const rbac = container.resolve('rbacService') as RbacService
       const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: auth.orgId })
       if (!ok) redirect('/login?requireFeature=' + encodeURIComponent(features.join(',')))
     }

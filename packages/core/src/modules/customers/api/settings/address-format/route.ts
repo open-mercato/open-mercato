@@ -49,7 +49,7 @@ async function resolveSettingsContext(req: Request): Promise<SettingsRouteContex
     request: req,
   }
 
-  const em = container.resolve<EntityManager>('em')
+  const em = (container.resolve('em') as EntityManager)
   return {
     ctx,
     tenantId: auth.tenantId,
@@ -83,7 +83,7 @@ export async function PUT(req: Request) {
     const scoped = withScopedPayload(payload, ctx, translate)
     const input = customerSettingsUpsertSchema.parse(scoped)
 
-    const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+    const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result } = await commandBus.execute<CustomerSettingsUpsertInput, { settingsId: string; addressFormat: CustomerAddressFormat }>(
       'customers.settings.save',
       { input, ctx },

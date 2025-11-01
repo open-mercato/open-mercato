@@ -109,7 +109,7 @@ async function setActivityCustomFields(
   values: Record<string, unknown>
 ) {
   if (!values || !Object.keys(values).length) return
-  const de = ctx.container.resolve<DataEngine>('dataEngine')
+  const de = (ctx.container.resolve('dataEngine') as DataEngine)
   await setCustomFieldsIfAny({
     dataEngine: de,
     entityId: ACTIVITY_ENTITY_ID,
@@ -128,7 +128,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
     const deal = await requireDealInScope(em, parsed.dealId, parsed.tenantId, parsed.organizationId)
@@ -173,7 +173,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
 
     await setActivityCustomFields(ctx, activity.id, parsed.organizationId, parsed.tenantId, custom)
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'created',
@@ -189,12 +189,12 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
     return { activityId: activity.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return await loadActivitySnapshot(em, result.activityId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadActivitySnapshot(em, result.activityId)
     return {
       actionLabel: translate('customers.audit.activities.create', 'Create activity'),
@@ -213,7 +213,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
   undo: async ({ logEntry, ctx }) => {
     const activityId = logEntry?.resourceId
     if (!activityId) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CustomerActivity, { id: activityId })
     if (!record) return
     em.remove(record)
@@ -225,13 +225,13 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
   id: 'customers.activities.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(activityUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadActivitySnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(activityUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const activity = await em.findOne(CustomerActivity, { id: parsed.id })
     if (!activity) throw new CrudHttpError(404, { error: 'Activity not found' })
     ensureTenantScope(ctx, activity.tenantId)
@@ -281,7 +281,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
 
     await setActivityCustomFields(ctx, activity.id, activity.organizationId, activity.tenantId, custom)
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -300,7 +300,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
     const { translate } = await resolveTranslations()
     const before = snapshots.before as ActivitySnapshot | undefined
     if (!before) return null
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const afterSnapshot = await loadActivitySnapshot(em, before.activity.id)
     const changeKeys: readonly string[] = [
       'entityId',
@@ -344,7 +344,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
     const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let activity = await em.findOne(CustomerActivity, { id: before.activity.id })
     const entity = await requireCustomerEntity(em, before.activity.entityId, undefined, 'Customer not found')
     const deal = await requireDealInScope(em, before.activity.dealId, before.activity.tenantId, before.activity.organizationId)
@@ -381,7 +381,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
 
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -414,13 +414,13 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
     id: 'customers.activities.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Activity id required')
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const snapshot = await loadActivitySnapshot(em, id)
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Activity id required')
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const activity = await em.findOne(CustomerActivity, { id })
       if (!activity) throw new CrudHttpError(404, { error: 'Activity not found' })
       ensureTenantScope(ctx, activity.tenantId)
@@ -428,7 +428,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
       em.remove(activity)
       await em.flush()
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudSideEffects({
         dataEngine: de,
         action: 'deleted',
@@ -464,7 +464,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
       const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const entity = await requireCustomerEntity(em, before.activity.entityId, undefined, 'Customer not found')
       const deal = await requireDealInScope(em, before.activity.dealId, before.activity.tenantId, before.activity.organizationId)
       let activity = await em.findOne(CustomerActivity, { id: before.activity.id })
@@ -499,7 +499,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
       }
       await em.flush()
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({
         dataEngine: de,
         action: 'created',

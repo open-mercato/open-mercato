@@ -114,7 +114,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
   id: 'catalog.prices.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(priceCreateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const variant = await requireVariant(em, parsed.variantId)
     const product =
       typeof variant.product === 'string'
@@ -154,11 +154,11 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return loadPriceSnapshot(em, result.priceId)
   },
   buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const after = await loadPriceSnapshot(em, result.priceId)
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -180,7 +180,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     const payload = extractUndoPayload<PriceUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductPrice, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -205,7 +205,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
   id: 'catalog.prices.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadPriceSnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
@@ -215,7 +215,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(priceUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductPrice, { id: parsed.id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
     const variant = record.variant as CatalogProductVariant | string
@@ -264,12 +264,12 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return loadPriceSnapshot(em, result.priceId)
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as PriceSnapshot | undefined
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const after = await loadPriceSnapshot(em, result.priceId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
@@ -299,7 +299,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     const before = payload?.before
     if (!before) return
     const after = payload?.after
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductPrice, { id: before.id })
     if (!record) {
       const variant = await requireVariant(em, before.variantId)
@@ -351,7 +351,7 @@ const deletePriceCommand: CommandHandler<
   id: 'catalog.prices.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadPriceSnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
@@ -361,7 +361,7 @@ const deletePriceCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Price id is required')
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductPrice, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
     const variant = record.variant as CatalogProductVariant | string
@@ -374,7 +374,7 @@ const deletePriceCommand: CommandHandler<
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
 
-    const baseEm = ctx.container.resolve<EntityManager>('em')
+    const baseEm = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadPriceSnapshot(baseEm, id)
 
     em.remove(record)
@@ -416,7 +416,7 @@ const deletePriceCommand: CommandHandler<
     const payload = extractUndoPayload<PriceUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductPrice, { id: before.id })
     if (!record) {
       const variant = await requireVariant(em, before.variantId)

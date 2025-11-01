@@ -3,6 +3,11 @@ import { createRequestContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
+
+type ProgressBarHandle = {
+  update(completed: number): void
+  complete(): void
+}
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
@@ -242,7 +247,7 @@ const rebuild: ModuleCli = {
     const batchSize = toPositiveInt(numberOption(args, 'batch', 'chunk', 'size')) ?? DEFAULT_BATCH_SIZE
 
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
+    const em = (container.resolve('em') as EntityManager)
     try {
       const knex = em.getConnection().getKnex()
       const tableName = resolveEntityTableName(em, entity)
@@ -345,7 +350,7 @@ const rebuildAll: ModuleCli = {
     }
 
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
+    const em = (container.resolve('em') as EntityManager)
     try {
       const knex = em.getConnection().getKnex()
 
@@ -449,7 +454,7 @@ const reindex: ModuleCli = {
     const skipPurge = flagEnabled(args, 'skipPurge', 'noPurge')
 
     const container = await createRequestContainer()
-    const baseEm = container.resolve<EntityManager>('em')
+    const baseEm = (container.resolve('em') as EntityManager)
     const partitionIndexOption =
       partitionIndexOptionRaw === undefined ? undefined : toNonNegativeInt(partitionIndexOptionRaw, 0)
     const partitionCount = Math.max(
@@ -532,7 +537,7 @@ const reindex: ModuleCli = {
               partitionVectorService = null
             }
             try {
-              let progressBar: ReturnType<typeof createProgressBar> | null = null
+              let progressBar: ProgressBarHandle | null = null
               const useBar = partitionTargets.length === 1
               const partitionStats = await reindexEntity(partitionEm, {
                 entityType: entity,
@@ -548,7 +553,7 @@ const reindex: ModuleCli = {
                 onProgress(info) {
                   if (useBar) {
                     if (info.total > 0 && !progressBar) {
-                      progressBar = createProgressBar(`Reindexing ${entity}${label}`, info.total)
+                    progressBar = createProgressBar(`Reindexing ${entity}${label}`, info.total) as ProgressBarHandle
                     }
                     progressBar?.update(info.processed)
                   } else {
@@ -556,7 +561,9 @@ const reindex: ModuleCli = {
                   }
                 },
               })
-              progressBar?.complete()
+              if (progressBar) {
+                (progressBar as ProgressBarHandle).complete()
+              }
               if (!useBar) {
                 renderProgress(part, entity, { processed: partitionStats.processed, total: partitionStats.total })
               } else {
@@ -659,7 +666,7 @@ const reindex: ModuleCli = {
               partitionVectorService = null
             }
             try {
-              let progressBar: ReturnType<typeof createProgressBar> | null = null
+              let progressBar: ProgressBarHandle | null = null
               const useBar = partitionTargets.length === 1
               const result = await reindexEntity(partitionEm, {
                 entityType: id,
@@ -675,7 +682,7 @@ const reindex: ModuleCli = {
                 onProgress(info) {
                   if (useBar) {
                     if (info.total > 0 && !progressBar) {
-                      progressBar = createProgressBar(`Reindexing ${id}${label}`, info.total)
+                    progressBar = createProgressBar(`Reindexing ${id}${label}`, info.total) as ProgressBarHandle
                     }
                     progressBar?.update(info.processed)
                   } else {
@@ -683,7 +690,9 @@ const reindex: ModuleCli = {
                   }
                 },
               })
-              progressBar?.complete()
+            if (progressBar) {
+              (progressBar as ProgressBarHandle).complete()
+            }
               if (!useBar) {
                 renderProgress(part, id, { processed: result.processed, total: result.total })
               } else {
@@ -776,7 +785,7 @@ const purge: ModuleCli = {
     const container = await createRequestContainer()
     let em: EntityManager | null = null
     try {
-      em = container.resolve<EntityManager>('em')
+      em = (container.resolve('em') as EntityManager)
     } catch {
       em = null
     }

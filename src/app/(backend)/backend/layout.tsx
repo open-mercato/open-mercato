@@ -127,7 +127,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   if (auth) {
     try {
       const container = await createRequestContainer()
-      const em = container.resolve<EntityManager>('em')
+      const em = container.resolve('em') as EntityManager
       if (Array.isArray(auth.roles) && auth.roles.length) {
         const roleScope: FilterQuery<Role> = auth.tenantId
           ? { $or: [{ tenantId: auth.tenantId }, { tenantId: null }] }

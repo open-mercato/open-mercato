@@ -75,8 +75,8 @@ function buildOptions(
       const children = Array.isArray(node.children) ? node.children : []
       const isInactive = node.isActive === false
       const allowed = !isInactive || includeInactiveSet.has(node.id)
+      const nodeDepth = typeof node.depth === 'number' ? node.depth : depth
       if (allowed) {
-        const nodeDepth = typeof node.depth === 'number' ? node.depth : depth
         const display =
           labelKey === 'pathLabel'
             ? (node.pathLabel || node.name || node.id)

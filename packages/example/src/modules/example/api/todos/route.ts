@@ -148,7 +148,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     // Per-request: merge DB field definitions with code-declared set and update selectors + sort map
     beforeList: async (_q, ctx) => {
       try {
-        const em = ctx.container.resolve<any>('em')
+        const em = (ctx.container.resolve('em') as any)
         const baseOrgIds = ctx.organizationIds === null
           ? null
           : (ctx.organizationIds ?? []).filter((id): id is string => typeof id === 'string' && id.length > 0)

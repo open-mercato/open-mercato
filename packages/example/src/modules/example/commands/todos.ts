@@ -76,7 +76,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(todoCreateSchema, rawInput)
     const scope = ensureScope(ctx)
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
     const todo = await de.createOrmEntity({
       entity: Todo,
@@ -115,7 +115,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   captureAfter: (_input, result) => serializeTodo(result),
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const custom = await loadTodoCustomSnapshot(
       em,
       String(result.id),
@@ -137,7 +137,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const id = snapshot?.id ?? logEntry.resourceId
     if (!id) throw new Error('Missing todo id for undo')
     const scope = resolveUndoScope(ctx, snapshot)
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const removed = await de.deleteOrmEntity({
       entity: Todo,
       where: {
@@ -181,7 +181,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   isUndoable: true,
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(todoUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await em.findOne(Todo, { id: parsed.id, deletedAt: null } as FilterQuery<Todo>)
     if (!existing) throw new CrudHttpError(404, { error: 'Todo not found' })
     const custom = await loadTodoCustomSnapshot(
@@ -195,7 +195,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(todoUpdateSchema, rawInput)
     const scope = ensureScope(ctx)
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
     const todo = await de.updateOrmEntity({
       entity: Todo,
@@ -237,7 +237,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     return todo
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const custom = await loadTodoCustomSnapshot(
       em,
       String(result.id),
@@ -249,7 +249,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   buildLog: async ({ result, snapshots, ctx }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as SerializedTodo | undefined
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const afterCustom = await loadTodoCustomSnapshot(
       em,
       String(result.id),
@@ -278,7 +278,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const before = (logEntry.snapshotBefore as SerializedTodo | undefined) ?? payload?.before
     if (!before?.id) throw new Error('Missing previous snapshot for undo')
     const scope = resolveUndoScope(ctx, before)
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const after = (logEntry.snapshotAfter as SerializedTodo | undefined) ?? payload?.after
     const updated = await de.updateOrmEntity({
       entity: Todo,
@@ -326,7 +326,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   isUndoable: true,
   async prepare(input, ctx) {
     const id = requireId(input, 'Todo id required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await em.findOne(Todo, { id, deletedAt: null } as FilterQuery<Todo>)
     if (!existing) return {}
     const custom = await loadTodoCustomSnapshot(
@@ -340,7 +340,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   async execute(input, ctx) {
     const id = requireId(input, 'Todo id required')
     const scope = ensureScope(ctx)
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const todo = await de.deleteOrmEntity({
       entity: Todo,
       where: {
@@ -386,8 +386,8 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const before = logEntry.snapshotBefore as SerializedTodo | undefined
     if (!before?.id) throw new Error('Missing snapshot for undo')
     const scope = resolveUndoScope(ctx, before)
-    const em = ctx.container.resolve<EntityManager>('em')
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let restored = await em.findOne(Todo, {
       id: before.id,
       tenantId: scope.tenantId,

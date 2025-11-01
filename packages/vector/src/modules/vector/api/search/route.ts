@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   let service: VectorIndexService
   try {
-    service = container.resolve<VectorIndexService>('vectorIndexService')
+    service = (container.resolve('vectorIndexService') as VectorIndexService)
   } catch {
     return NextResponse.json({ error: 'Vector index unavailable' }, { status: 503 })
   }

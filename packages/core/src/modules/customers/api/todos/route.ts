@@ -376,8 +376,8 @@ export async function GET(req: Request) {
       throw new CrudHttpError(403, { error: translate('customers.errors.organization_forbidden', 'Organization not accessible') })
     }
 
-    const em = ctx.container.resolve<EntityManager>('em')
-    const queryEngine = ctx.container.resolve<QueryEngine>('queryEngine')
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const queryEngine = (ctx.container.resolve('queryEngine') as QueryEngine)
 
     const where = {
       tenantId,
@@ -674,7 +674,7 @@ export async function POST(req: Request) {
     const { ctx, translate } = await buildContext(req)
     const raw = await req.json().catch(() => ({}))
     const scopedPayload = withScopedPayload(raw, ctx, translate, { requireOrganization: false })
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const entityContext = await resolveTaskEntityContext(em, ctx, translate, scopedPayload)
 
     if (scopedPayload.tenantId && scopedPayload.tenantId !== entityContext.tenantId) {
@@ -700,7 +700,7 @@ export async function POST(req: Request) {
       translate,
     )
 
-    const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+    const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<
       TodoLinkWithTodoCreateInput,
       { todoId: string; linkId: string; todoSnapshot?: unknown }
@@ -729,7 +729,7 @@ export async function PUT(req: Request) {
     const { ctx, translate } = await buildContext(req)
     const raw = await req.json().catch(() => ({}))
     const scopedPayload = withScopedPayload(raw, ctx, translate, { requireOrganization: false })
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const entityContext = await resolveTaskEntityContext(em, ctx, translate, scopedPayload)
 
     if (scopedPayload.tenantId && scopedPayload.tenantId !== entityContext.tenantId) {
@@ -745,7 +745,7 @@ export async function PUT(req: Request) {
 
     const input = parseTodoLinkInput(mergedPayload as Record<string, unknown>, translate)
 
-    const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+    const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<TodoLinkCreateInput, { linkId: string }>(
       'customers.todos.link',
       { input, ctx },
@@ -779,7 +779,7 @@ export async function DELETE(req: Request) {
     }
     const input = parseTodoUnlinkInput({ id: idValue }, translate)
 
-    const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+    const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<{ id: string }, { linkId: string | null }>(
       'customers.todos.unlink',
       { input, ctx },

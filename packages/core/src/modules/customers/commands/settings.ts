@@ -25,7 +25,7 @@ const saveCustomerSettingsCommand: CommandHandler<
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let settings = await loadCustomerSettings(em, {
       tenantId: input.tenantId,
       organizationId: input.organizationId,

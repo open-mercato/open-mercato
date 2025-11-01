@@ -33,7 +33,7 @@ export async function resolveDictionariesRouteContext(req: Request): Promise<Dic
     throw new CrudHttpError(400, { error: translate('dictionaries.errors.organization_required', 'Organization context is required') })
   }
 
-  const em = container.resolve<EntityManager>('em')
+  const em = (container.resolve('em') as EntityManager)
   const readableOrganizationIds = new Set<string>()
   readableOrganizationIds.add(organizationId)
   try {

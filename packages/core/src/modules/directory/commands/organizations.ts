@@ -249,7 +249,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   id: 'directory.organizations.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(organizationCreateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const authTenantId = ctx.auth?.tenantId ?? null
     const tenantId = requireTenantScope(authTenantId, parsed.tenantId ?? null)
 
@@ -264,7 +264,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const childParentsBefore = await loadChildParentSnapshots(em, tenantId, childIds)
 
     const tenantRef = em.getReference(Tenant, tenantId)
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const organization = await de.createOrmEntity({
       entity: Organization,
       data: {
@@ -307,7 +307,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     return organization
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,
@@ -320,7 +320,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
     const meta = getUndoMeta(result)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,
@@ -350,18 +350,19 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!after) return
     const tenantId = after.tenantId
     if (!tenantId) return
-    const em = ctx.container.resolve<EntityManager>('em')
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await restoreChildParents(em, tenantId, childrenBefore)
     if (after.custom && Object.keys(after.custom).length) {
       const reset = buildCustomFieldResetMap(undefined, after.custom)
       if (Object.keys(reset).length) {
+        const resetValues = reset as Parameters<DataEngine['setCustomFields']>[0]['values']
         await de.setCustomFields({
           entityId: E.directory.organization,
           recordId: after.id,
           tenantId,
           organizationId: after.id,
-          values: reset,
+          values: resetValues,
           notify: false,
         })
       }
@@ -379,7 +380,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   id: 'directory.organizations.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(organizationUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const current = await em.findOne(Organization, { id: parsed.id, deletedAt: null })
     if (!current) throw new CrudHttpError(404, { error: 'Not found' })
     const tenantId = resolveTenantIdFromEntity(current)
@@ -399,7 +400,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(organizationUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await em.findOne(Organization, { id: parsed.id, deletedAt: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Not found' })
 
@@ -442,7 +443,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     ])
     const childParentsBefore = await loadChildParentSnapshots(em, tenantId, combinedChildIds)
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const organization = await de.updateOrmEntity({
       entity: Organization,
       where: { id: parsed.id, deletedAt: null } as FilterQuery<Organization>,
@@ -486,7 +487,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     return organization
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,
@@ -501,7 +502,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const meta = getUndoMeta(result)
     const beforeSnapshots = snapshots.before as OrganizationSnapshots | undefined
     const beforeRecord = beforeSnapshots?.view ?? null
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,
@@ -536,8 +537,8 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!before) return
     const tenantId = before.tenantId
     if (!tenantId) return
-    const em = ctx.container.resolve<EntityManager>('em')
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const updated = await de.updateOrmEntity({
       entity: Organization,
       where: { id: before.id } as FilterQuery<Organization>,
@@ -552,12 +553,13 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     }
     const reset = buildCustomFieldResetMap(before.custom, after?.custom)
     if (Object.keys(reset).length) {
+      const resetValues = reset as Parameters<DataEngine['setCustomFields']>[0]['values']
       await de.setCustomFields({
         entityId: E.directory.organization,
         recordId: before.id,
         tenantId,
         organizationId: before.id,
-        values: reset,
+        values: resetValues,
         notify: false,
       })
     }
@@ -583,7 +585,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
   id: 'directory.organizations.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Organization id required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await em.findOne(Organization, { id, deletedAt: null })
     if (!existing) return {}
     const tenantId = resolveTenantIdFromEntity(existing)
@@ -600,7 +602,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Organization id required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await em.findOne(Organization, { id, deletedAt: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Not found' })
 
@@ -614,7 +616,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
       Array.isArray(existing.childIds) ? existing.childIds : [],
     )
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const deleted = await de.deleteOrmEntity({
       entity: Organization,
       where: { id, deletedAt: null } as FilterQuery<Organization>,
@@ -678,8 +680,8 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     if (!before) return
     const tenantId = before.tenantId
     if (!tenantId) return
-    const em = ctx.container.resolve<EntityManager>('em')
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let organization = await em.findOne(Organization, { id: before.id })
     if (organization) {
       organization.deletedAt = null
@@ -704,12 +706,13 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     if (tenantId) {
       const customValues = buildCustomFieldResetMap(before.custom, undefined)
       if (Object.keys(customValues).length) {
+        const resetValues = customValues as Parameters<DataEngine['setCustomFields']>[0]['values']
         await de.setCustomFields({
           entityId: E.directory.organization,
           recordId: before.id,
           tenantId,
           organizationId: before.id,
-          values: customValues,
+          values: resetValues,
           notify: false,
         })
       }

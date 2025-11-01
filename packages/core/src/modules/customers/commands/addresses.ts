@@ -85,7 +85,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
 
@@ -117,7 +117,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       await em.flush()
     }
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'created',
@@ -133,12 +133,12 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
     return { addressId: address.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return await loadAddressSnapshot(em, result.addressId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadAddressSnapshot(em, result.addressId)
     return {
       actionLabel: translate('customers.audit.addresses.create', 'Create address'),
@@ -157,7 +157,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
   undo: async ({ logEntry, ctx }) => {
     const addressId = logEntry?.resourceId ?? null
     if (!addressId) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const address = await em.findOne(CustomerAddress, { id: addressId })
     if (address) {
       em.remove(address)
@@ -170,13 +170,13 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
   id: 'customers.addresses.update',
   async prepare(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadAddressSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const address = await em.findOne(CustomerAddress, { id: parsed.id })
     if (!address) throw new CrudHttpError(404, { error: 'Address not found' })
     ensureTenantScope(ctx, address.tenantId)
@@ -208,7 +208,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
       await em.flush()
     }
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -227,7 +227,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
     const { translate } = await resolveTranslations()
     const before = snapshots.before as AddressSnapshot | undefined
     if (!before) return null
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const afterSnapshot = await loadAddressSnapshot(em, before.id)
     const changes =
       afterSnapshot && before
@@ -273,7 +273,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
     const payload = extractUndoPayload<AddressUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let address = await em.findOne(CustomerAddress, { id: before.id })
     const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
     if (!address) {
@@ -321,7 +321,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
       await em.flush()
     }
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -341,13 +341,13 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
     id: 'customers.addresses.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Address id required')
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const snapshot = await loadAddressSnapshot(em, id)
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Address id required')
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const address = await em.findOne(CustomerAddress, { id })
       if (!address) throw new CrudHttpError(404, { error: 'Address not found' })
       ensureTenantScope(ctx, address.tenantId)
@@ -355,7 +355,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       em.remove(address)
       await em.flush()
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudSideEffects({
         dataEngine: de,
         action: 'deleted',
@@ -391,7 +391,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const payload = extractUndoPayload<AddressUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
       let address = await em.findOne(CustomerAddress, { id: before.id })
       if (!address) {
@@ -439,7 +439,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
         await em.flush()
       }
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({
         dataEngine: de,
         action: 'created',

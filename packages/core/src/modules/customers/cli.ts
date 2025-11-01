@@ -1396,7 +1396,7 @@ async function seedCustomerExamples(
   let cache: CacheStrategy | null = null
   if (typeof (container as any).hasRegistration === 'function' && container.hasRegistration('cache')) {
     try {
-      cache = container.resolve<CacheStrategy>('cache')
+      cache = (container.resolve('cache') as CacheStrategy)
     } catch {
       cache = null
     }
@@ -1856,7 +1856,7 @@ async function seedCustomerStressTest(
   if (includeExtras) {
     if (typeof (container as any).hasRegistration === 'function' && container.hasRegistration('cache')) {
       try {
-        cache = container.resolve<CacheStrategy>('cache')
+        cache = (container.resolve('cache') as CacheStrategy)
       } catch {
         cache = null
       }
@@ -2855,7 +2855,7 @@ const seedExamples: ModuleCli = {
       return
     }
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
+    const em = (container.resolve('em') as EntityManager)
     const seeded = await em.transactional(async (tem) =>
       seedCustomerExamples(tem, container, { tenantId, organizationId })
     )
@@ -2890,7 +2890,7 @@ const seedStressTest: ModuleCli = {
       args.variant === 'lite'
 
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
+    const em = (container.resolve('em') as EntityManager)
     let progressBar: ProgressBarHandle | null = null
     const result = await seedCustomerStressTest(
       em,
@@ -2916,7 +2916,7 @@ const seedStressTest: ModuleCli = {
     }
 
     try {
-      const eventBus = container.resolve<any>('eventBus')
+      const eventBus = (container.resolve('eventBus') as any)
       const coverageEntities = [
         CoreEntities.customers.customer_entity,
         CoreEntities.customers.customer_person_profile,

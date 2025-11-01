@@ -32,7 +32,7 @@ export function debugCrudCache(event: string, context: Record<string, unknown>) 
 
 export function resolveCrudCache(container: AwilixContainer): CacheStrategy | null {
   try {
-    const cache = container.resolve<CacheStrategy>('cache')
+    const cache = (container.resolve('cache') as CacheStrategy)
     if (cache && typeof cache.get === 'function' && typeof cache.set === 'function') {
       return cache
     }

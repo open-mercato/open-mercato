@@ -48,14 +48,14 @@ const taxRateResponseItemSchema = z.object({
   channelId: z.string().uuid().nullable(),
   priority: z.number().nullable(),
   isCompound: z.boolean(),
-  metadata: z.record(z.any()).nullable().optional(),
+  metadata: z.record(z.string(), z.any()).nullable().optional(),
   startsAt: z.string().nullable(),
   endsAt: z.string().nullable(),
   organizationId: z.string().uuid().nullable(),
   tenantId: z.string().uuid().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
-  customFields: z.record(z.any()).optional(),
+  customFields: z.record(z.string(), z.any()).optional(),
 })
 
 const taxRateListResponseSchema = z.object({

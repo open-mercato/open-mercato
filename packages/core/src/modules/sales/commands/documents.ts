@@ -557,7 +557,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
   async execute(rawInput, ctx) {
     const parsed = quoteCreateSchema.parse(rawInput)
     ensureQuoteScope(ctx, parsed.organizationId, parsed.tenantId)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quoteStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null)
     const quote = em.create(SalesQuote, {
       organizationId: parsed.organizationId,
@@ -629,7 +629,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     return { quoteId: quote.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -654,7 +654,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id: after.quote.id })
     if (!quote) return
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
@@ -672,7 +672,7 @@ const deleteQuoteCommand: CommandHandler<
   id: 'sales.quotes.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Quote id is required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadQuoteSnapshot(em, id)
     if (snapshot) {
       ensureQuoteScope(ctx, snapshot.quote.organizationId, snapshot.quote.tenantId)
@@ -681,7 +681,7 @@ const deleteQuoteCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Quote id is required')
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
@@ -713,7 +713,7 @@ const deleteQuoteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
     const quote = await restoreQuoteGraph(em, before)
     await em.flush()

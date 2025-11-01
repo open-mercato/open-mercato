@@ -128,7 +128,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
   const container = await createRequestContainer()
   let baseEm: EntityManager | null = null
   try {
-    baseEm = container.resolve<EntityManager>('em')
+    baseEm = (container.resolve('em') as EntityManager)
   } catch {
     baseEm = null
   }
@@ -178,7 +178,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
   }
 
   try {
-    const service = container.resolve<VectorIndexService>('vectorIndexService')
+    const service = (container.resolve('vectorIndexService') as VectorIndexService)
     await service.ensureDriverReady()
     const enabledEntities = new Set(service.listEnabledEntities())
     const baseEventBus = (() => {

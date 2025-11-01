@@ -3,29 +3,24 @@ import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
 // Definitions of custom fields scoped to an entity type and organization
 @Entity({ tableName: 'custom_field_defs' })
 @Index({
-  name: 'cf_defs_active_entity_tenant_org_idx',
+  name: 'cf_defs_entity_tenant_org_idx',
   properties: ['entityId', 'tenantId', 'organizationId'],
-  where: 'is_active = true',
 })
 @Index({
-  name: 'cf_defs_active_entity_tenant_idx',
+  name: 'cf_defs_entity_tenant_idx',
   properties: ['entityId', 'tenantId'],
-  where: 'is_active = true and organization_id is null',
 })
 @Index({
-  name: 'cf_defs_active_entity_org_idx',
+  name: 'cf_defs_entity_org_idx',
   properties: ['entityId', 'organizationId'],
-  where: 'is_active = true and tenant_id is null',
 })
 @Index({
-  name: 'cf_defs_active_entity_global_idx',
+  name: 'cf_defs_entity_global_idx',
   properties: ['entityId'],
-  where: 'is_active = true and tenant_id is null and organization_id is null',
 })
 @Index({
-  name: 'cf_defs_active_entity_key_scope_idx',
+  name: 'cf_defs_entity_key_scope_idx',
   properties: ['entityId', 'key', 'tenantId', 'organizationId'],
-  where: 'is_active = true and deleted_at is null',
 })
 export class CustomFieldDef {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -159,7 +154,6 @@ export class CustomEntityStorage {
 @Index({
   name: 'cf_values_entity_record_tenant_idx',
   properties: ['entityId', 'recordId', 'tenantId'],
-  where: 'deleted_at is null',
 })
 export class CustomFieldValue {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })

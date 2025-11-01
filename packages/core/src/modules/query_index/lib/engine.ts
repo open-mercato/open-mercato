@@ -488,7 +488,8 @@ export class HybridQueryEngine implements QueryEngine {
       if (fieldName.startsWith('cf:')) {
         const { textSql } = this.buildCfExpressions(knex, fieldName, indexSources)
         if (textSql !== 'NULL') {
-          builder = builder.orderBy(knex.raw(textSql), sort.dir ?? SortDir.Asc)
+          const direction = sort.dir ?? SortDir.Asc
+          builder = builder.orderByRaw(`${textSql} ${direction}`)
         }
       } else {
         const baseField = resolveBaseColumn(fieldName)
@@ -548,7 +549,8 @@ export class HybridQueryEngine implements QueryEngine {
     )
     if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(items) ? items.length : 0 })
 
-    const result: QueryResult<T> = { items, page, pageSize, total }
+    const typedItems = items as unknown as T[]
+    const result: QueryResult<T> = { items: typedItems, page, pageSize, total }
     if (partialIndexWarning) {
       result.meta = { partialIndexWarning }
     }
@@ -678,14 +680,16 @@ export class HybridQueryEngine implements QueryEngine {
       }
       case 'nin': {
         const values = this.toArray(value) as readonly Knex.Value[]
-        return builder.whereNotIn(textExpr, values)
+        return builder.whereNotIn(textExpr as any, values as any)
       }
       case 'like':
         return builder.where(textExpr, 'like', value as Knex.Value)
       case 'ilike':
         return builder.where(textExpr, 'ilike', value as Knex.Value)
       case 'exists':
-        return value ? builder.whereNotNull(textExpr) : builder.whereNull(textExpr)
+        return value
+          ? builder.whereRaw(`${textExpr.toString()} is not null`)
+          : builder.whereRaw(`${textExpr.toString()} is null`)
       case 'gt':
       case 'gte':
       case 'lt':
@@ -728,14 +732,16 @@ export class HybridQueryEngine implements QueryEngine {
       }
       case 'nin': {
         const vals = this.toArray(value) as readonly Knex.Value[]
-        return q.whereNotIn(text, vals)
+        return q.whereNotIn(text as any, vals as any)
       }
       case 'like':
         return q.where(text, 'like', value as Knex.Value)
       case 'ilike':
         return q.where(text, 'ilike', value as Knex.Value)
       case 'exists':
-        return value ? q.whereNotNull(text) : q.whereNull(text)
+        return value
+          ? q.whereRaw(`${text.toString()} is not null`)
+          : q.whereRaw(`${text.toString()} is null`)
       case 'gt':
       case 'gte':
       case 'lt':
@@ -853,8 +859,8 @@ export class HybridQueryEngine implements QueryEngine {
       } else if (s.field === 'created_at' || s.field === 'updated_at' || s.field === 'deleted_at') {
         q = q.orderBy(`${alias}.${s.field}`, s.dir ?? SortDir.Asc)
       } else {
-        const expr = knex.raw(`(${alias}.doc ->> ?)`, [s.field])
-        q = q.orderBy(expr, s.dir ?? SortDir.Asc)
+        const direction = s.dir ?? SortDir.Asc
+        q = q.orderByRaw(`(${alias}.doc ->> ?) ${direction}`, [s.field])
       }
     }
 
@@ -1233,32 +1239,33 @@ export class HybridQueryEngine implements QueryEngine {
     column: string | Knex.Raw,
     filter: NormalizedFilter
   ): Knex.QueryBuilder<TRecord, TResult> {
+    const col = column as any
     switch (filter.op) {
       case 'eq':
-        return q.where(column, filter.value as Knex.Value)
+        return q.where(col, filter.value as Knex.Value)
       case 'ne':
-        return q.whereNot(column, filter.value as Knex.Value)
+        return q.whereNot(col, filter.value as Knex.Value)
       case 'gt':
       case 'gte':
       case 'lt':
       case 'lte': {
         const operator = filter.op === 'gt' ? '>' : filter.op === 'gte' ? '>=' : filter.op === 'lt' ? '<' : '<='
-        return q.where(column, operator, filter.value as Knex.Value)
+        return q.where(col, operator, filter.value as Knex.Value)
       }
       case 'in': {
         const values = this.toArray(filter.value) as readonly Knex.Value[]
-        return q.whereIn(column, values)
+        return q.whereIn(col, values)
       }
       case 'nin': {
         const values = this.toArray(filter.value) as readonly Knex.Value[]
-        return q.whereNotIn(column, values)
+        return q.whereNotIn(col, values)
       }
       case 'like':
-        return q.where(column, 'like', filter.value as Knex.Value)
+        return q.where(col, 'like', filter.value as Knex.Value)
       case 'ilike':
-        return q.where(column, 'ilike', filter.value as Knex.Value)
+        return q.where(col, 'ilike', filter.value as Knex.Value)
       case 'exists':
-        return filter.value ? q.whereNotNull(column) : q.whereNull(column)
+        return filter.value ? q.whereNotNull(col) : q.whereNull(col)
       default:
         return q
     }

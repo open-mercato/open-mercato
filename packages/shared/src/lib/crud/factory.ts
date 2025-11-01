@@ -694,7 +694,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       cfProfiler.end(extra)
     }
     try {
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const organizationIds =
         Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
           ? ctx.organizationIds
@@ -963,7 +963,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       // Prefer query engine when configured
       if (opts.list.entityId && opts.list.fields) {
         profiler.mark('query_engine_prepare')
-        const qe = ctx.container.resolve<QueryEngine>('queryEngine')
+        const qe = (ctx.container.resolve('queryEngine') as QueryEngine)
         profiler.mark('query_engine_resolved')
         const sortFieldRaw = (queryParams as any).sortField || 'id'
         const sortDirRaw = ((queryParams as any).sortDir || 'asc').toLowerCase() === 'desc' ? SortDir.Desc : SortDir.Asc
@@ -1128,7 +1128,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       // Fallback: plain ORM list
       profiler.mark('orm_fallback_prepare')
-      const em = ctx.container.resolve<any>('em')
+      const em = (ctx.container.resolve('em') as any)
       const repo = em.getRepository(ormCfg.entity)
       profiler.mark('orm_repo_ready')
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
@@ -1248,7 +1248,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const body = await request.json().catch(() => ({}))
 
       if (useCommand) {
-        const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+        const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
         const action = opts.actions!.create!
         const parsed = action.schema ? action.schema.parse(body) : body
         const input = action.mapInput ? await action.mapInput({ parsed, raw: body, ctx }) : parsed
@@ -1272,7 +1272,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       let input = opts.create.schema.parse(body)
       const modified = await opts.hooks?.beforeCreate?.(input as any, ctx)
       if (modified) input = modified
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       const entityData = opts.create.mapToEntity(input as any, ctx)
       // Inject org/tenant
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
@@ -1293,7 +1293,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           ? cfc.map(body)
           : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
         if (values && Object.keys(values).length > 0) {
-          const de = ctx.container.resolve<DataEngine>('dataEngine')
+          const de = (ctx.container.resolve('dataEngine') as DataEngine)
           await de.setCustomFields({
             entityId: cfc.entityId as any,
             recordId: String((entity as any)[ormCfg.idField!]),
@@ -1344,7 +1344,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const body = await request.json().catch(() => ({}))
 
       if (useCommand) {
-        const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+        const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
         const action = opts.actions!.update!
         const parsed = action.schema ? action.schema.parse(body) : body
         const input = action.mapInput ? await action.mapInput({ parsed, raw: body, ctx }) : parsed
@@ -1377,7 +1377,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       const where: any = buildScopedWhere(
         { [ormCfg.idField!]: id },
         {
@@ -1399,7 +1399,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           ? cfc.map(body)
           : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
         if (values && Object.keys(values).length > 0) {
-          const de = ctx.container.resolve<DataEngine>('dataEngine')
+          const de = (ctx.container.resolve('dataEngine') as DataEngine)
           await de.setCustomFields({
             entityId: cfc.entityId as any,
             recordId: String((entity as any)[ormCfg.idField!]),
@@ -1453,7 +1453,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const parsed = action.schema ? action.schema.parse(raw) : raw
         const input = action.mapInput ? await action.mapInput({ parsed, raw, ctx }) : parsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed, raw, ctx }) : null
-        const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+        const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
         const candidateId = normalizeIdentifierValue(
           (input as Record<string, unknown> | null | undefined)?.id
             ?? (raw.query as Record<string, unknown> | null | undefined)?.id
@@ -1485,7 +1485,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       const where: any = buildScopedWhere(
         { [ormCfg.idField!]: id },
         {

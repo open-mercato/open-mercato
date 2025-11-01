@@ -89,7 +89,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
     const resolvedTenantId = parsed.tenantId === undefined ? ctx.auth?.tenantId ?? null : parsed.tenantId ?? null
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const role = await de.createOrmEntity({
       entity: Role,
       data: {
@@ -123,7 +123,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     return role
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -133,7 +133,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -156,8 +156,8 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   undo: async ({ logEntry, ctx }) => {
     const undo = extractRoleUndoPayload(logEntry)?.after
     if (!undo) return
-    const em = ctx.container.resolve<EntityManager>('em')
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await em.nativeDelete(RoleAcl, { role: undo.id as unknown as Role })
     if (undo.custom && Object.keys(undo.custom).length) {
       const reset = buildCustomFieldResetMap(undefined, undo.custom)
@@ -185,7 +185,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await em.findOne(Role, { id: parsed.id, deletedAt: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Role not found' })
     const acls = await loadRoleAclSnapshots(em, parsed.id)
@@ -198,7 +198,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     if (parsed.name !== undefined) {
       const current = await em.findOne(Role, { id: parsed.id, deletedAt: null })
       if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
@@ -210,7 +210,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
         }
       }
     }
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const role = await de.updateOrmEntity({
       entity: Role,
       where: { id: parsed.id, deletedAt: null } as FilterQuery<Role>,
@@ -246,7 +246,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     return role
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -259,7 +259,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const beforeSnapshots = snapshots.before as RoleSnapshots | undefined
     const before = beforeSnapshots?.view
     const beforeUndo = beforeSnapshots?.undo ?? null
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const afterAcls = await loadRoleAclSnapshots(em, String(result.id))
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
@@ -294,8 +294,8 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const before = undo?.before
     const after = undo?.after
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em')
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const updated = await de.updateOrmEntity({
       entity: Role,
       where: { id: before.id, deletedAt: null } as FilterQuery<Role>,
@@ -338,7 +338,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   id: 'auth.roles.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Role id required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await em.findOne(Role, { id, deletedAt: null })
     if (!existing) return {}
     const acls = await loadRoleAclSnapshots(em, id)
@@ -351,7 +351,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Role id required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const role = await em.findOne(Role, { id, deletedAt: null })
     if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
     const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
@@ -359,7 +359,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
 
     await em.nativeDelete(RoleAcl, { role: id })
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const deleted = await de.deleteOrmEntity({
       entity: Role,
       where: { id, deletedAt: null } as FilterQuery<Role>,
@@ -404,8 +404,8 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   undo: async ({ logEntry, ctx }) => {
     const before = extractRoleUndoPayload(logEntry)?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em')
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let role = await em.findOne(Role, { id: before.id })
     if (role) {
       role.deletedAt = null

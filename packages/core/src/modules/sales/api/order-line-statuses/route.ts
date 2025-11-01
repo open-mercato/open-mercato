@@ -59,7 +59,7 @@ async function resolveDictionaryId(ctx: any): Promise<string> {
   if (!organizationId) {
     throw new CrudHttpError(400, { error: 'Organization context is required.' })
   }
-  const em = ctx.container.resolve<EntityManager>('em')
+  const em = ctx.container.resolve('em') as EntityManager
   const dictionary = await ensureSalesDictionary({
     em,
     tenantId: ctx.auth.tenantId,

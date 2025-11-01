@@ -354,7 +354,7 @@ async function setCustomFieldsForPerson(
   values: Record<string, unknown>
 ): Promise<void> {
   if (!values || !Object.keys(values).length) return
-  const em = ctx.container.resolve<EntityManager>('em')
+  const em = (ctx.container.resolve('em') as EntityManager)
   const routing = await resolvePersonCustomFieldRouting(em, tenantId, organizationId)
   const entityScoped: Record<string, unknown> = {}
   const profileScoped: Record<string, unknown> = {}
@@ -364,7 +364,7 @@ async function setCustomFieldsForPerson(
     else profileScoped[key] = value
   }
 
-  const de = ctx.container.resolve<DataEngine>('dataEngine')
+  const de = (ctx.container.resolve('dataEngine') as DataEngine)
   if (Object.keys(entityScoped).length) {
     await setCustomFieldsIfAny({
       dataEngine: de,
@@ -396,7 +396,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const firstName = parsed.firstName?.trim() ?? ''
     const lastName = parsed.lastName?.trim() ?? ''
     const description = normalizeOptionalString(parsed.description)
@@ -496,7 +496,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     await em.flush()
     await setCustomFieldsForPerson(ctx, entity.id, profile.id, organizationId, tenantId, custom)
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'created',
@@ -512,12 +512,12 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     return { entityId: entity.id, personId: profile.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return await loadPersonSnapshot(em, result.entityId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadPersonSnapshot(em, result.entityId)
     return {
       actionLabel: translate('customers.audit.people.create', 'Create person'),
@@ -537,7 +537,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const payload = extractUndoPayload<PersonUndoPayload>(logEntry) ?? null
     const entityId = logEntry?.resourceId ?? payload?.after?.entity.id ?? null
     if (!entityId) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: entityId })
     if (!entity) return
     const profile = await em.findOne(CustomerPersonProfile, { entity })
@@ -553,13 +553,13 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
   id: 'customers.people.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(personUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadPersonSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(personUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null })
     const record = assertRecordFound(entity, 'Person not found')
     ensureTenantScope(ctx, record.tenantId)
@@ -649,7 +649,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
 
     await setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -668,7 +668,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const { translate } = await resolveTranslations()
     const before = snapshots.before as PersonSnapshot | undefined
     if (!before) return null
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const afterSnapshot = await loadPersonSnapshot(em, before.entity.id)
     const changeKeys: readonly string[] = [
       'displayName',
@@ -716,7 +716,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const payload = extractUndoPayload<PersonUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: before.entity.id })
     if (!entity) {
       const newEntity = em.create(CustomerEntity, {
@@ -806,7 +806,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       await em.flush()
     }
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -831,13 +831,13 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
     id: 'customers.people.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Person id required')
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const snapshot = await loadPersonSnapshot(em, id)
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Person id required')
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadPersonSnapshot(em, id)
       const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
       const record = assertRecordFound(entity, 'Person not found')
@@ -901,7 +901,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         }
       }
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudSideEffects({
         dataEngine: de,
         action: 'deleted',
@@ -940,7 +940,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const payload = extractUndoPayload<PersonUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
       if (!entity) {
         entity = em.create(CustomerEntity, {
@@ -1142,7 +1142,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
       await em.flush()
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({
         dataEngine: de,
         action: 'created',

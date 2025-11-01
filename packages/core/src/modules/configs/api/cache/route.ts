@@ -22,7 +22,7 @@ export async function GET(req: Request) {
     const container = await createRequestContainer()
     let cache: CacheStrategy
     try {
-      cache = container.resolve<CacheStrategy>('cache')
+      cache = (container.resolve('cache') as CacheStrategy)
     } catch {
       return NextResponse.json(
         { error: translate('configs.cache.unavailable', 'Cache service is unavailable.') },
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     let cache: CacheStrategy
     try {
-      cache = container.resolve<CacheStrategy>('cache')
+      cache = (container.resolve('cache') as CacheStrategy)
     } catch {
       return NextResponse.json(
         { error: translate('configs.cache.unavailable', 'Cache service is unavailable.') },

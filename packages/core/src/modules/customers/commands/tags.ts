@@ -70,7 +70,7 @@ const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const duplicate = await em.findOne(CustomerTag, {
       slug: parsed.slug,
       organizationId: parsed.organizationId,
@@ -89,7 +89,7 @@ const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
     em.persist(tag)
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'created',
@@ -104,12 +104,12 @@ const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
     return { tagId: tag.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return await loadTagSnapshot(em, result.tagId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadTagSnapshot(em, result.tagId)
     return {
       actionLabel: translate('customers.audit.tags.create', 'Create tag'),
@@ -128,7 +128,7 @@ const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
   undo: async ({ logEntry, ctx }) => {
     const tagId = logEntry?.resourceId ?? null
     if (!tagId) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(CustomerTag, { id: tagId })
     if (tag) {
       await em.nativeDelete(CustomerTagAssignment, { tag })
@@ -142,13 +142,13 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
   id: 'customers.tags.update',
   async prepare(rawInput, ctx) {
     const parsed = tagUpdateSchema.parse(rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadTagSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = tagUpdateSchema.parse(rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(CustomerTag, { id: parsed.id })
     if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
     ensureTenantScope(ctx, tag.tenantId)
@@ -170,7 +170,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
 
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -188,7 +188,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as TagSnapshot | undefined
     if (!before) return null
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const afterSnapshot = await loadTagSnapshot(em, before.id)
     const changes =
       afterSnapshot && before
@@ -219,7 +219,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
     const payload = extractUndoPayload<TagUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let tag = await em.findOne(CustomerTag, { id: before.id })
     if (!tag) {
       tag = em.create(CustomerTag, {
@@ -240,7 +240,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
     }
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -258,13 +258,13 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
   id: 'customers.tags.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Tag id required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadTagSnapshot(em, id)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Tag id required')
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(CustomerTag, { id })
     if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
     ensureTenantScope(ctx, tag.tenantId)
@@ -273,7 +273,7 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
     em.remove(tag)
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'deleted',
@@ -308,7 +308,7 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
     const payload = extractUndoPayload<TagUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let tag = await em.findOne(CustomerTag, { id: before.id })
     if (!tag) {
       tag = em.create(CustomerTag, {
@@ -329,7 +329,7 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
     }
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'created',
@@ -350,7 +350,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
   const tag = await em.findOne(CustomerTag, { id: parsed.tagId, tenantId: parsed.tenantId, organizationId: parsed.organizationId })
   if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
   const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
@@ -369,7 +369,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
     em.persist(assignment)
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -385,7 +385,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const assignment = await em.findOne(CustomerTagAssignment, { id: result.assignmentId }, { populate: ['tag', 'entity'] })
     if (!assignment) return null
     const tagId = typeof assignment.tag === 'string' ? assignment.tag : assignment.tag.id
@@ -412,7 +412,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
     const payload = extractUndoPayload<TagAssignmentUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.nativeDelete(CustomerTagAssignment, {
       tag: before.tagId,
       entity: before.entityId,
@@ -429,7 +429,7 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const existing = await em.findOne(CustomerTagAssignment, {
       tag: parsed.tagId,
       entity: parsed.entityId,
@@ -440,7 +440,7 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
     await em.remove(existing)
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -479,7 +479,7 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
     const payload = extractUndoPayload<TagAssignmentUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(CustomerTag, { id: before.tagId })
     const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
     ensureSameScope(entity, before.organizationId, before.tenantId)

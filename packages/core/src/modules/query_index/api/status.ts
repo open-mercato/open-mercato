@@ -70,14 +70,14 @@ export async function GET(req: Request) {
     try {
       const rows = await knex('entity_index_jobs')
         .where({ entity_type: entityType })
-        .andWhere((qb) => {
+        .andWhere((qb: any) => {
           if (tenantIdParam != null) {
             qb.whereRaw('tenant_id is not distinct from ?', [tenantIdParam])
           } else {
             qb.whereRaw('tenant_id is not distinct from ?', [null])
           }
         })
-        .andWhere((qb) => {
+        .andWhere((qb: any) => {
           if (organizationIdParam != null) {
             qb.whereRaw('organization_id is not distinct from ?', [organizationIdParam]).orWhereNull('organization_id')
           } else {
@@ -90,7 +90,8 @@ export async function GET(req: Request) {
         return { status: 'idle' as const, partitions: [] as any[] }
       }
 
-      const preferOrg = organizationIdParam != null && rows.some((row) => row.organization_id === organizationIdParam)
+      const preferOrg =
+        organizationIdParam != null && rows.some((row: any) => row.organization_id === organizationIdParam)
       const pickPreferred = <T extends { startedTs: number; tenantMatch: boolean; orgMatch: boolean }>(
         existing: T | null,
         candidate: T,
@@ -257,7 +258,7 @@ export async function GET(req: Request) {
     const baseCountNumber = normalizeCount(coverage?.baseCount)
     const indexCountNumber = normalizeCount(coverage?.indexedCount)
     const vectorEnabled = vectorEnabledEntities.has(eid)
-    const vectorCountNumber = vectorEnabled ? normalizeCount(coverage?.vectorIndexedCount) : null
+    const vectorCountNumber = vectorEnabled ? normalizeCount((coverage as any)?.vectorIndexedCount ?? (coverage as any)?.vector_indexed_count) : null
     const ok = (() => {
       if (baseCountNumber == null || indexCountNumber == null) return false
       if (baseCountNumber !== indexCountNumber) return false
@@ -298,16 +299,16 @@ export async function GET(req: Request) {
   }
 
   const errorRows = await knex('indexer_error_logs')
-    .modify((qb) => {
+    .modify((qb: any) => {
       if (tenantId != null) {
-        qb.where((inner) => {
+        qb.where((inner: any) => {
           inner.where('tenant_id', tenantId).orWhereNull('tenant_id')
         })
       } else {
         qb.whereNull('tenant_id')
       }
     })
-    .andWhere((qb) => {
+        .andWhere((qb: any) => {
       qb.whereNull('organization_id').orWhere('organization_id', orgId)
     })
     .orderBy('occurred_at', 'desc')
@@ -331,16 +332,16 @@ export async function GET(req: Request) {
   })
 
   const logRows = await knex('indexer_status_logs')
-    .modify((qb) => {
+    .modify((qb: any) => {
       if (tenantId != null) {
-        qb.where((inner) => {
+        qb.where((inner: any) => {
           inner.where('tenant_id', tenantId).orWhereNull('tenant_id')
         })
       } else {
         qb.whereNull('tenant_id')
       }
     })
-    .andWhere((qb) => {
+    .andWhere((qb: any) => {
       qb.whereNull('organization_id').orWhere('organization_id', orgId)
     })
     .orderBy('occurred_at', 'desc')

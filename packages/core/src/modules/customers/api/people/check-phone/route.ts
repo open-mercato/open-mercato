@@ -34,7 +34,7 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const em = container.resolve<EntityManager>('em')
+  const em = (container.resolve('em') as EntityManager)
 
   const allowedOrgIds = new Set<string>()
   if (scope?.selectedId) allowedOrgIds.add(scope.selectedId)

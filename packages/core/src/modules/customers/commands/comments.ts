@@ -69,7 +69,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       return uuidRegex.test(authSub) ? authSub : null
     })()
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
     const deal = await requireDealInScope(em, parsed.dealId, parsed.tenantId, parsed.organizationId)
@@ -89,7 +89,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
     em.persist(comment)
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'created',
@@ -105,12 +105,12 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
     return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return await loadCommentSnapshot(em, result.commentId)
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadCommentSnapshot(em, result.commentId)
     return {
       actionLabel: translate('customers.audit.comments.create', 'Create note'),
@@ -129,7 +129,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
   undo: async ({ logEntry, ctx }) => {
     const commentId = logEntry?.resourceId ?? null
     if (!commentId) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const existing = await em.findOne(CustomerComment, { id: commentId })
     if (existing) {
       em.remove(existing)
@@ -142,13 +142,13 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
   id: 'customers.comments.update',
   async prepare(rawInput, ctx) {
     const parsed = commentUpdateSchema.parse(rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadCommentSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = commentUpdateSchema.parse(rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const comment = await em.findOne(CustomerComment, { id: parsed.id })
     if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
     ensureTenantScope(ctx, comment.tenantId)
@@ -169,7 +169,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
 
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -188,7 +188,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     const { translate } = await resolveTranslations()
     const before = snapshots.before as CommentSnapshot | undefined
     if (!before) return null
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const afterSnapshot = await loadCommentSnapshot(em, before.id)
     const changes =
       afterSnapshot && before
@@ -219,7 +219,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     const payload = extractUndoPayload<CommentUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let comment = await em.findOne(CustomerComment, { id: before.id })
     const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
     const deal = await requireDealInScope(em, before.dealId, before.tenantId, before.organizationId)
@@ -249,7 +249,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     }
     await em.flush()
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -269,13 +269,13 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
     id: 'customers.comments.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Comment id required')
-      const em = ctx.container.resolve<EntityManager>('em')
+      const em = (ctx.container.resolve('em') as EntityManager)
       const snapshot = await loadCommentSnapshot(em, id)
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Comment id required')
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const comment = await em.findOne(CustomerComment, { id })
       if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
       ensureTenantScope(ctx, comment.tenantId)
@@ -283,7 +283,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
       em.remove(comment)
       await em.flush()
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudSideEffects({
         dataEngine: de,
         action: 'deleted',
@@ -319,7 +319,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const payload = extractUndoPayload<CommentUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
-      const em = ctx.container.resolve<EntityManager>('em').fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
       const deal = await requireDealInScope(em, before.dealId, before.tenantId, before.organizationId)
       let comment = await em.findOne(CustomerComment, { id: before.id })
@@ -348,7 +348,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
       }
       await em.flush()
 
-      const de = ctx.container.resolve<DataEngine>('dataEngine')
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({
         dataEngine: de,
         action: 'created',

@@ -95,6 +95,8 @@ export async function ensureCustomFieldDefinitions(
               kind: field.kind,
               configJson,
               isActive: true,
+              createdAt: new Date(),
+              updatedAt: new Date(),
             })
           )
         }

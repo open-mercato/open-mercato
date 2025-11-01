@@ -102,7 +102,7 @@ export async function loadPerspectivesState(
   const cacheKey = cache && uniqueRoles.length <= 16 ? userCacheKey(scope, tableId, uniqueRoles) : null
 
   if (cache && cacheKey) {
-    const cached = await cache.get<PerspectivesState>(cacheKey)
+    const cached = await cache.get(cacheKey)
     if (cached) return cached
   }
 

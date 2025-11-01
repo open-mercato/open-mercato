@@ -97,7 +97,7 @@ async function invalidateCache(
   if (!snapshot) return
   let cache: CacheStrategy | undefined
   try {
-    cache = ctx.container.resolve<CacheStrategy>('cache')
+    cache = (ctx.container.resolve('cache') as CacheStrategy)
   } catch {
     cache = undefined
   }
@@ -122,7 +122,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const value = normalizeValue(parsed.value)
     const label = parsed.label?.trim() || value.value
     const color = sanitizeColor(parsed.color)
@@ -177,7 +177,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     return { entryId: entry.id, mode: 'created' }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return loadSnapshot(em, result.entryId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -228,7 +228,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
   undo: async ({ logEntry, ctx }) => {
     const undo = extractUndoPayload<CustomerDictionaryEntryUndoPayload>(logEntry)
     if (!undo) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const after =
       undo.after ??
@@ -291,7 +291,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     const parsed = customerDictionaryEntryUpdateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -300,7 +300,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(CustomerDictionaryEntry, { id: parsed.id })
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
       throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
@@ -362,7 +362,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     return { entryId: entry.id, changed }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return loadSnapshot(em, result.entryId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -399,7 +399,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     if (!before) return
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let entry = await em.findOne(CustomerDictionaryEntry, { id: before.id })
     if (!entry) {
       entry = em.create(CustomerDictionaryEntry, {
@@ -428,7 +428,7 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     const parsed = customerDictionaryEntryDeleteSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -437,7 +437,7 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(CustomerDictionaryEntry, { id: parsed.id })
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
       throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
@@ -471,7 +471,7 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     if (!before) return
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let entry = await em.findOne(CustomerDictionaryEntry, { id: before.id })
     if (!entry) {
       entry = em.create(CustomerDictionaryEntry, {

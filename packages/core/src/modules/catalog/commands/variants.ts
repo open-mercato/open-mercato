@@ -233,7 +233,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
   id: 'catalog.variants.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(variantCreateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const product = await requireProduct(em, parsed.productId)
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
@@ -271,11 +271,11 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     return { variantId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return loadVariantSnapshot(em, result.variantId)
   },
   buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const after = await loadVariantSnapshot(em, result.variantId)
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -297,7 +297,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     const payload = extractUndoPayload<VariantUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductVariant, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -323,7 +323,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
   id: 'catalog.variants.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Variant id is required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadVariantSnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
@@ -333,7 +333,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(variantUpdateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductVariant, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
     const product = record.product as CatalogProduct | string
@@ -377,12 +377,12 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     return { variantId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return loadVariantSnapshot(em, result.variantId)
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as VariantSnapshot | undefined
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const after = await loadVariantSnapshot(em, result.variantId)
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
@@ -412,7 +412,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     const before = payload?.before
     if (!before) return
     const after = payload?.after
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductVariant, { id: before.id })
     if (!record) {
       const product = await requireProduct(em, before.productId)
@@ -465,7 +465,7 @@ const deleteVariantCommand: CommandHandler<
   id: 'catalog.variants.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Variant id is required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadVariantSnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
@@ -475,7 +475,7 @@ const deleteVariantCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Variant id is required')
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductVariant, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
     const product = record.product as CatalogProduct | string
@@ -484,7 +484,7 @@ const deleteVariantCommand: CommandHandler<
     ensureTenantScope(ctx, productEntity.tenantId)
     ensureOrganizationScope(ctx, productEntity.organizationId)
 
-    const baseEm = ctx.container.resolve<EntityManager>('em')
+    const baseEm = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadVariantSnapshot(baseEm, id)
 
     const priceCount = await em.count(CatalogProductPrice, { variant: record })
@@ -531,7 +531,7 @@ const deleteVariantCommand: CommandHandler<
     const payload = extractUndoPayload<VariantUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductVariant, { id: before.id })
     if (!record) {
       const product = await requireProduct(em, before.productId)
