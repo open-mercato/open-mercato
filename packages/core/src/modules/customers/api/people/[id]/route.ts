@@ -435,7 +435,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     profiler.mark('scope_resolved', {
       scopedOrganizations: Array.isArray(scope?.filterIds) ? scope.filterIds.length : 0,
     })
-    const em = container.resolve<EntityManager>('em')
+    const em = (container.resolve('em') as EntityManager)
 
     const person = await em.findOne(
       CustomerEntity,
@@ -495,7 +495,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       todoLinks = await em.find(CustomerTodoLink, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
       profiler.mark('todo_links_loaded', { count: todoLinks.length })
       if (todoLinks.length) {
-        const queryEngine = container.resolve<QueryEngine>('queryEngine')
+        const queryEngine = (container.resolve('queryEngine') as QueryEngine)
         try {
           todoDetails = await resolveTodoDetails(
             queryEngine,

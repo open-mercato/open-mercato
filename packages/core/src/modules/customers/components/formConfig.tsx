@@ -37,6 +37,7 @@ import {
   ensureCustomerDictionary,
   invalidateCustomerDictionary,
 } from './detail/hooks/useCustomerDictionary'
+import type { CustomerDictionaryKind } from '../lib/dictionaries'
 
 export const metadata = {
   navHidden: true,
@@ -86,15 +87,7 @@ export type CompanyFormValues = {
 } & Record<string, unknown>
 
 type DictionarySelectFieldProps = {
-  kind:
-    | 'statuses'
-    | 'sources'
-    | 'lifecycle-stages'
-    | 'address-types'
-    | 'job-titles'
-    | 'activity-types'
-    | 'deal-statuses'
-    | 'pipeline-stages'
+  kind: CustomerDictionaryKind
   value?: string
   onChange: (value: string | undefined) => void
   labels: DictionarySelectLabels
@@ -259,7 +252,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
         />
         {!error && duplicate ? (
           <p className="text-xs text-amber-600">
-            {t('customers.people.form.emailDuplicateNotice', { name: duplicate.displayName })}{' '}
+            {t('customers.people.form.emailDuplicateNotice', undefined, { name: duplicate.displayName })}{' '}
             <Link className="font-medium text-primary underline underline-offset-2" href={`/backend/customers/people/${duplicate.id}`}>
               {t('customers.people.form.emailDuplicateLink')}
             </Link>
@@ -399,7 +392,7 @@ const createPrimaryPhoneField = (t: Translator): CrudField => ({
         disabled={disabled}
         placeholder={t('customers.people.form.primaryPhonePlaceholder', '+00 000 000 000')}
         checkingLabel={t('customers.people.form.phoneChecking')}
-        duplicateLabel={(match) => t('customers.people.form.phoneDuplicateNotice', { name: match.label })}
+        duplicateLabel={(match) => t('customers.people.form.phoneDuplicateNotice', undefined, { name: match.label })}
         duplicateLinkLabel={t('customers.people.form.phoneDuplicateLink')}
         minDigits={7}
         onDuplicateLookup={!disabled && !error ? duplicateLookup : undefined}
@@ -473,9 +466,11 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
       }
       const items = Array.isArray(payload?.items) ? payload.items : []
       const normalized = items
-        .map((item) => normalizeCompanyOption(item))
-        .filter((item): item is CompanyOption => !!item)
-        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+        .map((item: unknown) => normalizeCompanyOption(item))
+        .filter((item: CompanyOption | null): item is CompanyOption => item !== null)
+        .sort((a: CompanyOption, b: CompanyOption) =>
+          a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+        )
       setOptions(normalized)
     } catch {
       flash(labels.errorLoad, 'error')
@@ -837,16 +832,16 @@ const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition
                   : `tmp-${Math.random().toString(36).slice(2)}`
               const next: CustomerAddressValue = {
                 id: nextId,
-                name: payload.name ?? null,
-                purpose: payload.purpose ?? null,
+                name: payload.name ?? undefined,
+                purpose: payload.purpose ?? undefined,
                 addressLine1: payload.addressLine1,
-                addressLine2: payload.addressLine2 ?? null,
-                buildingNumber: payload.buildingNumber ?? null,
-                flatNumber: payload.flatNumber ?? null,
-                city: payload.city ?? null,
-                region: payload.region ?? null,
-                postalCode: payload.postalCode ?? null,
-                country: payload.country ?? null,
+                addressLine2: payload.addressLine2 ?? undefined,
+                buildingNumber: payload.buildingNumber ?? undefined,
+                flatNumber: payload.flatNumber ?? undefined,
+                city: payload.city ?? undefined,
+                region: payload.region ?? undefined,
+                postalCode: payload.postalCode ?? undefined,
+                country: payload.country ?? undefined,
                 isPrimary: payload.isPrimary ?? false,
               }
               const current = Array.isArray(addresses) ? addresses : []
@@ -1166,16 +1161,16 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
                   : `tmp-${Math.random().toString(36).slice(2)}`
               const next: CustomerAddressValue = {
                 id: nextId,
-                name: payload.name ?? null,
-                purpose: payload.purpose ?? null,
+                name: payload.name ?? undefined,
+                purpose: payload.purpose ?? undefined,
                 addressLine1: payload.addressLine1,
-                addressLine2: payload.addressLine2 ?? null,
-                buildingNumber: payload.buildingNumber ?? null,
-                flatNumber: payload.flatNumber ?? null,
-                city: payload.city ?? null,
-                region: payload.region ?? null,
-                postalCode: payload.postalCode ?? null,
-                country: payload.country ?? null,
+                addressLine2: payload.addressLine2 ?? undefined,
+                buildingNumber: payload.buildingNumber ?? undefined,
+                flatNumber: payload.flatNumber ?? undefined,
+                city: payload.city ?? undefined,
+                region: payload.region ?? undefined,
+                postalCode: payload.postalCode ?? undefined,
+                country: payload.country ?? undefined,
                 isPrimary: payload.isPrimary ?? false,
               }
               const current = Array.isArray(addresses) ? addresses : []

@@ -119,16 +119,21 @@ export async function GET(req: Request) {
     em.persist(layout)
     hasChanged = true
   } else {
+    const existingLayout = layout
     const filtered = items.filter((item) => allowedIds.includes(item.widgetId))
     if (filtered.length !== items.length) {
       hasChanged = true
       items = filtered
     }
     items = items.map((item, index) => (item.order !== index || item.priority !== index ? { ...item, order: index, priority: index } : item))
-    if (layout.layoutJson.length !== items.length || items.some((item, idx) => layout.layoutJson[idx]?.id !== item.id)) {
+    if (
+      existingLayout.layoutJson.length !== items.length ||
+      items.some((item, idx) => existingLayout.layoutJson[idx]?.id !== item.id)
+    ) {
       hasChanged = true
     }
-    layout.layoutJson = items
+    existingLayout.layoutJson = items
+    layout = existingLayout
   }
 
   if (hasChanged) {

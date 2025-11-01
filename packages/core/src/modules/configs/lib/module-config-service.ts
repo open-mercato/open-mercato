@@ -17,7 +17,7 @@ const moduleTag = (moduleId: string) => `module-config:module:${moduleId}`
 
 const resolveEm = (container: AppContainer): EntityManager | null => {
   try {
-    return container.resolve<EntityManager>('em')
+    return (container.resolve('em') as EntityManager)
   } catch {
     return null
   }
@@ -25,7 +25,7 @@ const resolveEm = (container: AppContainer): EntityManager | null => {
 
 const resolveCache = (container: AppContainer): CacheStrategy | null => {
   try {
-    return container.resolve<CacheStrategy>('cache')
+    return (container.resolve('cache') as CacheStrategy)
   } catch {
     return null
   }

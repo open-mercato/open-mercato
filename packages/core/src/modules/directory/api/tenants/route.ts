@@ -116,7 +116,9 @@ export async function GET(req: Request) {
   const { id, page, pageSize, search, sortField, sortDir, isActive } = parsed.data
   const where: FilterQuery<Tenant> = { deletedAt: null }
   if (id) where.id = id
-  if (search) where.name = { $ilike: `%${search}%` } as FilterQuery<Tenant>['name']
+  if (search) {
+    Object.assign(where, { name: { $ilike: `%${search}%` } })
+  }
   if (isActive === 'true') where.isActive = true
   if (isActive === 'false') where.isActive = false
 

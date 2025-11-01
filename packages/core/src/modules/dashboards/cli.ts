@@ -70,6 +70,9 @@ export async function seedDashboardDefaultsForTenant(
           tenantId,
           organizationId,
           widgetIdsJson: resolvedWidgetIds,
+          createdAt: new Date(),
+          updatedAt: null,
+          deletedAt: null,
         })
         tem.persist(record)
         log(`Created dashboard widgets for role "${roleName}"`)

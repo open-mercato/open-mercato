@@ -36,7 +36,7 @@ function formatFieldValue(field: CrudField, value: unknown, emptyLabel: string, 
     if (Array.isArray(value)) {
       const normalizedValues = value
         .map((entry) => extractDictionaryValue(entry))
-        .filter((entry): entry is string => typeof entry === 'string' && entry.length)
+        .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
 
       if (!normalizedValues.length) {
         return <span className="text-muted-foreground">{emptyLabel}</span>
@@ -77,7 +77,7 @@ function formatFieldValue(field: CrudField, value: unknown, emptyLabel: string, 
     )
   }
 
-  const optionMap = Array.isArray(field.options)
+  const optionMap = 'options' in field && Array.isArray(field.options)
     ? field.options.reduce<Map<string, string>>((acc, option) => {
         acc.set(option.value, option.label)
         return acc

@@ -64,6 +64,8 @@ export async function ensureSalesDictionary(params: {
       isSystem: true,
       isActive: true,
       managerVisibility: 'hidden',
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(dictionary)
     await em.flush()

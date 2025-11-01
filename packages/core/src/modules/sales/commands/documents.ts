@@ -8,6 +8,8 @@ import {
   SalesQuote,
   SalesQuoteLine,
   SalesQuoteAdjustment,
+  type SalesLineKind,
+  type SalesAdjustmentKind,
 } from '../data/entities'
 import {
   quoteCreateSchema,
@@ -25,13 +27,13 @@ import {
   extractUndoPayload,
   toNumericString,
 } from './shared'
+import { calculateDocumentTotals } from '../lib/calculations'
 import {
-  calculateDocumentTotals,
   type SalesLineSnapshot,
   type SalesAdjustmentDraft,
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
-} from '../lib/calculations'
+} from '../lib/types'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 
 type QuoteGraphSnapshot = {
@@ -400,6 +402,8 @@ async function replaceQuoteLines(
       quote,
       ...entityInput,
       status: statusValue,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(lineEntity)
   }
@@ -424,6 +428,8 @@ async function replaceQuoteAdjustments(
     const adjustmentEntity = em.create(SalesQuoteAdjustment, {
       quote,
       ...entityInput,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     adjustmentEntity.quoteLine = null
     em.persist(adjustmentEntity)
@@ -483,6 +489,25 @@ async function restoreQuoteGraph(
       organizationId: snapshot.quote.organizationId,
       tenantId: snapshot.quote.tenantId,
       quoteNumber: snapshot.quote.quoteNumber,
+      statusEntryId: snapshot.quote.statusEntryId ?? null,
+      status: snapshot.quote.status ?? null,
+      customerEntityId: snapshot.quote.customerEntityId ?? null,
+      customerContactId: snapshot.quote.customerContactId ?? null,
+      currencyCode: snapshot.quote.currencyCode,
+      validFrom: snapshot.quote.validFrom ? new Date(snapshot.quote.validFrom) : null,
+      validUntil: snapshot.quote.validUntil ? new Date(snapshot.quote.validUntil) : null,
+      comments: snapshot.quote.comments ?? null,
+      metadata: snapshot.quote.metadata ? cloneJson(snapshot.quote.metadata) : null,
+      customFieldSetId: snapshot.quote.customFieldSetId ?? null,
+      subtotalNetAmount: snapshot.quote.subtotalNetAmount,
+      subtotalGrossAmount: snapshot.quote.subtotalGrossAmount,
+      discountTotalAmount: snapshot.quote.discountTotalAmount,
+      taxTotalAmount: snapshot.quote.taxTotalAmount,
+      grandTotalNetAmount: snapshot.quote.grandTotalNetAmount,
+      grandTotalGrossAmount: snapshot.quote.grandTotalGrossAmount,
+      lineItemCount: snapshot.quote.lineItemCount,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(quote)
   }
@@ -497,7 +522,7 @@ async function restoreQuoteGraph(
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
       lineNumber: line.lineNumber,
-      kind: line.kind,
+      kind: line.kind as SalesLineKind,
       statusEntryId: line.statusEntryId ?? null,
       status: line.status ?? null,
       productId: line.productId ?? null,
@@ -522,6 +547,8 @@ async function restoreQuoteGraph(
       promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : null,
       metadata: line.metadata ? cloneJson(line.metadata) : null,
       customFieldSetId: line.customFieldSetId ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(lineEntity)
   })
@@ -533,7 +560,7 @@ async function restoreQuoteGraph(
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
       scope: adjustment.scope,
-      kind: adjustment.kind,
+      kind: adjustment.kind as SalesAdjustmentKind,
       code: adjustment.code ?? null,
       label: adjustment.label ?? null,
       calculatorKey: adjustment.calculatorKey ?? null,
@@ -544,6 +571,8 @@ async function restoreQuoteGraph(
       currencyCode: adjustment.currencyCode ?? null,
       metadata: adjustment.metadata ? cloneJson(adjustment.metadata) : null,
       position: adjustment.position ?? index,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     adjustmentEntity.quoteLine = null
     em.persist(adjustmentEntity)
@@ -557,7 +586,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
   async execute(rawInput, ctx) {
     const parsed = quoteCreateSchema.parse(rawInput)
     ensureQuoteScope(ctx, parsed.organizationId, parsed.tenantId)
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quoteStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null)
     const quote = em.create(SalesQuote, {
       organizationId: parsed.organizationId,
@@ -580,6 +609,8 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
       grandTotalNetAmount: '0',
       grandTotalGrossAmount: '0',
       lineItemCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(quote)
 
@@ -629,7 +660,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     return { quoteId: quote.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -654,7 +685,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id: after.quote.id })
     if (!quote) return
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
@@ -672,7 +703,7 @@ const deleteQuoteCommand: CommandHandler<
   id: 'sales.quotes.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Quote id is required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadQuoteSnapshot(em, id)
     if (snapshot) {
       ensureQuoteScope(ctx, snapshot.quote.organizationId, snapshot.quote.tenantId)
@@ -681,7 +712,7 @@ const deleteQuoteCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Quote id is required')
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
@@ -713,11 +744,10 @@ const deleteQuoteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
     const quote = await restoreQuoteGraph(em, before)
     await em.flush()
-    return quote.id
   },
 }
 

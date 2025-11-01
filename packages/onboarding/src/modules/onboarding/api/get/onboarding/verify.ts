@@ -32,7 +32,7 @@ export async function GET(req: Request) {
   }
 
   const container = await createRequestContainer()
-  const em = container.resolve<EntityManager>('em')
+  const em = (container.resolve('em') as EntityManager)
   const service = new OnboardingService(em)
   const request = await service.findPendingByToken(parsed.data.token)
   if (!request) {
@@ -73,7 +73,7 @@ export async function GET(req: Request) {
     await seedExampleTodos(em, container, { tenantId, organizationId })
     await seedDashboardDefaultsForTenant(em, { tenantId, organizationId, logger: () => {} })
 
-    const authService = container.resolve<AuthService>('authService')
+    const authService = (container.resolve('authService') as AuthService)
     await authService.updateLastLoginAt(user)
     const roles = await authService.getUserRoles(user)
     const jwt = signJwt({

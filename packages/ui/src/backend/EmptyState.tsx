@@ -16,17 +16,26 @@ type EmptyStateProps = {
   title: string
   description?: string
   action?: EmptyStateAction
+  actionLabel?: string
+  onAction?: () => void
+  icon?: React.ReactNode
   className?: string
   actionLabelClassName?: string
+  children?: React.ReactNode
 }
 
 export function EmptyState({
   title,
   description,
   action,
+  actionLabel,
+  onAction,
+  icon,
   className,
   actionLabelClassName,
+  children,
 }: EmptyStateProps) {
+  const resolvedAction = action ?? (actionLabel ? { label: actionLabel, onClick: onAction } : undefined)
   return (
     <div
       className={cn(
@@ -34,19 +43,21 @@ export function EmptyState({
         className
       )}
     >
+      {icon ? <div className="mb-3 text-muted-foreground">{icon}</div> : null}
       <p className="text-sm font-medium text-foreground">{title}</p>
       {description ? <p className="mt-2 text-sm text-muted-foreground">{description}</p> : null}
-      {action ? (
+      {children}
+      {resolvedAction ? (
         <Button
           type="button"
           variant="outline"
           size="sm"
-          onClick={action.onClick}
+          onClick={resolvedAction.onClick}
           className={cn('mt-4 inline-flex items-center gap-2', actionLabelClassName)}
-          disabled={action.disabled}
+          disabled={resolvedAction.disabled}
         >
-          {(action.icon ?? <Plus className="h-4 w-4" aria-hidden />)}
-          <span>{action.label}</span>
+          {(resolvedAction.icon ?? <Plus className="h-4 w-4" aria-hidden />)}
+          <span>{resolvedAction.label}</span>
         </Button>
       ) : null}
     </div>

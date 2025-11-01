@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     const scoped = withScopedPayload(body, ctx, translate)
     const input = tagAssignmentSchema.parse(scoped)
 
-    const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+    const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<TagAssignmentInput, { assignmentId: string }>(
     'customers.tags.assign',
     { input, ctx },

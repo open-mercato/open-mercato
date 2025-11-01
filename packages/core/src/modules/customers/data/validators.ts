@@ -38,13 +38,12 @@ const baseEntitySchema = {
   status: z.string().trim().max(100).optional(),
   lifecycleStage: z.string().trim().max(100).optional(),
   source: z.string().trim().max(150).optional(),
+  isActive: z.boolean().optional(),
   nextInteraction: nextInteractionSchema.nullable().optional(),
   tags: z.array(uuid()).optional(),
 }
 
 const personDetailsSchema = {
-  firstName: z.string().trim().max(120).optional(),
-  lastName: z.string().trim().max(120).optional(),
   preferredName: z.string().trim().max(120).optional(),
   jobTitle: z.string().trim().max(150).optional(),
   department: z.string().trim().max(150).optional(),
@@ -54,6 +53,9 @@ const personDetailsSchema = {
   twitterUrl: z.string().trim().url().max(300).optional(),
   companyEntityId: uuid().optional(),
 }
+
+const personFirstNameSchema = z.string().trim().min(1).max(120)
+const personLastNameSchema = z.string().trim().min(1).max(120)
 
 const companyDetailsSchema = {
   legalName: z.string().trim().max(200).optional(),
@@ -68,8 +70,8 @@ const companyDetailsSchema = {
 export const personCreateSchema = scopedSchema.extend({
   ...baseEntitySchema,
   displayName: displayNameSchema.optional(),
-  firstName: z.string().trim().min(1).max(120),
-  lastName: z.string().trim().min(1).max(120),
+  firstName: personFirstNameSchema,
+  lastName: personLastNameSchema,
   ...personDetailsSchema,
 })
 
@@ -81,8 +83,8 @@ export const personUpdateSchema = z
     scopedSchema.extend({
       ...baseEntitySchema,
       ...personDetailsSchema,
-      firstName: z.string().trim().min(1).max(120).optional(),
-      lastName: z.string().trim().min(1).max(120).optional(),
+      firstName: personFirstNameSchema.optional(),
+      lastName: personLastNameSchema.optional(),
     }).partial()
   )
 
@@ -281,8 +283,8 @@ export const todoLinkWithTodoCreateSchema = scopedSchema.extend({
   is_done: z.boolean().optional(),
   todoSource: z.string().min(1).max(120).default('example:todo'),
   createdByUserId: uuid().optional(),
-  todoCustom: z.record(z.any()).optional(),
-  custom: z.record(z.any()).optional(),
+  todoCustom: z.record(z.string(), z.any()).optional(),
+  custom: z.record(z.string(), z.any()).optional(),
 })
 
 export const customerAddressFormatSchema = z.enum(['line_first', 'street_first'])

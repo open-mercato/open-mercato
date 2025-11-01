@@ -12,7 +12,7 @@
     "modules:prepare": "tsx scripts/generate-entity-ids.ts && tsx scripts/generate-module-registry.ts && tsx scripts/generate-module-entities.ts && tsx scripts/generate-module-di.ts",
     "dev": "next dev --turbopack",
     "predev": "npm run modules:prepare",
-    "build": "next build --turbopack",
+    "build": "yarn modules:prepare && next build --turbopack",
     "build:packages": "tsc -p packages/core/tsconfig.build.json && tsc -p packages/example/tsconfig.build.json && tsc -p packages/cli/tsconfig.build.json && tsc -p packages/onboarding/tsconfig.build.json",
     "start": "next start",
     "lint": "eslint",

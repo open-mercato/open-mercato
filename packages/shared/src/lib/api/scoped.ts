@@ -110,10 +110,9 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
   }
   const { parsed, custom } = parseWithCustomFields(schema, scoped)
   if (custom && Object.keys(custom).length > 0) {
-    return {
-      ...parsed,
+    return Object.assign({}, parsed, {
       customFields: custom,
-    } as z.infer<TSchema> & { customFields?: Record<string, unknown> }
+    }) as z.infer<TSchema> & { customFields?: Record<string, unknown> }
   }
   return parsed as z.infer<TSchema> & { customFields?: Record<string, unknown> }
 }

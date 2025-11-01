@@ -7,7 +7,7 @@ import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
-import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
+import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Todo } from '@open-mercato/example/modules/example/data/entities'
 import { E as CoreEntities } from '@open-mercato/core/generated/entities.ids.generated'
 import { E as ExampleEntities } from '@open-mercato/example/generated/entities.ids.generated'
@@ -38,6 +38,9 @@ type DictionaryDefault = {
   color?: string
   icon?: string
 }
+
+type CustomFieldValuesPayload = Parameters<DataEngine['setCustomFields']>[0]['values']
+type ProgressBarHandle = ReturnType<typeof createProgressBar>
 
 const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
   { value: 'open', label: 'Open', color: '#2563eb', icon: 'lucide:circle' },
@@ -160,7 +163,7 @@ type ExamplePerson = {
 
 type ExampleDealParticipant = {
   slug: string
-  role?: string
+  participantRole?: string
 }
 
 type ExampleActivity = {
@@ -360,8 +363,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           requires_legal_review: true,
         },
         people: [
-          { slug: 'mia-johnson', role: 'Project Sponsor' },
-          { slug: 'daniel-cho', role: 'Executive Sponsor' },
+          { slug: 'mia-johnson', participantRole: 'Project Sponsor' },
+          { slug: 'daniel-cho', participantRole: 'Executive Sponsor' },
         ],
         activities: [
           {
@@ -414,7 +417,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           estimated_seats: 28,
           requires_legal_review: false,
         },
-        people: [{ slug: 'mia-johnson', role: 'Point of Contact' }],
+        people: [{ slug: 'mia-johnson', participantRole: 'Point of Contact' }],
         activities: [
           {
             slug: 'sunset-energy-audit',
@@ -559,8 +562,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           requires_legal_review: false,
         },
         people: [
-          { slug: 'arjun-patel', role: 'Executive Sponsor' },
-          { slug: 'lena-ortiz', role: 'Account Lead' },
+          { slug: 'arjun-patel', participantRole: 'Executive Sponsor' },
+          { slug: 'lena-ortiz', participantRole: 'Account Lead' },
         ],
         activities: [
           {
@@ -613,7 +616,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           estimated_seats: 120,
           requires_legal_review: true,
         },
-        people: [{ slug: 'lena-ortiz', role: 'Account Lead' }],
+        people: [{ slug: 'lena-ortiz', participantRole: 'Account Lead' }],
         activities: [
           {
             slug: 'midwest-forecasting-call',
@@ -759,8 +762,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           requires_legal_review: true,
         },
         people: [
-          { slug: 'taylor-brooks', role: 'Principal Designer' },
-          { slug: 'naomi-harris', role: 'Project Lead' },
+          { slug: 'taylor-brooks', participantRole: 'Principal Designer' },
+          { slug: 'naomi-harris', participantRole: 'Project Lead' },
         ],
         activities: [
           {
@@ -798,7 +801,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           estimated_seats: 8,
           requires_legal_review: false,
         },
-        people: [{ slug: 'taylor-brooks', role: 'Principal Designer' }],
+        people: [{ slug: 'taylor-brooks', participantRole: 'Principal Designer' }],
         activities: [
           {
             slug: 'cedar-creek-loss-note',
@@ -1393,7 +1396,7 @@ async function seedCustomerExamples(
   let cache: CacheStrategy | null = null
   if (typeof (container as any).hasRegistration === 'function' && container.hasRegistration('cache')) {
     try {
-      cache = container.resolve<CacheStrategy>('cache')
+      cache = (container.resolve('cache') as CacheStrategy)
     } catch {
       cache = null
     }
@@ -1452,19 +1455,21 @@ async function seedCustomerExamples(
       industry: typeof company.industry === 'string' ? company.industry.trim() || null : null,
       sizeBucket: company.sizeBucket ?? null,
       annualRevenue: typeof company.annualRevenue === 'number' ? toAmount(company.annualRevenue) : null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(companyEntity)
     em.persist(companyProfile)
 
     if (company.custom && Object.keys(company.custom).length) {
-      const values = { ...company.custom }
+      const values = { ...company.custom } as CustomFieldValuesPayload
       customFieldAssignments.push(async () =>
         dataEngine.setCustomFields({
           entityId: CoreEntities.customers.customer_company_profile,
           recordId: companyProfile.id,
           organizationId,
           tenantId,
-          values: values as Record<string, unknown>,
+          values,
         })
       )
     }
@@ -1487,6 +1492,8 @@ async function seedCustomerExamples(
         buildingNumber: company.address.buildingNumber ?? null,
         flatNumber: company.address.flatNumber ?? null,
         isPrimary: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(address)
     }
@@ -1504,11 +1511,13 @@ async function seedCustomerExamples(
         description: person.description ?? null,
         primaryEmail: person.email,
         primaryPhone: person.phone ?? null,
-        lifecycleStage: company.lifecycleStage ?? null,
-        status: 'active',
-        source: person.source ?? company.source ?? null,
-        isActive: true,
-      })
+      lifecycleStage: company.lifecycleStage ?? null,
+      status: 'active',
+      source: person.source ?? company.source ?? null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
       const personProfile = em.create(CustomerPersonProfile, {
         organizationId,
         tenantId,
@@ -1523,19 +1532,21 @@ async function seedCustomerExamples(
         timezone: person.timezone ?? null,
         linkedInUrl: person.linkedInUrl ?? null,
         twitterUrl: person.twitterUrl ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(personEntity)
       em.persist(personProfile)
 
       if (person.custom && Object.keys(person.custom).length) {
-        const values = { ...person.custom }
+        const values = { ...person.custom } as CustomFieldValuesPayload
         customFieldAssignments.push(async () =>
           dataEngine.setCustomFields({
             entityId: CoreEntities.customers.customer_person_profile,
             recordId: personProfile.id,
             organizationId,
             tenantId,
-            values: values as Record<string, unknown>,
+            values,
           })
         )
       }
@@ -1558,6 +1569,8 @@ async function seedCustomerExamples(
           buildingNumber: person.address.buildingNumber ?? null,
           flatNumber: person.address.flatNumber ?? null,
           isPrimary: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         })
         em.persist(address)
       }
@@ -1583,18 +1596,20 @@ async function seedCustomerExamples(
         appearanceIcon: interaction.icon ?? null,
         appearanceColor: interaction.color ?? null,
         authorUserId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(activity)
 
       if (interaction.custom && Object.keys(interaction.custom).length) {
-        const values = { ...interaction.custom }
+        const values = { ...interaction.custom } as CustomFieldValuesPayload
         customFieldAssignments.push(async () =>
           dataEngine.setCustomFields({
             entityId: CoreEntities.customers.customer_activity,
             recordId: activity.id,
             organizationId,
             tenantId,
-            values: values as Record<string, unknown>,
+            values,
           })
         )
       }
@@ -1613,6 +1628,8 @@ async function seedCustomerExamples(
         authorUserId: null,
         appearanceIcon: note.icon ?? null,
         appearanceColor: note.color ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       if (note.occurredAt) {
         const timestamp = new Date(note.occurredAt)
@@ -1644,18 +1661,20 @@ async function seedCustomerExamples(
         expectedCloseAt: dealInfo.expectedCloseAt ? new Date(dealInfo.expectedCloseAt) : null,
         ownerUserId: null,
         source: dealInfo.source ?? company.source ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(deal)
 
       if (dealInfo.custom && Object.keys(dealInfo.custom).length) {
-        const values = { ...dealInfo.custom }
+        const values = { ...dealInfo.custom } as CustomFieldValuesPayload
         customFieldAssignments.push(async () =>
           dataEngine.setCustomFields({
             entityId: CoreEntities.customers.customer_deal,
             recordId: deal.id,
             organizationId,
             tenantId,
-            values: values as Record<string, unknown>,
+            values,
           })
         )
       }
@@ -1663,6 +1682,7 @@ async function seedCustomerExamples(
       const companyLink = em.create(CustomerDealCompanyLink, {
         deal,
         company: companyEntity,
+        createdAt: new Date(),
       })
       em.persist(companyLink)
 
@@ -1672,7 +1692,8 @@ async function seedCustomerExamples(
         const link = em.create(CustomerDealPersonLink, {
           deal,
           person: personEntity,
-          role: participant.role ?? null,
+          participantRole: participant.participantRole ?? null,
+          createdAt: new Date(),
         })
         em.persist(link)
       }
@@ -1695,18 +1716,20 @@ async function seedCustomerExamples(
           appearanceIcon: activityInfo.icon ?? null,
           appearanceColor: activityInfo.color ?? null,
           authorUserId: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         })
         em.persist(activity)
 
         if (activityInfo.custom && Object.keys(activityInfo.custom).length) {
-          const values = { ...activityInfo.custom }
+          const values = { ...activityInfo.custom } as CustomFieldValuesPayload
           customFieldAssignments.push(async () =>
             dataEngine.setCustomFields({
               entityId: CoreEntities.customers.customer_activity,
               recordId: activity.id,
               organizationId,
               tenantId,
-              values: values as Record<string, unknown>,
+              values,
             })
           )
         }
@@ -1753,6 +1776,7 @@ async function seedCustomerExamples(
       organizationId,
       tenantId,
       todoId: todo.id,
+      todoSource: 'example:todo',
       entity: target,
       createdAt: new Date(seed.createdAt),
     })
@@ -1832,7 +1856,7 @@ async function seedCustomerStressTest(
   if (includeExtras) {
     if (typeof (container as any).hasRegistration === 'function' && container.hasRegistration('cache')) {
       try {
-        cache = container.resolve<CacheStrategy>('cache')
+        cache = (container.resolve('cache') as CacheStrategy)
       } catch {
         cache = null
       }
@@ -2831,7 +2855,7 @@ const seedExamples: ModuleCli = {
       return
     }
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
+    const em = (container.resolve('em') as EntityManager)
     const seeded = await em.transactional(async (tem) =>
       seedCustomerExamples(tem, container, { tenantId, organizationId })
     )
@@ -2866,8 +2890,8 @@ const seedStressTest: ModuleCli = {
       args.variant === 'lite'
 
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
-    let bar: ReturnType<typeof createProgressBar> | null = null
+    const em = (container.resolve('em') as EntityManager)
+    let progressBar: ProgressBarHandle | null = null
     const result = await seedCustomerStressTest(
       em,
       container,
@@ -2877,18 +2901,22 @@ const seedStressTest: ModuleCli = {
         includeExtras: !liteMode,
         onProgress: ({ completed, total }) => {
           if (total <= 0) return
-          if (!bar) {
+          if (!progressBar) {
             const label = liteMode ? 'Generating stress-test customers (lite)' : 'Generating stress-test customers'
-            bar = createProgressBar(label, total)
+            progressBar = createProgressBar(label, total)
           }
-          bar.update(completed)
+          if (progressBar) {
+            ;(progressBar as unknown as { update(completed: number): void }).update(completed)
+          }
         },
       }
     )
-    bar?.complete()
+    if (progressBar) {
+      ;(progressBar as unknown as { complete(): void }).complete()
+    }
 
     try {
-      const eventBus = container.resolve<any>('eventBus')
+      const eventBus = (container.resolve('eventBus') as any)
       const coverageEntities = [
         CoreEntities.customers.customer_entity,
         CoreEntities.customers.customer_person_profile,

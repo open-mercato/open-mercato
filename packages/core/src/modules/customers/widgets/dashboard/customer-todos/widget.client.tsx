@@ -68,7 +68,7 @@ function resolveDetailHref(entity: { id: string | null; kind: string | null }): 
 
 const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWidgetSettings>> = ({
   mode,
-  settings,
+  settings = DEFAULT_SETTINGS,
   onSettingsChange,
   refreshToken,
   onRefreshStateChange,
@@ -174,10 +174,6 @@ const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWi
       )}
     </div>
   )
-}
-
-CustomerTodosWidget.defaultProps = {
-  settings: DEFAULT_SETTINGS,
 }
 
 export default CustomerTodosWidget

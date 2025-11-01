@@ -2,6 +2,8 @@ import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fi
 import type { z } from 'zod'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { normalizeCustomFieldValues } from '../custom-fields/normalize'
+export { normalizeCustomFieldValues } from '../custom-fields/normalize'
 import type { CrudEventsConfig, CrudIndexerConfig, CrudEmitContext } from '@open-mercato/shared/lib/crud/types'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { CommandLogMetadata } from '@open-mercato/shared/lib/commands'
@@ -32,12 +34,13 @@ export async function setCustomFieldsIfAny(opts: {
   const { values } = opts
   if (!values || !Object.keys(values).length) return
   const { dataEngine, entityId, recordId, tenantId, organizationId, notify = false } = opts
+  const normalized = normalizeCustomFieldValues(values)
   await dataEngine.setCustomFields({
     entityId,
     recordId,
     tenantId,
     organizationId,
-    values,
+    values: normalized,
     notify,
   })
 }
@@ -134,7 +137,7 @@ export type LogBuilderArgs<TInput, TResult> = {
   input: TInput
   result: TResult
   ctx: CommandRuntimeContext
-  snapshots: { before?: unknown }
+  snapshots: { before?: unknown; after?: unknown }
 }
 
 export type LogBuilder<TInput, TResult> = (args: LogBuilderArgs<TInput, TResult>) => CommandLogMetadata | null | Promise<CommandLogMetadata | null>

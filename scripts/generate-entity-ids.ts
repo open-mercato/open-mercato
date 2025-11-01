@@ -80,8 +80,8 @@ function parseEntityFieldsFromFile(filePath: string, exportedClassNames: string[
       if (!name) continue
       if (member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) continue
       const decorators = ts.canHaveDecorators(member)
-        ? ts.getDecorators(member)
-        : ((member.decorators as unknown as ts.Decorator[]) || [])
+        ? ts.getDecorators(member) ?? []
+        : []
       let dbName: string | undefined
       if (decorators && decorators.length) {
         for (const d of decorators) {

@@ -81,7 +81,7 @@ export class CommandBus {
   }
 
   async undo(undoToken: string, ctx: CommandRuntimeContext): Promise<void> {
-    const service = ctx.container.resolve<ActionLogService>('actionLogService')
+    const service = (ctx.container.resolve('actionLogService') as ActionLogService)
     const log = await service.findByUndoToken(undoToken)
     if (!log) throw new Error('Undo token expired or not found')
     const handler = this.resolveHandler(log.commandId)
@@ -172,7 +172,7 @@ export class CommandBus {
     }
     let service: ActionLogService | null = null
     try {
-      service = options.ctx.container.resolve<ActionLogService>('actionLogService')
+      service = (options.ctx.container.resolve('actionLogService') as ActionLogService)
     } catch {
       service = null
     }
@@ -316,7 +316,7 @@ export class CommandBus {
 
   private async flushCrudSideEffects(container: AwilixContainer): Promise<void> {
     try {
-      const dataEngine = container.resolve<DataEngine>('dataEngine')
+      const dataEngine = (container.resolve('dataEngine') as DataEngine)
       await dataEngine.flushOrmEntityChanges()
     } catch {
       // best-effort: failures should not block command execution

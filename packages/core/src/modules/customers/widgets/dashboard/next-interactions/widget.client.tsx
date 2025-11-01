@@ -46,8 +46,10 @@ async function loadNextInteractions(settings: CustomerNextInteractionsSettings):
     .map((item): NextInteractionItem | null => {
       if (!item || typeof item !== 'object') return null
       const data = item as Record<string, unknown>
+      const id = typeof data.id === 'string' ? data.id : null
+      if (!id) return null
       return {
-        id: typeof data.id === 'string' ? data.id : null,
+        id,
         displayName: typeof data.displayName === 'string' ? data.displayName : null,
         kind: typeof data.kind === 'string' ? data.kind : null,
         nextInteractionAt: typeof data.nextInteractionAt === 'string' ? data.nextInteractionAt : null,
@@ -109,7 +111,7 @@ function formatRelative(target: string | null, nowIso: string | undefined, local
 
 const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<CustomerNextInteractionsSettings>> = ({
   mode,
-  settings,
+  settings = DEFAULT_SETTINGS,
   onSettingsChange,
   refreshToken,
   onRefreshStateChange,
@@ -237,10 +239,6 @@ const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<Cus
       )}
     </div>
   )
-}
-
-CustomerNextInteractionsWidget.defaultProps = {
-  settings: DEFAULT_SETTINGS,
 }
 
 export default CustomerNextInteractionsWidget

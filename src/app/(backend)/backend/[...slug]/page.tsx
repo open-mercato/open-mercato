@@ -27,7 +27,7 @@ export default async function BackendCatchAll(props: { params: Awaitable<{ slug?
     const features = match.route.requireFeatures
     if (features && features.length) {
       const container = await createRequestContainer()
-      const rbac = container.resolve<RbacService>('rbacService')
+      const rbac = container.resolve('rbacService') as RbacService
       let organizationIdForCheck: string | null = auth.orgId ?? null
       const cookieStore = await cookies()
       const cookieSelected = cookieStore.get('om_selected_org')?.value ?? null

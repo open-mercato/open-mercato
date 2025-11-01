@@ -89,7 +89,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
 
   let rbac: RbacService | null = null
   try {
-    rbac = container.resolve<RbacService>('rbacService')
+    rbac = (container.resolve('rbacService') as RbacService)
   } catch {
     rbac = null
   }
@@ -106,7 +106,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
-  const em = container.resolve<EntityManager>('em')
+  const em = (container.resolve('em') as EntityManager)
 
   const deal = await em.findOne(
     CustomerDeal,

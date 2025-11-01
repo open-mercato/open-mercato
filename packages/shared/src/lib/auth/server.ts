@@ -19,7 +19,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   try {
     const { createRequestContainer } = await import('@/lib/di/container')
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
+    const em = (container.resolve('em') as EntityManager)
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
     const { Role } = await import('@open-mercato/core/modules/auth/data/entities')
 

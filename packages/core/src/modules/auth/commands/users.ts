@@ -107,7 +107,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
   id: 'auth.users.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
 
     const organization = await em.findOne(Organization, { id: parsed.organizationId }, { populate: ['tenant'] })
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
@@ -119,7 +119,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const passwordHash = await hash(parsed.password, 10)
     const tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let user: User
     try {
       user = await de.createOrmEntity({
@@ -166,7 +166,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     return user
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -178,7 +178,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -204,13 +204,13 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const userId = typeof logEntry?.resourceId === 'string' ? logEntry.resourceId : null
     if (!userId) return
     const snapshot = logEntry?.snapshotAfter as SerializedUser | undefined
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     await em.nativeDelete(UserAcl, { user: userId })
     await em.nativeDelete(UserRole, { user: userId })
     await em.nativeDelete(Session, { user: userId })
     await em.nativeDelete(PasswordReset, { user: userId })
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const reset = buildCustomFieldResetMap(undefined, snapshot.custom)
       if (Object.keys(reset).length) {
@@ -262,7 +262,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   id: 'auth.users.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await em.findOne(User, { id: parsed.id, deletedAt: null })
     if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
     const roles = await loadUserRoleNames(em, parsed.id)
@@ -277,7 +277,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
 
     if (parsed.email !== undefined) {
       const duplicate = await em.findOne(
@@ -304,7 +304,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
     }
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let user: User | null
     try {
       user = await de.updateOrmEntity({
@@ -358,7 +358,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     return user
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -373,7 +373,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const beforeSnapshots = snapshots.before as UserSnapshots | undefined
     const before = beforeSnapshots?.view
     const beforeUndo = beforeSnapshots?.undo ?? null
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const afterRoles = await loadUserRoleNames(em, String(result.id))
     const afterCustom = await loadUserCustomSnapshot(
       em,
@@ -413,8 +413,8 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const after = payload?.after
     if (!before) return
     const userId = before.id
-    const em = ctx.container.resolve<EntityManager>('em')
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const updated = await de.updateOrmEntity({
       entity: User,
       where: { id: userId, deletedAt: null } as FilterQuery<User>,
@@ -467,7 +467,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   id: 'auth.users.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'User id required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await em.findOne(User, { id, deletedAt: null })
     if (!existing) return {}
     const roles = await loadUserRoleNames(em, id)
@@ -482,14 +482,14 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   },
   async execute(input, ctx) {
     const id = requireId(input, 'User id required')
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
 
     await em.nativeDelete(UserAcl, { user: id })
     await em.nativeDelete(UserRole, { user: id })
     await em.nativeDelete(Session, { user: id })
     await em.nativeDelete(PasswordReset, { user: id })
 
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const user = await de.deleteOrmEntity({
       entity: User,
       where: { id, deletedAt: null } as FilterQuery<User>,
@@ -537,9 +537,9 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const payload = extractUndoPayload(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = ctx.container.resolve<EntityManager>('em')
+    const em = (ctx.container.resolve('em') as EntityManager)
     let user = await em.findOne(User, { id: before.id })
-    const de = ctx.container.resolve<DataEngine>('dataEngine')
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
     if (user) {
       if (user.deletedAt) {

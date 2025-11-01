@@ -208,7 +208,7 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
           <div className="flex flex-col gap-3 border-b px-4 pb-3 pt-4">
             <div className="flex items-center gap-2 rounded border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
               <Search className="h-4 w-4 text-muted-foreground" />
-              <Input
+              <TypedInput
                 ref={inputRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
@@ -326,3 +326,4 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
 }
 
 export default VectorSearchDialog
+const TypedInput = Input as React.ForwardRefExoticComponent<React.InputHTMLAttributes<HTMLInputElement> & React.RefAttributes<HTMLInputElement>>

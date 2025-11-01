@@ -11,7 +11,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
-import type { DictionaryRouteParam } from '../../api/dictionaries/context'
+import type { CustomerDictionaryKind } from '../lib/dictionaries'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import {
   DictionaryForm,
@@ -21,8 +21,6 @@ import {
   DictionaryTable,
   type DictionaryTableEntry,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
-
-type CustomerDictionaryKind = DictionaryRouteParam
 
 type SectionDefinition = {
   kind: CustomerDictionaryKind

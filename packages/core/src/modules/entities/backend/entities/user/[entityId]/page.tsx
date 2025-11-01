@@ -33,9 +33,12 @@ const FieldCard = React.memo(function FieldCard({ d, error, onChange, onRemove }
   const sanitizeDef = (def: Def): Def => {
     if (!def.configJson || !Array.isArray(def.configJson.options)) return def
     const normalizedOptions = def.configJson.options
-      .map((option) => (typeof option === 'string' ? option.trim() : ''))
-      .filter((option) => option.length > 0)
-    if (normalizedOptions.length === def.configJson.options.length && normalizedOptions.every((option, idx) => option === def.configJson.options[idx])) {
+      .map((option: unknown) => (typeof option === 'string' ? option.trim() : ''))
+      .filter((option: string) => option.length > 0)
+    if (
+      normalizedOptions.length === def.configJson.options.length &&
+      normalizedOptions.every((option: string, idx: number) => option === def.configJson.options[idx])
+    ) {
       return def
     }
     return {

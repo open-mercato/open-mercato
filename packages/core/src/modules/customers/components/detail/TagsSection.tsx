@@ -56,7 +56,7 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
     }
     const items = Array.isArray(payload?.items) ? payload.items : []
     return items
-      .map((item) => {
+      .map((item: unknown) => {
         if (!item || typeof item !== 'object') return null
         const raw = item as { id?: unknown; tagId?: unknown; label?: unknown; slug?: unknown; color?: unknown }
         const rawId = typeof raw.id === 'string'
@@ -73,7 +73,7 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
         const color = typeof raw.color === 'string' && raw.color.trim().length ? raw.color.trim() : null
         return { id: rawId, label: labelValue, color }
       })
-      .filter((value): value is TagOption => value !== null)
+      .filter((value: TagOption | null): value is TagOption => value !== null)
   }, [t])
 
   const syncFetchedOptions = React.useCallback((fetched: TagOption[]) => {
@@ -91,7 +91,7 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
     try {
       const fetched = await fetchTags(query)
       syncFetchedOptions(fetched)
-      return fetched.map((tag) => tag.label)
+      return fetched.map((tag: TagOption) => tag.label)
     } catch (err) {
       console.error('customers.people.detail.tags.suggest', err)
       return []

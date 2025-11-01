@@ -115,9 +115,9 @@ export default function DirectoryTenantsPage() {
       const res = await apiFetch(`/api/directory/tenants?id=${encodeURIComponent(tenant.id)}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete tenant'))
       await queryClient.invalidateQueries({ queryKey: ['directory-tenants'] })
-      flash.success('Tenant deleted')
+      flash('Tenant deleted', 'success')
     } catch (err: any) {
-      flash.error(err?.message || 'Failed to delete tenant')
+      flash(err?.message || 'Failed to delete tenant', 'error')
     }
   }, [queryClient])
 

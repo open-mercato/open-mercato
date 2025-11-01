@@ -159,7 +159,7 @@ export function DictionaryTable({
       }}
       searchPlaceholder={translations.searchPlaceholder}
       isLoading={loading}
-      emptyMessage={translations.emptyLabel}
+      emptyState={<p className="py-10 text-center text-sm text-muted-foreground">{translations.emptyLabel}</p>}
       pagination={{
         page,
         pageSize,

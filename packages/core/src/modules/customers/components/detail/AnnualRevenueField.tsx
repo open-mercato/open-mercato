@@ -68,12 +68,16 @@ export function AnnualRevenueField({
       return currencyDictionary.entries.map((entry) => ({
         value: entry.value,
         label: entry.label,
+        color: entry.color ?? null,
+        icon: entry.icon ?? null,
       }))
     }
     const payload = await refetchCurrencyDictionary()
     return payload.entries.map((entry) => ({
       value: entry.value,
       label: entry.label,
+      color: entry.color ?? null,
+      icon: entry.icon ?? null,
     }))
   }, [currencyDictionary, refetchCurrencyDictionary])
 
@@ -109,12 +113,21 @@ export function AnnualRevenueField({
     () => ({
       placeholder: t('customers.companies.detail.currency.placeholder', 'Select currency…'),
       addLabel: t('customers.companies.detail.currency.add', 'Add currency'),
+      addPrompt: t('customers.companies.detail.currency.addPrompt', 'Enter a 3-letter ISO currency code.'),
       dialogTitle: t('customers.companies.detail.currency.dialogTitle', 'Add currency'),
       valueLabel: t('customers.companies.detail.currency.valueLabel', 'Currency code'),
       valuePlaceholder: t('customers.companies.detail.currency.valuePlaceholder', 'e.g. USD'),
-      createError: t('customers.companies.detail.currency.createError', 'Unable to add currency.'),
-      fetchError: t('customers.companies.detail.currency.fetchError', 'Unable to load currencies.'),
-      noResults: t('customers.companies.detail.currency.noResults', 'No currencies found.'),
+      labelLabel: t('customers.companies.detail.currency.labelLabel', 'Display label (optional)'),
+      labelPlaceholder: t('customers.companies.detail.currency.labelPlaceholder', 'e.g. US Dollar'),
+      emptyError: t('customers.companies.detail.currency.emptyError', 'Please provide a currency code.'),
+      cancelLabel: t('customers.companies.detail.currency.cancel', 'Cancel'),
+      saveLabel: t('customers.companies.detail.currency.save', 'Save'),
+      saveShortcutHint: t('customers.companies.detail.currency.saveShortcutHint', 'Press Enter to save'),
+      successCreateLabel: t('customers.companies.detail.currency.success', 'Currency added.'),
+      errorLoad: t('customers.companies.detail.currency.fetchError', 'Unable to load currencies.'),
+      errorSave: t('customers.companies.detail.currency.createError', 'Unable to add currency.'),
+      loadingLabel: t('customers.companies.detail.currency.loading', 'Loading currencies…'),
+      manageTitle: t('customers.companies.detail.currency.manageTitle', 'Manage currencies'),
     }),
     [t],
   )

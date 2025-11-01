@@ -1,7 +1,5 @@
 import { getEm } from '@/lib/db/mikro'
 import { modules } from '@/generated/modules.generated'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { StartPageContent } from '@/components/StartPageContent'
 import { cookies } from 'next/headers'
 import Image from 'next/image'
@@ -17,7 +15,7 @@ function FeatureBadge({ label }: { label: string }) {
 
 export default async function Home() {
   // Check if user wants to see the start page
-  const cookieStore = cookies()
+  const cookieStore = await cookies()
   const showStartPageCookie = cookieStore.get('show_start_page')
   const showStartPage = showStartPageCookie?.value !== 'false'
 
@@ -28,9 +26,9 @@ export default async function Home() {
   let orgsCount = 0
   try {
     const em = await getEm()
-    usersCount = await em.count(User, {})
-    tenantsCount = await em.count(Tenant, {})
-    orgsCount = await em.count(Organization, {})
+    usersCount = await em.count('User', {})
+    tenantsCount = await em.count('Tenant', {})
+    orgsCount = await em.count('Organization', {})
     dbStatus = 'Connected'
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'no connection'

@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   } catch {}
   let service: VectorIndexService
   try {
-    service = container.resolve<VectorIndexService>('vectorIndexService')
+    service = (container.resolve('vectorIndexService') as VectorIndexService)
   } catch {
     return NextResponse.json({ error: 'Vector index unavailable' }, { status: 503 })
   }

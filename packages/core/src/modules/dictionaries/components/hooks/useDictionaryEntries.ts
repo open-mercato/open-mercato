@@ -43,33 +43,32 @@ export const dictionaryEntriesQueryOptions = (dictionaryId: string, scopeVersion
       throw new Error(message)
     }
     const items = Array.isArray(payload.items) ? payload.items : []
-    const parsed = items
-      .map((item) => {
-        if (!item || typeof item !== 'object') return null
-        const data = item as Record<string, unknown>
-        const id = typeof data.id === 'string' ? data.id : ''
-        const value = typeof data.value === 'string' ? data.value.trim() : ''
-        if (!id || !value) return null
-        const label =
-          typeof data.label === 'string' && data.label.trim().length ? data.label.trim() : value
-        const color =
-          typeof data.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(data.color)
-            ? `#${data.color.slice(1).toLowerCase()}`
-            : null
-        const icon = typeof data.icon === 'string' && data.icon.trim().length ? data.icon.trim() : null
-        const createdAt = typeof data.createdAt === 'string' ? data.createdAt : null
-        const updatedAt = typeof data.updatedAt === 'string' ? data.updatedAt : null
-        return {
-          id,
-          value,
-          label,
-          color,
-          icon,
-          createdAt,
-          updatedAt,
-        }
+    const parsed: DictionaryEntryRecord[] = []
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue
+      const data = item as Record<string, unknown>
+      const id = typeof data.id === 'string' ? data.id : ''
+      const value = typeof data.value === 'string' ? data.value.trim() : ''
+      if (!id || !value) continue
+      const label =
+        typeof data.label === 'string' && data.label.trim().length ? data.label.trim() : value
+      const color =
+        typeof data.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(data.color)
+          ? `#${data.color.slice(1).toLowerCase()}`
+          : null
+      const icon = typeof data.icon === 'string' && data.icon.trim().length ? data.icon.trim() : null
+      const createdAt = typeof data.createdAt === 'string' ? data.createdAt : null
+      const updatedAt = typeof data.updatedAt === 'string' ? data.updatedAt : null
+      parsed.push({
+        id,
+        value,
+        label,
+        color,
+        icon,
+        createdAt,
+        updatedAt,
       })
-      .filter((entry): entry is DictionaryEntryRecord => !!entry)
+    }
     const normalized = normalizeDictionaryEntries(
       parsed.map(({ value, label, color, icon }) => ({ value, label, color, icon })),
     )

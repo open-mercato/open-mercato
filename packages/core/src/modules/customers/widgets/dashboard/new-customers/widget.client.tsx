@@ -33,7 +33,7 @@ async function loadNewCustomers(settings: CustomerNewCustomersSettings): Promise
   const payload = await response.json().catch(() => ({}))
   const rawItems = Array.isArray((payload as any).items) ? (payload as any).items : []
   return rawItems
-    .map((item): NewCustomerItem | null => {
+    .map((item: unknown): NewCustomerItem | null => {
       if (!item || typeof item !== 'object') return null
       const data = item as any
       return {
@@ -43,7 +43,7 @@ async function loadNewCustomers(settings: CustomerNewCustomersSettings): Promise
         createdAt: typeof data.createdAt === 'string' ? data.createdAt : '',
       }
     })
-    .filter((item): item is NewCustomerItem => !!item && !!item.id && !!item.createdAt)
+    .filter((item: NewCustomerItem | null): item is NewCustomerItem => !!item && !!item.id && !!item.createdAt)
 }
 
 function resolveDetailHref(item: NewCustomerItem): string | null {
@@ -68,7 +68,7 @@ function formatKind(kind: string | null, t: (key: string) => string): string {
 
 const CustomerNewCustomersWidget: React.FC<DashboardWidgetComponentProps<CustomerNewCustomersSettings>> = ({
   mode,
-  settings,
+  settings = DEFAULT_SETTINGS,
   onSettingsChange,
   refreshToken,
   onRefreshStateChange,
@@ -188,10 +188,6 @@ const CustomerNewCustomersWidget: React.FC<DashboardWidgetComponentProps<Custome
       )}
     </div>
   )
-}
-
-CustomerNewCustomersWidget.defaultProps = {
-  settings: DEFAULT_SETTINGS,
 }
 
 export default CustomerNewCustomersWidget

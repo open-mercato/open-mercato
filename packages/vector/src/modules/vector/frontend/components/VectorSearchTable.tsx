@@ -26,7 +26,11 @@ type Row = {
 }
 const MIN_QUERY_LENGTH = 2
 
-type Translator = (key: string, params?: Record<string, string | number>) => string
+type Translator = (
+  key: string,
+  fallbackOrParams?: string | Record<string, string | number>,
+  params?: Record<string, string | number>
+) => string
 
 function createColumns(t: Translator): ColumnDef<Row>[] {
   return [
@@ -113,13 +117,14 @@ function toPascalCase(input: string): string {
     .join('')
 }
 
-type LucideIconComponent = LucideIcon
-
-function resolveIcon(name?: string): LucideIconComponent | null {
+function resolveIcon(name?: string): LucideIcon | null {
   if (!name) return null
   const key = toPascalCase(name)
-  const Icon = (LucideIcons as Record<string, LucideIconComponent | undefined>)[key]
-  return Icon ?? null
+  const candidate = (LucideIcons as Record<string, unknown>)[key]
+  if (typeof candidate === 'function') {
+    return candidate as LucideIcon
+  }
+  return null
 }
 
 function humanizeSegment(segment: string): string {

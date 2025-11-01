@@ -427,7 +427,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     const confirmed =
       typeof window === 'undefined'
         ? true
-        : window.confirm(t('customers.companies.list.deleteConfirm', { name: companyName }))
+        : window.confirm(t('customers.companies.list.deleteConfirm', undefined, { name: companyName }))
     if (!confirmed) return
     setIsDeleting(true)
     try {

@@ -66,17 +66,15 @@ export function DictionaryForm({
       type: 'text',
       required: true,
       description: translations.valueDescription,
-      autoFocus: mode === 'create',
-      maxLength: 150,
     }
     const labelField: CrudField = {
       id: 'label',
       label: translations.labelLabel,
       type: 'text',
-      maxLength: 150,
     }
     const appearanceField: CrudField = {
       id: 'appearance',
+      label: translations.appearance.iconLabel,
       type: 'custom',
       component: ({ value, setValue, disabled }) => {
         const appearance = value && typeof value === 'object'

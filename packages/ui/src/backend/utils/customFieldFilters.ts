@@ -101,15 +101,12 @@ export async function fetchCustomFieldFilterDefs(entityIds: string | string[], f
 
 export function useCustomFieldFilterDefs(
   entityIds: string | string[] | null | undefined,
-  options: UseCustomFieldDefsOptions = {}
+  options: UseCustomFieldDefsOptions<FilterDef[]> = {}
 ): UseQueryResult<FilterDef[]> {
-  const query = useCustomFieldDefs(entityIds, options)
-  const filters = React.useMemo(
-    () => (query.data ? buildFilterDefsFromCustomFields(query.data) : []),
-    [query.data]
+  const { select, ...rest } = options
+  const selectFn = React.useCallback(
+    (defs: CustomFieldDefDto[]) => (select ? select(defs) : buildFilterDefsFromCustomFields(defs)),
+    [select]
   )
-  return {
-    ...query,
-    data: filters,
-  } as UseQueryResult<FilterDef[]>
+  return useCustomFieldDefs<FilterDef[]>(entityIds, { ...rest, select: selectFn })
 }

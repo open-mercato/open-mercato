@@ -114,7 +114,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
       accessorKey: d.key,
       header: d.label || d.key,
       meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
-      cell: ({ getValue }) => {
+      cell: ({ getValue }: { getValue: () => unknown }) => {
         const v = getValue() as any
         return <span className="truncate max-w-[24ch] inline-block align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
       },

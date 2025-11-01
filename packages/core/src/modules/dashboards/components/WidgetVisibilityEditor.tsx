@@ -62,7 +62,20 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
     if (!res.ok) throw new Error(`Failed with status ${res.status}`)
     const data = await res.json()
     const items = Array.isArray(data.items) ? data.items : []
-    setCatalog(items.map((item) => ({ id: item.id, title: item.title, description: item.description ?? null })))
+    const mapped = items
+      .map((item: unknown): WidgetCatalogItem | null => {
+        if (!item || typeof item !== 'object') return null
+        const entry = item as Record<string, unknown>
+        const id = typeof entry.id === 'string' ? entry.id : null
+        if (!id || !id.length) return null
+        const title =
+          typeof entry.title === 'string' && entry.title.length ? entry.title : id
+        const description =
+          typeof entry.description === 'string' && entry.description.length ? entry.description : null
+        return { id, title, description }
+      })
+      .filter((item: WidgetCatalogItem | null): item is WidgetCatalogItem => item !== null)
+    setCatalog(mapped)
   }, [])
 
   const loadRoleData = React.useCallback(async () => {

@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid credentials') }, { status: 400 })
   }
   const container = await createRequestContainer()
-  const auth = container.resolve<AuthService>('authService')
+  const auth = (container.resolve('authService') as AuthService)
   const user = await auth.findUserByEmail(parsed.data.email)
   if (!user || !user.passwordHash) {
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
   await auth.updateLastLoginAt(user)
   const userRoleNames = await auth.getUserRoles(user)
   try {
-    const eventBus = container.resolve<EventBus>('eventBus')
+    const eventBus = (container.resolve('eventBus') as EventBus)
     void eventBus.emitEvent('query_index.coverage.warmup', {
       tenantId: user.tenantId ? String(user.tenantId) : null,
     }).catch(() => undefined)

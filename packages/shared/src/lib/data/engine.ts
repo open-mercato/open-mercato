@@ -1,5 +1,5 @@
-import type { EntityData, EntityName, FilterQuery } from '@mikro-orm/core'
-import type { EntityManager, EntityRepository } from '@mikro-orm/postgresql'
+import type { EntityData, EntityName, FilterQuery, RequiredEntityData } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { validateCustomFieldValuesServer } from '@open-mercato/core/modules/entities/lib/validation'
@@ -11,6 +11,7 @@ import type {
   CrudEntityIdentifiers,
 } from '../crud/types'
 import { CrudHttpError } from '../crud/errors'
+import { normalizeCustomFieldValues } from '../custom-fields/normalize'
 
 const COVERAGE_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const coverageRefreshTracker = new Map<string, number>()
@@ -74,18 +75,18 @@ export interface DataEngine {
   }): Promise<void>
 
   // Generic ORM-backed entity operations used by CrudFactory
-  createOrmEntity<T>(opts: {
+  createOrmEntity<T extends object>(opts: {
     entity: EntityName<T>
     data: EntityData<T>
   }): Promise<T>
 
-  updateOrmEntity<T>(opts: {
+  updateOrmEntity<T extends object>(opts: {
     entity: EntityName<T>
     where: FilterQuery<T>
     apply: (current: T) => Promise<void> | void
   }): Promise<T | null>
 
-  deleteOrmEntity<T>(opts: {
+  deleteOrmEntity<T extends object>(opts: {
     entity: EntityName<T>
     where: FilterQuery<T>
     soft?: boolean
@@ -129,7 +130,7 @@ export class DefaultDataEngine implements DataEngine {
     if (opts.notify !== false) {
       let bus: EventBus | null = null
       try {
-        bus = this.container.resolve<EventBus>('eventBus')
+        bus = (this.container.resolve('eventBus') as EventBus)
       } catch {
         bus = null
       }
@@ -270,7 +271,7 @@ export class DefaultDataEngine implements DataEngine {
         recordId: id,
         organizationId: orgId,
         tenantId: tenantId,
-        values: opts.values,
+        values: normalizeCustomFieldValues(opts.values),
         notify: opts.notify, // defaults to true
       })
     }
@@ -319,7 +320,7 @@ export class DefaultDataEngine implements DataEngine {
         recordId: id,
         organizationId: orgId,
         tenantId: tenantId,
-        values: opts.values,
+        values: normalizeCustomFieldValues(opts.values),
         notify: opts.notify, // defaults to true
       })
     }
@@ -360,25 +361,34 @@ export class DefaultDataEngine implements DataEngine {
     } catch { /* non-blocking */ }
   }
 
-  async createOrmEntity<T>(opts: { entity: EntityName<T>; data: EntityData<T> }): Promise<T> {
-    const repo: EntityRepository<T> = this.em.getRepository(opts.entity)
-    const entity = repo.create(opts.data)
+  async createOrmEntity<T extends object>(opts: { entity: EntityName<T>; data: EntityData<T> }): Promise<T> {
+    const entity = this.em.create(
+      opts.entity,
+      opts.data as RequiredEntityData<T, never, true>
+    )
     await this.em.persistAndFlush(entity)
     return entity
   }
 
-  async updateOrmEntity<T>(opts: { entity: EntityName<T>; where: FilterQuery<T>; apply: (current: T) => Promise<void> | void }): Promise<T | null> {
-    const repo: EntityRepository<T> = this.em.getRepository(opts.entity)
-    const current = await repo.findOne(opts.where)
+  async updateOrmEntity<T extends object>(opts: {
+    entity: EntityName<T>
+    where: FilterQuery<T>
+    apply: (current: T) => Promise<void> | void
+  }): Promise<T | null> {
+    const current = await this.em.findOne(opts.entity, opts.where)
     if (!current) return null
     await opts.apply(current)
     await this.em.persistAndFlush(current)
     return current
   }
 
-  async deleteOrmEntity<T>(opts: { entity: EntityName<T>; where: FilterQuery<T>; soft?: boolean; softDeleteField?: keyof T & string }): Promise<T | null> {
-    const repo: EntityRepository<T> = this.em.getRepository(opts.entity)
-    const current = await repo.findOne(opts.where)
+  async deleteOrmEntity<T extends object>(opts: {
+    entity: EntityName<T>
+    where: FilterQuery<T>
+    soft?: boolean
+    softDeleteField?: keyof T & string
+  }): Promise<T | null> {
+    const current = await this.em.findOne(opts.entity, opts.where)
     if (!current) return null
     if (opts.soft !== false) {
       const field = opts.softDeleteField || ('deletedAt' as keyof T & string)
@@ -399,7 +409,7 @@ export class DefaultDataEngine implements DataEngine {
 
     let bus: EventBus | null = null
     try {
-      bus = this.container.resolve<EventBus>('eventBus')
+      bus = (this.container.resolve('eventBus') as EventBus)
     } catch {
       bus = null
     }

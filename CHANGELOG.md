@@ -1,4 +1,4 @@
-# 0.3.0 (2025-02-19)
+# 0.3.0 (2025-11-31)
 
 ## Highlights
 - Consolidated modular architecture across auth, customers, sales, dictionaries, query index, and vector search modules.

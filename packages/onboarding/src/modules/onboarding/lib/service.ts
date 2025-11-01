@@ -53,6 +53,8 @@ export class OnboardingService {
       termsAccepted: true,
       expiresAt,
       lastEmailSentAt: now,
+      createdAt: now,
+      updatedAt: now,
     })
     await this.em.persistAndFlush(request)
     return { request, token }
