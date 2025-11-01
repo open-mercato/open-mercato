@@ -180,6 +180,115 @@ async function loadChannelSnapshot(em: EntityManager, id: string): Promise<Chann
   }
 }
 
+function channelSeedFromSnapshot(snapshot: ChannelSnapshot) {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name,
+    code: snapshot.code ?? null,
+    description: snapshot.description ?? null,
+    statusEntryId: snapshot.statusEntryId ?? null,
+    status: snapshot.status ?? null,
+    websiteUrl: snapshot.websiteUrl ?? null,
+    contactEmail: snapshot.contactEmail ?? null,
+    contactPhone: snapshot.contactPhone ?? null,
+    addressLine1: snapshot.addressLine1 ?? null,
+    addressLine2: snapshot.addressLine2 ?? null,
+    city: snapshot.city ?? null,
+    region: snapshot.region ?? null,
+    postalCode: snapshot.postalCode ?? null,
+    country: snapshot.country ?? null,
+    latitude: snapshot.latitude ?? null,
+    longitude: snapshot.longitude ?? null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    isActive: snapshot.isActive,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+}
+
+function deliveryWindowSeedFromSnapshot(snapshot: DeliveryWindowSnapshot) {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name,
+    code: snapshot.code,
+    description: snapshot.description ?? null,
+    leadTimeDays: snapshot.leadTimeDays ?? null,
+    cutoffTime: snapshot.cutoffTime ?? null,
+    timezone: snapshot.timezone ?? null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    isActive: snapshot.isActive,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+}
+
+function shippingMethodSeedFromSnapshot(snapshot: ShippingMethodSnapshot) {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name,
+    code: snapshot.code,
+    description: snapshot.description ?? null,
+    carrierCode: snapshot.carrierCode ?? null,
+    serviceLevel: snapshot.serviceLevel ?? null,
+    estimatedTransitDays: snapshot.estimatedTransitDays ?? null,
+    baseRateNet: snapshot.baseRateNet,
+    baseRateGross: snapshot.baseRateGross,
+    currencyCode: snapshot.currencyCode ?? null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    isActive: snapshot.isActive,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+}
+
+function paymentMethodSeedFromSnapshot(snapshot: PaymentMethodSnapshot) {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name,
+    code: snapshot.code,
+    description: snapshot.description ?? null,
+    providerKey: snapshot.providerKey ?? null,
+    terms: snapshot.terms ?? null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    isActive: snapshot.isActive,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+}
+
+function taxRateSeedFromSnapshot(snapshot: TaxRateSnapshot) {
+  return {
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name,
+    code: snapshot.code,
+    rate: snapshot.rate,
+    countryCode: snapshot.countryCode ?? null,
+    regionCode: snapshot.regionCode ?? null,
+    postalCode: snapshot.postalCode ?? null,
+    city: snapshot.city ?? null,
+    customerGroupId: snapshot.customerGroupId ?? null,
+    productCategoryId: snapshot.productCategoryId ?? null,
+    channelId: snapshot.channelId ?? null,
+    priority: snapshot.priority,
+    isCompound: snapshot.isCompound,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    startsAt: snapshot.startsAt ? new Date(snapshot.startsAt) : null,
+    endsAt: snapshot.endsAt ? new Date(snapshot.endsAt) : null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+}
+
 async function loadDeliveryWindowSnapshot(
   em: EntityManager,
   id: string
@@ -592,33 +701,13 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(SalesChannel, { id: before.id })
     if (!record) {
-      record = em.create(SalesChannel, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        name: before.name,
-        code: before.code ?? null,
-        description: before.description ?? null,
-        statusEntryId: before.statusEntryId ?? null,
-        status: (before as any).status ?? null,
-        websiteUrl: (before as any).websiteUrl ?? null,
-        contactEmail: (before as any).contactEmail ?? null,
-        contactPhone: (before as any).contactPhone ?? null,
-        metadata: (before as any).metadata ?? null,
-        priority: (before as any).priority ?? null,
-        isCompound: (before as any).isCompound ?? false,
-        startsAt: (before as any).startsAt ?? null,
-        endsAt: (before as any).endsAt ?? null,
-        isActive: before.isActive,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
+      record = em.create(SalesChannel, channelSeedFromSnapshot(before))
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-   applyChannelSnapshot(record, before)
-   await em.flush()
+    applyChannelSnapshot(record, before)
+    await em.flush()
     const after = payload?.after
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after?.custom ?? undefined)
     if (Object.keys(resetValues).length) {
@@ -685,7 +774,7 @@ const deleteChannelCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(SalesChannel, { id: before.id })
     if (!record) {
-      record = em.create(SalesChannel, { id: before.id })
+      record = em.create(SalesChannel, channelSeedFromSnapshot(before))
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)
@@ -726,6 +815,8 @@ const createDeliveryWindowCommand: CommandHandler<
       timezone: parsed.timezone ?? null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       isActive: parsed.isActive ?? true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(record)
     await em.flush()
@@ -869,7 +960,7 @@ const updateDeliveryWindowCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(SalesDeliveryWindow, { id: before.id })
     if (!record) {
-      record = em.create(SalesDeliveryWindow, { id: before.id })
+      record = em.create(SalesDeliveryWindow, deliveryWindowSeedFromSnapshot(before))
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)
@@ -941,7 +1032,7 @@ const deleteDeliveryWindowCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(SalesDeliveryWindow, { id: before.id })
     if (!record) {
-      record = em.create(SalesDeliveryWindow, { id: before.id })
+      record = em.create(SalesDeliveryWindow, deliveryWindowSeedFromSnapshot(before))
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)
@@ -985,6 +1076,8 @@ const createShippingMethodCommand: CommandHandler<
       currencyCode: parsed.currencyCode ?? null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       isActive: parsed.isActive ?? true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(record)
     await em.flush()
@@ -1137,7 +1230,7 @@ const updateShippingMethodCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(SalesShippingMethod, { id: before.id })
     if (!record) {
-      record = em.create(SalesShippingMethod, { id: before.id })
+      record = em.create(SalesShippingMethod, shippingMethodSeedFromSnapshot(before))
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)
@@ -1209,7 +1302,7 @@ const deleteShippingMethodCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(SalesShippingMethod, { id: before.id })
     if (!record) {
-      record = em.create(SalesShippingMethod, { id: before.id })
+      record = em.create(SalesShippingMethod, shippingMethodSeedFromSnapshot(before))
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)
@@ -1249,6 +1342,8 @@ const createPaymentMethodCommand: CommandHandler<
       terms: parsed.terms ?? null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       isActive: parsed.isActive ?? true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(record)
     await em.flush()
@@ -1391,7 +1486,7 @@ const updatePaymentMethodCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(SalesPaymentMethod, { id: before.id })
     if (!record) {
-      record = em.create(SalesPaymentMethod, { id: before.id })
+      record = em.create(SalesPaymentMethod, paymentMethodSeedFromSnapshot(before))
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)
@@ -1463,7 +1558,7 @@ const deletePaymentMethodCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(SalesPaymentMethod, { id: before.id })
     if (!record) {
-      record = em.create(SalesPaymentMethod, { id: before.id })
+      record = em.create(SalesPaymentMethod, paymentMethodSeedFromSnapshot(before))
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)
@@ -1513,6 +1608,8 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       startsAt: parsed.startsAt ?? null,
       endsAt: parsed.endsAt ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(record)
     await em.flush()
@@ -1676,7 +1773,7 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(SalesTaxRate, { id: before.id })
     if (!record) {
-      record = em.create(SalesTaxRate, { id: before.id })
+      record = em.create(SalesTaxRate, taxRateSeedFromSnapshot(before))
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)
@@ -1723,7 +1820,7 @@ const deleteTaxRateCommand: CommandHandler<
     em.remove(record)
     await em.flush()
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
-      const resetValues = buildCustomFieldResetMap(snapshot.custom, null)
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsIfAny({
           dataEngine: ctx.container.resolve('dataEngine'),
@@ -1762,7 +1859,7 @@ const deleteTaxRateCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(SalesTaxRate, { id: before.id })
     if (!record) {
-      record = em.create(SalesTaxRate, { id: before.id })
+      record = em.create(SalesTaxRate, taxRateSeedFromSnapshot(before))
       em.persist(record)
     }
     ensureTenantScope(ctx, before.tenantId)

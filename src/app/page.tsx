@@ -17,7 +17,7 @@ function FeatureBadge({ label }: { label: string }) {
 
 export default async function Home() {
   // Check if user wants to see the start page
-  const cookieStore = await cookies()
+  const cookieStore = cookies()
   const showStartPageCookie = cookieStore.get('show_start_page')
   const showStartPage = showStartPageCookie?.value !== 'false'
 

@@ -227,9 +227,8 @@ const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string 
     const em = (ctx.container.resolve('em') as EntityManager)
     return loadOptionSnapshot(em, result.optionId)
   },
-  buildLog: async ({ result, ctx }) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const after = await loadOptionSnapshot(em, result.optionId)
+  buildLog: async ({ result, snapshots }) => {
+    const after = snapshots.after as OptionSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -322,8 +321,7 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const before = snapshots.before as OptionSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const after = await loadOptionSnapshot(em, result.optionId)
+    const after = snapshots.after as OptionSnapshot | undefined
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -555,9 +553,8 @@ const createOptionValueCommand: CommandHandler<OptionValueCreateInput, { optionV
       const em = (ctx.container.resolve('em') as EntityManager)
       return loadOptionValueSnapshot(em, result.optionValueId)
     },
-    buildLog: async ({ result, ctx }) => {
-      const em = (ctx.container.resolve('em') as EntityManager)
-      const after = await loadOptionValueSnapshot(em, result.optionValueId)
+    buildLog: async ({ result, snapshots }) => {
+      const after = snapshots.after as OptionValueSnapshot | undefined
       if (!after) return null
       const { translate } = await resolveTranslations()
       return {
@@ -653,8 +650,7 @@ const updateOptionValueCommand: CommandHandler<OptionValueUpdateInput, { optionV
     },
     buildLog: async ({ result, ctx, snapshots }) => {
       const before = snapshots.before as OptionValueSnapshot | undefined
-      const em = (ctx.container.resolve('em') as EntityManager)
-      const after = await loadOptionValueSnapshot(em, result.optionValueId)
+      const after = snapshots.after as OptionValueSnapshot | undefined
       if (!before || !after) return null
       const { translate } = await resolveTranslations()
       return {

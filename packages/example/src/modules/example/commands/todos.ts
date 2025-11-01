@@ -43,6 +43,33 @@ type SerializedTodo = {
   custom?: Record<string, unknown>
 }
 
+type CustomFieldValueMap = Parameters<DataEngine['setCustomFields']>[0]['values']
+
+function toCustomFieldValues(values: Record<string, unknown>): CustomFieldValueMap {
+  const result: CustomFieldValueMap = {}
+  for (const [key, value] of Object.entries(values)) {
+    if (Array.isArray(value)) {
+      result[key] = value.map((item) => normalizeCustomFieldPrimitive(item)) as CustomFieldValueMap[string]
+      continue
+    }
+    result[key] = normalizeCustomFieldPrimitive(value)
+  }
+  return result
+}
+
+function normalizeCustomFieldPrimitive(value: unknown): CustomFieldValueMap[string] {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value as CustomFieldValueMap[string]
+  }
+  return String(value) as CustomFieldValueMap[string]
+}
+
 export const todoCrudEvents: CrudEventsConfig<Todo> = {
   module: 'example',
   entity: 'todo',
@@ -149,7 +176,8 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       softDeleteField: 'deletedAt',
     })
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
-      const values = buildCustomFieldResetMap(undefined, snapshot.custom)
+      const rawValues = buildCustomFieldResetMap(undefined, snapshot.custom)
+      const values = toCustomFieldValues(rawValues)
       if (Object.keys(values).length) {
         await de.setCustomFields({
           entityId: E.example.todo,
@@ -295,7 +323,8 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         entity.organizationId = before.organizationId ?? scope.organizationId
       },
     })
-    const customValues = buildCustomFieldResetMap(before.custom, after?.custom)
+    const customResetValues = buildCustomFieldResetMap(before.custom, after?.custom)
+    const customValues = toCustomFieldValues(customResetValues)
     if (Object.keys(customValues).length > 0) {
       await de.setCustomFields({
         entityId: E.example.todo,
@@ -413,12 +442,13 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       })
     }
     if (before.custom && Object.keys(before.custom).length > 0) {
+      const values = toCustomFieldValues(before.custom)
       await de.setCustomFields({
         entityId: E.example.todo,
         recordId: before.id,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
-        values: before.custom,
+        values,
         notify: false,
       })
     }
