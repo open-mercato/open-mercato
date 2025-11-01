@@ -4,7 +4,9 @@ import * as React from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { FileCode, Loader2, Linkedin, Mail, Pencil, Phone, Twitter, X } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 import { Button } from '@open-mercato/ui/primitives/button'
+import type { PluggableList } from 'unified'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
@@ -389,6 +391,13 @@ export function InlineTextEditor({
   )
 }
 
+export type InlineMultilineDisplayRenderer = (params: {
+  value: string | null | undefined
+  emptyLabel: string
+}) => React.ReactNode
+
+const MARKDOWN_PREVIEW_PLUGINS: PluggableList = [remarkGfm]
+
 type InlineMultilineEditorProps = {
   label: string
   value: string | null | undefined
@@ -400,6 +409,7 @@ type InlineMultilineEditorProps = {
   activateOnClick?: boolean
   containerClassName?: string
   triggerClassName?: string
+  renderDisplay?: InlineMultilineDisplayRenderer
 }
 
 export function InlineMultilineEditor({
@@ -413,6 +423,7 @@ export function InlineMultilineEditor({
   activateOnClick = false,
   containerClassName,
   triggerClassName,
+  renderDisplay,
 }: InlineMultilineEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -580,18 +591,18 @@ export function InlineMultilineEditor({
                   )}
                 >
                   <div data-color-mode="light" className="w-full">
-                    <UiMarkdownEditor
-                      value={draft}
-                      height={220}
-                      onChange={(value) => {
-                        if (error) setError(null)
-                        setDraft(typeof value === 'string' ? value : '')
-                      }}
-                      previewOptions={{ remarkPlugins: [remarkGfm] }}
-                    />
-                  </div>
+                  <UiMarkdownEditor
+                    value={draft}
+                    height={220}
+                    onChange={(value) => {
+                      if (error) setError(null)
+                      setDraft(typeof value === 'string' ? value : '')
+                    }}
+                    previewOptions={{ remarkPlugins: MARKDOWN_PREVIEW_PLUGINS }}
+                  />
                 </div>
-              ) : (
+              </div>
+            ) : (
                 <textarea
                   ref={textareaRef}
                   rows={3}
@@ -645,9 +656,13 @@ export function InlineMultilineEditor({
               </div>
             </form>
           ) : (
-            <div className="mt-1 text-sm whitespace-pre-wrap break-words">
-              {value && typeof value === 'string' && value.trim().length ? (
-                value
+            <div className={cn('mt-1 text-sm break-words', renderDisplay ? null : 'whitespace-pre-wrap')}>
+              {typeof value === 'string' && value.trim().length ? (
+                renderDisplay ? (
+                  renderDisplay({ value, emptyLabel })
+                ) : (
+                  value
+                )
               ) : (
                 <span className="text-muted-foreground">{emptyLabel}</span>
               )}
@@ -695,6 +710,22 @@ function createSocialRenderDisplay(IconComponent: typeof Linkedin): NonNullable<
 
 export const renderLinkedInDisplay = createSocialRenderDisplay(Linkedin)
 export const renderTwitterDisplay = createSocialRenderDisplay(Twitter)
+
+export const renderMultilineMarkdownDisplay: InlineMultilineDisplayRenderer = ({ value, emptyLabel }) => {
+  const raw = typeof value === 'string' ? value : ''
+  const trimmed = raw.trim()
+  if (!trimmed.length) {
+    return <span className="text-muted-foreground">{emptyLabel}</span>
+  }
+  return (
+    <ReactMarkdown
+      remarkPlugins={MARKDOWN_PREVIEW_PLUGINS}
+      className="text-sm text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+    >
+      {raw}
+    </ReactMarkdown>
+  )
+}
 
 type DictionaryEditorProps = {
   label: string
