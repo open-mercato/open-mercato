@@ -103,8 +103,24 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
   const ensureReady = async () => {
     if (!ready) {
       ready = withClient(pool, async (client) => {
-        await client.query('CREATE EXTENSION IF NOT EXISTS pgcrypto')
-        await client.query('CREATE EXTENSION IF NOT EXISTS vector')
+        const ensureExtension = async (extension: 'pgcrypto' | 'vector') => {
+          try {
+            await client.query(`CREATE EXTENSION IF NOT EXISTS ${extension}`)
+          } catch (error) {
+            const pgError = error as { code?: string; message?: string }
+            if (pgError?.code === '42501') {
+              const details = pgError.message ? ` (${pgError.message})` : ''
+              console.warn(
+                `[vector.pgvector] skipping ${extension} extension creation; requires superuser${details}`,
+              )
+              return
+            }
+            throw error
+          }
+        }
+
+        await ensureExtension('pgcrypto')
+        await ensureExtension('vector')
 
         await client.query(
           `CREATE TABLE IF NOT EXISTS ${migrationsIdent} (
