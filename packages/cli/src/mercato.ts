@@ -154,12 +154,7 @@ export async function run(argv = process.argv) {
       execSync('yarn mercato configs restore-defaults', { stdio: 'inherit' })
       console.log('✅ Module defaults restored\n')
 
-      // Step 4: Seed roles
-      console.log('👥 Seeding default roles...')
-      execSync('yarn mercato auth seed-roles', { stdio: 'inherit' })
-      console.log('✅ Roles seeded\n')
-      
-      // Step 5: Setup RBAC (tenant/org, users, ACLs)
+      // Step 4: Setup RBAC (tenant/org, users, ACLs)
       const findArgValue = (names: string[], fallback: string) => {
         for (const name of names) {
           const match = initArgs.find((arg) => arg.startsWith(name))
@@ -185,6 +180,14 @@ export async function run(argv = process.argv) {
       const tenantIdMatch = setupOutput.match(/tenantId: '([^']+)'/)
       const orgId = orgIdMatch ? orgIdMatch[1] : null
       const tenantId = tenantIdMatch ? tenantIdMatch[1] : null
+      
+      if (tenantId) {
+        console.log('👥 Seeding tenant-scoped roles...')
+        execSync(`yarn mercato auth seed-roles --tenant ${tenantId}`, { stdio: 'inherit' })
+        console.log('✅ Roles seeded\n')
+      } else {
+        console.log('⚠️  Skipping role seeding because tenant ID was not detected in setup output.\n')
+      }
       
       if (orgId && tenantId) {
         console.log('📚 Seeding customer dictionaries...')
