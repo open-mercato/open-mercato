@@ -12,7 +12,10 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { onboardingStartSchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 
 type SubmissionState = 'idle' | 'loading' | 'success'
-type FieldErrors = Partial<Record<'email' | 'firstName' | 'lastName' | 'organizationName' | 'termsAccepted', string>>
+type FieldErrors = Partial<Record<
+  'email' | 'firstName' | 'lastName' | 'organizationName' | 'password' | 'confirmPassword' | 'termsAccepted',
+  string
+>>
 
 export default function OnboardingPage() {
   const t = useT()
@@ -37,6 +40,8 @@ export default function OnboardingPage() {
       firstName: String(form.get('firstName') ?? '').trim(),
       lastName: String(form.get('lastName') ?? '').trim(),
       organizationName: String(form.get('organizationName') ?? '').trim(),
+      password: String(form.get('password') ?? ''),
+      confirmPassword: String(form.get('confirmPassword') ?? ''),
       termsAccepted: termsAccepted,
       locale,
     }
@@ -59,6 +64,12 @@ export default function OnboardingPage() {
             break
           case 'organizationName':
             issueMap.organizationName = translate('onboarding.errors.organizationNameRequired', 'Organization name is required.')
+            break
+          case 'password':
+            issueMap.password = translate('onboarding.errors.passwordRequired', 'Password must be at least 6 characters.')
+            break
+          case 'confirmPassword':
+            issueMap.confirmPassword = translate('onboarding.errors.passwordMismatch', 'Passwords must match.')
             break
           case 'termsAccepted':
             issueMap.termsAccepted = translate('onboarding.form.termsRequired', 'Please accept the terms to continue.')
@@ -211,6 +222,40 @@ export default function OnboardingPage() {
               />
               {fieldErrors.organizationName && (
                 <p id="organizationName-error" className="text-xs text-red-600">{fieldErrors.organizationName}</p>
+              )}
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="password">{translate('onboarding.form.password', 'Password')}</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                required
+                disabled={disabled}
+                autoComplete="new-password"
+                aria-invalid={Boolean(fieldErrors.password)}
+                aria-describedby={fieldErrors.password ? 'password-error' : undefined}
+                className={fieldErrors.password ? 'border-red-500 focus-visible:ring-red-500' : undefined}
+              />
+              {fieldErrors.password && (
+                <p id="password-error" className="text-xs text-red-600">{fieldErrors.password}</p>
+              )}
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="confirmPassword">{translate('onboarding.form.confirmPassword', 'Confirm password')}</Label>
+              <Input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                required
+                disabled={disabled}
+                autoComplete="new-password"
+                aria-invalid={Boolean(fieldErrors.confirmPassword)}
+                aria-describedby={fieldErrors.confirmPassword ? 'confirmPassword-error' : undefined}
+                className={fieldErrors.confirmPassword ? 'border-red-500 focus-visible:ring-red-500' : undefined}
+              />
+              {fieldErrors.confirmPassword && (
+                <p id="confirmPassword-error" className="text-xs text-red-600">{fieldErrors.confirmPassword}</p>
               )}
             </div>
             <label className="flex items-start gap-3 text-sm text-muted-foreground">

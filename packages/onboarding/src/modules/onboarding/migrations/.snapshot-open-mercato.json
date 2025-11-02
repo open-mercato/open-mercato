@@ -90,6 +90,15 @@
           "default": "false",
           "mappedType": "boolean"
         },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamptz",

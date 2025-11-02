@@ -36,11 +36,34 @@ export function getApiDocsResources(): ApiDocResource[] {
   ]
 }
 
+function appendApiSegment(baseUrl: string): string {
+  try {
+    const url = new URL(baseUrl)
+    const normalizedPath = url.pathname.replace(/\/+$/, '')
+    if (!normalizedPath || normalizedPath === '/') {
+      url.pathname = '/api'
+    } else if (!normalizedPath.endsWith('/api')) {
+      url.pathname = `${normalizedPath}/api`
+    } else {
+      url.pathname = normalizedPath
+    }
+    return url.toString()
+  } catch {
+    const normalized = baseUrl.replace(/\/+$/, '')
+    return normalized.endsWith('/api') ? normalized : `${normalized}/api`
+  }
+}
+
 export function resolveApiDocsBaseUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
+  const apiOverride = process.env.NEXT_PUBLIC_API_BASE_URL
+  if (apiOverride) {
+    return apiOverride
+  }
+
+  const appBase =
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.APP_URL ||
     'http://localhost:3000'
-  )
+
+  return appendApiSegment(appBase)
 }

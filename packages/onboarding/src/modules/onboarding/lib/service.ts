@@ -1,4 +1,5 @@
 import { randomBytes, createHash } from 'node:crypto'
+import { hash } from 'bcryptjs'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { OnboardingRequest } from '../data/entities'
 import type { OnboardingStartInput } from '../data/validators'
@@ -16,6 +17,7 @@ export class OnboardingService {
     const tokenHash = hashToken(token)
     const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000)
     const now = new Date()
+    const passwordHash = await hash(input.password, 10)
 
     const existing = await this.em.findOne(OnboardingRequest, { email: input.email })
     if (existing) {
@@ -32,6 +34,7 @@ export class OnboardingService {
       existing.organizationName = input.organizationName
       existing.locale = input.locale ?? existing.locale ?? 'en'
       existing.termsAccepted = true
+      existing.passwordHash = passwordHash
       existing.expiresAt = expiresAt
       existing.completedAt = null
       existing.tenantId = null
@@ -51,6 +54,7 @@ export class OnboardingService {
       organizationName: input.organizationName,
       locale: input.locale ?? 'en',
       termsAccepted: true,
+      passwordHash,
       expiresAt,
       lastEmailSentAt: now,
       createdAt: now,
@@ -76,6 +80,7 @@ export class OnboardingService {
     request.tenantId = data.tenantId
     request.organizationId = data.organizationId
     request.userId = data.userId
+    request.passwordHash = null
     await this.em.flush()
   }
 }

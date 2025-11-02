@@ -34,14 +34,14 @@ export async function POST(req: Request) {
   }
   // Optional role requirement
   if (requiredRoles.length) {
-    const userRoleNames = await auth.getUserRoles(user)
+    const userRoleNames = await auth.getUserRoles(user, user.tenantId ? String(user.tenantId) : null)
     const authorized = requiredRoles.some(r => userRoleNames.includes(r))
     if (!authorized) {
       return NextResponse.json({ ok: false, error: translate('auth.login.errors.permissionDenied', 'Not authorized for this area') }, { status: 403 })
     }
   }
   await auth.updateLastLoginAt(user)
-  const userRoleNames = await auth.getUserRoles(user)
+  const userRoleNames = await auth.getUserRoles(user, user.tenantId ? String(user.tenantId) : null)
   try {
     const eventBus = (container.resolve('eventBus') as EventBus)
     void eventBus.emitEvent('query_index.coverage.warmup', {

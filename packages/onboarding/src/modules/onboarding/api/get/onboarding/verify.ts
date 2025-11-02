@@ -38,6 +38,10 @@ export async function GET(req: Request) {
   if (!request) {
     return redirectWithStatus(baseUrl, 'invalid')
   }
+  if (!request.passwordHash) {
+    console.error('[onboarding.verify] missing password hash for request', request.id)
+    return redirectWithStatus(baseUrl, 'error')
+  }
 
   let tenantId: string | null = null
   let organizationId: string | null = null
@@ -55,6 +59,7 @@ export async function GET(req: Request) {
         firstName: request.firstName,
         lastName: request.lastName,
         displayName: `${request.firstName} ${request.lastName}`.trim(),
+        hashedPassword: request.passwordHash,
         confirm: true,
       },
     })
@@ -75,7 +80,7 @@ export async function GET(req: Request) {
 
     const authService = (container.resolve('authService') as AuthService)
     await authService.updateLastLoginAt(user)
-    const roles = await authService.getUserRoles(user)
+    const roles = await authService.getUserRoles(user, tenantId)
     const jwt = signJwt({
       sub: String(user.id),
       tenantId,
