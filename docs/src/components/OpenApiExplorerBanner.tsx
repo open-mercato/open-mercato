@@ -1,8 +1,8 @@
-import React from 'react';
-import Admonition from '@theme/Admonition';
-import Link from '@docusaurus/Link';
+import React from 'react'
+import Admonition from '@theme/Admonition'
+import Link from '@docusaurus/Link'
 
-export default function OpenApiExplorerBanner(): JSX.Element {
+export default function OpenApiExplorerBanner() {
   return (
     <Admonition type="tip" title="Explore the API">
       Launch the{' '}
@@ -12,5 +12,5 @@ export default function OpenApiExplorerBanner(): JSX.Element {
       to browse the live REST specs, inspect request and response schemas, and
       execute calls against your environment with an API key.
     </Admonition>
-  );
+  )
 }

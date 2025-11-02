@@ -59,14 +59,14 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
     <td style="text-align:center;">Custom Entity Records</td>
   </tr>
   <tr>
-    <td><a href="docs/static/screenshots/open-mercato-people-activities.png"><img src="docs/static/screenshots/open-mercato-people-activities.png" alt="Customer activity timeline view" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-people-add-new.png"><img src="docs/static/screenshots/open-mercato-people-add-new.png" alt="Add new customer form" width="260"/></a></td>
     <td><a href="docs/static/screenshots/open-mercato-deals-listing.png"><img src="docs/static/screenshots/open-mercato-deals-listing.png" alt="Deals pipeline board" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-people-companies.png"><img src="docs/static/screenshots/open-mercato-people-companies.png" alt="Companies directory view" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-people-notes.png"><img src="docs/static/screenshots/open-mercato-people-notes.png" alt="Customer notes timeline" width="260"/></a></td>
   </tr>
   <tr>
-    <td style="text-align:center;">Customer Activity Timeline</td>
+    <td style="text-align:center;">Add New Customer</td>
     <td style="text-align:center;">Deals Pipeline</td>
-    <td style="text-align:center;">Companies Directory</td>
+    <td style="text-align:center;">Customer Notes</td>
   </tr>
   <tr>
     <td colspan="3" style="text-align:center;" halign="center">
@@ -128,6 +128,17 @@ Follow these steps after the prerequisites are in place:
 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything. Prefer `yarn mercato init --no-examples` if you simply want to skip demo CRM data while keeping core roles and users. Reach for `yarn mercato init --stresstest` (optionally with `-n 12000`) when you want to benchmark full CRM flows with thousands of contacts, companies, deals, activities, and notes — or `yarn mercato init --stresstest --lite` when you mainly need raw contact volume at high throughput.
 
 Full installation guide (including prerequisites and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
+
+## Documentation
+
+Browse the full documentation at [docs.openmercato.com](https://docs.openmercato.com/).
+
+- [Introduction](https://docs.openmercato.com/introduction/overview)
+- [User Guide](https://docs.openmercato.com/user-guide/overview)
+- [Installation](https://docs.openmercato.com/installation/prerequisites)
+- [Architecture](https://docs.openmercato.com/architecture/system-overview)
+- [REST API](https://docs.openmercato.com/api/overview)
+- [Customization](https://docs.openmercato.com/customization/build-first-app)
 
 ## Contributing
 
