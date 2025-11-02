@@ -148,6 +148,10 @@ Browse the full documentation at [docs.openmercato.com](https://docs.openmercato
 - [CLI Reference](https://docs.openmercato.com/cli/overview)
 - [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
 
+## Join us on Discord
+
+Connect with the team and other builders in our Discord community: [https://discord.gg/f4qwPtJ3qA](https://discord.gg/f4qwPtJ3qA).
+
 ## Contributing
 
 We welcome contributions of all sizes—from fixes and docs updates to new modules. Start by reading [CONTRIBUTING.md](CONTRIBUTING.md) for branching conventions (`main`, `develop`, `feat/<feature>`), release flow, and the full PR checklist. Then check the open issues or propose an idea in a discussion, and:
