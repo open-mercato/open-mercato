@@ -43,7 +43,7 @@ export function I18nProvider({ children, locale, dict }: { children: React.React
         fallback = fallbackOrParams
         resolvedParams = params
       } else {
-        resolvedParams = fallbackOrParams
+        resolvedParams = fallbackOrParams ?? params
       }
 
       const template = dict[key] ?? fallback ?? key

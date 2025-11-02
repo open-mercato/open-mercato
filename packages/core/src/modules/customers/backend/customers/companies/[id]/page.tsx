@@ -29,6 +29,7 @@ import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights'
+import { renderMultilineMarkdownDisplay } from '../../../../components/detail/InlineEditors'
 import { formatTemplate } from '../../../../components/detail/utils'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
@@ -566,6 +567,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       placeholder: t('customers.companies.detail.fields.descriptionPlaceholder', 'Describe the company'),
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
       gridClassName: 'sm:col-span-2 xl:col-span-3',
+      renderDisplay: renderMultilineMarkdownDisplay,
       onSave: async (next) => {
         const send = typeof next === 'string' ? next : ''
         await saveCompany(

@@ -29,6 +29,7 @@ import { PersonHighlights } from '../../../../components/detail/PersonHighlights
 import {
   renderLinkedInDisplay,
   renderTwitterDisplay,
+  renderMultilineMarkdownDisplay,
 } from '../../../../components/detail/InlineEditors'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
@@ -534,6 +535,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         placeholder: t('customers.people.form.description'),
         emptyLabel: t('customers.people.detail.noValue'),
         gridClassName: 'sm:col-span-2 xl:col-span-3',
+        renderDisplay: renderMultilineMarkdownDisplay,
         onSave: async (next) => {
           const send = typeof next === 'string' ? next : ''
           await savePerson(
