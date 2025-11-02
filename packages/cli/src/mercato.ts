@@ -105,17 +105,13 @@ export async function run(argv = process.argv) {
           if (dropTargets.size === 0) {
             console.log('   No tables found in public schema.')
           } else {
-            // Drop all tables with CASCADE to remove constraints in one go
+            let dropped = 0
             await client.query('BEGIN')
             try {
-              // Temporarily relax constraints to avoid dependency issues
-              await client.query("SET session_replication_role = 'replica'")
-              let dropped = 0
               for (const t of dropTargets) {
                 await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
                 dropped += 1
               }
-              await client.query("SET session_replication_role = 'origin'")
               await client.query('COMMIT')
               console.log(`   Dropped ${dropped} tables.`)
             } catch (e) {
