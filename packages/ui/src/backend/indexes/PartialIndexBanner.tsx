@@ -12,6 +12,7 @@ export function PartialIndexBanner() {
 
   if (!warning) return null
 
+  const entityLabel = warning.entityLabel || warning.entity
   const base = warning.baseCount
   const indexed = warning.indexedCount
   const hasCounts = typeof base === 'number' && typeof indexed === 'number'
@@ -25,6 +26,9 @@ export function PartialIndexBanner() {
         </div>
         <p className="text-amber-900">
           {t('query_index.banner.partial_description')}
+        </p>
+        <p className="text-xs text-amber-900/90">
+          {t('query_index.banner.partial_entity', { entity: entityLabel })}
         </p>
         {hasCounts && (
           <p className="text-xs text-amber-900/90">

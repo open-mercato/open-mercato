@@ -376,6 +376,7 @@ export async function GET(req: Request) {
       JSON.stringify({
         type: 'partial_index',
         entity: partial.entityId,
+        entityLabel: partial.label ?? partial.entityId,
         baseCount: partial.baseCount,
         indexedCount: partial.indexCount,
         scope: 'global',

@@ -199,6 +199,7 @@ export class HybridQueryEngine implements QueryEngine {
                 ...(fallbackResult.meta ?? {}),
                 partialIndexWarning: {
                   entity,
+                  entityLabel: this.resolveEntityLabel(entity),
                   baseCount: gap.stats?.baseCount ?? null,
                   indexedCount: gap.stats?.indexedCount ?? null,
                   scope: gap.stats ? gap.scope : undefined,
@@ -223,6 +224,7 @@ export class HybridQueryEngine implements QueryEngine {
           }
           partialIndexWarning = {
             entity,
+            entityLabel: this.resolveEntityLabel(entity),
             baseCount: gap.stats?.baseCount ?? null,
             indexedCount: gap.stats?.indexedCount ?? null,
             scope: gap.stats ? gap.scope : undefined,
@@ -342,6 +344,7 @@ export class HybridQueryEngine implements QueryEngine {
           this.scheduleAutoReindex(targetEntity, opts, gap.stats)
           partialIndexWarning = {
             entity: targetEntity,
+            entityLabel: this.resolveEntityLabel(targetEntity),
             baseCount: gap.stats?.baseCount ?? null,
             indexedCount: gap.stats?.indexedCount ?? null,
             scope: gap.stats ? gap.scope : undefined,
@@ -926,6 +929,10 @@ export class HybridQueryEngine implements QueryEngine {
     } catch {
       return null
     }
+  }
+
+  private resolveEntityLabel(entity: string): string {
+    return entity
   }
 
   private async indexAnyRows(entity: string): Promise<boolean> {

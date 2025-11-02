@@ -134,7 +134,11 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
           const baseCount = typeof parsed.baseCount === 'number' ? parsed.baseCount : null
           const indexedCount = typeof parsed.indexedCount === 'number' ? parsed.indexedCount : null
           const scope = parsed.scope === 'global' ? 'global' : 'scoped'
-          pushPartialIndexWarning({ entity, baseCount, indexedCount, scope })
+          const entityLabel =
+            typeof parsed.entityLabel === 'string' && parsed.entityLabel.trim()
+              ? parsed.entityLabel.trim()
+              : entity
+          pushPartialIndexWarning({ entity, entityLabel, baseCount, indexedCount, scope })
         }
       }
     }

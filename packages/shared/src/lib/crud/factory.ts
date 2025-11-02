@@ -925,6 +925,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           headers['x-om-partial-index'] = JSON.stringify({
             type: 'partial_index',
             entity: warning.entity,
+            entityLabel: warning.entityLabel ?? warning.entity,
             baseCount: warning.baseCount ?? null,
             indexedCount: warning.indexedCount ?? null,
             scope: warning.scope ?? 'scoped',
@@ -1088,6 +1089,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               JSON.stringify({
                 type: 'partial_index',
                 entity: res.meta.partialIndexWarning.entity,
+                entityLabel: res.meta.partialIndexWarning.entityLabel ?? res.meta.partialIndexWarning.entity,
                 baseCount: res.meta.partialIndexWarning.baseCount ?? null,
                 indexedCount: res.meta.partialIndexWarning.indexedCount ?? null,
                 scope: res.meta.partialIndexWarning.scope ?? 'scoped',

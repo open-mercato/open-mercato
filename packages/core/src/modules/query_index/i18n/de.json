@@ -2,6 +2,7 @@
   "query_index.nav.queryIndexes": "Abfrageindizes",
   "query_index.banner.partial_title": "Ergebnisse sind möglicherweise unvollständig",
   "query_index.banner.partial_description": "Wir haben eine teilweise Abdeckung im Query-Index festgestellt. Indexiere erneut, um alle Datensätze zu aktualisieren.",
+  "query_index.banner.partial_entity": "Entität: {{entity}}",
   "query_index.banner.partial_counts": "{{indexed}} von {{total}} Datensätzen sind indexiert.",
   "query_index.banner.partial_global_note": "Einige Datensätze in anderen Organisationen fehlen weiterhin im Index.",
   "query_index.banner.manage_indexes": "Indizes verwalten",

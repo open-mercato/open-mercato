@@ -3,6 +3,7 @@ import * as React from 'react'
 
 export type PartialIndexNotice = {
   entity: string
+  entityLabel: string
   baseCount: number | null
   indexedCount: number | null
   scope: 'scoped' | 'global'
@@ -11,6 +12,7 @@ export type PartialIndexNotice = {
 
 type PartialIndexInput = {
   entity: string
+  entityLabel?: string
   baseCount?: number | null
   indexedCount?: number | null
   scope?: 'scoped' | 'global'
@@ -38,8 +40,12 @@ function emit() {
 }
 
 function normalizeInput(input: PartialIndexInput): PartialIndexNotice {
+  const label = typeof input.entityLabel === 'string' && input.entityLabel.trim()
+    ? input.entityLabel.trim()
+    : input.entity
   return {
     entity: input.entity,
+    entityLabel: label,
     baseCount: typeof input.baseCount === 'number' ? input.baseCount : null,
     indexedCount: typeof input.indexedCount === 'number' ? input.indexedCount : null,
     scope: input.scope === 'global' ? 'global' : 'scoped',
