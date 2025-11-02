@@ -20,11 +20,15 @@ The vector module introduces an AI-powered search surface that spans customers, 
 - Secondary links—such as deal or todo shortcuts—appear as chips. They are also listed in the row actions menu for quick access.
 - Press `Esc` to close the dialog without leaving the current page.
 
+![Vector search command palette with customer matches](/screenshots/open-mercato-vector-search-pane.png)
+
 ## Data Designer page
 
 - Navigate to **Backend → Data designer → Vector Search** to browse the index in table form.
 - The Data Designer table supports free-text search, row actions, and deep links identical to the command palette.
 - When `OPENAI_API_KEY` is missing the page surfaces a banner explaining the requirement and keeps the table disabled.
+
+![Vector search table view showing ranked results](/screenshots/open-mercato-vector-search-all-results.png)
 
 ## Settings & auto-indexing
 
@@ -50,3 +54,7 @@ The first release ships with the following entity coverage:
 - Todos from the example module, alongside customer todo links (mapped back to the owning customer).
 
 Custom modules can opt-in by exporting a `vector.ts` file alongside their other module metadata. See the framework reference for implementation details.
+
+## Future AI experiences
+
+The vector index is the foundation for forthcoming AI assistants inside Open Mercato. Upcoming releases will reuse the same embeddings to power conversational chat helpers, automate MCP server prompts, and recommend context-rich follow-ups across modules. Enabling vector search today ensures those AI workflows can plug into your tenant data as soon as they ship.

@@ -2,7 +2,13 @@
 
 import * as React from 'react'
 import type { ComponentProps } from 'react'
-import { InlineTextEditor, InlineMultilineEditor, InlineDictionaryEditor, type InlineFieldType } from './InlineEditors'
+import {
+  InlineTextEditor,
+  InlineMultilineEditor,
+  InlineDictionaryEditor,
+  type InlineFieldType,
+  type InlineMultilineDisplayRenderer,
+} from './InlineEditors'
 import { AnnualRevenueField } from './AnnualRevenueField'
 import type { InlineFieldProps } from './InlineEditors'
 import type { CustomerDictionaryKind } from '../../lib/dictionaries'
@@ -38,6 +44,7 @@ export type DetailMultilineFieldConfig = DetailFieldCommon & {
   placeholder: string
   onSave: (value: string | null) => Promise<void>
   validator?: (value: string) => string | null
+  renderDisplay?: InlineMultilineDisplayRenderer
 }
 
 export type DetailDictionaryFieldConfig = DetailFieldCommon & {
@@ -118,6 +125,7 @@ export function DetailFieldsSection({ fields, className }: DetailFieldsSectionPr
                 activateOnClick={activateOnClick}
                 containerClassName={containerClassName}
                 triggerClassName={triggerClassName}
+                renderDisplay={field.renderDisplay}
               />
             </div>
           )

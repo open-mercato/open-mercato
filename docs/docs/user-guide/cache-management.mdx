@@ -1,0 +1,25 @@
+---
+title: Cache management
+description: Inspect cached API responses and clear segments without restarting the app.
+---
+
+The **Cache** page gives operators a tenant-scoped view of CRUD response caches so you can keep long-lived environments tidy and avoid stale reads during development.
+
+![Cache management table with purge controls](/screenshots/open-mercato-cache-management.png)
+
+## Access
+
+- Navigate to **Backend → Configuration → Cache**.
+- Access requires the `configs.manage` feature. The page checks whether you also hold `configs.cache.manage` to unlock purge buttons.
+
+## Reading cache statistics
+
+- The summary card shows when metrics were generated and how many keys are currently stored for the active tenant.
+- Each table row represents a cache segment. When the system can map the segment back to an API route you see the HTTP method and path alongside the internal key.
+- Use the **Refresh** button any time you suspect another operator or automation invalidated cache entries.
+
+## Clearing segments
+
+- **Purge selected** buttons clear only the highlighted segment and immediately refresh statistics so you can monitor the impact.
+- **Purge all** clears every cached entry for the active tenant after a confirmation prompt. The action runs through the shared `/api/configs/cache` endpoint and respects the underlying cache backend (Redis, SQLite, etc.).
+- If the cache backend does not support an operation, the UI surfaces a descriptive error and leaves the existing entries untouched.

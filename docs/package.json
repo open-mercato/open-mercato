@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "docusaurus start",
-    "start": "docusaurus start",
+    "start": "docusaurus build && docusaurus serve",
     "build": "docusaurus build",
     "serve": "docusaurus serve",
     "clean": "rimraf build .docusaurus"

@@ -3,6 +3,10 @@ title: Module Registry
 description: Programmatic API for enumerating enabled modules, their routes, and feature declarations.
 ---
 
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
 Open Mercato keeps module metadata in a generated file rather than a dedicated REST endpoint. When you run `npm run modules:prepare`, the generator writes `generated/modules.generated.ts`, which exports the module graph consumed by the API dispatcher, navigation builders, and the OpenAPI generator.
 
 ```ts

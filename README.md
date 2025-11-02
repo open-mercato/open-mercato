@@ -59,14 +59,14 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
     <td style="text-align:center;">Custom Entity Records</td>
   </tr>
   <tr>
-    <td><a href="docs/static/screenshots/open-mercato-people-activities.png"><img src="docs/static/screenshots/open-mercato-people-activities.png" alt="Customer activity timeline view" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-people-add-new.png"><img src="docs/static/screenshots/open-mercato-people-add-new.png" alt="Add new customer form" width="260"/></a></td>
     <td><a href="docs/static/screenshots/open-mercato-deals-listing.png"><img src="docs/static/screenshots/open-mercato-deals-listing.png" alt="Deals pipeline board" width="260"/></a></td>
-    <td><a href="docs/static/screenshots/open-mercato-people-companies.png"><img src="docs/static/screenshots/open-mercato-people-companies.png" alt="Companies directory view" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-people-notes.png"><img src="docs/static/screenshots/open-mercato-people-notes.png" alt="Customer notes timeline" width="260"/></a></td>
   </tr>
   <tr>
-    <td style="text-align:center;">Customer Activity Timeline</td>
+    <td style="text-align:center;">Add New Customer</td>
     <td style="text-align:center;">Deals Pipeline</td>
-    <td style="text-align:center;">Companies Directory</td>
+    <td style="text-align:center;">Customer Notes</td>
   </tr>
   <tr>
     <td colspan="3" style="text-align:center;" halign="center">
@@ -129,6 +129,25 @@ Follow these steps after the prerequisites are in place:
 
 Full installation guide (including prerequisites and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
 
+## Live demo
+
+[![Explore the Open Mercato live demo](docs/static/screenshots/open-mercato-onboarding-showoff.png)](https://demo.openmercato.com)
+
+## Documentation
+
+Browse the full documentation at [docs.openmercato.com](https://docs.openmercato.com/).
+
+- [Introduction](https://docs.openmercato.com/introduction/overview)
+- [Installation](https://docs.openmercato.com/installation/setup)
+- [User Guide](https://docs.openmercato.com/user-guide/overview)
+- [Tutorials](https://docs.openmercato.com/tutorials/first-app)
+- [Customization](https://docs.openmercato.com/customization/build-first-app)
+- [Architecture](https://docs.openmercato.com/architecture/system-overview)
+- [Framework](https://docs.openmercato.com/framework/modules/overview)
+- [API Reference](https://docs.openmercato.com/api/overview)
+- [CLI Reference](https://docs.openmercato.com/cli/overview)
+- [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
+
 ## Contributing
 
 We welcome contributions of all sizes—from fixes and docs updates to new modules. Start by reading [CONTRIBUTING.md](CONTRIBUTING.md) for branching conventions (`main`, `develop`, `feat/<feature>`), release flow, and the full PR checklist. Then check the open issues or propose an idea in a discussion, and:
@@ -151,22 +170,6 @@ Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado
 ## CLI Commands
 
 Open Mercato let the module developers to expose the custom CLI commands for variouse maintenance tasks. Read more on the [CLI documentation](https://docs.openmercato.com/cli/overview)
-
-
-## Documentation
-
-Explore the [full project documentation](https://docs.openmercato.com/) - quick links to the main sections:
-
-- [Introduction](https://docs.openmercato.com/introduction/overview)
-- [Installation](https://docs.openmercato.com/installation/setup)
-- [User Guide](https://docs.openmercato.com/user-guide/overview)
-- [Tutorials](https://docs.openmercato.com/tutorials/first-app)
-- [Customization](https://docs.openmercato.com/customization/build-first-app)
-- [Architecture](https://docs.openmercato.com/architecture/system-overview)
-- [Framework](https://docs.openmercato.com/framework/modules/overview)
-- [API Reference](https://docs.openmercato.com/api/overview)
-- [CLI Reference](https://docs.openmercato.com/cli/overview)
-- [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
 
 ## License
 
