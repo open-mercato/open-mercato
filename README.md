@@ -129,16 +129,24 @@ Follow these steps after the prerequisites are in place:
 
 Full installation guide (including prerequisites and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
 
+## Live demo
+
+[![Explore the Open Mercato live demo](docs/static/screenshots/open-mercato-onboarding-showoff.png)](https://demo.openmercato.com)
+
 ## Documentation
 
 Browse the full documentation at [docs.openmercato.com](https://docs.openmercato.com/).
 
 - [Introduction](https://docs.openmercato.com/introduction/overview)
+- [Installation](https://docs.openmercato.com/installation/setup)
 - [User Guide](https://docs.openmercato.com/user-guide/overview)
-- [Installation](https://docs.openmercato.com/installation/prerequisites)
-- [Architecture](https://docs.openmercato.com/architecture/system-overview)
-- [REST API](https://docs.openmercato.com/api/overview)
+- [Tutorials](https://docs.openmercato.com/tutorials/first-app)
 - [Customization](https://docs.openmercato.com/customization/build-first-app)
+- [Architecture](https://docs.openmercato.com/architecture/system-overview)
+- [Framework](https://docs.openmercato.com/framework/modules/overview)
+- [API Reference](https://docs.openmercato.com/api/overview)
+- [CLI Reference](https://docs.openmercato.com/cli/overview)
+- [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
 
 ## Contributing
 
@@ -162,22 +170,6 @@ Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado
 ## CLI Commands
 
 Open Mercato let the module developers to expose the custom CLI commands for variouse maintenance tasks. Read more on the [CLI documentation](https://docs.openmercato.com/cli/overview)
-
-
-## Documentation
-
-Explore the [full project documentation](https://docs.openmercato.com/) - quick links to the main sections:
-
-- [Introduction](https://docs.openmercato.com/introduction/overview)
-- [Installation](https://docs.openmercato.com/installation/setup)
-- [User Guide](https://docs.openmercato.com/user-guide/overview)
-- [Tutorials](https://docs.openmercato.com/tutorials/first-app)
-- [Customization](https://docs.openmercato.com/customization/build-first-app)
-- [Architecture](https://docs.openmercato.com/architecture/system-overview)
-- [Framework](https://docs.openmercato.com/framework/modules/overview)
-- [API Reference](https://docs.openmercato.com/api/overview)
-- [CLI Reference](https://docs.openmercato.com/cli/overview)
-- [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
 
 ## License
 
