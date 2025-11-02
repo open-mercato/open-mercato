@@ -10,6 +10,10 @@ import { seedExampleTodos } from '@open-mercato/example/modules/example/cli'
 import { seedDashboardDefaultsForTenant } from '@open-mercato/core/modules/dashboards/cli'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { signJwt } from '@/lib/auth/jwt'
+import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
+import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
+import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
+import type { VectorIndexService } from '@open-mercato/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -77,6 +81,42 @@ export async function GET(req: Request) {
     await seedCustomerExamples(em, container, { tenantId, organizationId })
     await seedExampleTodos(em, container, { tenantId, organizationId })
     await seedDashboardDefaultsForTenant(em, { tenantId, organizationId, logger: () => {} })
+
+    if (tenantId) {
+      try {
+        const { E: allEntities } = await import('@/generated/entities.ids.generated') as {
+          E: Record<string, Record<string, string>>
+        }
+        const entityIds = flattenSystemEntityIds(allEntities)
+        for (const entityType of entityIds) {
+          try {
+            await purgeIndexScope(em, { entityType, tenantId })
+          } catch (error) {
+            console.error('[onboarding.verify] failed to purge query index scope', { entityType, tenantId, error })
+          }
+          try {
+            await reindexEntity(em, {
+              entityType,
+              tenantId,
+              force: true,
+              emitVectorizeEvents: false,
+              vectorService: null,
+            })
+          } catch (error) {
+            console.error('[onboarding.verify] failed to reindex entity', { entityType, tenantId, error })
+          }
+        }
+      } catch (error) {
+        console.error('[onboarding.verify] failed to rebuild query indexes', { tenantId, error })
+      }
+
+      try {
+        const vectorService = container.resolve<VectorIndexService>('vectorIndexService')
+        await vectorService.reindexAll({ tenantId, organizationId, purgeFirst: true })
+      } catch (error) {
+        console.error('[onboarding.verify] failed to rebuild vector indexes', { tenantId, organizationId, error })
+      }
+    }
 
     const authService = (container.resolve('authService') as AuthService)
     await authService.updateLastLoginAt(user)
