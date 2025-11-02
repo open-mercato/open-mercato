@@ -24,6 +24,8 @@ const sidebars: SidebarsConfig = {
         "user-guide/user-custom-fields",
         "user-guide/dictionaries",
         "user-guide/user-entities",
+        "user-guide/system-status",
+        "user-guide/cache-management",
         "user-guide/vector-search",
         "user-guide/perspectives-and-sidebar",
         "user-guide/organizations",

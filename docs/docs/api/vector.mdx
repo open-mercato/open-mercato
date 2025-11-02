@@ -3,7 +3,13 @@ title: Vector Search API
 description: REST endpoints that expose similarity search and background reindexing.
 ---
 
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
 All endpoints require authentication and the relevant vector permissions.
+
+![Vector search command palette highlighting customer matches](/screenshots/open-mercato-vector-search-pane.png)
 
 | Endpoint | Method | Features | Description |
 | --- | --- | --- | --- |
@@ -49,3 +55,7 @@ curl -X POST /api/vector/reindex \
 ```
 
 The API executes synchronously; for large datasets trigger the endpoint from a background job or CLI wrapper.
+
+### Future AI integrations
+
+Vector search APIs are the backbone for planned AI workflows across Open Mercato. The same embeddings will drive conversational chat assistants, MCP server connectors, and other automation surfaces that need semantically ranked context from your tenant data.

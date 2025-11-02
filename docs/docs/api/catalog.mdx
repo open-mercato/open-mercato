@@ -3,6 +3,10 @@ title: Catalog
 description: Command payloads for managing catalog products, variants, options, and pricing.
 ---
 
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
 The catalog module currently exposes command handlers but no REST endpoints (its `apis` array is empty in `generated/modules.generated.ts`, so `/api/catalog/...` routes are not yet published). Integration points such as the back-office UI and future CRUD routes call the command bus described below. This page documents the available command ids and the Zod schemas they validate against so you can safely script imports, seed data, or build bespoke HTTP wrappers.
 
 ## Running catalog commands

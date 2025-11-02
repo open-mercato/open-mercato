@@ -3,6 +3,10 @@ title: REST API Overview
 description: How to authenticate, scope, and interact with the Open Mercato REST API.
 ---
 
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
 The Open Mercato REST API is auto-discovered from each module under `src/modules/<module>/api`. Every handler is expressed as a standard Next.js `route.ts` module and is wrapped in shared infrastructure that enforces authentication, scoping, and feature checks. Use this page as the launch pad before diving into the detailed module guides.
 
 ## Base URL
