@@ -6,7 +6,7 @@ export default function OpenApiExplorerBanner(): JSX.Element {
   return (
     <Admonition type="tip" title="Explore the API">
       Launch the{' '}
-      <Link to="/docs/api" aria-label="Open the OpenAPI Explorer">
+      <Link to="https://demo.openmercato.com/docs/api" aria-label="Open the OpenAPI Explorer">
         OpenAPI Explorer
       </Link>{' '}
       to browse the live REST specs, inspect request and response schemas, and
