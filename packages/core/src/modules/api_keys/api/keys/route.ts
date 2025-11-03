@@ -239,18 +239,45 @@ const crud = makeCrudRoute<
       const roleIds: string[] = []
       for (const token of roleTokens) {
         const value = token.trim()
+        const rawTenantId = targetTenantId ?? auth.tenantId ?? null
+        const effectiveTenantId = typeof rawTenantId === 'string' && rawTenantId.trim().length > 0 ? rawTenantId.trim() : null
+        const normalizedEffectiveTenantId = effectiveTenantId ? effectiveTenantId.toLowerCase() : null
         let role: Role | null = null
         if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
-          role = await em.findOne(Role, { id: value })
+          role = await em.findOne(Role, { id: value, deletedAt: null })
         }
         if (!role) {
-          role = await em.findOne(Role, { name: value })
+          const nameFilter: FilterQuery<Role> = { name: value, deletedAt: null }
+          if (normalizedEffectiveTenantId) {
+            nameFilter.$or = [
+              { tenantId: effectiveTenantId },
+              { tenantId: null },
+            ]
+          } else {
+            nameFilter.tenantId = null
+          }
+          const candidates = await em.find(Role, nameFilter, { limit: 5 })
+          if (normalizedEffectiveTenantId) {
+            role =
+              candidates.find((candidate) => {
+                if (!candidate.tenantId) return false
+                return String(candidate.tenantId).toLowerCase() === normalizedEffectiveTenantId
+              }) ??
+              candidates.find((candidate) => candidate.tenantId === null) ??
+              null
+          } else {
+            role = candidates.find((candidate) => candidate.tenantId === null) ?? null
+          }
+          if (!role) {
+            role = candidates[0] ?? null
+          }
         }
         if (!role) {
           throw json({ error: translate('api_keys.errors.roleNotFound', `Role ${value} not found`, { identifier: value }) }, { status: 400 })
         }
-        const effectiveTenantId = targetTenantId ?? auth.tenantId ?? null
-        if (role.tenantId && effectiveTenantId && role.tenantId !== effectiveTenantId) {
+        const roleTenantId = role.tenantId ? String(role.tenantId) : null
+        const normalizedRoleTenantId = roleTenantId ? roleTenantId.toLowerCase() : null
+        if (normalizedRoleTenantId && normalizedEffectiveTenantId && normalizedRoleTenantId !== normalizedEffectiveTenantId) {
           throw json({ error: translate('api_keys.errors.roleWrongTenant', `Role ${role.name} belongs to another tenant`, { role: role.name ?? value }) }, { status: 400 })
         }
         roleEntities.push(role)

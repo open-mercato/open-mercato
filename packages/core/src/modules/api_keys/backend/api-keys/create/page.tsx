@@ -8,6 +8,7 @@ import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useRouter } from 'next/navigation'
+import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
 type FormValues = {
@@ -20,8 +21,54 @@ type FormValues = {
 
 export default function CreateApiKeyPage() {
   const [createdSecret, setCreatedSecret] = React.useState<{ secret: string; keyPrefix: string } | null>(null)
+  const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+  const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const router = useRouter()
+  const scopeDetail = useOrganizationScopeDetail()
+  const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadInitialScope() {
+      try {
+        const res = await apiFetch('/api/directory/organization-switcher')
+        if (!res.ok) {
+          if (!cancelled) setActorIsSuperAdmin(false)
+          return
+        }
+        const data = await res.json().catch(() => ({}))
+        if (cancelled) return
+        const rawTenant = typeof data?.tenantId === 'string' ? data.tenantId : null
+        const normalizedTenant = rawTenant && rawTenant.trim().length > 0 ? rawTenant.trim() : null
+        setSelectedTenantId(normalizedTenant)
+        setActorIsSuperAdmin(Boolean(data?.isSuperAdmin))
+      } catch {
+        if (!cancelled) setActorIsSuperAdmin(false)
+      }
+    }
+    loadInitialScope()
+    return () => { cancelled = true }
+  }, [])
+
+  React.useEffect(() => {
+    if (scopeVersion === 0) return
+    const rawTenant = scopeDetail.tenantId
+    const normalizedTenant = typeof rawTenant === 'string' && rawTenant.trim().length > 0 ? rawTenant.trim() : null
+    setSelectedTenantId((prev) => {
+      if ((prev ?? null) === (normalizedTenant ?? null)) return prev
+      return normalizedTenant
+    })
+  }, [scopeDetail.tenantId, scopeVersion])
+
+  const loadRoleOptions = React.useCallback(async (query?: string) => {
+    if (actorIsSuperAdmin) {
+      const tenant = typeof selectedTenantId === 'string' && selectedTenantId.trim().length > 0 ? selectedTenantId.trim() : null
+      if (!tenant) return []
+      return fetchRoleOptions(query, { tenantId: tenant })
+    }
+    return fetchRoleOptions(query)
+  }, [actorIsSuperAdmin, selectedTenantId])
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('api_keys.form.name'), type: 'text', required: true },
@@ -42,9 +89,15 @@ export default function CreateApiKeyPage() {
         />
       ),
     },
-    { id: 'roles', label: t('api_keys.form.roles'), type: 'tags', loadOptions: fetchRoleOptions, description: t('api_keys.form.rolesHint') },
+    {
+      id: 'roles',
+      label: t('api_keys.form.roles'),
+      type: 'tags',
+      loadOptions: loadRoleOptions,
+      description: t('api_keys.form.rolesHint'),
+    },
     { id: 'expiresAt', label: t('api_keys.form.expiresAt'), type: 'date', description: t('api_keys.form.expiresHint') },
-  ], [t])
+  ], [loadRoleOptions, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => ([
     { id: 'details', title: t('api_keys.form.details'), column: 1, fields: ['name', 'description', 'organizationId', 'roles', 'expiresAt'] },
@@ -98,12 +151,24 @@ export default function CreateApiKeyPage() {
             submitLabel={t('common.create')}
             cancelHref="/backend/api-keys"
             onSubmit={async (values) => {
-              const payload = {
+              const payload: {
+                name: string
+                description: string | null
+                organizationId: string | null
+                roles: string[]
+                expiresAt: string | null
+                tenantId?: string | null
+              } = {
                 name: values.name,
                 description: values.description || null,
                 organizationId: values.organizationId || null,
                 roles: Array.isArray(values.roles) ? values.roles : [],
                 expiresAt: values.expiresAt || null,
+              }
+              if (actorIsSuperAdmin) {
+                const tenant = typeof selectedTenantId === 'string' && selectedTenantId.trim().length > 0 ? selectedTenantId.trim() : null
+                if (!tenant) throw new Error(t('api_keys.errors.tenantRequired'))
+                payload.tenantId = tenant
               }
               const res = await apiFetch('/api/api_keys/keys', {
                 method: 'POST',
