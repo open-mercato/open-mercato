@@ -17,6 +17,7 @@ const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
+  tenantId: z.string().uuid().optional(),
 }).passthrough()
 
 const roleCreateSchema = z.object({
@@ -103,6 +104,7 @@ export async function GET(req: Request) {
     page: url.searchParams.get('page') || undefined,
     pageSize: url.searchParams.get('pageSize') || undefined,
     search: url.searchParams.get('search') || undefined,
+    tenantId: url.searchParams.get('tenantId') || undefined,
   })
   if (!parsed.success) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const container = await createRequestContainer()
@@ -138,7 +140,8 @@ export async function GET(req: Request) {
       superAdminRoleIds = new Set()
     }
   }
-  const { id, page, pageSize, search } = parsed.data
+  const { id, page, pageSize, search, tenantId: requestedTenantId } = parsed.data
+  const tenantFilter = isSuperAdmin && requestedTenantId ? String(requestedTenantId) : null
   const filters: any[] = [{ deletedAt: null }]
   if (id) filters.push({ id })
   if (search) filters.push({ name: { $ilike: `%${search}%` } })
@@ -148,6 +151,8 @@ export async function GET(req: Request) {
     if (superAdminRoleIds && superAdminRoleIds.size) {
       filters.push({ id: { $nin: Array.from(superAdminRoleIds) } })
     }
+  } else if (tenantFilter) {
+    filters.push({ $or: [{ tenantId: tenantFilter }, { tenantId: null }] })
   }
   const where = filters.length > 1 ? { $and: filters } : filters[0]
   const [rows, count] = await em.findAndCount(Role, where, { limit: pageSize, offset: (page - 1) * pageSize })
@@ -184,6 +189,7 @@ export async function GET(req: Request) {
   }
   const tenantFallbacks = Array.from(new Set<string | null>([
     auth.tenantId ?? null,
+    tenantFilter ?? null,
     ...Object.values(tenantByRole),
   ]))
   const cfByRole = roleIds.length

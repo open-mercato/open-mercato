@@ -116,5 +116,9 @@
   "organizationSelect.empty": "—",
   "organizationSelect.loading": "Ładowanie organizacji…",
   "organizationSelect.error": "Nie udało się załadować organizacji",
-  "organizationSelect.inactive": "Nieaktywna"
+  "organizationSelect.inactive": "Nieaktywna",
+  "tenantSelect.empty": "—",
+  "tenantSelect.loading": "Ładowanie tenantów…",
+  "tenantSelect.error": "Nie udało się załadować tenantów",
+  "tenantSelect.inactive": "Nieaktywny"
 }

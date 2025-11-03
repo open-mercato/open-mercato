@@ -116,5 +116,9 @@
   "organizationSelect.empty": "—",
   "organizationSelect.loading": "Loading organizations…",
   "organizationSelect.error": "Failed to load organizations",
-  "organizationSelect.inactive": "Inactive"
+  "organizationSelect.inactive": "Inactive",
+  "tenantSelect.empty": "—",
+  "tenantSelect.loading": "Loading tenants…",
+  "tenantSelect.error": "Failed to load tenants",
+  "tenantSelect.inactive": "Inactive"
 }

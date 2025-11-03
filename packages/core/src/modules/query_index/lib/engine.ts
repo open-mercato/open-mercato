@@ -157,78 +157,84 @@ export class HybridQueryEngine implements QueryEngine {
       }
 
       let partialIndexWarning: PartialIndexWarning | null = null
+      let entityHasActiveCustomFields = true
 
-    if (wantsCf) {
-      const hasIndexRows = await profiler.measure(
-        'index_any_rows',
-        () => this.indexAnyRows(entity),
-        (value) => ({ hasIndexRows: value })
-      )
+      if (wantsCf) {
+        entityHasActiveCustomFields = await this.entityHasActiveCustomFields(entity, opts.tenantId ?? null)
+        const hasIndexRows = await profiler.measure(
+          'index_any_rows',
+          () => this.indexAnyRows(entity),
+          (value) => ({ hasIndexRows: value })
+        )
         if (!hasIndexRows) {
           if (debugEnabled) this.debug('query:fallback:no-index', { entity })
           const fallbackResult = await this.fallback.query(entity, opts)
           finishProfile({ result: 'fallback', reason: 'no_index_rows' })
           return fallbackResult
         }
-        const gap = await profiler.measure(
-          'resolve_coverage_gap',
-          () => this.resolveCoverageGap(entity, opts),
-          (value) => (value
-            ? {
-                scope: value.scope,
-                baseCount: value.stats?.baseCount ?? null,
-                indexedCount: value.stats?.indexedCount ?? null,
+        if (entityHasActiveCustomFields) {
+          const gap = await profiler.measure(
+            'resolve_coverage_gap',
+            () => this.resolveCoverageGap(entity, opts),
+            (value) => (value
+              ? {
+                  scope: value.scope,
+                  baseCount: value.stats?.baseCount ?? null,
+                  indexedCount: value.stats?.indexedCount ?? null,
+                }
+              : { scope: null })
+          )
+          if (gap) {
+            this.scheduleAutoReindex(entity, opts, gap.stats)
+            const force = this.isForcePartialIndexEnabled()
+            if (!force) {
+              if (gap.stats) {
+                console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+                if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+              } else {
+                console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
+                if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
               }
-            : { scope: null })
-        )
-        if (gap) {
-          this.scheduleAutoReindex(entity, opts, gap.stats)
-          const force = this.isForcePartialIndexEnabled()
-          if (!force) {
-            if (gap.stats) {
-              console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
-              if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
-            } else {
-              console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
-              if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
-            }
-            const fallbackResult = await this.fallback.query(entity, opts)
-            const resultWithWarning: QueryResult<T> = {
-              ...fallbackResult,
-              meta: {
-                ...(fallbackResult.meta ?? {}),
-                partialIndexWarning: {
-                  entity,
-                  entityLabel: this.resolveEntityLabel(entity),
-                  baseCount: gap.stats?.baseCount ?? null,
-                  indexedCount: gap.stats?.indexedCount ?? null,
-                  scope: gap.stats ? gap.scope : undefined,
+              const fallbackResult = await this.fallback.query(entity, opts)
+              const resultWithWarning: QueryResult<T> = {
+                ...fallbackResult,
+                meta: {
+                  ...(fallbackResult.meta ?? {}),
+                  partialIndexWarning: {
+                    entity,
+                    entityLabel: this.resolveEntityLabel(entity),
+                    baseCount: gap.stats?.baseCount ?? null,
+                    indexedCount: gap.stats?.indexedCount ?? null,
+                    scope: gap.stats ? gap.scope : undefined,
+                  },
                 },
-              },
+              }
+              finishProfile({
+                result: 'fallback',
+                reason: 'partial_index',
+                scope: gap.scope,
+                baseCount: gap.stats?.baseCount ?? null,
+                indexedCount: gap.stats?.indexedCount ?? null,
+              })
+              return resultWithWarning
             }
-            finishProfile({
-              result: 'fallback',
-              reason: 'partial_index',
-              scope: gap.scope,
+            if (gap.stats) {
+              console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+              if (debugEnabled) this.debug('query:partial-coverage:forced', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+            } else {
+              console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity })
+              if (debugEnabled) this.debug('query:partial-coverage:forced', { entity })
+            }
+            partialIndexWarning = {
+              entity,
+              entityLabel: this.resolveEntityLabel(entity),
               baseCount: gap.stats?.baseCount ?? null,
               indexedCount: gap.stats?.indexedCount ?? null,
-            })
-            return resultWithWarning
+              scope: gap.stats ? gap.scope : undefined,
+            }
           }
-          if (gap.stats) {
-            console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
-            if (debugEnabled) this.debug('query:partial-coverage:forced', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
-          } else {
-            console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity })
-            if (debugEnabled) this.debug('query:partial-coverage:forced', { entity })
-          }
-          partialIndexWarning = {
-            entity,
-            entityLabel: this.resolveEntityLabel(entity),
-            baseCount: gap.stats?.baseCount ?? null,
-            indexedCount: gap.stats?.indexedCount ?? null,
-            scope: gap.stats ? gap.scope : undefined,
-          }
+        } else if (debugEnabled) {
+          this.debug('query:coverage:skip-no-custom-fields', { entity })
         }
       }
 
@@ -326,6 +332,11 @@ export class HybridQueryEngine implements QueryEngine {
         const targetEntity = source?.entityId ? String(source.entityId) : null
         if (!targetEntity || seen.has(targetEntity)) continue
         seen.add(targetEntity)
+        const sourceHasCustomFields = await this.entityHasActiveCustomFields(targetEntity, opts.tenantId ?? null)
+        if (!sourceHasCustomFields) {
+          if (debugEnabled) this.debug('query:coverage:skip-no-custom-fields', { entity: targetEntity })
+          continue
+        }
         const sourceTable = source.table ?? resolveEntityTableName(this.em, targetEntity)
         try {
           const gap = await profiler.measure(
@@ -356,6 +367,49 @@ export class HybridQueryEngine implements QueryEngine {
           break
         } catch (err) {
           if (debugEnabled) this.debug('query:partial-coverage:check-failed', { entity: targetEntity, error: err instanceof Error ? err.message : err })
+        }
+      }
+    }
+
+    if (
+      !partialIndexWarning &&
+      wantsCf &&
+      entityHasActiveCustomFields &&
+      this.isForcePartialIndexEnabled() &&
+      opts.tenantId
+    ) {
+      try {
+        await this.indexCoverageStats(entity, opts)
+        const globalStats = await this.indexCoverageStats(entity, opts)
+        if (globalStats) {
+          const globalBase = globalStats.baseCount
+          const globalIndexed = globalStats.indexedCount
+          const globalGap = (globalBase > 0 && globalIndexed < globalBase) || globalIndexed > globalBase
+          if (globalGap) {
+            console.warn('[HybridQueryEngine] Partial index coverage detected at global scope; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: globalBase, indexedCount: globalIndexed, scope: 'global' })
+            if (debugEnabled) {
+              this.debug('query:partial-coverage:forced', {
+                entity,
+                baseCount: globalBase,
+                indexedCount: globalIndexed,
+                scope: 'global',
+              })
+            }
+            partialIndexWarning = {
+              entity,
+              entityLabel: this.resolveEntityLabel(entity),
+              baseCount: globalBase,
+              indexedCount: globalIndexed,
+              scope: 'global',
+            }
+          }
+        }
+      } catch (err) {
+        if (debugEnabled) {
+          this.debug('query:partial-coverage:global-check-failed', {
+            entity,
+            error: err instanceof Error ? err.message : err,
+          })
         }
       }
     }
@@ -917,6 +971,22 @@ export class HybridQueryEngine implements QueryEngine {
     return result.slice()
   }
 
+  private async entityHasActiveCustomFields(entityId: string, tenantId: string | null): Promise<boolean> {
+    try {
+      const keys = await this.resolveAvailableCustomFieldKeys([entityId], tenantId)
+      return keys.length > 0
+    } catch (err) {
+      if (this.isDebugVerbosity()) {
+        this.debug('query:cf:check-error', {
+          entity: entityId,
+          tenantId: tenantId ?? null,
+          error: err instanceof Error ? err.message : err,
+        })
+      }
+      return true
+    }
+  }
+
   private customFieldKeysCacheKey(entityIds: string[], tenantId: string | null): string {
     const sorted = entityIds.slice().sort().join(',')
     return `${tenantId ?? '__none__'}|${sorted}`
@@ -1318,12 +1388,23 @@ export class HybridQueryEngine implements QueryEngine {
       return { stats: undefined, scope: 'scoped' }
     }
 
-    const hasGap = snapshot.baseCount > 0 && snapshot.indexedCount < snapshot.baseCount
-    if (hasGap) {
+    const baseCount = snapshot.baseCount
+    const indexCount = snapshot.indexedCount
+    const hasGap = baseCount > 0 && indexCount < baseCount
+    if (hasGap || indexCount > baseCount) {
       return { stats: snapshot, scope: 'scoped' }
     }
 
     return null
+  }
+
+  // Backward-compatible hook for tests that mock coverage stats
+  private async indexCoverageStats(
+    entity: string,
+    opts: QueryOptions,
+  ): Promise<{ baseCount: number; indexedCount: number } | null> {
+    const gap = await this.resolveCoverageGap(entity, opts)
+    return gap?.stats ?? null
   }
 
   private async captureSqlTiming<TResult>(

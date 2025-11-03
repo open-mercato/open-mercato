@@ -5,7 +5,15 @@ function createFakeKnex(config: {
   hasIndexAny: boolean
   baseCount: number
   indexCount: number
+  customFieldKeys?: Record<string, string[]>
 }) {
+  const defaultCustomFieldKeys: Record<string, string[]> = {
+    'example:todo': ['priority'],
+    'customers:customer_entity': ['sector'],
+    'customers:customer_person_profile': ['birthday'],
+    'customers:customer_company_profile': ['industry'],
+  }
+  const customFieldKeys = config.customFieldKeys ?? defaultCustomFieldKeys
   const calls: any[] = []
   function raw(sql: string, params?: any[]) { return { toString: () => sql, sql, params } }
   function normalizeTable(t: any): { table: string; alias?: string } {
@@ -19,7 +27,7 @@ function createFakeKnex(config: {
   }
   function builderFor(tableArg: any) {
     const { table, alias } = normalizeTable(tableArg)
-    const ops = { table, alias, wheres: [] as any[], joins: [] as any[], selects: [] as any[], orderBys: [] as any[], limits: 0, offsets: 0, isCountDistinct: false }
+    const ops = { table, alias, wheres: [] as any[], joins: [] as any[], selects: [] as any[], orderBys: [] as any[], limits: 0, offsets: 0, isCountDistinct: false, isCount: false }
     const b: any = {
       _ops: ops,
       select: function (...cols: any[]) { ops.selects.push(cols); return this },
@@ -34,15 +42,33 @@ function createFakeKnex(config: {
       limit: function (n: number) { ops.limits = n; return this },
       offset: function (n: number) { ops.offsets = n; return this },
       groupBy: function () { return this },
+      modify: function (fn: (qb: any) => void) { if (typeof fn === 'function') fn(this); return this },
       clearSelect: function () { ops.selects = []; return this },
       clearOrder: function () { ops.orderBys = []; return this },
       clone: function () { return this },
+      as: function (_alias: string) { return table },
       countDistinct: function () { ops.isCountDistinct = true; return this },
+      count: function () { ops.isCount = true; return this },
       first: async function () {
-        // Handle information_schema and index existence checks
         if (table === 'information_schema.tables') {
-          const baseExists = { table_name: config.baseTable }
-          return baseExists
+          return { table_name: config.baseTable }
+        }
+        if (table === 'entity_index_coverage') {
+          if (!config.hasIndexAny) return undefined
+          const requiresPositive = ops.wheres.some(
+            (entry) =>
+              Array.isArray(entry) &&
+              entry.length >= 3 &&
+              entry[0] === 'indexed_count' &&
+              entry[1] === '>' &&
+              Number(entry[2]) > 0,
+          )
+          if (requiresPositive && config.indexCount <= 0) return undefined
+          return {
+            base_count: String(config.baseCount),
+            indexed_count: String(config.indexCount),
+            refreshed_at: new Date(),
+          }
         }
         if (table === 'entity_indexes' && !ops.isCountDistinct) {
           return config.hasIndexAny ? { entity_type: 'x' } : undefined
@@ -52,9 +78,30 @@ function createFakeKnex(config: {
           if (table === 'entity_indexes' || ops.alias === 'ei') return { count: String(config.indexCount) }
           return { count: '0' }
         }
+        if (ops.isCount) {
+          return { count: String(config.baseCount) }
+        }
         return undefined
       },
-      then: function (resolve: any) { return Promise.resolve(resolve([])) },
+      then: function (resolve: any, reject?: any) {
+        try {
+          let result: any[] = []
+          if (table === 'custom_field_defs') {
+            const entityWhere = ops.wheres.find((entry) => Array.isArray(entry) && entry[0] === 'in' && entry[1] === 'entity_id')
+            const requestedEntities: string[] = Array.isArray(entityWhere?.[2])
+              ? (entityWhere![2] as any[]).map((id) => String(id))
+              : Object.keys(customFieldKeys)
+            result = requestedEntities.flatMap((entityId) => {
+              const keys = customFieldKeys[entityId] ?? []
+              return keys.map((key) => ({ entity_id: entityId, key, is_active: true }))
+            })
+          }
+          return Promise.resolve(resolve(result))
+        } catch (err) {
+          if (reject) return Promise.resolve(reject(err))
+          return Promise.reject(err)
+        }
+      },
       raw,
     }
     calls.push(b)
@@ -62,6 +109,7 @@ function createFakeKnex(config: {
   }
   const fn: any = (t: any) => builderFor(t)
   fn.raw = raw
+  fn.from = (t: any) => builderFor(t)
   fn._calls = calls
   return fn
 }
@@ -109,7 +157,39 @@ describe('HybridQueryEngine', () => {
     expect(warnSpy).toHaveBeenCalled()
     const msg = (warnSpy.mock.calls[0] || [])[0] as string
     expect(msg).toContain('Partial index coverage')
-    expect(emitEvent).toHaveBeenCalledWith('query_index.reindex', { entityType: 'example:todo', tenantId: 't1', force: false }, { persistent: true })
+    expect(emitEvent).toHaveBeenCalledWith(
+      'query_index.reindex',
+      expect.objectContaining({ entityType: 'example:todo', tenantId: 't1', organizationId: 'org1', force: false }),
+      { persistent: true },
+    )
+    warnSpy.mockRestore()
+  })
+
+  test('skips partial coverage warning when entity has no custom fields', async () => {
+    const fakeKnex = createFakeKnex({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 8,
+      indexCount: 2,
+      customFieldKeys: {},
+    })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await engine.query('example:todo', {
+      fields: ['id'],
+      includeCustomFields: true,
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(result.meta?.partialIndexWarning).toBeUndefined()
+    expect(warnSpy).not.toHaveBeenCalled()
+
     warnSpy.mockRestore()
   })
 

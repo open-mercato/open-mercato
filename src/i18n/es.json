@@ -116,5 +116,9 @@
   "organizationSelect.empty": "—",
   "organizationSelect.loading": "Cargando organizaciones…",
   "organizationSelect.error": "No se pudieron cargar las organizaciones",
-  "organizationSelect.inactive": "Inactiva"
+  "organizationSelect.inactive": "Inactiva",
+  "tenantSelect.empty": "—",
+  "tenantSelect.loading": "Cargando inquilinos…",
+  "tenantSelect.error": "No se pudieron cargar los inquilinos",
+  "tenantSelect.inactive": "Inactivo"
 }
