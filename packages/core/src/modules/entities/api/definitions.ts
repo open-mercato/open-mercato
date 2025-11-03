@@ -13,6 +13,7 @@ import {
 } from './definitions.cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { filterSelectableSystemEntityIds, isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 export const metadata = {
   // Reading definitions is needed by record forms; keep it auth-protected but accessible to all authenticated users
@@ -63,7 +64,7 @@ export async function GET(req: Request) {
   }
 
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const entityIds = filterSelectableSystemEntityIds(requestedEntityIds)
   if (!entityIds.length) {
@@ -71,6 +72,12 @@ export async function GET(req: Request) {
   }
 
   const container = await createRequestContainer()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const tenantId = scope.tenantId ?? auth.tenantId ?? null
+  if (!tenantId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = scope.selectedId ?? auth.orgId ?? null
   const { resolve } = container
   const em = resolve('em') as any
   let cache: CacheStrategy | undefined
@@ -81,8 +88,8 @@ export async function GET(req: Request) {
   let cacheKey: string | null = null
   if (cache) {
     cacheKey = createDefinitionsCacheKey({
-      tenantId: auth.tenantId ?? null,
-      organizationId: auth.orgId,
+      tenantId,
+      organizationId,
       entityIds,
     })
     try {
@@ -100,7 +107,7 @@ export async function GET(req: Request) {
     entityId: { $in: entityIds as any },
     deletedAt: null,
     $and: [
-      { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+      { $or: [ { tenantId: tenantId ?? undefined as any }, { tenantId: null } ] },
     ],
   } as any
   const defs = await em.find(CustomFieldDef, whereActive as any)
@@ -108,7 +115,7 @@ export async function GET(req: Request) {
     entityId: { $in: entityIds as any },
     deletedAt: { $ne: null } as any,
     $and: [
-      { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+      { $or: [ { tenantId: tenantId ?? undefined as any }, { tenantId: null } ] },
     ],
   } as any)
 
@@ -130,7 +137,7 @@ export async function GET(req: Request) {
 
   const entityDefaultEditors = new Map<string, string | undefined>()
   for (const entityId of entityIds) {
-    const editor = await resolveEntityDefaultEditor(em, entityId, auth.tenantId ?? null)
+    const editor = await resolveEntityDefaultEditor(em, entityId, tenantId ?? null)
     entityDefaultEditors.set(entityId, editor)
   }
 
@@ -222,8 +229,8 @@ export async function GET(req: Request) {
 
   if (cache && cacheKey) {
     const tags = createDefinitionsCacheTags({
-      tenantId: auth.tenantId ?? null,
-      organizationId: auth.orgId,
+      tenantId,
+      organizationId,
       entityIds,
     })
     try {

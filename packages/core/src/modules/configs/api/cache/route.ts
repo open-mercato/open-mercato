@@ -6,8 +6,8 @@ import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['configs.manage'] },
-  POST: { requireAuth: true, requireFeatures: ['configs.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['configs.cache.view'] },
+  POST: { requireAuth: true, requireFeatures: ['configs.cache.manage'] },
 } as const
 
 export async function GET(req: Request) {

@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
+import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 
@@ -12,6 +13,7 @@ interface AclData {
 export class RbacService {
   private cacheTtlMs: number = 5 * 60 * 1000 // 5 minutes default
   private cache: CacheStrategy | null = null
+  private globalSuperAdminCache = new Map<string, boolean>()
 
   constructor(private em: EntityManager, cache?: CacheStrategy) {
     this.cache = cache || null
@@ -110,8 +112,8 @@ export class RbacService {
    * @param userId - The ID of the user whose cache should be invalidated
    */
   async invalidateUserCache(userId: string): Promise<void> {
-    if (!this.cache) return
-    await this.cache.deleteByTags([this.getUserTag(userId)])
+    this.globalSuperAdminCache.delete(userId)
+    await this.deleteCacheByTags([this.getUserTag(userId)])
   }
 
   /**
@@ -122,8 +124,8 @@ export class RbacService {
    * @param tenantId - The ID of the tenant whose cache should be invalidated
    */
   async invalidateTenantCache(tenantId: string): Promise<void> {
-    if (!this.cache) return
-    await this.cache.deleteByTags([this.getTenantTag(tenantId)])
+    this.globalSuperAdminCache.clear()
+    await this.deleteCacheByTags([this.getTenantTag(tenantId)], [tenantId])
   }
 
   /**
@@ -133,8 +135,7 @@ export class RbacService {
    * @param organizationId - The ID of the organization whose cache should be invalidated
    */
   async invalidateOrganizationCache(organizationId: string): Promise<void> {
-    if (!this.cache) return
-    await this.cache.deleteByTags([this.getOrganizationTag(organizationId)])
+    await this.deleteCacheByTags([this.getOrganizationTag(organizationId)])
   }
 
   /**
@@ -142,8 +143,58 @@ export class RbacService {
    * Use this for bulk operations or system-wide ACL changes.
    */
   async invalidateAllCache(): Promise<void> {
+    this.globalSuperAdminCache.clear()
+    await this.deleteCacheByTags(['rbac:all'])
+  }
+
+  private async deleteCacheByTags(tags: string[], tenantHints?: Array<string | null>): Promise<void> {
     if (!this.cache) return
-    await this.cache.deleteByTags(['rbac:all'])
+    const contexts = new Set<string | null>()
+    const current = getCurrentCacheTenant()
+    contexts.add(current ?? null)
+    contexts.add(null)
+    if (Array.isArray(tenantHints)) {
+      for (const hint of tenantHints) {
+        contexts.add(hint ?? null)
+      }
+    }
+    for (const ctx of contexts) {
+      if (ctx === current) {
+        await this.cache.deleteByTags(tags)
+      } else {
+        await runWithCacheTenant(ctx, async () => {
+          await this.cache!.deleteByTags(tags)
+        })
+      }
+    }
+  }
+
+  private async isGlobalSuperAdmin(userId: string): Promise<boolean> {
+    if (this.globalSuperAdminCache.has(userId)) return this.globalSuperAdminCache.get(userId)!
+    const em = this.em.fork()
+    const userSuper = await em.findOne(UserAcl, { user: userId as any, isSuperAdmin: true })
+    if (userSuper && (userSuper as any).isSuperAdmin) {
+      this.globalSuperAdminCache.set(userId, true)
+      return true
+    }
+    const links = await em.find(UserRole, { user: userId as any }, { populate: ['role'] })
+    const linkList = Array.isArray(links) ? links : []
+    if (!linkList.length) {
+      this.globalSuperAdminCache.set(userId, false)
+      return false
+    }
+    const roleIds = Array.from(new Set(linkList.map((link) => {
+      const role = link.role as any
+      return role?.id ? String(role.id) : null
+    }).filter((id): id is string => typeof id === 'string' && id.length > 0)))
+    if (!roleIds.length) {
+      this.globalSuperAdminCache.set(userId, false)
+      return false
+    }
+    const roleSuper = await em.findOne(RoleAcl, { isSuperAdmin: true, role: { $in: roleIds as any } } as any)
+    const result = !!(roleSuper && (roleSuper as any).isSuperAdmin)
+    this.globalSuperAdminCache.set(userId, result)
+    return result
   }
 
   /**
@@ -175,6 +226,14 @@ export class RbacService {
     const cacheKey = this.getCacheKey(userId, scope)
     const cached = await this.getFromCache(cacheKey)
     if (cached) return cached
+
+    if (!userId.startsWith('api_key:')) {
+      if (await this.isGlobalSuperAdmin(userId)) {
+        const result = { isSuperAdmin: true, features: ['*'], organizations: null }
+        await this.setCache(cacheKey, result, userId, scope)
+        return result
+      }
+    }
 
     if (userId.startsWith('api_key:')) {
       const apiKeyId = userId.slice('api_key:'.length)
@@ -222,8 +281,14 @@ export class RbacService {
     const tenantId = scope.tenantId || user.tenantId || null
     const orgId = scope.organizationId || user.organizationId || null
 
+    if (!tenantId) {
+      const result = { isSuperAdmin: false, features: [], organizations: null }
+      await this.setCache(cacheKey, result, userId, scope)
+      return result
+    }
+
     // Per-user ACL first
-    const uacl = tenantId ? await em.findOne(UserAcl, { user: userId as any, tenantId }) : null
+    const uacl = await em.findOne(UserAcl, { user: userId as any, tenantId })
     if (uacl) {
       const result = {
         isSuperAdmin: !!uacl.isSuperAdmin,
@@ -235,14 +300,16 @@ export class RbacService {
     }
 
     // Aggregate role ACLs
-    const links = await em.find(UserRole, { user: userId as any }, { populate: ['role'] })
-    const roleIds = links.map((l) => (l.role as any)?.id).filter(Boolean)
+    const links = await em.find(UserRole, { user: userId as any, role: { tenantId } } as any, { populate: ['role'] })
+    const linkList = Array.isArray(links) ? links : []
+    const roleIds = linkList.map((l) => (l.role as any)?.id).filter(Boolean)
     let isSuper = false
     const features: string[] = []
     let organizations: string[] | null = []
-    if (tenantId && roleIds.length) {
+    if (roleIds.length) {
       const racls = await em.find(RoleAcl, { tenantId, role: { $in: roleIds as any } } as any, {})
-      for (const r of racls) {
+      const roleAcls = Array.isArray(racls) ? racls : []
+      for (const r of roleAcls) {
         isSuper = isSuper || !!r.isSuperAdmin
         if (Array.isArray(r.featuresJson)) for (const f of r.featuresJson) if (!features.includes(f)) features.push(f)
         if (organizations !== null) {
@@ -302,4 +369,3 @@ export class RbacService {
     return this.hasAllFeatures(required, acl.features)
   }
 }
-

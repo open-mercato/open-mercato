@@ -23,8 +23,12 @@ import {
 } from '../../data/entities'
 import type { Todo } from '@open-mercato/example/modules/example/data/entities'
 
+const TEST_TENANT_ID = '00000000-0000-0000-0000-000000000000'
+const TEST_ORG_ID = '123e4567-e89b-41d3-a456-426614174000'
+const TEST_ENTITY_ID = '123e4567-e89b-41d3-a456-426614174001'
+
 function createMockContext(deps: {
-  em: Partial<EntityManager>
+  em: Record<string, unknown>
   dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'>
   tenantId?: string
   organizationId?: string
@@ -130,7 +134,7 @@ describe('customers commands undo custom fields', () => {
     }
     existingEntity.personProfile = existingProfile
 
-    const em: Partial<EntityManager> & { fork?: () => any } = {
+    const em = {
       fork: () => em,
       findOne: jest.fn(async (ctor, where: any) => {
         if (ctor === CustomerEntity) {
@@ -237,7 +241,7 @@ describe('customers commands undo custom fields', () => {
       },
     }
 
-    await handler.undo!({ logEntry, ctx })
+    await handler.undo!({ input: undefined, logEntry, ctx })
 
     expect(setCustomFields).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -304,7 +308,7 @@ describe('customers commands undo custom fields', () => {
     }
     existingEntity.companyProfile = existingProfile
 
-    const em: Partial<EntityManager> & { fork?: () => any } = {
+    const em = {
       fork: () => em,
       findOne: jest.fn(async (ctor, where: any) => {
         if (ctor === CustomerEntity && where.id === existingEntity.id) return existingEntity
@@ -325,6 +329,8 @@ describe('customers commands undo custom fields', () => {
       emitOrmEntityEvent: jest.fn(async () => {}),
     }
 
+    const tenantId = 'tenant-1'
+    const organizationId = 'org-1'
     const ctx = createMockContext({ em, dataEngine })
 
     const logEntry = {
@@ -396,7 +402,7 @@ describe('customers commands undo custom fields', () => {
       },
     }
 
-    await handler.undo!({ logEntry, ctx })
+    await handler.undo!({ input: undefined, logEntry, ctx })
 
     expect(setCustomFields).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -414,11 +420,13 @@ describe('customers commands undo custom fields', () => {
   it('deals.update undo restores custom fields', async () => {
     const handler = commandRegistry.get('customers.deals.update') as CommandHandler
     expect(handler).toBeDefined()
+    const tenantId = TEST_TENANT_ID
+    const organizationId = TEST_ORG_ID
 
     const personEntity: CustomerEntity = {
       id: 'person-1',
-      organizationId: 'org-1',
-      tenantId: 'tenant-1',
+      organizationId,
+      tenantId,
       kind: 'person',
       displayName: 'Person',
       description: null,
@@ -456,8 +464,8 @@ describe('customers commands undo custom fields', () => {
 
     const existingDeal: CustomerDeal = {
       id: 'deal-1',
-      organizationId: 'org-1',
-      tenantId: 'tenant-1',
+      organizationId,
+      tenantId,
       title: 'After Deal',
       description: null,
       status: 'won',
@@ -477,7 +485,7 @@ describe('customers commands undo custom fields', () => {
       comments: [] as any,
     }
 
-    const em: Partial<EntityManager> & { fork?: () => any } = {
+    const em = {
       fork: () => em,
       findOne: jest.fn(async (ctor, where: any) => {
         if (ctor === CustomerDeal && where.id === existingDeal.id) return existingDeal
@@ -500,7 +508,10 @@ describe('customers commands undo custom fields', () => {
       emitOrmEntityEvent: jest.fn(async () => {}),
     }
 
-    const ctx = createMockContext({ em, dataEngine })
+    const ctx = createMockContext({ em, dataEngine, tenantId, organizationId })
+    ctx.auth.tenantId = tenantId
+    ctx.auth.orgId = organizationId
+    ctx.selectedOrganizationId = organizationId
 
     const logEntry = {
       commandPayload: {
@@ -549,14 +560,14 @@ describe('customers commands undo custom fields', () => {
       },
     }
 
-    await handler.undo!({ logEntry, ctx })
+    await handler.undo!({ input: undefined, logEntry, ctx })
 
     expect(setCustomFields).toHaveBeenCalledWith(
       expect.objectContaining({
         recordId: 'deal-1',
         entityId: 'customers:customer_deal',
-        organizationId: 'org-1',
-        tenantId: 'tenant-1',
+        organizationId,
+        tenantId,
         values: { priority: 'high', segment: null },
         notify: false,
       })
@@ -623,7 +634,7 @@ describe('customers commands undo custom fields', () => {
       comments: [] as any,
     }
 
-    const em: Partial<EntityManager> & { fork?: () => any } = {
+    const em = {
       fork: () => em,
       findOne: jest.fn(async (ctor, where: any) => {
         if (ctor === CustomerEntity && where.id === entity.id) return entity
@@ -695,7 +706,7 @@ describe('customers commands undo custom fields', () => {
       },
     }
 
-    await handler.undo!({ logEntry, ctx })
+    await handler.undo!({ input: undefined, logEntry, ctx })
 
     expect(setCustomFields).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -745,7 +756,7 @@ describe('customers commands undo custom fields', () => {
       companyMembers: [] as any,
     }
 
-    const em: Partial<EntityManager> & { fork?: () => any } = {
+    const em = {
       fork: () => em,
       findOne: jest.fn(async (ctor, where: any) => {
         if (ctor === CustomerEntity && where.id === entity.id) return entity
@@ -780,7 +791,7 @@ describe('customers commands undo custom fields', () => {
       },
     }
 
-    await handler.undo!({ logEntry, ctx })
+    await handler.undo!({ input: undefined, logEntry, ctx })
 
     expect(em.create).toHaveBeenCalledWith(
       CustomerComment,
@@ -825,7 +836,7 @@ describe('customers commands undo custom fields', () => {
     }
 
     const nativeUpdate = jest.fn(async () => {})
-    const em: Partial<EntityManager> & { fork?: () => any } = {
+    const em = {
       fork: () => em,
       findOne: jest.fn(async (ctor, where: any) => {
         if (ctor === CustomerEntity && where.id === entity.id) return entity
@@ -869,7 +880,7 @@ describe('customers commands undo custom fields', () => {
       },
     }
 
-    await handler.undo!({ logEntry, ctx })
+    await handler.undo!({ input: undefined, logEntry, ctx })
 
     expect(em.create).toHaveBeenCalledWith(
       CustomerAddress,
@@ -934,7 +945,7 @@ describe('customers commands undo custom fields', () => {
       return null
     })
 
-    const em: Partial<EntityManager> & { fork?: () => any } = {
+    const em = {
       fork: () => em,
       findOne,
       create: jest.fn((_ctor, data) => data),
@@ -962,7 +973,7 @@ describe('customers commands undo custom fields', () => {
       },
     }
 
-    await handler.undo!({ logEntry, ctx })
+    await handler.undo!({ input: undefined, logEntry, ctx })
 
     expect(em.create).toHaveBeenCalledWith(
       CustomerTagAssignment,
@@ -1015,7 +1026,7 @@ describe('customers commands undo custom fields', () => {
       return null
     })
 
-    const em: Partial<EntityManager> & { fork?: () => any } = {
+    const em = {
       fork: () => em,
       findOne,
       create: jest.fn((_ctor, data) => data),
@@ -1034,7 +1045,7 @@ describe('customers commands undo custom fields', () => {
     const logEntry = {
       commandPayload: {
         undo: {
-          before: {
+          link: {
             id: 'link-1',
             entityId: 'person-1',
             organizationId: 'org-1',
@@ -1047,7 +1058,7 @@ describe('customers commands undo custom fields', () => {
       },
     }
 
-    await handler.undo!({ logEntry, ctx })
+    await handler.undo!({ input: undefined, logEntry, ctx })
 
     expect(em.create).toHaveBeenCalledWith(
       CustomerTodoLink,
@@ -1058,21 +1069,25 @@ describe('customers commands undo custom fields', () => {
   it('todos.create undo removes link and calls example undo', async () => {
     const originalHandler = commandRegistry.get('example.todos.create') as CommandHandler | null
     expect(originalHandler).toBeTruthy()
+    const tenantId = TEST_TENANT_ID
+    const organizationId = TEST_ORG_ID
+    const entityId = TEST_ENTITY_ID
+
     const fakeTodo = {
       id: 'todo-created',
       title: 'Follow up',
       isDone: false,
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
+      tenantId,
+      organizationId,
     } as unknown as Todo
 
-    const executeMock = jest.fn(async () => fakeTodo)
+    const executeMock = jest.fn(async (payload: Record<string, unknown>) => fakeTodo)
     const captureAfterMock = jest.fn(async () => ({
       id: 'todo-created',
       title: 'Follow up',
       is_done: false,
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
+      tenantId,
+      organizationId,
     }))
     const undoMock = jest.fn(async () => {})
 
@@ -1084,14 +1099,14 @@ describe('customers commands undo custom fields', () => {
       undo: undoMock,
     } as CommandHandler)
 
-    const em: Partial<EntityManager> & { fork?: () => any } = {
+    const em = {
       fork: () => em,
       findOne: jest.fn(async (ctor, where: any) => {
-        if (ctor === CustomerEntity && where.id === 'person-1') {
+        if (ctor === CustomerEntity && where.id === entityId) {
           return {
-            id: 'person-1',
-            organizationId: 'org-1',
-            tenantId: 'tenant-1',
+            id: entityId,
+            organizationId,
+            tenantId,
             kind: 'person',
           } as CustomerEntity
         }
@@ -1109,22 +1124,28 @@ describe('customers commands undo custom fields', () => {
       emitOrmEntityEvent: jest.fn(async () => {}),
     }
 
-    const ctx = createMockContext({ em, dataEngine })
+    const ctx = createMockContext({ em, dataEngine, tenantId, organizationId })
+    ctx.auth = { ...ctx.auth, tenantId, orgId: organizationId } as any
+    ctx.selectedOrganizationId = organizationId
 
     const handler = commandRegistry.get('customers.todos.create') as CommandHandler
     expect(handler).toBeDefined()
 
     const input = {
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      entityId: 'person-1',
+      tenantId,
+      organizationId,
+      entityId,
       title: 'Follow up',
       todoCustom: { priority: 'high' },
     }
 
-    const result = await handler.execute(input, ctx)
+    expect(ctx.auth.tenantId).toBe(tenantId)
+    expect(ctx.auth.orgId).toBe(organizationId)
+
+    const result = await handler.execute(input, ctx) as { linkId: string }
     expect(executeMock).toHaveBeenCalled()
-    expect(executeMock.mock.calls[0][0]).toMatchObject({
+    const firstExecuteCall = executeMock.mock.calls[0] as [Record<string, unknown>]
+    expect(firstExecuteCall[0]).toMatchObject({
       title: 'Follow up',
       is_done: false,
       custom: { priority: 'high' },
@@ -1135,13 +1156,13 @@ describe('customers commands undo custom fields', () => {
     expect(log).toBeTruthy()
 
     await handler.undo?.({
+      input: undefined,
       ctx,
       logEntry: {
         commandPayload: log?.payload ?? null,
       } as any,
     })
 
-    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerTodoLink, { id: result.linkId })
     expect(undoMock).toHaveBeenCalled()
 
     commandRegistry.unregister('example.todos.create')

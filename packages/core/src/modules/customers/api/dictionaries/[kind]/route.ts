@@ -55,7 +55,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       if (!byValue.has(normalized) || order < byValue.get(normalized)!.order) {
         byValue.set(normalized, {
           entry,
-          isInherited: entry.organizationId !== organizationId,
+          isInherited: organizationId ? entry.organizationId !== organizationId : false,
           order,
         })
       }
@@ -112,6 +112,9 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
 export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
   try {
     const context = await resolveDictionaryRouteContext(req)
+    if (!context.organizationId) {
+      throw new CrudHttpError(400, { error: context.translate('customers.errors.organization_required', 'Organization context is required') })
+    }
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const body = postSchema.parse(await req.json().catch(() => ({})))
     const commandBus = (context.container.resolve('commandBus') as CommandBus)

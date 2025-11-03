@@ -5,9 +5,15 @@ type RoleListResponse = {
   items?: Array<{ id?: string | null; name?: string | null }>
 }
 
-export async function fetchRoleOptions(query?: string): Promise<CrudFieldOption[]> {
+type FetchRoleOptionsParams = {
+  tenantId?: string | null
+}
+
+export async function fetchRoleOptions(query?: string, params?: FetchRoleOptionsParams): Promise<CrudFieldOption[]> {
   const searchParams = new URLSearchParams({ page: '1', pageSize: '20' })
   if (query && query.trim()) searchParams.set('search', query.trim())
+  const tenantId = typeof params?.tenantId === 'string' && params.tenantId.trim().length ? params.tenantId.trim() : null
+  if (tenantId) searchParams.set('tenantId', tenantId)
 
   try {
     const res = await apiFetch(`/api/auth/roles?${searchParams.toString()}`)

@@ -80,7 +80,7 @@ describe('API Keys route', () => {
       filterIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
       allowedIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
     })
-    mockEm.findOne.mockImplementation(async (_entity, criteria) => {
+    mockEm.findOne.mockImplementation(async (_entity: unknown, criteria: Record<string, unknown>) => {
       if ('name' in criteria && criteria.name === 'manager') {
         return {
           id: 'role-123',
@@ -90,7 +90,7 @@ describe('API Keys route', () => {
       }
       return null
     })
-    mockDataEngine.createOrmEntity.mockImplementation(async ({ data }) => ({
+    mockDataEngine.createOrmEntity.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       id: 'key-1',
       ...data,
     }))

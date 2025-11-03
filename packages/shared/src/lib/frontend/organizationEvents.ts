@@ -2,6 +2,7 @@ export const ORGANIZATION_SCOPE_CHANGED_EVENT = 'om:organization-scope-changed'
 
 export type OrganizationScopeChangedDetail = {
   organizationId: string | null
+  tenantId: string | null
 }
 
 export function emitOrganizationScopeChanged(detail: OrganizationScopeChangedDetail): void {
@@ -14,7 +15,7 @@ export function subscribeOrganizationScopeChanged(
 ): () => void {
   if (typeof window === 'undefined') return () => {}
   const listener = (event: Event) => {
-    const detail = (event as CustomEvent<OrganizationScopeChangedDetail>).detail ?? { organizationId: null }
+    const detail = (event as CustomEvent<OrganizationScopeChangedDetail>).detail ?? { organizationId: null, tenantId: null }
     handler(detail)
   }
   window.addEventListener(ORGANIZATION_SCOPE_CHANGED_EVENT, listener as EventListener)

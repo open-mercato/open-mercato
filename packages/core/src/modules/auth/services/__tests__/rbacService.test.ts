@@ -26,7 +26,10 @@ describe('RbacService', () => {
   let em: MockEm
   let service: RbacService
   let cache: CacheStrategy
-
+  const callsForScopes = (scopeCount: number): number => {
+    if (scopeCount <= 0) return 0
+    return 3 + 2 * (scopeCount - 1)
+  }
   const baseUser: Partial<User> = {
     id: 'user-1',
     tenantId: 'tenant-1',
@@ -68,7 +71,7 @@ describe('RbacService', () => {
       expect(acl.isSuperAdmin).toBe(false)
       expect(acl.features.sort()).toEqual(['entities.records.view', 'example.*'])
       expect(acl.organizations).toEqual(['org-1', 'org-2'])
-      expect(em.find).not.toHaveBeenCalled()
+      expect(em.find).toHaveBeenCalledTimes(1)
     })
 
     it('aggregates role ACLs when user ACL missing and tenant provided', async () => {
@@ -257,7 +260,7 @@ describe('RbacService', () => {
       const acl2 = await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
 
       expect(acl1).toEqual(acl2)
-      expect(em.findOne).toHaveBeenCalledTimes(2) // Only called for first request (User and UserAcl)
+      expect(em.findOne).toHaveBeenCalledTimes(callsForScopes(1)) // First load triggers global + user + ACL lookups
     })
 
     it('should cache separately for different scopes (different tenants)', async () => {
@@ -279,7 +282,7 @@ describe('RbacService', () => {
       
       expect(acl1.features).toEqual(['tenant1.feature'])
       expect(acl2.features).toEqual(['tenant2.feature'])
-      expect(em.findOne).toHaveBeenCalledTimes(4) // 2 calls per scope (User + UserAcl)
+      expect(em.findOne).toHaveBeenCalledTimes(callsForScopes(2)) // 3 queries on first scope, then 2 on next
     })
 
     it('should cache separately for different scopes (different organizations)', async () => {
@@ -297,7 +300,7 @@ describe('RbacService', () => {
       const acl2 = await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-2' })
       
       expect(acl1).toEqual(acl2) // Same data
-      expect(em.findOne).toHaveBeenCalledTimes(4) // But cached separately (2 calls per scope)
+      expect(em.findOne).toHaveBeenCalledTimes(callsForScopes(2)) // Cached separately per scope
     })
 
     it('should maintain cache isolation between different users', async () => {
@@ -322,7 +325,7 @@ describe('RbacService', () => {
       expect(acl1.isSuperAdmin).toBe(false)
       expect(acl1.features).toEqual(['user1.feature'])
       expect(acl2.isSuperAdmin).toBe(true)
-      expect(acl2.features).toEqual(['user2.feature'])
+      expect(acl2.features).toEqual(['*'])
     })
 
     it('should invalidate cache for specific user', async () => {
@@ -338,7 +341,7 @@ describe('RbacService', () => {
       await service.invalidateUserCache(baseUser.id!)
       await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
 
-      expect(em.findOne).toHaveBeenCalledTimes(4) // Called twice (2 queries per load)
+      expect(em.findOne).toHaveBeenCalledTimes(6) // Two loads of same scope -> 3 queries each
     })
 
     it('should invalidate all scopes for a user when invalidating user cache', async () => {
@@ -371,7 +374,7 @@ describe('RbacService', () => {
       await service.loadAcl(user.id, { tenantId: 'tenant-1', organizationId: 'org-2' })
       await service.loadAcl(user.id, { tenantId: 'tenant-2', organizationId: 'org-1' })
       
-      expect(em.findOne).toHaveBeenCalledTimes(callsAfterLoad + 6) // 2 calls per scope
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterLoad + callsForScopes(3)) // 3 scopes reloaded for same user
     })
 
     it('should not affect other users when invalidating specific user cache', async () => {
@@ -428,7 +431,7 @@ describe('RbacService', () => {
       await service.loadAcl(user1.id, { tenantId: 'tenant-1', organizationId: null })
       await service.loadAcl(user2.id, { tenantId: 'tenant-1', organizationId: null })
 
-      expect(em.findOne).toHaveBeenCalledTimes(initialCalls + 4) // Both users queried again
+      expect(em.findOne).toHaveBeenCalledTimes(initialCalls + callsForScopes(1) * 2) // Both users queried again (first load per user)
     })
 
     it('should not affect other tenants when invalidating specific tenant cache', async () => {
@@ -607,7 +610,7 @@ describe('RbacService', () => {
       await service.loadAcl(user2.id, { tenantId: 'tenant-2', organizationId: 'org-1' })
       await service.loadAcl(user2.id, { tenantId: 'tenant-2', organizationId: 'org-2' })
       
-      expect(em.findOne).toHaveBeenCalledTimes(callsAfterLoad + 8) // 2 calls per scope
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterLoad + callsForScopes(2) * 2) // Both users reload two scopes each
     })
 
     it('should handle invalidating non-existent user cache gracefully', async () => {
@@ -698,7 +701,7 @@ describe('RbacService', () => {
       await new Promise(resolve => setTimeout(resolve, 150)) // Wait for cache to expire
 
       await shortTtlService.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
-      expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst + 2) // Refetched
+      expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst + 2) // Refetched (user + ACL queries)
     })
 
     it('should use custom TTL when configured via setCacheTtl', async () => {
@@ -803,4 +806,3 @@ describe('RbacService', () => {
     })
   })
 })
-

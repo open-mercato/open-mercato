@@ -67,8 +67,22 @@ const seedRoles: ModuleCli = {
     const tenantId = args.tenantId ?? args.tenant ?? args.tenant_id ?? null
     const { resolve } = await createRequestContainer()
     const em = resolve<EntityManager>('em')
-    await ensureRoles(em, { tenantId })
-    console.log('Roles ensured', tenantId ? `for tenant ${tenantId}` : '(global)')
+    if (tenantId) {
+      await ensureRoles(em, { tenantId })
+      console.log('Roles ensured for tenant', tenantId)
+      return
+    }
+    const tenants = await em.find(Tenant, {})
+    if (!tenants.length) {
+      console.log('No tenants found; nothing to seed.')
+      return
+    }
+    for (const tenant of tenants) {
+      const id = tenant.id ? String(tenant.id) : null
+      if (!id) continue
+      await ensureRoles(em, { tenantId: id })
+      console.log('Roles ensured for tenant', id)
+    }
   },
 }
 

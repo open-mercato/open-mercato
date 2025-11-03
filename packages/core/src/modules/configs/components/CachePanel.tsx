@@ -71,7 +71,7 @@ export function CachePanel() {
         const response = await apiFetch('/api/auth/feature-check', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ features: ['configs.cache.manage', 'configs.manage'] }),
+          body: JSON.stringify({ features: ['configs.cache.manage'] }),
         })
         const payload = await response.json().catch(() => ({}))
         if (cancelled) return
@@ -80,8 +80,7 @@ export function CachePanel() {
           : []
         const hasFeature =
           payload?.ok === true ||
-          granted.includes('configs.cache.manage') ||
-          granted.includes('configs.manage')
+          granted.includes('configs.cache.manage')
         setCanManage(hasFeature)
       } catch {
         if (!cancelled) setCanManage(false)

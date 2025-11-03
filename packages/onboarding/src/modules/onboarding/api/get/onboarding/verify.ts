@@ -5,11 +5,20 @@ import { createRequestContainer } from '@/lib/di/container'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
-import { seedCustomerDictionaries, seedCustomerExamples } from '@open-mercato/core/modules/customers/cli'
+import {
+  seedCustomerDictionaries,
+  seedCustomerExamples,
+  seedCurrencyDictionary,
+} from '@open-mercato/core/modules/customers/cli'
 import { seedExampleTodos } from '@open-mercato/example/modules/example/cli'
 import { seedDashboardDefaultsForTenant } from '@open-mercato/core/modules/dashboards/cli'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { signJwt } from '@/lib/auth/jwt'
+import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
+import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
+import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
+import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
+import type { VectorIndexService } from '@open-mercato/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -38,6 +47,10 @@ export async function GET(req: Request) {
   if (!request) {
     return redirectWithStatus(baseUrl, 'invalid')
   }
+  if (!request.passwordHash) {
+    console.error('[onboarding.verify] missing password hash for request', request.id)
+    return redirectWithStatus(baseUrl, 'error')
+  }
 
   let tenantId: string | null = null
   let organizationId: string | null = null
@@ -55,6 +68,7 @@ export async function GET(req: Request) {
         firstName: request.firstName,
         lastName: request.lastName,
         displayName: `${request.firstName} ${request.lastName}`.trim(),
+        hashedPassword: request.passwordHash,
         confirm: true,
       },
     })
@@ -69,13 +83,86 @@ export async function GET(req: Request) {
     userId = resolvedUserId
 
     await seedCustomerDictionaries(em, { tenantId, organizationId })
+    await seedCurrencyDictionary(em, { tenantId, organizationId })
     await seedCustomerExamples(em, container, { tenantId, organizationId })
     await seedExampleTodos(em, container, { tenantId, organizationId })
     await seedDashboardDefaultsForTenant(em, { tenantId, organizationId, logger: () => {} })
 
+    if (tenantId) {
+      let vectorService: VectorIndexService | null = null
+      try {
+        vectorService = container.resolve<VectorIndexService>('vectorIndexService')
+      } catch {
+        vectorService = null
+      }
+      const coverageRefreshKeys = new Set<string>()
+      try {
+        const { E: allEntities } = await import('@/generated/entities.ids.generated') as {
+          E: Record<string, Record<string, string>>
+        }
+        const entityIds = flattenSystemEntityIds(allEntities)
+        for (const entityType of entityIds) {
+          try {
+            await purgeIndexScope(em, { entityType, tenantId })
+          } catch (error) {
+            console.error('[onboarding.verify] failed to purge query index scope', { entityType, tenantId, error })
+          }
+          try {
+            await reindexEntity(em, {
+              entityType,
+              tenantId,
+              force: true,
+              emitVectorizeEvents: false,
+              vectorService: null,
+            })
+          } catch (error) {
+            console.error('[onboarding.verify] failed to reindex entity', { entityType, tenantId, error })
+          }
+          coverageRefreshKeys.add(`${entityType}|${tenantId}|__null__`)
+          if (organizationId) coverageRefreshKeys.add(`${entityType}|${tenantId}|${organizationId}`)
+        }
+      } catch (error) {
+        console.error('[onboarding.verify] failed to rebuild query indexes', { tenantId, error })
+      }
+
+      if (vectorService) {
+        try {
+          await vectorService.reindexAll({ tenantId, organizationId, purgeFirst: true })
+        } catch (error) {
+          console.error('[onboarding.verify] failed to rebuild vector indexes', { tenantId, organizationId, error })
+        }
+      }
+
+      if (coverageRefreshKeys.size) {
+        for (const entry of coverageRefreshKeys) {
+          const [entityType, tenantKey, orgKey] = entry.split('|')
+          const orgScope = orgKey === '__null__' ? null : orgKey
+          try {
+            await refreshCoverageSnapshot(
+              em,
+              {
+                entityType,
+                tenantId: tenantKey,
+                organizationId: orgScope,
+                withDeleted: false,
+              },
+              { vectorService: vectorService ?? undefined },
+            )
+          } catch (error) {
+            console.error('[onboarding.verify] failed to refresh coverage snapshot', {
+              entityType,
+              tenantId: tenantKey,
+              organizationId: orgScope,
+              error,
+            })
+          }
+        }
+      }
+    }
+
     const authService = (container.resolve('authService') as AuthService)
     await authService.updateLastLoginAt(user)
-    const roles = await authService.getUserRoles(user)
+    const roles = await authService.getUserRoles(user, tenantId)
     const jwt = signJwt({
       sub: String(user.id),
       tenantId,

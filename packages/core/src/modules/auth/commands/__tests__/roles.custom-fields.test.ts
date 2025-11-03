@@ -18,6 +18,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 import '@open-mercato/core/modules/auth/commands/roles'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import type { Role } from '../../data/entities'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -27,41 +28,46 @@ describe('auth.roles.update undo custom fields', () => {
     const handler = commandRegistry.get<Record<string, unknown>, unknown>('auth.roles.update') as CommandHandler
     expect(handler).toBeDefined()
 
-    const setCustomFields = jest.fn(async () => {})
-    const updateOrmEntity = jest.fn(async ({ apply }: any) => {
+    const setCustomFields = jest.fn(async (_opts: Parameters<DataEngine['setCustomFields']>[0]) => undefined) as jest.MockedFunction<DataEngine['setCustomFields']>
+    const updateOrmEntity = (async (opts: Parameters<DataEngine['updateOrmEntity']>[0]) => {
       const entity = {
         id: 'role-1',
         name: 'After Role',
         tenantId: 'tenant-1',
-      }
-      await apply(entity as any)
+        acls: [],
+        custom: { dashboard: false, scope: 'limited' },
+      } as unknown as Role
+      await (opts.apply as (current: Role) => Promise<void> | void)(entity)
       return entity
-    })
+    }) as DataEngine['updateOrmEntity']
 
-    const pending: any[] = []
+    const pending: Parameters<DataEngine['emitOrmEntityEvent']>[0][] = []
+    const emitOrmEntityEvent: DataEngine['emitOrmEntityEvent'] = async () => undefined
+    const markOrmEntityChange: DataEngine['markOrmEntityChange'] = (entry) => {
+      if (!entry?.entity) return
+      pending.push(entry as Parameters<DataEngine['emitOrmEntityEvent']>[0])
+    }
+    const flushOrmEntityChanges: DataEngine['flushOrmEntityChanges'] = async () => {
+      while (pending.length > 0) {
+        const next = pending.shift()
+        if (next) await emitOrmEntityEvent(next)
+      }
+    }
     const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent' | 'markOrmEntityChange' | 'flushOrmEntityChanges'> = {
       updateOrmEntity,
       setCustomFields,
-      emitOrmEntityEvent: jest.fn(async () => {}),
-      markOrmEntityChange: jest.fn((entry: any) => {
-        if (!entry || !entry.entity) return
-        pending.push(entry)
-      }),
-      flushOrmEntityChanges: jest.fn(async () => {
-        while (pending.length > 0) {
-          const next = pending.shift()
-          await dataEngine.emitOrmEntityEvent(next as any)
-        }
-      }),
+      emitOrmEntityEvent,
+      markOrmEntityChange,
+      flushOrmEntityChanges,
     }
 
-    const em: Partial<EntityManager> = {
-      nativeDelete: jest.fn().mockResolvedValue(undefined),
-      flush: jest.fn(),
-      getReference: jest.fn(() => ({})),
-      create: jest.fn((_entity: any, data: any) => data),
-      persist: jest.fn(),
-    }
+    const em = {
+      nativeDelete: async () => 0,
+      flush: async () => undefined,
+      getReference: () => ({}),
+      create: (_entity: unknown, data: unknown) => data,
+      persist: () => undefined,
+    } as unknown as EntityManager
 
     const container = {
       resolve: (token: string) => {
@@ -106,7 +112,7 @@ describe('auth.roles.update undo custom fields', () => {
       },
     }
 
-    await handler.undo!({ logEntry, ctx })
+    await handler.undo!({ input: undefined, logEntry, ctx })
 
     expect(setCustomFields).toHaveBeenCalledWith(expect.objectContaining({
       entityId: 'auth:role',

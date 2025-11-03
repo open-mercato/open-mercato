@@ -757,23 +757,34 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   async function withCtx(request: Request): Promise<CrudCtx> {
     const container = await createRequestContainer()
-    const auth = await ensureAuth()
+    const rawAuth = await ensureAuth()
     let scope: OrganizationScope | null = null
     let selectedOrganizationId: string | null = null
     let organizationIds: string[] | null = null
-    if (auth) {
+    if (rawAuth) {
       try {
-        scope = await resolveOrganizationScopeForRequest({ container, auth, request })
+        scope = await resolveOrganizationScopeForRequest({ container, auth: rawAuth, request })
       } catch {
         scope = null
       }
     }
-    selectedOrganizationId = scope?.selectedId ?? auth?.orgId ?? null
-    const fallbackOrgId = selectedOrganizationId ?? auth?.orgId ?? null
+    const scopedTenantId = scope?.tenantId ?? rawAuth?.tenantId ?? null
+    const scopedOrgId = scope ? (scope.selectedId ?? null) : (rawAuth?.orgId ?? null)
+    selectedOrganizationId = scopedOrgId
+    const scopedAuth = rawAuth
+      ? {
+          ...rawAuth,
+          tenantId: scopedTenantId ?? null,
+          orgId: scopedOrgId ?? null,
+        }
+      : null
+    const fallbackOrgId = scopedOrgId ?? rawAuth?.orgId ?? null
     const rawScopeIds = scope?.filterIds
     const scopedIds = Array.isArray(rawScopeIds) ? rawScopeIds.filter((id): id is string => typeof id === 'string' && id.length > 0) : null
-    if (scopedIds === null) {
+    if (!scope) {
       organizationIds = fallbackOrgId ? [fallbackOrgId] : null
+    } else if (scopedIds === null) {
+      organizationIds = scope.allowedIds === null ? null : (fallbackOrgId ? [fallbackOrgId] : null)
     } else if (scopedIds.length > 0) {
       organizationIds = Array.from(new Set(scopedIds))
     } else if (fallbackOrgId) {
@@ -792,7 +803,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     } else {
       organizationIds = []
     }
-    return { container, auth, organizationScope: scope, selectedOrganizationId, organizationIds, request }
+    return { container, auth: scopedAuth, organizationScope: scope, selectedOrganizationId, organizationIds, request }
   }
 
   async function GET(request: Request) {
@@ -925,6 +936,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           headers['x-om-partial-index'] = JSON.stringify({
             type: 'partial_index',
             entity: warning.entity,
+            entityLabel: warning.entityLabel ?? warning.entity,
             baseCount: warning.baseCount ?? null,
             indexedCount: warning.indexedCount ?? null,
             scope: warning.scope ?? 'scoped',
@@ -1088,6 +1100,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               JSON.stringify({
                 type: 'partial_index',
                 entity: res.meta.partialIndexWarning.entity,
+                entityLabel: res.meta.partialIndexWarning.entityLabel ?? res.meta.partialIndexWarning.entity,
                 baseCount: res.meta.partialIndexWarning.baseCount ?? null,
                 indexedCount: res.meta.partialIndexWarning.indexedCount ?? null,
                 scope: res.meta.partialIndexWarning.scope ?? 'scoped',

@@ -5,7 +5,7 @@ export const DICTIONARY_CACHE_TTL_MS = 5 * 60 * 1000
 
 type CacheKeyOptions = {
   tenantId: string
-  organizationId: string
+  organizationId: string | null
   mappedKind: string
   readableOrganizationIds: string[]
 }
@@ -19,7 +19,8 @@ type CacheTagOptions = {
 
 export function createDictionaryCacheKey(options: CacheKeyOptions): string {
   const scope = options.readableOrganizationIds.join('|')
-  return `${CACHE_PREFIX}:${options.tenantId}:${options.mappedKind}:org=${options.organizationId}:scope=${scope}`
+  const organizationPart = options.organizationId ?? 'all'
+  return `${CACHE_PREFIX}:${options.tenantId}:${options.mappedKind}:org=${organizationPart}:scope=${scope}`
 }
 
 export function createDictionaryCacheTags(options: CacheTagOptions): string[] {

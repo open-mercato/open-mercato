@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
+import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import {
   buildOrganizationTreeOptions,
   type OrganizationTreeNode,
@@ -20,6 +21,7 @@ type OrganizationResponse = {
     id: string
     name: string
     tenantId: string
+    tenantName?: string | null
     parentId: string | null
     childIds: string[]
     ancestorIds: string[]
@@ -32,24 +34,8 @@ type OrganizationResponse = {
 const TREE_STEP = 16
 const TREE_PADDING = 12
 
-const groups: CrudFormGroup[] = [
-  { id: 'details', title: 'Details', column: 1, fields: ['name', 'parentId', 'childrenInfo', 'isActive'] },
-  { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
-]
-
 export default function EditOrganizationPage({ params }: { params?: { id?: string } }) {
   const orgId = params?.id
-  if (!orgId) {
-    return (
-      <Page>
-        <PageBody>
-          <div className="rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            Organization identifier is missing.
-          </div>
-        </PageBody>
-      </Page>
-    )
-  }
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [pathLabel, setPathLabel] = React.useState<string>('')
   const [tenantId, setTenantId] = React.useState<string | null>(null)
@@ -58,6 +44,57 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
   const [parentTree, setParentTree] = React.useState<OrganizationTreeNode[]>([])
   const [childSummary, setChildSummary] = React.useState<OrganizationTreeOption[]>([])
   const [originalChildIds, setOriginalChildIds] = React.useState<string[]>([])
+  const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+  const skipTenantEffectRef = React.useRef(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadActor() {
+      try {
+        const res = await apiFetch('/api/auth/roles?page=1&pageSize=1')
+        if (!res.ok) return
+        const payload = await res.json().catch(() => ({}))
+        if (!cancelled) setActorIsSuperAdmin(Boolean(payload?.isSuperAdmin))
+      } catch {
+        if (!cancelled) setActorIsSuperAdmin(false)
+      }
+    }
+    loadActor()
+    return () => { cancelled = true }
+  }, [])
+
+  const markSelectable = React.useCallback((nodes: OrganizationTreeNode[], excluded: Set<string>): OrganizationTreeNode[] => (
+    nodes.map((node) => ({
+      ...node,
+      selectable: !excluded.has(node.id),
+      children: Array.isArray(node.children) ? markSelectable(node.children, excluded) : [],
+    }))
+  ), [])
+
+  const loadParentTree = React.useCallback(async (
+    targetTenantId: string | null,
+    excludedIds: Iterable<string>,
+  ): Promise<OrganizationTreeNode[]> => {
+    const treeParams = new URLSearchParams({ view: 'tree', includeInactive: 'true' })
+    if (targetTenantId) treeParams.set('tenantId', targetTenantId)
+    if (orgId) treeParams.set('ids', orgId)
+    try {
+      const res = await apiFetch(`/api/directory/organizations?${treeParams.toString()}`)
+      if (!res.ok) {
+        setParentTree([])
+        return []
+      }
+      const tree: TreeResponse = await res.json()
+      const baseTree = Array.isArray(tree.items) ? tree.items : []
+      const excludedSet = new Set<string>(excludedIds)
+      if (orgId) excludedSet.add(orgId)
+      setParentTree(markSelectable(baseTree, excludedSet))
+      return baseTree
+    } catch {
+      setParentTree([])
+      return []
+    }
+  }, [markSelectable, orgId])
 
   React.useEffect(() => {
     if (!orgId) return
@@ -72,23 +109,9 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
         const orgData: OrganizationResponse = await orgRes.json()
         const record = orgData.items?.[0]
         if (!record) throw new Error('Organization not found')
-        setTenantId(record.tenantId || null)
-        const treeParams = new URLSearchParams({ view: 'tree', includeInactive: 'true' })
-        if (record.tenantId) treeParams.set('tenantId', record.tenantId)
-        treeParams.set('ids', currentOrgId)
-        const treeRes = await apiFetch(`/api/directory/organizations?${treeParams.toString()}`)
-        if (!treeRes.ok) throw new Error('Failed to load hierarchy')
-        const tree: TreeResponse = await treeRes.json()
-        if (cancelled) return
-        const excludedForParent = new Set<string>([currentOrgId, ...record.descendantIds])
-        const markSelectable = (nodes: OrganizationTreeNode[]): OrganizationTreeNode[] => nodes.map((node) => ({
-          ...node,
-          selectable: !excludedForParent.has(node.id),
-          children: Array.isArray(node.children) ? markSelectable(node.children) : [],
-        }))
-        const baseTree = Array.isArray(tree.items) ? tree.items : []
-        const treeWithSelectable = markSelectable(baseTree)
-        setParentTree(treeWithSelectable)
+        const resolvedTenantId = record.tenantId || null
+        setTenantId(resolvedTenantId)
+        const baseTree = await loadParentTree(resolvedTenantId, record.descendantIds ?? [])
         const fullTree = buildOrganizationTreeOptions(baseTree)
         const nodeMap = new Map(fullTree.map((opt) => [opt.value, opt]))
         const childrenDetails = record.childIds
@@ -107,20 +130,65 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           name: record.name,
           parentId: record.parentId || '',
           isActive: record.isActive,
+          tenantId: resolvedTenantId,
           ...customValues,
         })
         setPathLabel(record.pathLabel)
-      } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Failed to load organization')
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : 'Failed to load organization'
+          setError(message)
+        }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          skipTenantEffectRef.current = false
+          setLoading(false)
+        }
       }
     }
     load()
     return () => { cancelled = true }
-  }, [orgId])
+  }, [loadParentTree, orgId])
+
+  React.useEffect(() => {
+    if (!actorIsSuperAdmin) return
+    if (skipTenantEffectRef.current) {
+      skipTenantEffectRef.current = false
+      return
+    }
+    if (!orgId) return
+    if (!tenantId) {
+      setParentTree([])
+      setChildSummary([])
+      setOriginalChildIds([])
+      return
+    }
+    void loadParentTree(tenantId, [])
+    setChildSummary([])
+    setOriginalChildIds([])
+  }, [actorIsSuperAdmin, loadParentTree, orgId, tenantId])
 
   const fields = React.useMemo<CrudField[]>(() => [
+    ...(actorIsSuperAdmin ? [
+      {
+        id: 'tenantId',
+        label: 'Tenant',
+        type: 'custom',
+        component: ({ value, setValue }) => (
+          <TenantSelect
+            id="tenantId"
+            value={typeof value === 'string' ? value : tenantId}
+            onChange={(next) => {
+              const normalized = next ?? null
+              setTenantId(normalized)
+              setValue(normalized)
+            }}
+            includeEmptyOption={false}
+            className="w-full h-9 rounded border px-2 text-sm"
+          />
+        ),
+      } as CrudField,
+    ] : []),
     { id: 'name', label: 'Name', type: 'text', required: true },
     {
       id: 'parentId',
@@ -161,9 +229,30 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
       },
     },
     { id: 'isActive', label: 'Active', type: 'checkbox' },
-  ], [parentTree, childSummary])
+  ], [actorIsSuperAdmin, parentTree, childSummary, tenantId])
 
-  if (!orgId) return null
+  const detailFields = React.useMemo(() => (
+    actorIsSuperAdmin
+      ? ['tenantId', 'name', 'parentId', 'childrenInfo', 'isActive']
+      : ['name', 'parentId', 'childrenInfo', 'isActive']
+  ), [actorIsSuperAdmin])
+
+  const groups: CrudFormGroup[] = React.useMemo(() => ([
+    { id: 'details', title: 'Details', column: 1, fields: detailFields },
+    { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
+  ]), [detailFields])
+
+  if (!orgId) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Organization identifier is missing.
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
 
   if (error && !loading && !initialValues) {
     return (
@@ -184,7 +273,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           fields={fields}
           groups={groups}
           entityId={E.directory.organization}
-          initialValues={initialValues ?? { id: orgId, name: '', parentId: '', isActive: true, childIds: [] }}
+          initialValues={initialValues ?? { id: orgId, tenantId: tenantId ?? null, name: '', parentId: '', isActive: true, childIds: [] }}
           isLoading={loading}
           loadingMessage="Loading organization..."
           submitLabel="Save"
@@ -201,8 +290,8 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
               isActive: boolean
               parentId: string | null
               childIds: string[]
-              tenantId?: string
-              customFields?: Record<string, any>
+              tenantId?: string | null
+              customFields?: Record<string, unknown>
             } = {
               id: payloadId,
               name: payloadName,
@@ -210,7 +299,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
               parentId: payloadParentId,
               childIds: originalChildIds,
             }
-            const customFields: Record<string, any> = {}
+            const customFields: Record<string, unknown> = {}
             for (const [key, value] of Object.entries(values)) {
               if (key.startsWith('cf_')) customFields[key.slice(3)] = value
               else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
@@ -218,7 +307,10 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
             if (Object.keys(customFields).length > 0) {
               payload.customFields = customFields
             }
-            if (tenantId) payload.tenantId = tenantId
+            const submittedTenantId = typeof values.tenantId === 'string' && values.tenantId.trim().length > 0
+              ? values.tenantId.trim()
+              : tenantId
+            if (submittedTenantId) payload.tenantId = submittedTenantId
             await apiFetch('/api/directory/organizations', {
               method: 'PUT',
               headers: { 'content-type': 'application/json' },

@@ -16,7 +16,7 @@ jest.mock('@/lib/di/container', () => ({
     resolve: (_: string) => ({
       findUserByEmail: async (email: string) => ({ id: 1, email, passwordHash: 'hash', tenantId: tenantId, organizationId: orgId }),
       verifyPassword: async () => true,
-      getUserRoles: async () => ['admin'],
+      getUserRoles: async (_user: any, _tenant: string | null | undefined) => ['admin'],
       updateLastLoginAt: async () => undefined,
       createSession: async (_user: any, _exp: Date) => ({ token: 'session-token' }),
     }),

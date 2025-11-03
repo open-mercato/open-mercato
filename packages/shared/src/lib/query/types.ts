@@ -98,6 +98,7 @@ export type QueryOptions = {
 
 export type PartialIndexWarning = {
   entity: EntityId
+  entityLabel?: string | null
   baseCount?: number | null
   indexedCount?: number | null
   scope?: 'scoped' | 'global'

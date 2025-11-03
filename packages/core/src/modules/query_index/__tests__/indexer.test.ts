@@ -21,6 +21,7 @@ function createFakeKnex(data: {
       select: function (...cols: any[]) { ops.selects.push(cols); return this },
       where: function (...args: any[]) { ops.wheres.push(args[0]); return this },
       andWhere: function (...args: any[]) { ops.wheres.push(args[0]); return this },
+      andWhereRaw: function (sql: any, params?: any[]) { ops.wheres.push(['andWhereRaw', sql, params]); return this },
       orWhereNull: function (col: any) { ops.wheres.push(['orWhereNull', col]); return this },
       modify: function (fn: Function) {
         const qb: any = {

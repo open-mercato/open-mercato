@@ -59,6 +59,12 @@ export async function POST(req: Request) {
         case 'organizationName':
           fieldErrors.organizationName = translate('onboarding.errors.organizationNameRequired', 'Organization name is required.')
           break
+        case 'password':
+          fieldErrors.password = translate('onboarding.errors.passwordRequired', 'Password must be at least 6 characters.')
+          break
+        case 'confirmPassword':
+          fieldErrors.confirmPassword = translate('onboarding.errors.passwordMismatch', 'Passwords must match.')
+          break
         case 'termsAccepted':
           fieldErrors.termsAccepted = translate('onboarding.form.termsRequired', 'Please accept the terms to continue.')
           break

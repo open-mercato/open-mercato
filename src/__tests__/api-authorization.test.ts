@@ -32,52 +32,50 @@ type ModuleApiRouteFileWithMeta = ModuleApiRouteFile & {
   metadata?: Partial<Record<HttpMethod, RouteMetadata>>
 }
 
-const createResponseHandler = (label: string) => async () => new Response(`${label} success`)
-
-const exampleRoute: ModuleApiRouteFileWithMeta = {
-  path: '/example/test',
-  handlers: {
-    GET: createResponseHandler('GET'),
-    POST: createResponseHandler('POST'),
-    PUT: createResponseHandler('PUT'),
-    PATCH: createResponseHandler('PATCH'),
-    DELETE: createResponseHandler('DELETE'),
-  },
-  metadata: {
-    GET: {
-      requireAuth: true,
-      requireRoles: ['admin'],
-      requireFeatures: ['example.todos.view']
-    },
-    POST: {
-      requireAuth: true,
-      requireRoles: ['admin', 'superuser'],
-      requireFeatures: ['example.todos.manage']
-    },
-    PUT: {
-      requireAuth: false
-    },
-    PATCH: {
-      requireAuth: true,
-      requireRoles: ['user']
-    },
-    DELETE: {
-      requireAuth: true,
-      requireRoles: ['superuser']
-    }
-  }
+function createResponseHandler(label: string) {
+  return async () => new Response(`${label} success`)
 }
 
-const mockedModules: Module[] = [
-  {
-    id: 'example',
-    apis: [exampleRoute],
+function getMockedModules(): Module[] {
+  const exampleRoute: ModuleApiRouteFileWithMeta = {
+    path: '/example/test',
+    handlers: {
+      GET: createResponseHandler('GET'),
+      POST: createResponseHandler('POST'),
+      PUT: createResponseHandler('PUT'),
+      PATCH: createResponseHandler('PATCH'),
+      DELETE: createResponseHandler('DELETE'),
+    },
+    metadata: {
+      GET: {
+        requireAuth: true,
+        requireRoles: ['admin'],
+        requireFeatures: ['example.todos.view']
+      },
+      POST: {
+        requireAuth: true,
+        requireRoles: ['admin', 'superuser'],
+        requireFeatures: ['example.todos.manage']
+      },
+      PUT: {
+        requireAuth: false
+      },
+      PATCH: {
+        requireAuth: true,
+        requireRoles: ['user']
+      },
+      DELETE: {
+        requireAuth: true,
+        requireRoles: ['superuser']
+      }
+    }
   }
-]
+  return [{ id: 'example', apis: [exampleRoute] }]
+}
 
 // Mock the modules registry
 jest.mock('@/generated/modules.generated', () => ({
-  modules: mockedModules,
+  modules: getMockedModules(),
 }))
 
 const mockGetAuthFromRequest = getAuthFromRequest as jest.MockedFunction<typeof getAuthFromRequest>

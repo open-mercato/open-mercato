@@ -345,7 +345,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b bg-card">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 py-6 lg:flex-row lg:items-center lg:justify-between">
+        <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-4 px-6 py-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-4">
             <button
               type="button"
@@ -408,7 +408,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-8 lg:flex-row lg:gap-6">
+      <main className="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col px-6 py-8 lg:flex-row lg:gap-6">
         <aside className="hidden w-64 shrink-0 lg:block">
           <div className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto rounded-lg border bg-card p-4">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">API Categories</h2>
@@ -740,7 +740,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
       </main>
 
       <footer className="border-t bg-card">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 py-6 md:flex-row md:items-center md:justify-between">
+        <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-4 px-6 py-6 md:flex-row md:items-center md:justify-between">
           <div className="text-sm text-muted-foreground">© {new Date().getFullYear()} Open Mercato. All rights reserved.</div>
           <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             <Link href={docsUrl} target="_blank" rel="noreferrer" className="hover:text-foreground hover:underline">

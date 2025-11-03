@@ -8,7 +8,7 @@ export type WidgetScopeContext = {
   container: AppContainer
   em: EntityManager
   tenantId: string
-  organizationIds: string[]
+  organizationIds: string[] | null
 }
 
 export async function resolveWidgetScope(
@@ -33,11 +33,12 @@ export async function resolveWidgetScope(
     if (overrides?.organizationId) return [overrides.organizationId]
     if (scope?.selectedId) return [scope.selectedId]
     if (Array.isArray(scope?.filterIds) && scope.filterIds.length > 0) return scope.filterIds
+    if (scope?.allowedIds === null) return null
     if (auth.orgId) return [auth.orgId]
     return [] as string[]
   })()
 
-  if (organizationIds.length === 0) {
+  if (organizationIds !== null && organizationIds.length === 0) {
     throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
   }
 

@@ -22,7 +22,7 @@ const cacheIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['configs.manage'],
+  requireFeatures: ['configs.cache.view'],
   pageTitle: 'Cache',
   pageTitleKey: 'configs.config.nav.cache',
   pageGroup: 'Configuration',

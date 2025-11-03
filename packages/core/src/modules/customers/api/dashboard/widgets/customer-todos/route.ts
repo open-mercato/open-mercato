@@ -6,6 +6,8 @@ import { CustomerEntity, CustomerTodoLink } from '../../../../data/entities'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { FilterQuery } from '@mikro-orm/core'
+import type { EntityId } from '@/modules/entities'
 
 const querySchema = z.object({
   limit: z.coerce.number().min(1).max(20).default(5),
@@ -64,7 +66,7 @@ async function resolveTodoSummaries(
   queryEngine: QueryEngine,
   links: CustomerTodoLink[],
   tenantId: string,
-  organizationIds: string[]
+  organizationIds: string[] | null
 ): Promise<Map<string, TodoSummary>> {
   const results = new Map<string, TodoSummary>()
   if (!links.length) return results
@@ -78,15 +80,17 @@ async function resolveTodoSummaries(
     idsBySource.get(source)!.add(id)
   }
 
-  const scopedOrgIds = Array.from(new Set(organizationIds.filter((id) => typeof id === 'string' && id.length > 0)))
+  const scopedOrgIds = Array.isArray(organizationIds)
+    ? Array.from(new Set(organizationIds.filter((id) => typeof id === 'string' && id.length > 0)))
+    : null
 
   for (const [source, idSet] of idsBySource.entries()) {
     const ids = Array.from(idSet)
     if (ids.length === 0 || source === 'unknown') continue
     try {
-      const queryResult = await queryEngine.query<Record<string, unknown>>(source as any, {
+      const queryResult = await queryEngine.query<Record<string, unknown>>(source as EntityId, {
         tenantId,
-        organizationIds: scopedOrgIds.length > 0 ? scopedOrgIds : undefined,
+        organizationIds: scopedOrgIds && scopedOrgIds.length > 0 ? scopedOrgIds : undefined,
         filters: { id: { $in: ids } },
         includeCustomFields: false,
         page: { page: 1, pageSize: Math.max(ids.length, 1) },
@@ -111,18 +115,23 @@ export async function GET(req: Request) {
   const { translate } = await resolveTranslations()
   try {
     const { container, em, tenantId, organizationIds, limit } = await resolveContext(req, translate)
-    const whereOrganization =
-      organizationIds.length === 1 ? organizationIds[0] : { $in: Array.from(new Set(organizationIds)) }
+    const whereOrganization = Array.isArray(organizationIds)
+      ? organizationIds.length === 1
+        ? organizationIds[0]
+        : { $in: Array.from(new Set(organizationIds)) }
+      : null
+
+    const linkFilters = {
+      tenantId,
+      ...(whereOrganization ? { organizationId: whereOrganization } : {}),
+      entity: {
+        deletedAt: null,
+      } as FilterQuery<CustomerEntity>,
+    } as FilterQuery<CustomerTodoLink>
 
     const links = await em.find(
       CustomerTodoLink,
-      {
-        tenantId,
-        organizationId: whereOrganization as any,
-        entity: {
-          deletedAt: null,
-        } as any,
-      },
+      linkFilters,
       {
         limit,
         orderBy: { createdAt: 'desc' },

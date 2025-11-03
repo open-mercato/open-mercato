@@ -17,6 +17,7 @@ type OrganizationRow = {
   id: string
   name: string
   tenantId: string
+  tenantName?: string | null
   parentId: string | null
   parentName: string | null
   depth: number
@@ -37,6 +38,7 @@ type OrganizationsResponse = {
   page: number
   pageSize: number
   totalPages: number
+  isSuperAdmin?: boolean
 }
 
 const TREE_BASE_INDENT = 18
@@ -51,53 +53,6 @@ function computeIndent(depth: number): number {
   if (depth <= 0) return 0
   return TREE_BASE_INDENT + (depth - 1) * TREE_STEP_INDENT
 }
-
-const columns: ColumnDef<OrganizationRow>[] = [
-  {
-    accessorKey: 'name',
-    header: 'Organization',
-    cell: ({ row }) => {
-      const depth = row.original.depth ?? 0
-      return (
-        <div className="flex items-center text-sm font-medium leading-none text-foreground">
-          <span
-            style={{ marginLeft: computeIndent(depth), whiteSpace: 'pre' }}
-          >
-            {formatTreeLabel(row.original.name, depth)}
-          </span>
-        </div>
-      )
-    },
-    meta: { priority: 1 },
-  },
-  {
-    accessorKey: 'pathLabel',
-    header: 'Path',
-    meta: { priority: 3 },
-    cell: ({ getValue }) => {
-      const value = getValue<string>()
-      return <span className="text-xs text-muted-foreground">{value}</span>
-    },
-  },
-  {
-    accessorKey: 'parentName',
-    header: 'Parent',
-    meta: { priority: 4 },
-    cell: ({ getValue }) => getValue<string>() || '—',
-  },
-  {
-    accessorKey: 'childrenCount',
-    header: 'Children',
-    meta: { priority: 5 },
-  },
-  {
-    accessorKey: 'isActive',
-    header: 'Active',
-    enableSorting: false,
-    meta: { priority: 2 },
-    cell: ({ getValue }) => <BooleanIcon value={Boolean(getValue())} />,
-  },
-]
 
 export default function DirectoryOrganizationsPage() {
   const queryClient = useQueryClient()
@@ -150,6 +105,67 @@ export default function DirectoryOrganizationsPage() {
   })
 
   const rows = data?.items ?? []
+  const isSuperAdmin = data?.isSuperAdmin ?? false
+  const columns = React.useMemo<ColumnDef<OrganizationRow>[]>(() => {
+    const base: ColumnDef<OrganizationRow>[] = [
+      {
+        accessorKey: 'name',
+        header: 'Organization',
+        cell: ({ row }) => {
+          const depth = row.original.depth ?? 0
+          return (
+            <div className="flex items-center text-sm font-medium leading-none text-foreground">
+              <span
+                style={{ marginLeft: computeIndent(depth), whiteSpace: 'pre' }}
+              >
+                {formatTreeLabel(row.original.name, depth)}
+              </span>
+            </div>
+          )
+        },
+        meta: { priority: 1 },
+      },
+      {
+        accessorKey: 'pathLabel',
+        header: 'Path',
+        meta: { priority: 3 },
+        cell: ({ getValue }) => {
+          const value = getValue<string>()
+          return <span className="text-xs text-muted-foreground">{value}</span>
+        },
+      },
+      {
+        accessorKey: 'parentName',
+        header: 'Parent',
+        meta: { priority: 4 },
+        cell: ({ getValue }) => getValue<string>() || '—',
+      },
+      {
+        accessorKey: 'childrenCount',
+        header: 'Children',
+        meta: { priority: 5 },
+      },
+      {
+        accessorKey: 'isActive',
+        header: 'Active',
+        enableSorting: false,
+        meta: { priority: 2 },
+        cell: ({ getValue }) => <BooleanIcon value={Boolean(getValue())} />, 
+      },
+    ]
+    if (isSuperAdmin) {
+      base.splice(1, 0, {
+        accessorKey: 'tenantName',
+        header: 'Tenant',
+        meta: { priority: 2 },
+        cell: ({ row }) => {
+          const value = row.original.tenantName ?? row.original.tenantId
+          return <span className="text-xs text-muted-foreground">{value}</span>
+        },
+      })
+    }
+    return base
+  }, [isSuperAdmin])
   const total = data?.total ?? 0
   const totalPages = data?.totalPages ?? 1
 
@@ -160,8 +176,9 @@ export default function DirectoryOrganizationsPage() {
       if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete organization'))
       await queryClient.invalidateQueries({ queryKey: ['directory-organizations'] })
       flash('Organization deleted', 'success')
-    } catch (err: any) {
-      flash(err?.message || 'Failed to delete organization', 'error')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to delete organization'
+      flash(message, 'error')
     }
   }, [queryClient])
 

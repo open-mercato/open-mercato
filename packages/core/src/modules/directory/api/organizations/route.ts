@@ -1,14 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { organizationCreateSchema, organizationUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import {
   computeHierarchyForOrganizations,
-  rebuildHierarchyForTenant,
+  type ComputedHierarchy,
   type ComputedOrganizationNode,
 } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
@@ -28,6 +27,7 @@ import {
   directoryOkSchema,
   organizationListResponseSchema,
 } from '../openapi'
+import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 
 type CrudInput = Record<string, unknown>
 const rawBodySchema = z.object({}).passthrough()
@@ -68,7 +68,14 @@ function stringId(value: unknown): string {
   return String(value)
 }
 
-function enforceTenantScope(authTenantId: string | null, requestedTenantId?: string | null): string | null {
+function enforceTenantScope(
+  authTenantId: string | null,
+  requestedTenantId: string | null,
+  isSuperAdmin: boolean,
+): string | null {
+  if (isSuperAdmin) {
+    return requestedTenantId || authTenantId || null
+  }
   if (authTenantId && requestedTenantId && requestedTenantId !== authTenantId) {
     return null
   }
@@ -133,16 +140,18 @@ export async function GET(req: Request) {
 
   const query = parsed.data
   const ids = parseIds(query.ids ?? null)
-  const requestedTenantId = query.tenantId ?? null
+  const requestedTenantRaw = query.tenantId ?? null
+  const normalizedRequestedTenantId = requestedTenantRaw && requestedTenantRaw.toLowerCase() === 'all' ? null : requestedTenantRaw
   const authTenantId = auth.tenantId ?? null
-  let tenantId = enforceTenantScope(authTenantId, requestedTenantId)
+  const container = await createRequestContainer()
+  const isSuperAdmin = await resolveIsSuperAdmin({ auth, container })
+  const em = (container.resolve('em') as EntityManager)
+  const allowAllTenants = isSuperAdmin && !normalizedRequestedTenantId && query.view === 'manage'
+  let tenantId = allowAllTenants ? null : enforceTenantScope(authTenantId, normalizedRequestedTenantId, isSuperAdmin)
   const status = query.status ?? 'all'
   const includeInactive = query.includeInactive === 'true' || status !== 'active'
 
-  const container = await createRequestContainer()
-  const em = (container.resolve('em') as EntityManager)
-
-  if (!tenantId && !authTenantId && ids?.length) {
+  if (!allowAllTenants && !tenantId && !authTenantId && ids?.length) {
     const scopedOrgs: Organization[] = await em.find(
       Organization,
       { id: { $in: ids }, deletedAt: null },
@@ -160,7 +169,7 @@ export async function GET(req: Request) {
     }
   }
 
-  if (!tenantId) {
+  if (!allowAllTenants && !tenantId) {
     const candidateOrgIds = new Set<string>()
     const cookieOrgId = getSelectedOrganizationFromRequest(req)
     const effectiveCookieOrgId = cookieOrgId && !isAllOrganizationsSelection(cookieOrgId) ? cookieOrgId : null
@@ -197,11 +206,14 @@ export async function GET(req: Request) {
     }
   }
 
-  if (!tenantId) {
+  if (!allowAllTenants && !tenantId) {
     return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
   }
 
   if (query.view === 'options') {
+    if (!tenantId) {
+      return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
+    }
     const where: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
     if (status === 'active') where.isActive = true
     if (status === 'inactive') where.isActive = false
@@ -232,11 +244,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ items })
   }
 
-  const orgListFilter: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
-  const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
-  const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
-
   if (query.view === 'tree') {
+    if (!tenantId) {
+      return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
+    }
+    const orgListFilter: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
+    const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
+    const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
     const nodeMap = new Map<string, { node: ComputedOrganizationNode; children: TreeNode[] }>()
     const roots: TreeNode[] = []
     for (const node of hierarchy.ordered) {
@@ -276,7 +290,149 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: roots })
   }
 
-  // Manage view: paginated flat list
+  if (query.view !== 'manage') {
+    return NextResponse.json({ items: [] }, { status: 400 })
+  }
+
+  if (allowAllTenants) {
+    // Multi-tenant aggregate view for super administrators
+    const search = (query.search || '').trim().toLowerCase()
+    const allOrgs = await em.find(
+      Organization,
+      { deletedAt: null },
+      { orderBy: { name: 'ASC' }, populate: ['tenant'] }
+    )
+    const byTenant = new Map<string, Organization[]>()
+    for (const org of allOrgs) {
+      const tenantEntity = org.tenant
+      const tid = tenantEntity ? stringId(tenantEntity.id) : null
+      if (!tid) continue
+      if (!byTenant.has(tid)) byTenant.set(tid, [])
+      byTenant.get(tid)!.push(org)
+    }
+
+    const tenantIds = Array.from(byTenant.keys())
+    const tenants = tenantIds.length
+      ? await em.find(Tenant, { id: { $in: tenantIds as unknown as string[] } })
+      : []
+    const tenantNameMap = tenants.reduce<Record<string, string>>((acc, tenant) => {
+      const tid = stringId(tenant.id)
+      const name = typeof tenant.name === 'string' && tenant.name.length > 0 ? tenant.name : tid
+      acc[tid] = name
+      return acc
+    }, {})
+
+    const hierarchies = new Map<string, ComputedHierarchy>()
+    const orderedNodes: Array<{ tenantId: string; node: ComputedOrganizationNode }> = []
+    for (const [tid, orgs] of byTenant.entries()) {
+      const hierarchy = computeHierarchyForOrganizations(orgs, tid)
+      hierarchies.set(tid, hierarchy)
+      for (const node of hierarchy.ordered) {
+        orderedNodes.push({ tenantId: tid, node })
+      }
+    }
+
+    let rows = orderedNodes
+    if (query.status === 'active') {
+      rows = rows.filter((entry) => entry.node.isActive)
+    } else if (query.status === 'inactive') {
+      rows = rows.filter((entry) => !entry.node.isActive)
+    }
+
+    if (search) {
+      rows = rows.filter(({ node }) => {
+        const pathLabel = (node.pathLabel || '').toLowerCase()
+        return node.name.toLowerCase().includes(search) || pathLabel.includes(search)
+      })
+    }
+    if (ids) {
+      const idSet = new Set(ids)
+      rows = rows.filter(({ node }) => idSet.has(node.id))
+    }
+
+    rows.sort((a, b) => {
+      const nameA = tenantNameMap[a.tenantId] ?? a.tenantId
+      const nameB = tenantNameMap[b.tenantId] ?? b.tenantId
+      const tenantCompare = nameA.localeCompare(nameB)
+      if (tenantCompare !== 0) return tenantCompare
+      return a.node.pathLabel.localeCompare(b.node.pathLabel)
+    })
+
+    const total = rows.length
+    const pageSize = query.pageSize
+    const page = query.page
+    const start = (page - 1) * pageSize
+    const paged = rows.slice(start, start + pageSize)
+    const recordIds: string[] = []
+    const tenantIdByRecord: Record<string, string | null> = {}
+    const organizationIdByRecord: Record<string, string | null> = {}
+    for (const entry of paged) {
+      const recordId = String(entry.node.id)
+      recordIds.push(recordId)
+      tenantIdByRecord[recordId] = entry.tenantId
+      organizationIdByRecord[recordId] = recordId
+    }
+    const tenantFallbacks = Array.from(new Set(recordIds.map((id) => tenantIdByRecord[id]).filter((value): value is string => typeof value === 'string' && value.length > 0)))
+    const cfByOrg = recordIds.length
+      ? await loadCustomFieldValues({
+          em,
+          entityId: E.directory.organization,
+          recordIds,
+          tenantIdByRecord,
+          organizationIdByRecord,
+          tenantFallbacks,
+        })
+      : {}
+    const items = paged.map(({ tenantId: tid, node }) => {
+      const hierarchy = hierarchies.get(tid)
+      const parentName = node.parentId && hierarchy ? hierarchy.map.get(node.parentId)?.name ?? null : null
+      const pathLabel = node.pathLabel || node.name
+      const recordId = String(node.id)
+      return {
+        id: node.id,
+        name: node.name,
+        tenantId: tid,
+        tenantName: tenantNameMap[tid] ?? tid,
+        parentId: node.parentId,
+        parentName,
+        depth: node.depth,
+        rootId: node.rootId,
+        treePath: node.treePath,
+        pathLabel,
+        ancestorIds: node.ancestorIds,
+        childIds: node.childIds,
+        descendantIds: node.descendantIds,
+        childrenCount: node.childIds.length,
+        descendantsCount: node.descendantIds.length,
+        isActive: node.isActive,
+        ...(cfByOrg[recordId] ?? {}),
+      }
+    })
+    const totalPages = Math.max(1, Math.ceil(total / pageSize))
+    await logCrudAccess({
+      container,
+      auth,
+      request: req,
+      items,
+      idField: 'id',
+      resourceKind: 'directory.organization',
+      organizationId: null,
+      tenantId: null,
+      query,
+      accessType: ids && ids.length === 1 ? 'read:item' : undefined,
+    })
+    return NextResponse.json({ items, total, page, pageSize, totalPages, isSuperAdmin })
+  }
+
+  if (!tenantId) {
+    return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
+  }
+
+  const orgListFilter: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
+  const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
+  const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
+
+  // Manage view: paginated flat list for a single tenant
   const search = (query.search || '').trim().toLowerCase()
   let rows = hierarchy.ordered
   if (status === 'active') {
@@ -320,6 +476,14 @@ export async function GET(req: Request) {
         tenantFallbacks: tenantId ? [tenantId] : [],
       })
     : {}
+  let tenantName: string | null = null
+  if (isSuperAdmin && tenantId) {
+    const tenant = await em.findOne(Tenant, { id: tenantId })
+    if (tenant) {
+      const display = typeof tenant.name === 'string' && tenant.name.length > 0 ? tenant.name : stringId(tenant.id)
+      tenantName = display
+    }
+  }
   const items = paged.map((node) => {
     const parentName = node.parentId ? hierarchy.map.get(node.parentId)?.name ?? null : null
     const pathLabel = node.pathLabel || node.name
@@ -328,6 +492,7 @@ export async function GET(req: Request) {
       id: node.id,
       name: node.name,
       tenantId: node.tenantId,
+      tenantName,
       parentId: node.parentId,
       parentName,
       depth: node.depth,
@@ -356,7 +521,7 @@ export async function GET(req: Request) {
     query,
     accessType: ids && ids.length === 1 ? 'read:item' : undefined,
   })
-  return NextResponse.json({ items, total, page, pageSize, totalPages })
+  return NextResponse.json({ items, total, page, pageSize, totalPages, isSuperAdmin })
 }
 
 export const POST = crud.POST

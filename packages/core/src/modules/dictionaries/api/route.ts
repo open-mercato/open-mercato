@@ -23,10 +23,14 @@ export async function GET(req: Request) {
     const url = new URL(req.url)
     const includeInactive = (url.searchParams.get('includeInactive') ?? '').toLowerCase() === 'true'
 
+    const organizationFilter = context.readableOrganizationIds.length
+      ? { organizationId: { $in: context.readableOrganizationIds } }
+      : {}
+
     const items = await context.em.find(
       Dictionary,
       {
-        organizationId: { $in: context.readableOrganizationIds },
+        ...organizationFilter,
         tenantId: context.tenantId,
         deletedAt: null,
         ...(includeInactive ? {} : { isActive: true }),
@@ -44,7 +48,7 @@ export async function GET(req: Request) {
         isActive: dictionary.isActive,
         managerVisibility: dictionary.managerVisibility,
         organizationId: dictionary.organizationId,
-        isInherited: dictionary.organizationId !== context.organizationId,
+        isInherited: context.organizationId ? dictionary.organizationId !== context.organizationId : false,
         createdAt: dictionary.createdAt,
         updatedAt: dictionary.updatedAt,
       })),
@@ -63,6 +67,9 @@ export async function POST(req: Request) {
     const context = await resolveDictionariesRouteContext(req)
     const payload = upsertDictionarySchema.parse(await req.json().catch(() => ({})))
     const key = payload.key.trim().toLowerCase()
+    if (!context.organizationId) {
+      throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.organization_required', 'Organization context is required') })
+    }
 
     const existing = await context.em.findOne(Dictionary, {
       organizationId: context.organizationId,

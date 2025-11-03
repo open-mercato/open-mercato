@@ -111,9 +111,14 @@
   "organizationSwitcher.error": "Laden fehlgeschlagen",
   "organizationSwitcher.empty": "Keine Organisationen",
   "organizationSwitcher.manage": "Verwalten",
+  "organizationSwitcher.tenantLabel": "Tenant",
   "organizationSelect.all": "Alle Organisationen",
   "organizationSelect.empty": "—",
   "organizationSelect.loading": "Organisationen werden geladen…",
   "organizationSelect.error": "Organisationen konnten nicht geladen werden",
-  "organizationSelect.inactive": "Inaktiv"
+  "organizationSelect.inactive": "Inaktiv",
+  "tenantSelect.empty": "—",
+  "tenantSelect.loading": "Mandanten werden geladen…",
+  "tenantSelect.error": "Mandanten konnten nicht geladen werden",
+  "tenantSelect.inactive": "Inaktiv"
 }

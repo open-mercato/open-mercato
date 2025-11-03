@@ -65,6 +65,12 @@ function matchPattern(value: string, pattern: string): boolean {
 }
 
 function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
+  function normalizeDeletionCount(raw: number): number {
+    if (!raw) return raw
+    if (!Number.isFinite(raw)) return raw
+    return Math.ceil(raw / 2)
+  }
+
   const get = async (key: string, options?: CacheGetOptions) => {
     const prefixes = resolveTenantPrefixes()
     return base.get(storageKey(key, prefixes), options)
@@ -73,13 +79,14 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
   const set = async (key: string, value: any, options?: CacheSetOptions) => {
     const prefixes = resolveTenantPrefixes()
     const hashedTags = buildTagSet(options?.tags, prefixes, true)
+    const ttl = options?.ttl ?? undefined
     const nextOptions: CacheSetOptions | undefined = options
       ? { ...options, tags: hashedTags }
       : { tags: hashedTags }
     await base.set(storageKey(key, prefixes), value, nextOptions)
-    // Persist metadata for original key to support introspection and key listings
-    await base.set(metaKey(key, prefixes), key, {
-      ttl: options?.ttl,
+    const metaPayload = { key, expiresAt: ttl ? Date.now() + ttl : null }
+    await base.set(metaKey(key, prefixes), metaPayload, {
+      ttl,
       tags: hashedTags,
     })
   }
@@ -100,12 +107,14 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
     const prefixes = resolveTenantPrefixes()
     const scopedTags = buildTagSet(tags, prefixes, false)
     if (!scopedTags.length) return 0
-    return base.deleteByTags(scopedTags)
+    const removed = await base.deleteByTags(scopedTags)
+    return normalizeDeletionCount(removed)
   }
 
   const clear = async () => {
     const prefixes = resolveTenantPrefixes()
-    return base.deleteByTags([prefixes.scopeTag])
+    const removed = await base.deleteByTags([prefixes.scopeTag])
+    return normalizeDeletionCount(removed)
   }
 
   const keys = async (pattern?: string) => {
@@ -114,8 +123,14 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
     const metaKeys = await base.keys(metaPattern)
     const originals: string[] = []
     for (const metaKey of metaKeys) {
-      const original = await base.get(metaKey)
-      if (typeof original !== 'string' || !original.length) continue
+      const meta = await base.get(metaKey, { returnExpired: true })
+      if (!meta) continue
+      const original = typeof meta === 'string'
+        ? meta
+        : (typeof meta === 'object' && meta !== null && typeof (meta as any).key === 'string'
+          ? (meta as any).key
+          : null)
+      if (!original) continue
       if (pattern && !matchPattern(original, pattern)) continue
       originals.push(original)
     }
@@ -123,12 +138,31 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
   }
 
   const stats = async () => {
-    const total = await keys()
-    return { size: total.length, expired: 0 }
+    const prefixes = resolveTenantPrefixes()
+    const metaKeys = await base.keys(`${prefixes.keyPrefix}meta:*`)
+    let size = 0
+    let expired = 0
+    const now = Date.now()
+    for (const metaKey of metaKeys) {
+      const meta = await base.get(metaKey, { returnExpired: true })
+      if (!meta) continue
+      const original = typeof meta === 'string'
+        ? meta
+        : (typeof meta === 'object' && meta !== null && typeof (meta as any).key === 'string'
+          ? (meta as any).key
+          : null)
+      if (!original) continue
+      size++
+      const expiresAt = typeof meta === 'object' && meta !== null && typeof (meta as any).expiresAt === 'number'
+        ? (meta as any).expiresAt as number
+        : null
+      if (expiresAt !== null && expiresAt <= now) expired++
+    }
+    return { size, expired }
   }
 
   const cleanup = base.cleanup
-    ? async () => base.cleanup!()
+    ? async () => normalizeDeletionCount(await base.cleanup!())
     : undefined
 
   const close = base.close

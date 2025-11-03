@@ -20,9 +20,15 @@ export class AuthService {
     await this.em.flush()
   }
 
-  async getUserRoles(user: User): Promise<string[]> {
-    const links = await this.em.find(UserRole, { user }, { populate: ['role'] })
-    return links.map(l => l.role.name)
+  async getUserRoles(user: User, tenantId?: string | null): Promise<string[]> {
+    const resolvedTenantId = tenantId ?? user.tenantId ?? null
+    if (!resolvedTenantId) return []
+    const links = await this.em.find(
+      UserRole,
+      { user, role: { tenantId: resolvedTenantId } as any },
+      { populate: ['role'] },
+    )
+    return links.map((l) => l.role.name)
   }
 
 
@@ -43,7 +49,7 @@ export class AuthService {
     if (!sess || sess.expiresAt <= now) return null
     const user = await this.em.findOne(User, { id: sess.user.id })
     if (!user) return null
-    const roles = await this.getUserRoles(user)
+    const roles = await this.getUserRoles(user, user.tenantId ?? null)
     return { user, roles }
   }
 

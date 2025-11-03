@@ -13,7 +13,7 @@ export function useOrganizationScopeVersion(): number {
 }
 
 export function useOrganizationScopeDetail(): OrganizationScopeChangedDetail {
-  const [detail, setDetail] = React.useState<OrganizationScopeChangedDetail>({ organizationId: null })
+  const [detail, setDetail] = React.useState<OrganizationScopeChangedDetail>({ organizationId: null, tenantId: null })
   React.useEffect(() => {
     return subscribeOrganizationScopeChanged((next) => {
       setDetail(next)

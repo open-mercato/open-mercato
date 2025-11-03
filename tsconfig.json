@@ -24,6 +24,7 @@
         "name": "next"
       }
     ],
+    "typeRoots": ["./types", "./node_modules/@types"],
     "paths": {
       "@/*": ["./src/*"],
       "@/lib/*": ["./packages/shared/src/lib/*"],

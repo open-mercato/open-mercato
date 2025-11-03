@@ -33,6 +33,9 @@ export const metadata = {
 export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: string } }) {
   try {
     const routeContext = await resolveDictionaryRouteContext(req)
+    if (!routeContext.organizationId) {
+      throw new CrudHttpError(400, { error: routeContext.translate('customers.errors.organization_required', 'Organization context is required') })
+    }
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
     const payload = patchSchema.parse(await req.json().catch(() => ({})))
@@ -118,6 +121,9 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
 export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?: string } }) {
   try {
     const routeContext = await resolveDictionaryRouteContext(req)
+    if (!routeContext.organizationId) {
+      throw new CrudHttpError(400, { error: routeContext.translate('customers.errors.organization_required', 'Organization context is required') })
+    }
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
     const commandBus = (routeContext.container.resolve('commandBus') as CommandBus)

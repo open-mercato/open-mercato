@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerEntity, type CustomerEntityKind } from '../../../../data/entities'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { FilterQuery } from '@mikro-orm/core'
 
 const querySchema = z.object({
   limit: z.coerce.number().min(1).max(20).default(5),
@@ -52,17 +53,18 @@ export async function GET(req: Request) {
   const { translate } = await resolveTranslations()
   try {
     const { em, tenantId, organizationIds, limit, kind } = await resolveContext(req, translate)
-    const whereOrganization =
-      organizationIds.length === 1 ? organizationIds[0] : { $in: Array.from(new Set(organizationIds)) }
 
-    const where: Record<string, unknown> = {
+    const where: FilterQuery<CustomerEntity> = {
       tenantId,
-      organizationId: whereOrganization as any,
       deletedAt: null,
+    }
+    if (Array.isArray(organizationIds)) {
+      where.organizationId =
+        organizationIds.length === 1 ? organizationIds[0] : { $in: Array.from(new Set(organizationIds)) }
     }
     if (kind) where.kind = kind
 
-    const entities = await em.find(CustomerEntity, where as any, {
+    const entities = await em.find(CustomerEntity, where, {
       limit,
       orderBy: { createdAt: 'desc' as const },
     })

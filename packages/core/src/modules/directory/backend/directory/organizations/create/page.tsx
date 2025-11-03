@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
+import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -62,31 +63,73 @@ function TreeCheckboxGroup({ nodes, selected, onToggle, level }: { nodes: Organi
   )
 }
 
-const groups: CrudFormGroup[] = [
-  { id: 'details', title: 'Details', column: 1, fields: ['name', 'parentId', 'childIds', 'isActive'] },
-  { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
-]
-
 export default function CreateOrganizationPage() {
   const [tree, setTree] = React.useState<OrganizationTreeNode[]>([])
+  const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+  const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
+
+  const loadTree = React.useCallback(async (tenantId: string | null) => {
+    const params = new URLSearchParams({ view: 'tree', includeInactive: 'true' })
+    if (tenantId) params.set('tenantId', tenantId)
+    try {
+      const res = await apiFetch(`/api/directory/organizations?${params.toString()}`)
+      if (!res.ok) {
+        setTree([])
+        return
+      }
+      const data: TreeResponse = await res.json()
+      const items = Array.isArray(data.items) ? data.items : []
+      setTree(items)
+    } catch {
+      setTree([])
+    }
+  }, [])
 
   React.useEffect(() => {
     let cancelled = false
-    async function loadTree() {
+    async function bootstrap() {
       try {
-        const res = await apiFetch('/api/directory/organizations?view=tree')
-        if (!res.ok) return
-        const data: TreeResponse = await res.json()
-        if (cancelled) return
-        const items = Array.isArray(data.items) ? data.items : []
-        setTree(items)
-      } catch {}
+        const res = await apiFetch('/api/auth/roles?page=1&pageSize=1')
+        if (res.ok) {
+          const payload = await res.json().catch(() => ({}))
+          if (!cancelled) setActorIsSuperAdmin(Boolean(payload?.isSuperAdmin))
+        }
+      } catch {
+        if (!cancelled) setActorIsSuperAdmin(false)
+      }
+      if (!cancelled) await loadTree(null)
     }
-    loadTree()
+    bootstrap()
     return () => { cancelled = true }
-  }, [])
+  }, [loadTree])
+
+  React.useEffect(() => {
+    if (!actorIsSuperAdmin) return
+    void loadTree(selectedTenantId)
+  }, [actorIsSuperAdmin, loadTree, selectedTenantId])
 
   const fields = React.useMemo<CrudField[]>(() => [
+    ...(actorIsSuperAdmin ? [
+      {
+        id: 'tenantId',
+        label: 'Tenant',
+        type: 'custom',
+        required: true,
+        component: ({ value, setValue }) => (
+          <TenantSelect
+            id="tenantId"
+            value={typeof value === 'string' ? value : selectedTenantId}
+            onChange={(next) => {
+              const normalized = next ?? null
+              setSelectedTenantId(normalized)
+              setValue(normalized)
+            }}
+            includeEmptyOption={false}
+            className="w-full h-9 rounded border px-2 text-sm"
+          />
+        ),
+      } as CrudField,
+    ] : []),
     { id: 'name', label: 'Name', type: 'text', required: true },
     {
       id: 'parentId',
@@ -97,7 +140,8 @@ export default function CreateOrganizationPage() {
           id={id}
           value={value ? String(value) : null}
           onChange={(next) => setValue(next ?? '')}
-          fetchOnMount= {true}
+          tenantId={selectedTenantId}
+          fetchOnMount={true}
           includeEmptyOption
           emptyOptionLabel="— Root level —"
           className="w-full h-9 rounded border px-2 text-sm"
@@ -117,7 +161,18 @@ export default function CreateOrganizationPage() {
       ),
     },
     { id: 'isActive', label: 'Active', type: 'checkbox' },
-  ], [tree])
+  ], [actorIsSuperAdmin, selectedTenantId, tree])
+
+  const detailFields = React.useMemo(() => (
+    actorIsSuperAdmin
+      ? ['tenantId', 'name', 'parentId', 'childIds', 'isActive']
+      : ['name', 'parentId', 'childIds', 'isActive']
+  ), [actorIsSuperAdmin])
+
+  const groups: CrudFormGroup[] = React.useMemo(() => ([
+    { id: 'details', title: 'Details', column: 1, fields: detailFields },
+    { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
+  ]), [detailFields])
 
   return (
     <Page>
@@ -128,11 +183,14 @@ export default function CreateOrganizationPage() {
           fields={fields}
           groups={groups}
           entityId={E.directory.organization}
-          initialValues={{ name: '', parentId: '', childIds: [], isActive: true }}
+          initialValues={{ tenantId: selectedTenantId ?? null, name: '', parentId: '', childIds: [], isActive: true }}
           submitLabel="Create"
           cancelHref="/backend/directory/organizations"
           successRedirect="/backend/directory/organizations?flash=Organization%20created&type=success"
           onSubmit={async (values) => {
+            if (actorIsSuperAdmin && !selectedTenantId && typeof values.tenantId !== 'string') {
+              throw new Error('Tenant selection is required for super administrators')
+            }
             const customFields: Record<string, unknown> = {}
             for (const [key, value] of Object.entries(values)) {
               if (key.startsWith('cf_')) customFields[key.slice(3)] = value
@@ -144,12 +202,17 @@ export default function CreateOrganizationPage() {
               parentId: string | null
               childIds: string[]
               customFields?: Record<string, unknown>
+              tenantId?: string
             } = {
               name: values.name,
               isActive: values.isActive !== false,
               parentId: values.parentId ? values.parentId : null,
               childIds: Array.isArray(values.childIds) ? values.childIds : [],
             }
+            const tenantValue = typeof values.tenantId === 'string' && values.tenantId.trim().length > 0
+              ? values.tenantId.trim()
+              : selectedTenantId
+            if (tenantValue) payload.tenantId = tenantValue
             if (Object.keys(customFields).length) {
               payload.customFields = customFields
             }

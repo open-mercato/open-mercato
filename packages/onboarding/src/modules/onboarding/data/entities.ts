@@ -33,6 +33,9 @@ export class OnboardingRequest {
   @Property({ name: 'terms_accepted', type: 'boolean', default: false })
   termsAccepted: boolean = false
 
+  @Property({ name: 'password_hash', type: 'text', nullable: true })
+  passwordHash?: string | null
+
   @Property({ name: 'expires_at', type: Date })
   expiresAt!: Date
 

@@ -5,9 +5,17 @@ import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { computeHierarchyForOrganizations, type ComputedHierarchy } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
-import { getSelectedOrganizationFromRequest, resolveOrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import {
+  getSelectedOrganizationFromRequest,
+  getSelectedTenantFromRequest,
+  resolveOrganizationScope,
+} from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { directoryTag, directoryErrorSchema, organizationSwitcherResponseSchema } from '../openapi'
+import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { FilterQuery } from '@mikro-orm/core'
 
 type OrganizationMenuNode = {
   id: string
@@ -83,39 +91,88 @@ export const metadata = {
 
 export async function GET(req: NextRequest) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.tenantId || !auth.sub) {
-    return NextResponse.json({ items: [], selectedId: null, canManage: false }, { status: auth ? 200 : 401 })
+  if (!auth || !auth.sub) {
+    return NextResponse.json({ items: [], selectedId: null, canManage: false, tenantId: null, tenants: [], isSuperAdmin: false }, { status: auth ? 200 : 401 })
   }
 
   const url = new URL(req.url)
 
   try {
     const container = await createRequestContainer()
-    const em = container.resolve('em') as any
-    const rbac = container.resolve('rbacService') as any
+    const em = container.resolve<EntityManager>('em')
+    const rbac = container.resolve<RbacService>('rbacService')
 
-    const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId, organizationId: auth.orgId ?? null })
-    const hasManageFeature =
-      acl.isSuperAdmin ||
-      await rbac.userHasAllFeatures(auth.sub, ['directory.organizations.manage'], {
-        tenantId: auth.tenantId,
-        organizationId: auth.orgId ?? null,
+    const rawTenantParam = url.searchParams.get('tenantId')
+    const cookieTenant = getSelectedTenantFromRequest(req)
+    const actorTenantId = typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null
+    const actorIsSuperAdmin = auth.isSuperAdmin === true
+
+    let requestedTenantId = rawTenantParam ?? (cookieTenant ?? undefined)
+    if (requestedTenantId === '') requestedTenantId = undefined
+    let tenantId = typeof requestedTenantId === 'string' && requestedTenantId.trim().length > 0 ? requestedTenantId.trim() : null
+
+    let tenantRecords: { id: string; name: string; isActive: boolean }[] = []
+    if (actorIsSuperAdmin) {
+      const tenants = await em.find(Tenant, { deletedAt: null }, { orderBy: { name: 'ASC' } })
+      tenantRecords = tenants.map((tenant: Tenant) => ({
+        id: String(tenant.id),
+        name: typeof tenant.name === 'string' && tenant.name.length > 0 ? tenant.name : String(tenant.id),
+        isActive: tenant.isActive !== false,
+      }))
+      if (!tenantId) tenantId = actorTenantId ?? (tenantRecords[0]?.id ?? null)
+      if (tenantId && tenantRecords.length && !tenantRecords.some((record) => record.id === tenantId)) {
+        tenantId = tenantRecords[0]?.id ?? tenantId
+      }
+    } else {
+      tenantId = actorTenantId
+    }
+
+    if (!tenantId) {
+      return NextResponse.json({
+        items: [],
+        selectedId: null,
+        canManage: false,
+        tenantId: null,
+        tenants: tenantRecords,
+        isSuperAdmin: actorIsSuperAdmin,
       })
+    }
 
+    const scopedOrgId = actorTenantId && actorTenantId === tenantId ? auth.orgId ?? null : null
+    const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId: scopedOrgId })
+    const aclIsSuperAdmin = acl?.isSuperAdmin === true
+    const effectiveIsSuperAdmin = actorIsSuperAdmin || aclIsSuperAdmin
+    const hasManageFeature =
+      aclIsSuperAdmin ||
+      await rbac.userHasAllFeatures(auth.sub, ['directory.organizations.manage'], {
+        tenantId,
+        organizationId: scopedOrgId,
+      }) ||
+      actorIsSuperAdmin
+
+    const orgFilter: FilterQuery<Organization> = {
+      tenant: tenantId,
+      deletedAt: null,
+    }
     const orgEntities: Organization[] = await em.find(
       Organization,
-      { tenant: auth.tenantId as any, deletedAt: null },
+      orgFilter,
       { orderBy: { name: 'ASC' } },
     )
-    const hierarchy = computeHierarchyForOrganizations(orgEntities, auth.tenantId)
+    const hierarchy = computeHierarchyForOrganizations(orgEntities, tenantId)
     const rawSelected = getSelectedOrganizationFromRequest(req)
     let hasSelectionCookie = rawSelected !== null
     const requestedAll = isAllOrganizationsSelection(rawSelected)
     const scope = await resolveOrganizationScope({
       em,
       rbac,
-      auth,
+      auth: {
+        ...auth,
+        tenantId,
+        orgId: scopedOrgId,
+      },
       selectedId: requestedAll ? null : rawSelected,
+      tenantId,
     })
     const accessible = scope.allowedIds
     const menuData = buildOrganizationMenu(hierarchy, accessible)
@@ -133,7 +190,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const showMenu = menuData.nodes.length > 0 || hasManageFeature || acl.isSuperAdmin
+    const showMenu = menuData.nodes.length > 0 || hasManageFeature || effectiveIsSuperAdmin
     if (!showMenu) {
       return NextResponse.json({ items: [], selectedId: null, canManage: false })
     }
@@ -142,6 +199,9 @@ export async function GET(req: NextRequest) {
       items: menuData.nodes,
       selectedId,
       canManage: !!hasManageFeature,
+      tenantId,
+      tenants: tenantRecords,
+      isSuperAdmin: effectiveIsSuperAdmin,
     }
 
     await logCrudAccess({
@@ -151,15 +211,15 @@ export async function GET(req: NextRequest) {
       items: response.items,
       idField: 'id',
       resourceKind: 'directory.organization_switcher',
-      organizationId: auth.orgId ?? null,
-      tenantId: auth.tenantId ?? null,
+      organizationId: response.selectedId,
+      tenantId,
       query: Object.fromEntries(url.searchParams.entries()),
     })
 
     return NextResponse.json(response)
   } catch (err) {
     console.error('Failed to build organization switcher payload', err)
-    return NextResponse.json({ items: [], selectedId: null, canManage: false }, { status: 500 })
+    return NextResponse.json({ items: [], selectedId: null, canManage: false, tenantId: null, tenants: [], isSuperAdmin: false }, { status: 500 })
   }
 }
 

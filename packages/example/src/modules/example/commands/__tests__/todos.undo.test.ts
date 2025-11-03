@@ -36,32 +36,38 @@ function createCtx(
   overrides: Partial<CommandRuntimeContext> = {}
 ): { ctx: CommandRuntimeContext; dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent' | 'markOrmEntityChange' | 'flushOrmEntityChanges'> } {
   const pending: any[] = []
+  const updateOrmEntity = jest.fn(async ({ apply }: Parameters<DataEngine['updateOrmEntity']>[0]) => {
+    const entity = {
+      id: 'todo-1',
+      title: 'After title',
+      isDone: true,
+      tenantId: 'tenant-1',
+      organizationId: 'org-current',
+      deletedAt: null,
+    } as unknown as Todo
+    await (apply as (current: Todo) => Promise<void> | void)(entity)
+    return entity
+  })
+  const deleteOrmEntity = jest.fn(async () => null)
+  const setCustomFields = jest.fn(async (_opts: Parameters<DataEngine['setCustomFields']>[0]) => undefined)
+  const emitOrmEntityEvent = jest.fn(async (_opts: Parameters<DataEngine['emitOrmEntityEvent']>[0]) => undefined)
+  const markOrmEntityChange = jest.fn((entry: Parameters<DataEngine['markOrmEntityChange']>[0]) => {
+    if (!entry || !entry.entity) return
+    pending.push(entry)
+  })
+  const flushOrmEntityChanges = jest.fn(async () => {
+    while (pending.length > 0) {
+      const next = pending.shift()
+      if (next) await emitOrmEntityEvent(next as Parameters<DataEngine['emitOrmEntityEvent']>[0])
+    }
+  })
   const dataEngine: Pick<DataEngine, 'updateOrmEntity' | 'deleteOrmEntity' | 'setCustomFields' | 'emitOrmEntityEvent' | 'markOrmEntityChange' | 'flushOrmEntityChanges'> = {
-    updateOrmEntity: jest.fn(async ({ apply }) => {
-      const entity = {
-        id: 'todo-1',
-        title: 'After title',
-        isDone: true,
-        tenantId: 'tenant-1',
-        organizationId: 'org-current',
-        deletedAt: null,
-      } as unknown as Todo
-      await apply(entity)
-      return entity
-    }),
-    deleteOrmEntity: jest.fn(async () => null),
-    setCustomFields: jest.fn(async () => {}),
-    emitOrmEntityEvent: jest.fn(async () => {}),
-    markOrmEntityChange: jest.fn((entry: any) => {
-      if (!entry || !entry.entity) return
-      pending.push(entry)
-    }),
-    flushOrmEntityChanges: jest.fn(async () => {
-      while (pending.length > 0) {
-        const next = pending.shift()
-        await dataEngine.emitOrmEntityEvent(next as any)
-      }
-    }),
+    updateOrmEntity: updateOrmEntity as unknown as DataEngine['updateOrmEntity'],
+    deleteOrmEntity: deleteOrmEntity as unknown as DataEngine['deleteOrmEntity'],
+    setCustomFields: setCustomFields as unknown as DataEngine['setCustomFields'],
+    emitOrmEntityEvent: emitOrmEntityEvent as unknown as DataEngine['emitOrmEntityEvent'],
+    markOrmEntityChange: markOrmEntityChange as unknown as DataEngine['markOrmEntityChange'],
+    flushOrmEntityChanges: flushOrmEntityChanges as unknown as DataEngine['flushOrmEntityChanges'],
   }
 
   const container = {

@@ -2,16 +2,18 @@
 import * as React from 'react'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormGroup, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
+import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
 import { WidgetVisibilityEditor } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 
 type EditUserFormValues = {
   email: string
   password: string
+  tenantId: string | null
   organizationId: string | null
   roles: string[]
 } & Record<string, unknown>
@@ -21,6 +23,7 @@ type LoadedUser = {
   email: string
   organizationId: string | null
   tenantId: string | null
+  tenantName: string | null
   organizationName: string | null
   roles: string[]
 }
@@ -30,6 +33,7 @@ type UserApiItem = {
   email?: string | null
   organizationId?: string | null
   tenantId?: string | null
+  tenantName?: string | null
   organizationName?: string | null
   roles?: unknown
 }
@@ -39,9 +43,57 @@ type UserListResponse = {
   isSuperAdmin?: boolean
 }
 
+type TenantAwareOrganizationSelectProps = {
+  fieldId: string
+  value: string | null
+  setValue: (value: string | null) => void
+  tenantId: string | null
+  includeInactiveIds?: Iterable<string | null | undefined>
+}
+
+function TenantAwareOrganizationSelectInput({
+  fieldId,
+  value,
+  setValue,
+  tenantId,
+  includeInactiveIds,
+}: TenantAwareOrganizationSelectProps) {
+  const prevTenantRef = React.useRef<string | null>(tenantId)
+  const hydratedRef = React.useRef(false)
+  const handleChange = React.useCallback((next: string | null) => {
+    setValue(next ?? null)
+  }, [setValue])
+
+  React.useEffect(() => {
+    if (!hydratedRef.current) {
+      hydratedRef.current = true
+      prevTenantRef.current = tenantId
+      return
+    }
+    if (prevTenantRef.current !== tenantId) {
+      prevTenantRef.current = tenantId
+      setValue(null)
+    }
+  }, [tenantId, setValue])
+
+  return (
+    <OrganizationSelect
+      id={fieldId}
+      value={value}
+      onChange={handleChange}
+      required
+      includeEmptyOption
+      className="w-full h-9 rounded border px-2 text-sm"
+      includeInactiveIds={includeInactiveIds}
+      tenantId={tenantId}
+    />
+  )
+}
+
 export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const [initialUser, setInitialUser] = React.useState<LoadedUser | null>(null)
+  const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [canEditOrgs, setCanEditOrgs] = React.useState(false)
@@ -70,12 +122,14 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             setError('User not found')
             setCustomFieldValues({})
             setInitialUser(null)
+            setSelectedTenantId(null)
           } else {
             setInitialUser({
               id: item.id ? String(item.id) : String(id),
               email: item.email ? String(item.email) : '',
               organizationId: item.organizationId ? String(item.organizationId) : null,
               tenantId: item.tenantId ? String(item.tenantId) : null,
+              tenantName: item.tenantName ? String(item.tenantName) : null,
               organizationName: item.organizationName ? String(item.organizationName) : null,
               roles: Array.isArray(item.roles)
                 ? item.roles
@@ -83,6 +137,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
                     .filter((role) => role.trim().length > 0)
                 : [],
             })
+            setSelectedTenantId(item.tenantId ? String(item.tenantId) : null)
             const custom: Record<string, unknown> = {}
             for (const [key, value] of Object.entries(item)) {
               if (key.startsWith('cf_')) custom[key] = value as unknown
@@ -114,31 +169,79 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   }, [id])
 
   const selectedOrgId = initialUser?.organizationId ? String(initialUser.organizationId) : null
+  const preloadedTenants = React.useMemo(() => {
+    if (!selectedTenantId) return null
+    const name = initialUser?.tenantId === selectedTenantId
+      ? (initialUser?.tenantName ?? selectedTenantId)
+      : selectedTenantId
+    return [{ id: selectedTenantId, name, isActive: true }]
+  }, [initialUser, selectedTenantId])
 
-  const fields: CrudField[] = React.useMemo(() => ([
-    { id: 'email', label: 'Email', type: 'text', required: true },
-    { id: 'password', label: 'Password', type: 'text' },
-    {
+  const loadRoleOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
+    if (actorIsSuperAdmin) {
+      if (!selectedTenantId) return []
+      return fetchRoleOptions(query, { tenantId: selectedTenantId })
+    }
+    return fetchRoleOptions(query)
+  }, [actorIsSuperAdmin, selectedTenantId])
+
+  const fields: CrudField[] = React.useMemo(() => {
+    const items: CrudField[] = [
+      { id: 'email', label: 'Email', type: 'text', required: true },
+      { id: 'password', label: 'Password', type: 'text' },
+    ]
+    if (actorIsSuperAdmin) {
+      items.push({
+        id: 'tenantId',
+        label: 'Tenant',
+        type: 'custom',
+        required: true,
+        component: ({ value, setValue }) => (
+          <TenantSelect
+            id="tenantId"
+            value={typeof value === 'string' ? value : value ?? selectedTenantId}
+            onChange={(next) => {
+              setValue(next ?? null)
+              setSelectedTenantId(next ?? null)
+              setAclData({ isSuperAdmin: false, features: [], organizations: null })
+            }}
+            includeEmptyOption
+            className="w-full h-9 rounded border px-2 text-sm"
+            required
+            tenants={preloadedTenants}
+          />
+        ),
+      })
+    }
+    items.push({
       id: 'organizationId',
       label: 'Organization',
       type: 'custom',
-      component: ({ id, value, setValue }) => (
-        <OrganizationSelect
-          id={id}
-          value={typeof value === 'string' ? (value.length > 0 ? value : null) : (value ?? null)}
-          onChange={(next) => setValue(next ?? null)}
-          required
-          includeEmptyOption
-          className="w-full h-9 rounded border px-2 text-sm"
-          includeInactiveIds={selectedOrgId ? [selectedOrgId] : undefined}
-        />
-      ),
-    },
-    { id: 'roles', label: 'Roles', type: 'tags', loadOptions: fetchRoleOptions },
-  ]), [selectedOrgId])
+      component: ({ id, value, setValue }) => {
+        const normalizedValue = typeof value === 'string' ? (value.length > 0 ? value : null) : (value ?? null)
+        return (
+          <TenantAwareOrganizationSelectInput
+            fieldId={id}
+            value={normalizedValue}
+            setValue={(next) => setValue(next ?? null)}
+            tenantId={selectedTenantId}
+            includeInactiveIds={selectedOrgId ? [selectedOrgId] : undefined}
+          />
+        )
+      },
+    })
+    items.push({ id: 'roles', label: 'Roles', type: 'tags', loadOptions: loadRoleOptions })
+    return items
+  }, [actorIsSuperAdmin, loadRoleOptions, preloadedTenants, selectedOrgId, selectedTenantId])
+
+  const detailFieldIds = React.useMemo(() => {
+    const base: string[] = ['email', 'password', 'organizationId', 'roles']
+    if (actorIsSuperAdmin) base.splice(2, 0, 'tenantId')
+    return base
+  }, [actorIsSuperAdmin])
 
   const groups: CrudFormGroup[] = [
-    { id: 'details', title: 'Details', column: 1, fields: ['email', 'password', 'organizationId', 'roles'] },
+    { id: 'details', title: 'Details', column: 1, fields: detailFieldIds },
     { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
     {
       id: 'acl',
@@ -154,6 +257,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             onChange={setAclData}
             userRoles={initialUser?.roles || []}
             currentUserIsSuperAdmin={actorIsSuperAdmin}
+            tenantId={selectedTenantId ?? null}
           />
         )
         : null),
@@ -167,7 +271,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           <WidgetVisibilityEditor
             kind="user"
             targetId={String(id)}
-            tenantId={initialUser?.tenantId ?? null}
+            tenantId={selectedTenantId ?? null}
             organizationId={initialUser?.organizationId ?? null}
           />
         ) : null
@@ -180,6 +284,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       return {
         email: initialUser.email,
         password: '',
+        tenantId: initialUser.tenantId,
         organizationId: initialUser.organizationId,
         roles: initialUser.roles,
         ...customFieldValues,
@@ -188,11 +293,12 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     return {
       email: '',
       password: '',
+      tenantId: selectedTenantId ?? null,
       organizationId: null,
       roles: [],
       ...customFieldValues,
     }
-  }, [initialUser, customFieldValues])
+  }, [initialUser, customFieldValues, selectedTenantId])
 
   return (
     <Page>

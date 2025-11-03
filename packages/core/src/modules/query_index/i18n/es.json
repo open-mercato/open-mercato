@@ -2,6 +2,7 @@
   "query_index.nav.queryIndexes": "Índices de consultas",
   "query_index.banner.partial_title": "Los resultados podrían estar incompletos",
   "query_index.banner.partial_description": "Detectamos una cobertura parcial en el índice de consultas. Vuelve a indexar para actualizar todos los registros.",
+  "query_index.banner.partial_entity": "Entidad: {{entity}}",
   "query_index.banner.partial_counts": "{{indexed}} de {{total}} registros están indexados.",
   "query_index.banner.partial_global_note": "Algunos registros en otras organizaciones todavía faltan en el índice.",
   "query_index.banner.manage_indexes": "Gestionar índices",
