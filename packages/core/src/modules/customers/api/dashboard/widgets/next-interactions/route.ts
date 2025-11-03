@@ -53,17 +53,21 @@ export async function GET(req: Request) {
   const { translate } = await resolveTranslations()
   try {
     const { em, tenantId, organizationIds, limit, includePast } = await resolveContext(req, translate)
-    const organizationFilter: string | { $in: string[] } =
-      organizationIds.length === 1 ? organizationIds[0] : { $in: Array.from(new Set(organizationIds)) }
+    const organizationFilter =
+      Array.isArray(organizationIds)
+        ? organizationIds.length === 1
+          ? organizationIds[0]
+          : { $in: Array.from(new Set(organizationIds)) }
+        : null
 
     const now = new Date()
 
     const filters: FilterQuery<CustomerEntity> = {
       tenantId,
-      organizationId: organizationFilter,
       deletedAt: null,
       nextInteractionAt: includePast ? { $ne: null } : { $gte: now },
     }
+    if (organizationFilter) filters.organizationId = organizationFilter
 
     const entities = await em.find(CustomerEntity, filters, {
       limit,

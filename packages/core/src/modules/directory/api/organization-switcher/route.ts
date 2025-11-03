@@ -105,9 +105,7 @@ export async function GET(req: NextRequest) {
     const rawTenantParam = url.searchParams.get('tenantId')
     const cookieTenant = getSelectedTenantFromRequest(req)
     const actorTenantId = typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null
-    const actorIsSuperAdmin =
-      auth.isSuperAdmin === true ||
-      (Array.isArray(auth.roles) && auth.roles.some((role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'))
+    const actorIsSuperAdmin = auth.isSuperAdmin === true
 
     let requestedTenantId = rawTenantParam ?? (cookieTenant ?? undefined)
     if (requestedTenantId === '') requestedTenantId = undefined

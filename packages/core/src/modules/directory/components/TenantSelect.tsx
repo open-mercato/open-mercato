@@ -51,7 +51,13 @@ function mergeTenantLists(...lists: TenantRecord[][]): TenantRecord[] {
   return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
 }
 
-async function fetchTenants(status: 'all' | 'active' | 'inactive'): Promise<TenantRecord[]> {
+function filterTenantsByStatus(list: TenantRecord[], status: 'all' | 'active' | 'inactive'): TenantRecord[] {
+  if (status === 'active') return list.filter((tenant) => tenant.isActive)
+  if (status === 'inactive') return list.filter((tenant) => !tenant.isActive)
+  return list
+}
+
+async function fetchDirectoryTenants(status: 'all' | 'active' | 'inactive'): Promise<TenantRecord[]> {
   const search = new URLSearchParams()
   search.set('page', '1')
   search.set('pageSize', '200')
@@ -76,7 +82,17 @@ async function fetchTenants(status: 'all' | 'active' | 'inactive'): Promise<Tena
       return { id, name, isActive }
     })
     .filter((tenant): tenant is TenantRecord => tenant !== null)
-  return mergeTenantLists(normalized)
+  return mergeTenantLists(filterTenantsByStatus(normalized, status))
+}
+
+async function fetchTenantsFromOrganizationSwitcher(status: 'all' | 'active' | 'inactive'): Promise<TenantRecord[]> {
+  const res = await apiFetch('/api/directory/organization-switcher')
+  if (!res.ok) throw new Error('Failed to load tenants from organization switcher')
+  const json = await res.json().catch(() => ({}))
+  const payload = (json && typeof json === 'object') ? (json as Record<string, unknown>) : {}
+  const rawTenants = Array.isArray(payload.tenants) ? payload.tenants : []
+  const sanitized = sanitizeTenantList(rawTenants as TenantRecord[] | null)
+  return mergeTenantLists(filterTenantsByStatus(sanitized, status))
 }
 
 export type TenantSelectProps = {
@@ -122,17 +138,28 @@ export const TenantSelect = React.forwardRef<HTMLSelectElement, TenantSelectProp
       return
     }
     let cancelled = false
-    setFetchStatus('loading')
-    fetchTenants(status)
-      .then((tenants) => {
+    const loadTenants = async () => {
+      setFetchStatus('loading')
+      try {
+        const tenants = await fetchDirectoryTenants(status)
         if (cancelled) return
         setRemoteTenants(tenants)
         setFetchStatus('success')
-      })
-      .catch(() => {
-        if (cancelled) return
-        setFetchStatus('error')
-      })
+        return
+      } catch {
+        try {
+          const fallbackTenants = await fetchTenantsFromOrganizationSwitcher(status)
+          if (cancelled) return
+          setRemoteTenants(fallbackTenants)
+          setFetchStatus('success')
+          return
+        } catch {
+          if (cancelled) return
+          setFetchStatus('error')
+        }
+      }
+    }
+    void loadTenants()
     return () => { cancelled = true }
   }, [fetchOnMount, status])
 

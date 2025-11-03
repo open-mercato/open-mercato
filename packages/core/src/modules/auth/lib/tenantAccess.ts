@@ -37,10 +37,6 @@ export async function resolveIsSuperAdmin(ctx: TenantGuardCtx): Promise<boolean>
     cacheStore[SUPER_ADMIN_SYMBOL] = true
     return true
   }
-  if (Array.isArray(auth.roles) && auth.roles.some((role) => role.toLowerCase() === 'superadmin')) {
-    cacheStore[SUPER_ADMIN_SYMBOL] = true
-    return true
-  }
   try {
     const rbac = (ctx.container.resolve('rbacService') as RbacService)
     const acl = await rbac.loadAcl(auth.sub, {

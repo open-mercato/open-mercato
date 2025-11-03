@@ -10,6 +10,7 @@ export type OrganizationScope = {
   selectedId: string | null
   filterIds: string[] | null
   allowedIds: string[] | null
+  tenantId: string | null
 }
 
 export function parseSelectedOrganizationCookie(header: string | null | undefined): string | null {
@@ -113,7 +114,7 @@ export async function resolveOrganizationScope({
   tenantId?: string | null
 }): Promise<OrganizationScope> {
   if (!auth || !auth.sub) {
-    return { selectedId: null, filterIds: null, allowedIds: null }
+    return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
   }
   const actorTenantId = typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null
   const candidateTenantId = typeof tenantIdOverride === 'string' && tenantIdOverride.trim().length > 0
@@ -122,16 +123,15 @@ export async function resolveOrganizationScope({
       ? null
       : actorTenantId
   if (!candidateTenantId) {
-    return { selectedId: null, filterIds: null, allowedIds: null }
+    return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
   }
   const usingOverride = candidateTenantId !== actorTenantId
-  const isSuperAdminActor =
-    auth.isSuperAdmin === true ||
-    (Array.isArray(auth.roles) && auth.roles.some((role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'))
+  const isSuperAdminActor = auth.isSuperAdmin === true
   const tenantId = usingOverride && actorTenantId && !isSuperAdminActor ? actorTenantId : candidateTenantId
   if (!tenantId) {
-    return { selectedId: null, filterIds: null, allowedIds: null }
+    return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
   }
+  const explicitAllSelection = selectedId === null
   const normalizedSelectedId = typeof selectedId === 'string' && isAllOrganizationsSelection(selectedId)
     ? null
     : (selectedId ?? null)
@@ -177,7 +177,7 @@ export async function resolveOrganizationScope({
     }
   }
 
-  const initialSelected = normalizedSelectedId ?? accountOrgId ?? null
+  const initialSelected = normalizedSelectedId ?? (explicitAllSelection && effectiveSuperAdmin ? null : accountOrgId ?? null)
   let effectiveSelected: string | null = null
   if (initialSelected) {
     if (allowedSet === null || allowedSet.has(initialSelected)) {
@@ -190,11 +190,13 @@ export async function resolveOrganizationScope({
     filterSet = await collectWithDescendants(em, tenantId, [effectiveSelected])
   } else if (allowedSet !== null) {
     filterSet = allowedSet
+  } else if (explicitAllSelection && effectiveSuperAdmin) {
+    filterSet = null
   } else if (auth.orgId) {
     filterSet = await loadFallbackSet()
   }
 
-  if ((!filterSet || filterSet.size === 0) && fallbackOrgId) {
+  if ((!filterSet || filterSet.size === 0) && fallbackOrgId && !(explicitAllSelection && effectiveSuperAdmin)) {
     const computed = await loadFallbackSet()
     if (computed && computed.size > 0) {
       filterSet = computed
@@ -208,6 +210,7 @@ export async function resolveOrganizationScope({
     selectedId: effectiveSelected,
     filterIds: filterSet ? Array.from(filterSet) : null,
     allowedIds: allowedSet ? Array.from(allowedSet) : null,
+    tenantId,
   }
 }
 
@@ -225,7 +228,7 @@ export async function resolveOrganizationScopeForRequest({
   tenantId?: string | null
 }): Promise<OrganizationScope> {
   if (!auth || !auth.sub) {
-    return { selectedId: null, filterIds: null, allowedIds: null }
+    return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
   }
 
   let em: EntityManager | null = null
@@ -238,11 +241,29 @@ export async function resolveOrganizationScopeForRequest({
       selectedId: fallbackSelected,
       filterIds: fallbackSelected ? [fallbackSelected] : null,
       allowedIds: fallbackSelected ? [fallbackSelected] : null,
+      tenantId: auth.tenantId ?? null,
     }
   }
 
+  const normalizeString = (value: unknown): string | null => {
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim()
+    return null
+  }
+
+  const actorTenantField = (auth as { actorTenantId?: string | null }).actorTenantId
+  const actorTenant = actorTenantField === undefined
+    ? normalizeString(auth.tenantId)
+    : actorTenantField === null
+      ? null
+      : normalizeString(actorTenantField)
+  const actorOrgField = (auth as { actorOrgId?: string | null }).actorOrgId
+  const actorOrgId = actorOrgField === undefined
+    ? normalizeString(auth.orgId)
+    : actorOrgField === null
+      ? null
+      : normalizeString(actorOrgField)
+
   const cookieTenant = request ? getSelectedTenantFromRequest(request) : null
-  const actorTenant = typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null
   const requestedTenant =
     tenantOverride !== undefined
       ? tenantOverride
@@ -250,32 +271,32 @@ export async function resolveOrganizationScopeForRequest({
         ? cookieTenant
         : undefined
   const requestedTenantId = typeof requestedTenant === 'string' && requestedTenant.trim().length > 0 ? requestedTenant.trim() : null
-  const isSuperAdminActor =
-    auth.isSuperAdmin === true ||
-    (Array.isArray(auth.roles) && auth.roles.some((role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'))
+  const isSuperAdminActor = auth.isSuperAdmin === true
   let effectiveTenantId = requestedTenantId ?? actorTenant ?? null
   if (actorTenant && effectiveTenantId && effectiveTenantId !== actorTenant && !isSuperAdminActor) {
     effectiveTenantId = actorTenant
   }
   if (!effectiveTenantId) {
-    return { selectedId: null, filterIds: null, allowedIds: null }
+    return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
   }
 
   const scopedAuth = {
     ...auth,
     tenantId: effectiveTenantId,
-    orgId: actorTenant && actorTenant === effectiveTenantId ? auth.orgId ?? null : null,
+    orgId: actorTenant && actorTenant === effectiveTenantId ? actorOrgId ?? null : null,
   }
 
   const rawSelected = selectedId !== undefined ? selectedId : (request ? getSelectedOrganizationFromRequest(request) : null)
   const reqSelected = typeof rawSelected === 'string' && isAllOrganizationsSelection(rawSelected) ? null : rawSelected
-  return resolveOrganizationScope({
+  const baseScope = await resolveOrganizationScope({
     em,
     rbac,
     auth: scopedAuth,
     selectedId: reqSelected,
     tenantId: effectiveTenantId,
   })
+
+  return baseScope
 }
 
 export type FeatureCheckContext = {

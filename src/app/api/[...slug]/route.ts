@@ -94,17 +94,17 @@ async function checkAuthorization(
     const featureContext = await resolveFeatureCheckContext({ container: featureContainer, auth, request: req })
     const { organizationId } = featureContext
     const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
-      tenantId: auth.tenantId,
+      tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
       organizationId,
     })
     if (!ok) {
       try {
-        const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId })
+        const acl = await rbac.loadAcl(auth.sub, { tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null, organizationId })
         console.warn('[api] Forbidden - missing required features', {
           path: req.nextUrl.pathname,
           method: req.method,
           userId: auth.sub,
-          tenantId: auth.tenantId ?? null,
+          tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
           selectedOrganizationId: featureContext.scope.selectedId,
           organizationId,
           requiredFeatures,
@@ -118,7 +118,7 @@ async function checkAuthorization(
             path: req.nextUrl.pathname,
             method: req.method,
             userId: auth.sub,
-            tenantId: auth.tenantId ?? null,
+            tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
             organizationId,
             requiredFeatures,
             error: err instanceof Error ? err.message : err,

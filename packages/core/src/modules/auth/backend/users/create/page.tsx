@@ -236,12 +236,16 @@ export default function CreateUserPage() {
               if (key.startsWith('cf_')) customFields[key.slice(3)] = value
               else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
             }
-            const payload = {
+            const payload: Record<string, unknown> = {
               email: values.email,
               password: values.password,
               organizationId: values.organizationId ? values.organizationId : null,
               roles: Array.isArray(values.roles) ? values.roles : [],
               ...(Object.keys(customFields).length ? { customFields } : {}),
+            }
+            if (actorIsSuperAdmin) {
+              const rawTenant = typeof values.tenantId === 'string' ? values.tenantId.trim() : null
+              payload.tenantId = rawTenant && rawTenant.length ? rawTenant : null
             }
             const res = await apiFetch('/api/auth/users', {
               method: 'POST',
@@ -268,6 +272,9 @@ export default function CreateUserPage() {
                   mode: 'override',
                   widgetIds: selectedWidgets,
                   organizationId: values.organizationId ? values.organizationId : null,
+                  tenantId: actorIsSuperAdmin
+                    ? (typeof values.tenantId === 'string' && values.tenantId.length ? values.tenantId : null)
+                    : null,
                 }),
               })
               if (!widgetRes.ok) {

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
@@ -8,7 +7,6 @@ import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/
 import { organizationCreateSchema, organizationUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import {
   computeHierarchyForOrganizations,
-  rebuildHierarchyForTenant,
   type ComputedHierarchy,
   type ComputedOrganizationNode,
 } from '@open-mercato/core/modules/directory/lib/hierarchy'

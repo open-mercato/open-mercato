@@ -8,6 +8,7 @@ import type { VectorIndexService } from '@open-mercato/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['query_index.status.view'] },
@@ -15,16 +16,48 @@ export const metadata = {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as EntityManager
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
   const knex = (em as any).getConnection().getKnex()
-  const orgId = auth.orgId
-  const tenantRaw = auth.tenantId
-  const tenantId = typeof tenantRaw === 'string'
-    ? (tenantRaw && tenantRaw !== 'undefined' ? tenantRaw.trim() || null : null)
-    : tenantRaw ?? null
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+
+  const organizationId = scope.selectedId ?? auth.orgId ?? null
+  const tenantId = typeof scope.tenantId === 'string' && scope.tenantId.trim().length > 0
+    ? scope.tenantId.trim()
+    : (typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null)
+  if (!tenantId) {
+    return NextResponse.json({ error: 'Tenant context is required' }, { status: 400 })
+  }
+
+  const organizationFilter =
+    scope.filterIds === null
+      ? null
+      : Array.isArray(scope.filterIds) && scope.filterIds.length > 0
+        ? scope.filterIds
+        : organizationId
+          ? [organizationId]
+          : []
+
+  if (Array.isArray(organizationFilter) && organizationFilter.length === 0) {
+    return NextResponse.json({ error: 'Organization access denied' }, { status: 403 })
+  }
+
+  const organizationScopeIds = organizationFilter === null
+    ? null
+    : Array.from(
+      new Set(
+        organizationFilter.filter(
+          (value): value is string => typeof value === 'string' && value.length > 0,
+        ),
+      ),
+    )
+
+  if (Array.isArray(organizationScopeIds) && organizationScopeIds.length === 0) {
+    return NextResponse.json({ error: 'Organization access denied' }, { status: 403 })
+  }
+
   const url = new URL(req.url)
   const forceRefresh = url.searchParams.has('refresh') && url.searchParams.get('refresh') !== '0'
 
@@ -38,7 +71,7 @@ export async function GET(req: Request) {
 
   let vectorService: VectorIndexService | null = null
   try {
-    vectorService = resolve('vectorIndexService') as VectorIndexService
+    vectorService = container.resolve('vectorIndexService') as VectorIndexService
   } catch {
     vectorService = null
   }
@@ -56,8 +89,17 @@ export async function GET(req: Request) {
       .distinct('entity_id')
       .where({ is_active: true })
       .modify((qb: any) => {
-        qb.andWhere((b: any) => b.where({ organization_id: orgId }).orWhereNull('organization_id'))
-        if (tenantId != null) qb.andWhere((b: any) => b.where({ tenant_id: tenantId }).orWhereNull('tenant_id'))
+        if (tenantId != null) {
+          qb.andWhere((b: any) => b.where({ tenant_id: tenantId }).orWhereNull('tenant_id'))
+        } else {
+          qb.andWhere((b: any) => b.whereNull('tenant_id'))
+        }
+        if (Array.isArray(organizationScopeIds)) {
+          qb.andWhere((b: any) => {
+            b.whereIn('organization_id', organizationScopeIds)
+            b.orWhereNull('organization_id')
+          })
+        }
       })
     const enabled = new Set<string>((cfRows || []).map((r: any) => String(r.entity_id)))
     entityIds = entityIds.filter((id) => enabled.has(id))
@@ -214,7 +256,7 @@ export async function GET(req: Request) {
     const scope = {
       entityType: entityId,
       tenantId: tenantId ?? null,
-      organizationId: null,
+      organizationId,
       withDeleted: false,
     } as const
     const ensureSnapshot = async () => {
@@ -242,7 +284,7 @@ export async function GET(req: Request) {
     coverageSnapshots.push(await ensureSnapshot())
   }
 
-  const jobs = await Promise.all(entityIds.map((eid) => fetchJobSummary(eid, tenantId, orgId)))
+  const jobs = await Promise.all(entityIds.map((eid) => fetchJobSummary(eid, tenantId, organizationId)))
 
   const items: any[] = []
   for (let idx = 0; idx < entityIds.length; idx += 1) {
@@ -280,7 +322,7 @@ export async function GET(req: Request) {
 
   if (!forceRefresh) {
     try {
-      const eventBus = resolve('eventBus')
+      const eventBus = container.resolve('eventBus')
       if (entitiesNeedingRefresh.size > 0) {
         await Promise.all(
           Array.from(entitiesNeedingRefresh).map((entityId) =>
@@ -288,7 +330,7 @@ export async function GET(req: Request) {
               .emitEvent('query_index.coverage.refresh', {
                 entityType: entityId,
                 tenantId: tenantId ?? null,
-                organizationId: null,
+                organizationId,
                 delayMs: 0,
               })
               .catch(() => undefined)
@@ -308,8 +350,11 @@ export async function GET(req: Request) {
         qb.whereNull('tenant_id')
       }
     })
-        .andWhere((qb: any) => {
-      qb.whereNull('organization_id').orWhere('organization_id', orgId)
+    .andWhere((qb: any) => {
+      qb.whereNull('organization_id')
+      if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+        qb.orWhereIn('organization_id', organizationScopeIds)
+      }
     })
     .orderBy('occurred_at', 'desc')
     .limit(100)
@@ -342,7 +387,10 @@ export async function GET(req: Request) {
       }
     })
     .andWhere((qb: any) => {
-      qb.whereNull('organization_id').orWhere('organization_id', orgId)
+      qb.whereNull('organization_id')
+      if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+        qb.orWhereIn('organization_id', organizationScopeIds)
+      }
     })
     .orderBy('occurred_at', 'desc')
     .limit(100)
@@ -379,7 +427,7 @@ export async function GET(req: Request) {
         entityLabel: partial.label ?? partial.entityId,
         baseCount: partial.baseCount,
         indexedCount: partial.indexCount,
-        scope: 'global',
+        scope: organizationId,
       })
     )
   }
@@ -394,6 +442,7 @@ const queryIndexStatusDoc: OpenApiMethodDoc = {
     { status: 200, description: 'Current query index status.', schema: queryIndexStatusResponseSchema },
   ],
   errors: [
+    { status: 400, description: 'Tenant or organization context required', schema: queryIndexErrorSchema },
     { status: 401, description: 'Authentication required', schema: queryIndexErrorSchema },
   ],
 }

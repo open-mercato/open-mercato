@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
 import { cookies, headers } from 'next/headers'
+import Script from 'next/script'
+import type { ReactNode } from 'react'
 import { modules } from '@/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@/lib/auth/server'
@@ -206,19 +207,22 @@ export default async function BackendLayout({ children, params }: { children: Re
   const productName = translate('appShell.productName', 'Open Mercato')
 
   return (
-    <AppShell
-      key={path}
-      productName={productName}
-      email={auth?.email}
-      groups={groups}
-      currentTitle={currentTitle}
-      breadcrumb={breadcrumb}
-      sidebarCollapsedDefault={initialCollapsed}
-      rightHeaderSlot={rightHeaderContent}
-      adminNavApi="/api/auth/admin/nav"
-    >
-      {children}
-    </AppShell>
+    <>
+      <Script async src="https://w.appzi.io/w.js?token=TtIV6" strategy="afterInteractive" />
+      <AppShell
+        key={path}
+        productName={productName}
+        email={auth?.email}
+        groups={groups}
+        currentTitle={currentTitle}
+        breadcrumb={breadcrumb}
+        sidebarCollapsedDefault={initialCollapsed}
+        rightHeaderSlot={rightHeaderContent}
+        adminNavApi="/api/auth/admin/nav"
+      >
+        {children}
+      </AppShell>
+    </>
   )
 }
 export const dynamic = 'force-dynamic'

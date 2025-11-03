@@ -12,6 +12,7 @@ interface AclData {
 export class RbacService {
   private cacheTtlMs: number = 5 * 60 * 1000 // 5 minutes default
   private cache: CacheStrategy | null = null
+  private globalSuperAdminCache = new Map<string, boolean>()
 
   constructor(private em: EntityManager, cache?: CacheStrategy) {
     this.cache = cache || null
@@ -110,6 +111,7 @@ export class RbacService {
    * @param userId - The ID of the user whose cache should be invalidated
    */
   async invalidateUserCache(userId: string): Promise<void> {
+    this.globalSuperAdminCache.delete(userId)
     if (!this.cache) return
     await this.cache.deleteByTags([this.getUserTag(userId)])
   }
@@ -122,6 +124,7 @@ export class RbacService {
    * @param tenantId - The ID of the tenant whose cache should be invalidated
    */
   async invalidateTenantCache(tenantId: string): Promise<void> {
+    this.globalSuperAdminCache.clear()
     if (!this.cache) return
     await this.cache.deleteByTags([this.getTenantTag(tenantId)])
   }
@@ -142,8 +145,36 @@ export class RbacService {
    * Use this for bulk operations or system-wide ACL changes.
    */
   async invalidateAllCache(): Promise<void> {
+    this.globalSuperAdminCache.clear()
     if (!this.cache) return
     await this.cache.deleteByTags(['rbac:all'])
+  }
+
+  private async isGlobalSuperAdmin(userId: string): Promise<boolean> {
+    if (this.globalSuperAdminCache.has(userId)) return this.globalSuperAdminCache.get(userId)!
+    const em = this.em.fork()
+    const userSuper = await em.findOne(UserAcl, { user: userId as any, isSuperAdmin: true })
+    if (userSuper) {
+      this.globalSuperAdminCache.set(userId, true)
+      return true
+    }
+    const links = await em.find(UserRole, { user: userId as any }, { populate: ['role'] })
+    if (!links.length) {
+      this.globalSuperAdminCache.set(userId, false)
+      return false
+    }
+    const roleIds = Array.from(new Set(links.map((link) => {
+      const role = link.role as any
+      return role?.id ? String(role.id) : null
+    }).filter((id): id is string => typeof id === 'string' && id.length > 0)))
+    if (!roleIds.length) {
+      this.globalSuperAdminCache.set(userId, false)
+      return false
+    }
+    const roleSuper = await em.findOne(RoleAcl, { isSuperAdmin: true, role: { $in: roleIds as any } } as any)
+    const result = !!roleSuper
+    this.globalSuperAdminCache.set(userId, result)
+    return result
   }
 
   /**
@@ -175,6 +206,14 @@ export class RbacService {
     const cacheKey = this.getCacheKey(userId, scope)
     const cached = await this.getFromCache(cacheKey)
     if (cached) return cached
+
+    if (!userId.startsWith('api_key:')) {
+      if (await this.isGlobalSuperAdmin(userId)) {
+        const result = { isSuperAdmin: true, features: ['*'], organizations: null }
+        await this.setCache(cacheKey, result, userId, scope)
+        return result
+      }
+    }
 
     if (userId.startsWith('api_key:')) {
       const apiKeyId = userId.slice('api_key:'.length)

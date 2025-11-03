@@ -31,16 +31,19 @@ export default async function BackendCatchAll(props: { params: Awaitable<{ slug?
       let organizationIdForCheck: string | null = auth.orgId ?? null
       const cookieStore = await cookies()
       const cookieSelected = cookieStore.get('om_selected_org')?.value ?? null
+      let tenantIdForCheck: string | null = auth.tenantId ?? null
       try {
-        const { organizationId, allowedOrganizationIds } = await resolveFeatureCheckContext({ container, auth, selectedId: cookieSelected })
+        const { organizationId, allowedOrganizationIds, scope } = await resolveFeatureCheckContext({ container, auth, selectedId: cookieSelected })
         organizationIdForCheck = organizationId
+        tenantIdForCheck = scope.tenantId ?? auth.tenantId ?? null
         if (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length === 0) {
           redirect('/login?requireFeature=' + encodeURIComponent(features.join(',')))
         }
       } catch {
         organizationIdForCheck = auth.orgId ?? null
+        tenantIdForCheck = auth.tenantId ?? null
       }
-      const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: organizationIdForCheck })
+      const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: tenantIdForCheck, organizationId: organizationIdForCheck })
       if (!ok) redirect('/login?requireFeature=' + encodeURIComponent(features.join(',')))
     }
   }

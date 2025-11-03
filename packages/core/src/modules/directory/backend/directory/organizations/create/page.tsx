@@ -2,7 +2,7 @@
 import * as React from 'react'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
-import { TenantSelect, type TenantRecord } from '@open-mercato/core/modules/directory/components/TenantSelect'
+import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -63,16 +63,10 @@ function TreeCheckboxGroup({ nodes, selected, onToggle, level }: { nodes: Organi
   )
 }
 
-const groups: CrudFormGroup[] = [
-  { id: 'details', title: 'Details', column: 1, fields: ['name', 'parentId', 'childIds', 'isActive'] },
-  { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
-]
-
 export default function CreateOrganizationPage() {
   const [tree, setTree] = React.useState<OrganizationTreeNode[]>([])
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
-  const [selectedTenantName, setSelectedTenantName] = React.useState<string | null>(null)
 
   const loadTree = React.useCallback(async (tenantId: string | null) => {
     const params = new URLSearchParams({ view: 'tree', includeInactive: 'true' })
@@ -107,7 +101,7 @@ export default function CreateOrganizationPage() {
     }
     bootstrap()
     return () => { cancelled = true }
-  }, [])
+  }, [loadTree])
 
   React.useEffect(() => {
     if (!actorIsSuperAdmin) return
@@ -128,10 +122,8 @@ export default function CreateOrganizationPage() {
             onChange={(next) => {
               const normalized = next ?? null
               setSelectedTenantId(normalized)
-              setSelectedTenantName(normalized ?? null)
               setValue(normalized)
             }}
-            tenants={selectedTenantId ? [{ id: selectedTenantId, name: selectedTenantName ?? selectedTenantId, isActive: true } as TenantRecord] : undefined}
             includeEmptyOption={false}
             className="w-full h-9 rounded border px-2 text-sm"
           />
@@ -169,7 +161,18 @@ export default function CreateOrganizationPage() {
       ),
     },
     { id: 'isActive', label: 'Active', type: 'checkbox' },
-  ], [tree])
+  ], [actorIsSuperAdmin, selectedTenantId, tree])
+
+  const detailFields = React.useMemo(() => (
+    actorIsSuperAdmin
+      ? ['tenantId', 'name', 'parentId', 'childIds', 'isActive']
+      : ['name', 'parentId', 'childIds', 'isActive']
+  ), [actorIsSuperAdmin])
+
+  const groups: CrudFormGroup[] = React.useMemo(() => ([
+    { id: 'details', title: 'Details', column: 1, fields: detailFields },
+    { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
+  ]), [detailFields])
 
   return (
     <Page>
@@ -180,7 +183,7 @@ export default function CreateOrganizationPage() {
           fields={fields}
           groups={groups}
           entityId={E.directory.organization}
-          initialValues={{ name: '', parentId: '', childIds: [], isActive: true }}
+          initialValues={{ tenantId: selectedTenantId ?? null, name: '', parentId: '', childIds: [], isActive: true }}
           submitLabel="Create"
           cancelHref="/backend/directory/organizations"
           successRedirect="/backend/directory/organizations?flash=Organization%20created&type=success"

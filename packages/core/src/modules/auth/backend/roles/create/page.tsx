@@ -13,7 +13,6 @@ type CreateRoleFormValues = {
 
 export default function CreateRolePage() {
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
-  const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -44,19 +43,19 @@ export default function CreateRolePage() {
         component: ({ value, setValue }) => (
           <TenantSelect
             id="tenantId"
-            value={typeof value === 'string' ? value : value ?? selectedTenantId}
+            value={typeof value === 'string' ? value : null}
             onChange={(next) => {
               setValue(next ?? null)
-              setSelectedTenantId(next ?? null)
             }}
             includeEmptyOption
+            required
             className="w-full h-9 rounded border px-2 text-sm"
           />
         ),
       })
     }
     return list
-  }, [actorIsSuperAdmin, selectedTenantId])
+  }, [actorIsSuperAdmin])
 
   const detailFieldIds = React.useMemo(() => {
     const base = ['name']

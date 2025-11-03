@@ -36,17 +36,6 @@ const TREE_PADDING = 12
 
 export default function EditOrganizationPage({ params }: { params?: { id?: string } }) {
   const orgId = params?.id
-  if (!orgId) {
-    return (
-      <Page>
-        <PageBody>
-          <div className="rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            Organization identifier is missing.
-          </div>
-        </PageBody>
-      </Page>
-    )
-  }
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [pathLabel, setPathLabel] = React.useState<string>('')
   const [tenantId, setTenantId] = React.useState<string | null>(null)
@@ -145,11 +134,16 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           ...customValues,
         })
         setPathLabel(record.pathLabel)
-      } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Failed to load organization')
-        if (!cancelled) skipTenantEffectRef.current = false
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : 'Failed to load organization'
+          setError(message)
+        }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          skipTenantEffectRef.current = false
+          setLoading(false)
+        }
       }
     }
     load()
@@ -248,7 +242,17 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
     { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
   ]), [detailFields])
 
-  if (!orgId) return null
+  if (!orgId) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Organization identifier is missing.
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
 
   if (error && !loading && !initialValues) {
     return (

@@ -176,8 +176,9 @@ export default function DirectoryOrganizationsPage() {
       if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete organization'))
       await queryClient.invalidateQueries({ queryKey: ['directory-organizations'] })
       flash('Organization deleted', 'success')
-    } catch (err: any) {
-      flash(err?.message || 'Failed to delete organization', 'error')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to delete organization'
+      flash(message, 'error')
     }
   }, [queryClient])
 
