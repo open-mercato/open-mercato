@@ -54,6 +54,7 @@ export function AclEditor({
   onChange,
   userRoles,
   currentUserIsSuperAdmin,
+  tenantId,
 }: {
   kind: 'user' | 'role'
   targetId: string
@@ -62,6 +63,7 @@ export function AclEditor({
   onChange?: (data: AclData) => void
   userRoles?: string[]
   currentUserIsSuperAdmin?: boolean
+  tenantId?: string | null
 }) {
   const actorIsSuperAdmin = !!currentUserIsSuperAdmin
   const [loading, setLoading] = React.useState(true)
@@ -97,6 +99,7 @@ export function AclEditor({
   React.useEffect(() => {
     let cancelled = false
     async function load() {
+      setLoading(true)
       try {
         const fRes = await apiFetch('/api/auth/features')
         const fJson = await fRes.json()
@@ -106,7 +109,11 @@ export function AclEditor({
         }
       } catch {}
       try {
-        const aclRes = await apiFetch(`/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl?${kind === 'user' ? 'userId' : 'roleId'}=${encodeURIComponent(targetId)}`)
+        const aclQuery = new URLSearchParams()
+        aclQuery.set(kind === 'user' ? 'userId' : 'roleId', targetId)
+        if (tenantId) aclQuery.set('tenantId', tenantId)
+        const aclQueryString = aclQuery.toString()
+        const aclRes = await apiFetch(`/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl${aclQueryString ? `?${aclQueryString}` : ''}`)
         const aclJson = await aclRes.json()
         if (!cancelled) {
           const customAclExists = aclJson.hasCustomAcl !== false
@@ -119,14 +126,20 @@ export function AclEditor({
       } catch {}
       if (canEditOrganizations) {
         try {
-          const oRes = await apiFetch('/api/directory/organizations')
+          const orgQuery = new URLSearchParams()
+          if (tenantId) orgQuery.set('tenantId', tenantId)
+          const orgQueryString = orgQuery.toString()
+          const oRes = await apiFetch(`/api/directory/organizations${orgQueryString ? `?${orgQueryString}` : ''}`)
           const oJson = await oRes.json()
           if (!cancelled) setOrgOptions(oJson.items || [])
         } catch {}
       }
       if (kind === 'user' && userRoles && userRoles.length > 0) {
         try {
-          const rolesRes = await apiFetch('/api/auth/roles?pageSize=1000')
+          const roleQuery = new URLSearchParams({ pageSize: '1000' })
+          if (tenantId) roleQuery.set('tenantId', tenantId)
+          const roleQueryString = roleQuery.toString()
+          const rolesRes = await apiFetch(`/api/auth/roles${roleQueryString ? `?${roleQueryString}` : ''}`)
           const rolesJson: RoleListResponse = await rolesRes.json().catch(() => ({}))
           if (!cancelled) {
             const allRoles = Array.isArray(rolesJson.items) ? rolesJson.items : []
@@ -146,7 +159,7 @@ export function AclEditor({
     }
     load()
     return () => { cancelled = true }
-  }, [kind, targetId, canEditOrganizations, userRoles, actorSanitizeFeatures])
+  }, [kind, targetId, canEditOrganizations, userRoles, actorSanitizeFeatures, tenantId])
 
   // Notify parent of changes
   React.useEffect(() => {

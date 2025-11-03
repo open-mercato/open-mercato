@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { FilterQuery } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
@@ -29,14 +30,46 @@ export function parseSelectedOrganizationCookie(header: string | null | undefine
   return null
 }
 
-export function getSelectedOrganizationFromRequest(req: Request | { cookies?: { get: (name: string) => { value: string } | undefined } }): string | null {
-  const maybeCookies = (req as any)?.cookies
-  if (maybeCookies && typeof maybeCookies.get === 'function') {
-    const val = maybeCookies.get('om_selected_org')?.value
+export function getSelectedOrganizationFromRequest(req: Request | { cookies?: { get: (name: string) => { value: string } | undefined }; headers?: { get(name: string): string | null } }): string | null {
+  const cookieContainer = (req as { cookies?: { get: (name: string) => { value: string } | undefined } }).cookies
+  if (cookieContainer && typeof cookieContainer.get === 'function') {
+    const val = cookieContainer.get('om_selected_org')?.value
     return val ?? null
   }
-  const header = (req as any)?.headers?.get ? (req as any).headers.get('cookie') : null
+  const headerContainer = (req as { headers?: { get(name: string): string | null } }).headers
+  const header = typeof headerContainer?.get === 'function' ? headerContainer.get('cookie') : null
   return parseSelectedOrganizationCookie(header)
+}
+
+export function parseSelectedTenantCookie(header: string | null | undefined): string | null {
+  if (!header) return null
+  const parts = header.split(';')
+  for (const part of parts) {
+    const trimmed = part.trim()
+    if (trimmed.startsWith('om_selected_tenant=')) {
+      const raw = trimmed.slice('om_selected_tenant='.length)
+      try {
+        const decoded = decodeURIComponent(raw)
+        return decoded || null
+      } catch {
+        return raw || null
+      }
+    }
+  }
+  return null
+}
+
+export function getSelectedTenantFromRequest(
+  req: Request | { cookies?: { get: (name: string) => { value: string } | undefined }; headers?: { get(name: string): string | null } },
+): string | null {
+  const cookieContainer = (req as { cookies?: { get: (name: string) => { value: string } | undefined } }).cookies
+  if (cookieContainer && typeof cookieContainer.get === 'function') {
+    const val = cookieContainer.get('om_selected_tenant')?.value
+    return val ?? null
+  }
+  const headerContainer = (req as { headers?: { get(name: string): string | null } }).headers
+  const header = typeof headerContainer?.get === 'function' ? headerContainer.get('cookie') : null
+  return parseSelectedTenantCookie(header)
 }
 
 async function collectWithDescendants(em: EntityManager, tenantId: string, ids: string[]): Promise<Set<string>> {
@@ -49,7 +82,12 @@ async function collectWithDescendants(em: EntityManager, tenantId: string, ids: 
     })
   ))
   if (!unique.length) return new Set()
-  const orgs: Organization[] = await em.find(Organization, { tenant: tenantId as any, id: { $in: unique }, deletedAt: null } as any)
+  const filter: FilterQuery<Organization> = {
+    tenant: tenantId,
+    id: { $in: unique },
+    deletedAt: null,
+  }
+  const orgs = await em.find(Organization, filter)
   const set = new Set<string>()
   for (const org of orgs) {
     const id = String(org.id)
@@ -66,25 +104,54 @@ export async function resolveOrganizationScope({
   rbac,
   auth,
   selectedId,
+  tenantId: tenantIdOverride,
 }: {
   em: EntityManager
   rbac: RbacService
   auth: AuthContext
   selectedId?: string | null
+  tenantId?: string | null
 }): Promise<OrganizationScope> {
-  if (!auth || !auth.tenantId || !auth.sub) {
+  if (!auth || !auth.sub) {
     return { selectedId: null, filterIds: null, allowedIds: null }
   }
-  const normalizedSelectedId = typeof selectedId === 'string' && isAllOrganizationsSelection(selectedId) ? null : (selectedId ?? null)
-  const tenantId = auth.tenantId
-  const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId: auth.orgId ?? null })
-  const rawAccessible = Array.isArray(acl.organizations) ? acl.organizations.filter(Boolean) : null
-  const accessibleList =
-    rawAccessible && rawAccessible.some((value) => typeof value === 'string' && isAllOrganizationsSelection(value))
+  const actorTenantId = typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null
+  const candidateTenantId = typeof tenantIdOverride === 'string' && tenantIdOverride.trim().length > 0
+    ? tenantIdOverride.trim()
+    : tenantIdOverride === null
+      ? null
+      : actorTenantId
+  if (!candidateTenantId) {
+    return { selectedId: null, filterIds: null, allowedIds: null }
+  }
+  const usingOverride = candidateTenantId !== actorTenantId
+  const isSuperAdminActor =
+    auth.isSuperAdmin === true ||
+    (Array.isArray(auth.roles) && auth.roles.some((role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'))
+  const tenantId = usingOverride && actorTenantId && !isSuperAdminActor ? actorTenantId : candidateTenantId
+  if (!tenantId) {
+    return { selectedId: null, filterIds: null, allowedIds: null }
+  }
+  const normalizedSelectedId = typeof selectedId === 'string' && isAllOrganizationsSelection(selectedId)
+    ? null
+    : (selectedId ?? null)
+  const contextOrgId = actorTenantId && actorTenantId === tenantId ? auth.orgId ?? null : null
+  const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId: contextOrgId })
+  const aclIsSuperAdmin = acl?.isSuperAdmin === true
+  const effectiveSuperAdmin = aclIsSuperAdmin || isSuperAdminActor
+  const rawAccessible = effectiveSuperAdmin
+    ? null
+    : Array.isArray(acl?.organizations)
+      ? acl.organizations.filter(Boolean)
+      : null
+  const accessibleList = effectiveSuperAdmin
+    ? null
+    : rawAccessible && rawAccessible.some((value) => typeof value === 'string' && isAllOrganizationsSelection(value))
       ? null
       : rawAccessible?.filter((value): value is string => typeof value === 'string' && !isAllOrganizationsSelection(value)) ?? null
 
-  const fallbackOrgId = auth.orgId ?? null
+  const accountOrgId = actorTenantId && actorTenantId === tenantId ? auth.orgId ?? null : null
+  const fallbackOrgId = accountOrgId ?? null
   let fallbackSet: Set<string> | null = null
   const loadFallbackSet = async (): Promise<Set<string> | null> => {
     if (!fallbackOrgId) return null
@@ -110,7 +177,7 @@ export async function resolveOrganizationScope({
     }
   }
 
-  const initialSelected = normalizedSelectedId ?? auth.orgId ?? null
+  const initialSelected = normalizedSelectedId ?? accountOrgId ?? null
   let effectiveSelected: string | null = null
   if (initialSelected) {
     if (allowedSet === null || allowedSet.has(initialSelected)) {
@@ -149,20 +216,22 @@ export async function resolveOrganizationScopeForRequest({
   auth,
   request,
   selectedId,
+  tenantId: tenantOverride,
 }: {
   container: AwilixContainer
   auth: AuthContext | null | undefined
-  request?: Request | { cookies?: { get: (name: string) => { value: string } | undefined } }
+  request?: Request | { cookies?: { get: (name: string) => { value: string } | undefined }; headers?: { get(name: string): string | null } }
   selectedId?: string | null
+  tenantId?: string | null
 }): Promise<OrganizationScope> {
-  if (!auth || !auth.tenantId || !auth.sub) {
+  if (!auth || !auth.sub) {
     return { selectedId: null, filterIds: null, allowedIds: null }
   }
 
   let em: EntityManager | null = null
   let rbac: RbacService | null = null
-  try { em = (container.resolve('em') as EntityManager) } catch { em = null }
-  try { rbac = (container.resolve('rbacService') as RbacService) } catch { rbac = null }
+  try { em = container.resolve<EntityManager>('em') } catch { em = null }
+  try { rbac = container.resolve<RbacService>('rbacService') } catch { rbac = null }
   if (!em || !rbac) {
     const fallbackSelected = selectedId ?? auth.orgId ?? null
     return {
@@ -172,9 +241,41 @@ export async function resolveOrganizationScopeForRequest({
     }
   }
 
-  const rawSelected = selectedId !== undefined ? selectedId : (request ? getSelectedOrganizationFromRequest(request as any) : null)
+  const cookieTenant = request ? getSelectedTenantFromRequest(request) : null
+  const actorTenant = typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null
+  const requestedTenant =
+    tenantOverride !== undefined
+      ? tenantOverride
+      : cookieTenant !== undefined
+        ? cookieTenant
+        : undefined
+  const requestedTenantId = typeof requestedTenant === 'string' && requestedTenant.trim().length > 0 ? requestedTenant.trim() : null
+  const isSuperAdminActor =
+    auth.isSuperAdmin === true ||
+    (Array.isArray(auth.roles) && auth.roles.some((role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'))
+  let effectiveTenantId = requestedTenantId ?? actorTenant ?? null
+  if (actorTenant && effectiveTenantId && effectiveTenantId !== actorTenant && !isSuperAdminActor) {
+    effectiveTenantId = actorTenant
+  }
+  if (!effectiveTenantId) {
+    return { selectedId: null, filterIds: null, allowedIds: null }
+  }
+
+  const scopedAuth = {
+    ...auth,
+    tenantId: effectiveTenantId,
+    orgId: actorTenant && actorTenant === effectiveTenantId ? auth.orgId ?? null : null,
+  }
+
+  const rawSelected = selectedId !== undefined ? selectedId : (request ? getSelectedOrganizationFromRequest(request) : null)
   const reqSelected = typeof rawSelected === 'string' && isAllOrganizationsSelection(rawSelected) ? null : rawSelected
-  return resolveOrganizationScope({ em, rbac, auth, selectedId: reqSelected })
+  return resolveOrganizationScope({
+    em,
+    rbac,
+    auth: scopedAuth,
+    selectedId: reqSelected,
+    tenantId: effectiveTenantId,
+  })
 }
 
 export type FeatureCheckContext = {
@@ -188,13 +289,15 @@ export async function resolveFeatureCheckContext({
   auth,
   request,
   selectedId,
+  tenantId,
 }: {
   container: AwilixContainer
   auth: AuthContext | null | undefined
   request?: Request | { cookies?: { get: (name: string) => { value: string } | undefined } }
   selectedId?: string | null
+  tenantId?: string | null
 }): Promise<FeatureCheckContext> {
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request, selectedId })
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request, selectedId, tenantId })
   const allowedOrganizationIds = scope.allowedIds ?? null
   const authOrgId = auth?.orgId ?? null
   const organizationId =

@@ -112,6 +112,7 @@
   "organizationSwitcher.error": "Failed to load",
   "organizationSwitcher.empty": "No organizations",
   "organizationSwitcher.manage": "Manage",
+  "organizationSwitcher.tenantLabel": "Tenant",
   "organizationSelect.all": "All organizations",
   "organizationSelect.empty": "—",
   "organizationSelect.loading": "Loading organizations…",

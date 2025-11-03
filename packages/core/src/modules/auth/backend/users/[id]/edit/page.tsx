@@ -203,6 +203,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             onChange={(next) => {
               setValue(next ?? null)
               setSelectedTenantId(next ?? null)
+              setAclData({ isSuperAdmin: false, features: [], organizations: null })
             }}
             includeEmptyOption
             className="w-full h-9 rounded border px-2 text-sm"
@@ -256,6 +257,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             onChange={setAclData}
             userRoles={initialUser?.roles || []}
             currentUserIsSuperAdmin={actorIsSuperAdmin}
+            tenantId={selectedTenantId ?? null}
           />
         )
         : null),

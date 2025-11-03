@@ -112,6 +112,7 @@
   "organizationSwitcher.error": "Nie udało się załadować",
   "organizationSwitcher.empty": "Brak organizacji",
   "organizationSwitcher.manage": "Zarządzaj",
+  "organizationSwitcher.tenantLabel": "Tenant",
   "organizationSelect.all": "Wszystkie organizacje",
   "organizationSelect.empty": "—",
   "organizationSelect.loading": "Ładowanie organizacji…",

@@ -30,7 +30,7 @@ export const tenantListResponseSchema = z.object({
   totalPages: z.number().int().min(1),
 })
 
-export const organizationNodeSchema: z.ZodType<any> = z.lazy(() =>
+export const organizationNodeSchema: z.ZodType<unknown> = z.lazy(() =>
   z
     .object({
       id: directoryIdSchema,
@@ -38,6 +38,7 @@ export const organizationNodeSchema: z.ZodType<any> = z.lazy(() =>
       parentId: directoryIdSchema.nullable(),
       parentName: z.string().nullable().optional(),
       tenantId: directoryIdSchema.nullable(),
+      tenantName: z.string().nullable().optional(),
       rootId: directoryIdSchema.nullable().optional(),
       depth: z.number().int().nonnegative().optional(),
       treePath: z.string().nullable().optional(),
@@ -60,9 +61,10 @@ export const organizationListResponseSchema = z.object({
   pageSize: z.number().int().min(1).optional(),
   totalPages: z.number().int().min(1).optional(),
   error: z.string().optional(),
+  isSuperAdmin: z.boolean().optional(),
 })
 
-export const organizationSwitcherNodeSchema: z.ZodType<any> = z.lazy(() =>
+export const organizationSwitcherNodeSchema: z.ZodType<unknown> = z.lazy(() =>
   z.object({
     id: directoryIdSchema,
     name: z.string(),
@@ -76,5 +78,11 @@ export const organizationSwitcherResponseSchema = z.object({
   items: z.array(organizationSwitcherNodeSchema),
   selectedId: directoryIdSchema.nullable(),
   canManage: z.boolean(),
+  tenantId: z.string().uuid().nullable(),
+  tenants: z.array(z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    isActive: z.boolean(),
+  })),
+  isSuperAdmin: z.boolean(),
 })
-

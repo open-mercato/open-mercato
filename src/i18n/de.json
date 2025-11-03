@@ -111,6 +111,7 @@
   "organizationSwitcher.error": "Laden fehlgeschlagen",
   "organizationSwitcher.empty": "Keine Organisationen",
   "organizationSwitcher.manage": "Verwalten",
+  "organizationSwitcher.tenantLabel": "Tenant",
   "organizationSelect.all": "Alle Organisationen",
   "organizationSelect.empty": "—",
   "organizationSelect.loading": "Organisationen werden geladen…",

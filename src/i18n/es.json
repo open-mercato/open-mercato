@@ -112,6 +112,7 @@
   "organizationSwitcher.error": "Error al cargar",
   "organizationSwitcher.empty": "Sin organizaciones",
   "organizationSwitcher.manage": "Administrar",
+  "organizationSwitcher.tenantLabel": "Tenant",
   "organizationSelect.all": "Todas las organizaciones",
   "organizationSelect.empty": "—",
   "organizationSelect.loading": "Cargando organizaciones…",
