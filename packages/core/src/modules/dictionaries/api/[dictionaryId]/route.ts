@@ -38,12 +38,26 @@ async function loadDictionary(
   options: { allowInherited?: boolean } = {},
 ) {
   const { allowInherited = false } = options
-  const dictionary = await context.em.findOne(Dictionary, {
+  if (!allowInherited && !context.organizationId) {
+    throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.organization_required', 'Organization context is required') })
+  }
+  const baseFilter = {
     id,
-    organizationId: allowInherited ? { $in: context.readableOrganizationIds } : context.organizationId,
     tenantId: context.tenantId,
     deletedAt: null,
-  })
+  }
+  const filter = allowInherited
+    ? {
+        ...baseFilter,
+        ...(context.readableOrganizationIds.length
+          ? { organizationId: { $in: context.readableOrganizationIds } }
+          : {}),
+      }
+    : {
+        ...baseFilter,
+        organizationId: context.organizationId,
+      }
+  const dictionary = await context.em.findOne(Dictionary, filter)
   if (!dictionary) {
     throw new CrudHttpError(404, { error: context.translate('dictionaries.errors.not_found', 'Dictionary not found') })
   }
@@ -64,7 +78,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
       isActive: dictionary.isActive,
       managerVisibility: dictionary.managerVisibility,
       organizationId: dictionary.organizationId,
-      isInherited: dictionary.organizationId !== context.organizationId,
+      isInherited: context.organizationId ? dictionary.organizationId !== context.organizationId : false,
       createdAt: dictionary.createdAt,
       updatedAt: dictionary.updatedAt,
     })
@@ -96,9 +110,13 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     if (payload.key) {
       const key = payload.key.trim().toLowerCase()
       if (key !== dictionary.key) {
+        const organizationId = context.organizationId
+        if (!organizationId) {
+          throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.organization_required', 'Organization context is required') })
+        }
         const existing = await context.em.findOne(Dictionary, {
           key,
-          organizationId: context.organizationId,
+          organizationId,
           tenantId: context.tenantId,
           deletedAt: null,
         })

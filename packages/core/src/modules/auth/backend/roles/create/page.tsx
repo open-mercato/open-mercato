@@ -68,6 +68,14 @@ export default function CreateRolePage() {
     { id: 'customFields', title: 'Custom Fields', column: 2, kind: 'customFields' },
   ]), [detailFieldIds])
 
+  const initialValues = React.useMemo<Partial<CreateRoleFormValues>>(
+    () => ({
+      name: '',
+      tenantId: null,
+    }),
+    [],
+  )
+
   return (
     <Page>
       <PageBody>
@@ -77,7 +85,7 @@ export default function CreateRolePage() {
           entityId={E.auth.role}
           fields={fields}
           groups={groups}
-          initialValues={{ name: '', tenantId: null }}
+          initialValues={initialValues}
           submitLabel="Create"
           cancelHref="/backend/roles"
           successRedirect="/backend/roles?flash=Role%20created&type=success"

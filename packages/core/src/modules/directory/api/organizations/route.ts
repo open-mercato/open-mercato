@@ -206,7 +206,7 @@ export async function GET(req: Request) {
     }
   }
 
-  if (!tenantId) {
+  if (!allowAllTenants && !tenantId) {
     return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
   }
 

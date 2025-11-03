@@ -217,6 +217,17 @@ export default function CreateUserPage() {
     },
   ]
 
+  const initialValues = React.useMemo<Partial<CreateUserFormValues>>(
+    () => ({
+      email: '',
+      password: '',
+      tenantId: null,
+      organizationId: null,
+      roles: [],
+    }),
+    [],
+  )
+
   return (
     <Page>
       <PageBody>
@@ -226,7 +237,7 @@ export default function CreateUserPage() {
           fields={fields}
           groups={groups}
           entityId={E.auth.user}
-          initialValues={{ email: '', password: '', tenantId: null, organizationId: null, roles: [] }}
+          initialValues={initialValues}
           submitLabel="Create"
           cancelHref="/backend/users"
           successRedirect="/backend/users?flash=User%20created&type=success"

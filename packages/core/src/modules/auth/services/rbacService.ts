@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
+import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 
@@ -112,8 +113,7 @@ export class RbacService {
    */
   async invalidateUserCache(userId: string): Promise<void> {
     this.globalSuperAdminCache.delete(userId)
-    if (!this.cache) return
-    await this.cache.deleteByTags([this.getUserTag(userId)])
+    await this.deleteCacheByTags([this.getUserTag(userId)])
   }
 
   /**
@@ -125,8 +125,7 @@ export class RbacService {
    */
   async invalidateTenantCache(tenantId: string): Promise<void> {
     this.globalSuperAdminCache.clear()
-    if (!this.cache) return
-    await this.cache.deleteByTags([this.getTenantTag(tenantId)])
+    await this.deleteCacheByTags([this.getTenantTag(tenantId)], [tenantId])
   }
 
   /**
@@ -136,8 +135,7 @@ export class RbacService {
    * @param organizationId - The ID of the organization whose cache should be invalidated
    */
   async invalidateOrganizationCache(organizationId: string): Promise<void> {
-    if (!this.cache) return
-    await this.cache.deleteByTags([this.getOrganizationTag(organizationId)])
+    await this.deleteCacheByTags([this.getOrganizationTag(organizationId)])
   }
 
   /**
@@ -146,8 +144,29 @@ export class RbacService {
    */
   async invalidateAllCache(): Promise<void> {
     this.globalSuperAdminCache.clear()
+    await this.deleteCacheByTags(['rbac:all'])
+  }
+
+  private async deleteCacheByTags(tags: string[], tenantHints?: Array<string | null>): Promise<void> {
     if (!this.cache) return
-    await this.cache.deleteByTags(['rbac:all'])
+    const contexts = new Set<string | null>()
+    const current = getCurrentCacheTenant()
+    contexts.add(current ?? null)
+    contexts.add(null)
+    if (Array.isArray(tenantHints)) {
+      for (const hint of tenantHints) {
+        contexts.add(hint ?? null)
+      }
+    }
+    for (const ctx of contexts) {
+      if (ctx === current) {
+        await this.cache.deleteByTags(tags)
+      } else {
+        await runWithCacheTenant(ctx, async () => {
+          await this.cache!.deleteByTags(tags)
+        })
+      }
+    }
   }
 
   private async isGlobalSuperAdmin(userId: string): Promise<boolean> {

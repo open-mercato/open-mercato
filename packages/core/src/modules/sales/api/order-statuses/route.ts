@@ -3,7 +3,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/dictionary_entry'
 import { statusDictionaryCreateSchema, statusDictionaryUpdateSchema } from '../../data/validators'
@@ -51,22 +51,60 @@ const dictionaryItemSchema = z.object({
 
 const dictionaryListResponseSchema = createPagedListResponseSchema(dictionaryItemSchema)
 
-async function resolveDictionaryId(ctx: any): Promise<string> {
+const normalizeId = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+async function resolveDictionaryContext(ctx: any): Promise<{ dictionaryId: string; organizationId: string | null }> {
   if (!ctx.auth || !ctx.auth.tenantId) {
     throw new CrudHttpError(401, { error: 'Tenant context is required.' })
   }
-  const organizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
-  if (!organizationId) {
-    throw new CrudHttpError(400, { error: 'Organization context is required.' })
-  }
   const em = ctx.container.resolve('em') as EntityManager
-  const dictionary = await ensureSalesDictionary({
-    em,
-    tenantId: ctx.auth.tenantId,
-    organizationId,
-    kind,
-  })
-  return dictionary.id
+  const tenantId: string = ctx.auth.tenantId
+  const candidateOrgIds = new Set<string>()
+  const pushCandidate = (value: unknown) => {
+    const normalized = normalizeId(value)
+    if (normalized) candidateOrgIds.add(normalized)
+  }
+  pushCandidate(ctx.selectedOrganizationId)
+  pushCandidate(ctx.auth.orgId ?? null)
+  const scope = ctx.organizationScope
+  if (scope) {
+    if (Array.isArray(scope.filterIds)) {
+      for (const id of scope.filterIds) pushCandidate(id)
+    }
+    if (Array.isArray(scope.allowedIds)) {
+      for (const id of scope.allowedIds) pushCandidate(id)
+    }
+  }
+
+  for (const orgId of candidateOrgIds) {
+    const dictionary = await ensureSalesDictionary({
+      em,
+      tenantId,
+      organizationId: orgId,
+      kind,
+    })
+    if (dictionary) {
+      return { dictionaryId: dictionary.id, organizationId: orgId }
+    }
+  }
+
+  const fallback = await em.findOne(
+    Dictionary,
+    {
+      tenantId,
+      key: definition.key,
+      deletedAt: null,
+    },
+    { orderBy: { createdAt: 'asc' } },
+  )
+  if (fallback) {
+    return { dictionaryId: fallback.id, organizationId: fallback.organizationId }
+  }
+  throw new CrudHttpError(400, { error: 'Organization context is required.' })
 }
 
 const crud = makeCrudRoute({
@@ -100,7 +138,7 @@ const crud = makeCrudRoute({
       updatedAt: F.updated_at,
     },
     buildFilters: async (query, ctx) => {
-      const dictionaryId = await resolveDictionaryId(ctx)
+      const { dictionaryId } = await resolveDictionaryContext(ctx)
       const filters: Record<string, unknown> = {
         dictionary_id: dictionaryId,
       }

@@ -21,6 +21,9 @@ const paramsSchema = z.object({
 })
 
 async function loadDictionary(context: Awaited<ReturnType<typeof resolveDictionariesRouteContext>>, id: string) {
+  if (!context.organizationId) {
+    throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.organization_required', 'Organization context is required') })
+  }
   const dictionary = await context.em.findOne(Dictionary, {
     id,
     organizationId: context.organizationId,

@@ -19,7 +19,9 @@ export async function GET(req: Request) {
       {
         tenantId,
         key: { $in: ['currency', 'currencies'] },
-        organizationId: { $in: readableOrganizationIds },
+        ...(readableOrganizationIds.length
+          ? { organizationId: { $in: readableOrganizationIds } }
+          : {}),
         deletedAt: null,
         isActive: true,
       },

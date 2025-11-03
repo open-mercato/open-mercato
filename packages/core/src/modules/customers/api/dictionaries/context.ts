@@ -53,7 +53,7 @@ export type DictionaryRouteContext = {
   auth: Awaited<ReturnType<typeof getAuthFromRequest>>
   translate: (key: string, fallback?: string) => string
   em: EntityManager
-  organizationId: string
+  organizationId: string | null
   tenantId: string
   readableOrganizationIds: string[]
   cache?: CacheStrategy
@@ -78,9 +78,29 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const em = (container.resolve('em') as EntityManager)
+  const tenantId = scope?.tenantId ?? auth.tenantId
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
-  if (!organizationId) {
-    throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+
+  const normalizeId = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : null
+  }
+
+  const candidateIds = new Set<string>()
+  const pushCandidate = (value: unknown) => {
+    const normalized = normalizeId(value)
+    if (normalized) candidateIds.add(normalized)
+  }
+
+  pushCandidate(organizationId)
+  pushCandidate(auth.orgId ?? null)
+  if (Array.isArray(scope?.filterIds)) {
+    for (const id of scope.filterIds) pushCandidate(id)
+  }
+  if (Array.isArray(scope?.allowedIds)) {
+    for (const id of scope.allowedIds) pushCandidate(id)
   }
 
   let cache: CacheStrategy | undefined
@@ -88,23 +108,34 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
     cache = (container.resolve('cache') as CacheStrategy)
   } catch {}
 
-  const em = (container.resolve('em') as EntityManager)
-  const readableOrganizationIds: string[] = [organizationId]
+  const readableOrganizationIds = new Set<string>()
   try {
-    const organization = await em.findOne(Organization, {
-      id: organizationId,
-      tenant: auth.tenantId as any,
-      deletedAt: null,
-    } as any)
-    if (organization && Array.isArray(organization.ancestorIds)) {
-      for (const ancestorId of organization.ancestorIds) {
-        if (typeof ancestorId === 'string' && ancestorId.trim()) {
-          readableOrganizationIds.push(ancestorId)
+    const shouldLoadAll = candidateIds.size === 0
+    const organizations = await em.find(
+      Organization,
+      {
+        tenant: tenantId as any,
+        deletedAt: null,
+        ...(shouldLoadAll ? {} : { id: { $in: Array.from(candidateIds) } }),
+      } as any,
+      { fields: ['id', 'ancestorIds'] },
+    )
+    for (const organization of organizations) {
+      const id = normalizeId(organization.id)
+      if (id) readableOrganizationIds.add(id)
+      if (Array.isArray(organization.ancestorIds)) {
+        for (const ancestorId of organization.ancestorIds) {
+          const normalized = normalizeId(ancestorId)
+          if (normalized) readableOrganizationIds.add(normalized)
         }
       }
     }
+    if (!shouldLoadAll && readableOrganizationIds.size === 0) {
+      for (const id of candidateIds) readableOrganizationIds.add(id)
+    }
   } catch (err) {
     console.warn('[customers.dictionaries.context] Failed to resolve ancestor organizations', err)
+    for (const id of candidateIds) readableOrganizationIds.add(id)
   }
 
   const commandContext: CommandRuntimeContext = {
@@ -121,8 +152,8 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
     translate,
     em,
     organizationId,
-    tenantId: auth.tenantId,
-    readableOrganizationIds,
+    tenantId,
+    readableOrganizationIds: Array.from(readableOrganizationIds),
     cache,
     container,
     ctx: commandContext,
