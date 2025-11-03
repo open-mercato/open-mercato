@@ -28,6 +28,7 @@ import {
   directoryOkSchema,
   organizationListResponseSchema,
 } from '../openapi'
+import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 
 type CrudInput = Record<string, unknown>
 const rawBodySchema = z.object({}).passthrough()
@@ -68,7 +69,14 @@ function stringId(value: unknown): string {
   return String(value)
 }
 
-function enforceTenantScope(authTenantId: string | null, requestedTenantId?: string | null): string | null {
+function enforceTenantScope(
+  authTenantId: string | null,
+  requestedTenantId: string | null,
+  isSuperAdmin: boolean,
+): string | null {
+  if (isSuperAdmin) {
+    return requestedTenantId || authTenantId || null
+  }
   if (authTenantId && requestedTenantId && requestedTenantId !== authTenantId) {
     return null
   }
@@ -135,12 +143,12 @@ export async function GET(req: Request) {
   const ids = parseIds(query.ids ?? null)
   const requestedTenantId = query.tenantId ?? null
   const authTenantId = auth.tenantId ?? null
-  let tenantId = enforceTenantScope(authTenantId, requestedTenantId)
+  const container = await createRequestContainer()
+  const isSuperAdmin = await resolveIsSuperAdmin({ auth, container })
+  const em = (container.resolve('em') as EntityManager)
+  let tenantId = enforceTenantScope(authTenantId, requestedTenantId, isSuperAdmin)
   const status = query.status ?? 'all'
   const includeInactive = query.includeInactive === 'true' || status !== 'active'
-
-  const container = await createRequestContainer()
-  const em = (container.resolve('em') as EntityManager)
 
   if (!tenantId && !authTenantId && ids?.length) {
     const scopedOrgs: Organization[] = await em.find(

@@ -23,6 +23,7 @@ type LoadedUser = {
   email: string
   organizationId: string | null
   tenantId: string | null
+  tenantName: string | null
   organizationName: string | null
   roles: string[]
 }
@@ -32,6 +33,7 @@ type UserApiItem = {
   email?: string | null
   organizationId?: string | null
   tenantId?: string | null
+  tenantName?: string | null
   organizationName?: string | null
   roles?: unknown
 }
@@ -57,11 +59,17 @@ function TenantAwareOrganizationSelectInput({
   includeInactiveIds,
 }: TenantAwareOrganizationSelectProps) {
   const prevTenantRef = React.useRef<string | null>(tenantId)
+  const hydratedRef = React.useRef(false)
   const handleChange = React.useCallback((next: string | null) => {
     setValue(next ?? null)
   }, [setValue])
 
   React.useEffect(() => {
+    if (!hydratedRef.current) {
+      hydratedRef.current = true
+      prevTenantRef.current = tenantId
+      return
+    }
     if (prevTenantRef.current !== tenantId) {
       prevTenantRef.current = tenantId
       setValue(null)
@@ -121,6 +129,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               email: item.email ? String(item.email) : '',
               organizationId: item.organizationId ? String(item.organizationId) : null,
               tenantId: item.tenantId ? String(item.tenantId) : null,
+              tenantName: item.tenantName ? String(item.tenantName) : null,
               organizationName: item.organizationName ? String(item.organizationName) : null,
               roles: Array.isArray(item.roles)
                 ? item.roles
@@ -160,6 +169,13 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   }, [id])
 
   const selectedOrgId = initialUser?.organizationId ? String(initialUser.organizationId) : null
+  const preloadedTenants = React.useMemo(() => {
+    if (!selectedTenantId) return null
+    const name = initialUser?.tenantId === selectedTenantId
+      ? (initialUser?.tenantName ?? selectedTenantId)
+      : selectedTenantId
+    return [{ id: selectedTenantId, name, isActive: true }]
+  }, [initialUser, selectedTenantId])
 
   const loadRoleOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
     if (actorIsSuperAdmin) {
@@ -191,6 +207,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             includeEmptyOption
             className="w-full h-9 rounded border px-2 text-sm"
             required
+            tenants={preloadedTenants}
           />
         ),
       })
@@ -214,7 +231,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     })
     items.push({ id: 'roles', label: 'Roles', type: 'tags', loadOptions: loadRoleOptions })
     return items
-  }, [actorIsSuperAdmin, loadRoleOptions, selectedOrgId, selectedTenantId])
+  }, [actorIsSuperAdmin, loadRoleOptions, preloadedTenants, selectedOrgId, selectedTenantId])
 
   const detailFieldIds = React.useMemo(() => {
     const base: string[] = ['email', 'password', 'organizationId', 'roles']

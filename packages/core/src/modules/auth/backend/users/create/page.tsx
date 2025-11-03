@@ -37,11 +37,17 @@ function TenantAwareOrganizationSelectInput({
   includeInactiveIds,
 }: TenantAwareOrganizationSelectProps) {
   const prevTenantRef = React.useRef<string | null>(tenantId)
+  const hydratedRef = React.useRef(false)
   const handleChange = React.useCallback((next: string | null) => {
     setValue(next ?? null)
   }, [setValue])
 
   React.useEffect(() => {
+    if (!hydratedRef.current) {
+      hydratedRef.current = true
+      prevTenantRef.current = tenantId
+      return
+    }
     if (prevTenantRef.current !== tenantId) {
       prevTenantRef.current = tenantId
       setValue(null)
