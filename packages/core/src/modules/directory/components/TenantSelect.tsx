@@ -52,8 +52,8 @@ function mergeTenantLists(...lists: TenantRecord[][]): TenantRecord[] {
 }
 
 function filterTenantsByStatus(list: TenantRecord[], status: 'all' | 'active' | 'inactive'): TenantRecord[] {
-  if (status === 'active') return list.filter((tenant) => tenant.isActive)
-  if (status === 'inactive') return list.filter((tenant) => !tenant.isActive)
+  if (status === 'active') return list.filter((tenant: TenantRecord) => tenant.isActive)
+  if (status === 'inactive') return list.filter((tenant: TenantRecord) => !tenant.isActive)
   return list
 }
 
@@ -81,7 +81,7 @@ async function fetchDirectoryTenants(status: 'all' | 'active' | 'inactive'): Pro
       const isActive = entry.isActive !== false
       return { id, name, isActive }
     })
-    .filter((tenant): tenant is TenantRecord => tenant !== null)
+    .filter((tenant: TenantRecord | null): tenant is TenantRecord => tenant !== null)
   return mergeTenantLists(filterTenantsByStatus(normalized, status))
 }
 

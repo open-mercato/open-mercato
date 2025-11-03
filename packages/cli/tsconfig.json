@@ -4,8 +4,7 @@
   "compilerOptions": {
     "noEmit": false,
     "declaration": false,
-    "outDir": "./dist",
-    "rootDir": "./src"
+    "outDir": "./dist"
   },
   "include": ["src/**/*"]
 }

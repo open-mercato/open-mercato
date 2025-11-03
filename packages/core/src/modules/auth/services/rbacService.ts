@@ -173,16 +173,17 @@ export class RbacService {
     if (this.globalSuperAdminCache.has(userId)) return this.globalSuperAdminCache.get(userId)!
     const em = this.em.fork()
     const userSuper = await em.findOne(UserAcl, { user: userId as any, isSuperAdmin: true })
-    if (userSuper) {
+    if (userSuper && (userSuper as any).isSuperAdmin) {
       this.globalSuperAdminCache.set(userId, true)
       return true
     }
     const links = await em.find(UserRole, { user: userId as any }, { populate: ['role'] })
-    if (!links.length) {
+    const linkList = Array.isArray(links) ? links : []
+    if (!linkList.length) {
       this.globalSuperAdminCache.set(userId, false)
       return false
     }
-    const roleIds = Array.from(new Set(links.map((link) => {
+    const roleIds = Array.from(new Set(linkList.map((link) => {
       const role = link.role as any
       return role?.id ? String(role.id) : null
     }).filter((id): id is string => typeof id === 'string' && id.length > 0)))
@@ -191,7 +192,7 @@ export class RbacService {
       return false
     }
     const roleSuper = await em.findOne(RoleAcl, { isSuperAdmin: true, role: { $in: roleIds as any } } as any)
-    const result = !!roleSuper
+    const result = !!(roleSuper && (roleSuper as any).isSuperAdmin)
     this.globalSuperAdminCache.set(userId, result)
     return result
   }
@@ -300,13 +301,15 @@ export class RbacService {
 
     // Aggregate role ACLs
     const links = await em.find(UserRole, { user: userId as any, role: { tenantId } } as any, { populate: ['role'] })
-    const roleIds = links.map((l) => (l.role as any)?.id).filter(Boolean)
+    const linkList = Array.isArray(links) ? links : []
+    const roleIds = linkList.map((l) => (l.role as any)?.id).filter(Boolean)
     let isSuper = false
     const features: string[] = []
     let organizations: string[] | null = []
     if (roleIds.length) {
       const racls = await em.find(RoleAcl, { tenantId, role: { $in: roleIds as any } } as any, {})
-      for (const r of racls) {
+      const roleAcls = Array.isArray(racls) ? racls : []
+      for (const r of roleAcls) {
         isSuper = isSuper || !!r.isSuperAdmin
         if (Array.isArray(r.featuresJson)) for (const f of r.featuresJson) if (!features.includes(f)) features.push(f)
         if (organizations !== null) {

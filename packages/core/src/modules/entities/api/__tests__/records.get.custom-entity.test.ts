@@ -2,7 +2,7 @@
 import { GET } from '@open-mercato/core/modules/entities/api/records'
 
 const mockQE = {
-  query: jest.fn(async () => ({
+  query: jest.fn(async (_entityId: string, _options: { filters?: Record<string, unknown> }) => ({
     items: [
       { id: 'rec-1', cf_date: '1', cf_how_long: 2, created_at: '2024-10-03T00:00:00Z' },
     ],
@@ -36,7 +36,8 @@ describe('GET /api/entities/records for custom entities', () => {
 
     // QE called with filters containing bare keys when custom entity
     expect(mockQE.query).toHaveBeenCalled()
-    const [, opts] = mockQE.query.mock.calls[0]
-    expect(opts.filters).toMatchObject({ date: '1', how_long: '2' })
+    const firstCall = mockQE.query.mock.calls[0] as [string, { filters?: Record<string, unknown> }]
+    const [, opts] = firstCall
+    expect(opts?.filters).toMatchObject({ date: '1', how_long: '2' })
   })
 })

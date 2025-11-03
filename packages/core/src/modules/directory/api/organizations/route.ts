@@ -297,11 +297,15 @@ export async function GET(req: Request) {
   if (allowAllTenants) {
     // Multi-tenant aggregate view for super administrators
     const search = (query.search || '').trim().toLowerCase()
-    const allOrgs = await em.find(Organization, { deletedAt: null }, { orderBy: { name: 'ASC' } })
+    const allOrgs = await em.find(
+      Organization,
+      { deletedAt: null },
+      { orderBy: { name: 'ASC' }, populate: ['tenant'] }
+    )
     const byTenant = new Map<string, Organization[]>()
     for (const org of allOrgs) {
       const tenantEntity = org.tenant
-      const tid = tenantEntity ? stringId(tenantEntity.id) : org.tenantId ?? org['tenant_id']
+      const tid = tenantEntity ? stringId(tenantEntity.id) : null
       if (!tid) continue
       if (!byTenant.has(tid)) byTenant.set(tid, [])
       byTenant.get(tid)!.push(org)

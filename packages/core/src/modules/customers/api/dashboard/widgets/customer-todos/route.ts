@@ -121,15 +121,13 @@ export async function GET(req: Request) {
         : { $in: Array.from(new Set(organizationIds)) }
       : null
 
-    const linkFilters: FilterQuery<CustomerTodoLink> = {
+    const linkFilters = {
       tenantId,
+      ...(whereOrganization ? { organizationId: whereOrganization } : {}),
       entity: {
         deletedAt: null,
       } as FilterQuery<CustomerEntity>,
-    }
-    if (whereOrganization) {
-      linkFilters.organizationId = whereOrganization as FilterQuery<CustomerTodoLink>['organizationId']
-    }
+    } as FilterQuery<CustomerTodoLink>
 
     const links = await em.find(
       CustomerTodoLink,

@@ -619,7 +619,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     await em.flush()
 
     await em.nativeDelete(CustomerDealCompanyLink, { company: entity })
-    if (before.deals.length) {
+    if (before.deals?.length) {
       const dealIds = before.deals.map((link) => link.dealId)
       const deals = await em.find(CustomerDeal, {
         id: { $in: dealIds },
@@ -641,7 +641,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       await em.flush()
     }
 
-    if (before.members.length) {
+    if (before.members?.length) {
       const memberIds = before.members.map((member) => member.profileId)
       const profiles = await em.find(CustomerPersonProfile, {
         id: { $in: memberIds },

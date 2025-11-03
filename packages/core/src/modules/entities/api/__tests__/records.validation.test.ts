@@ -2,7 +2,7 @@
 import { POST, PUT } from '@open-mercato/core/modules/entities/api/records'
 
 const mockEm = {
-  find: jest.fn(async () => []),
+  find: jest.fn(async () => [] as Array<Record<string, unknown>>),
   findOne: jest.fn(async () => null),
 }
 

@@ -87,7 +87,7 @@ export default function CreateUserPage() {
         if (!res.ok) throw new Error(`Failed with status ${res.status}`)
         const data = await res.json()
         if (!cancelled) {
-          const rawItems = Array.isArray(data.items) ? data.items : []
+          const rawItems: unknown[] = Array.isArray(data.items) ? data.items : []
           const normalized = rawItems
             .map((item: unknown) => {
               if (!item || typeof item !== 'object') return null
