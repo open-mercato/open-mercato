@@ -55,7 +55,7 @@ export default function PrivacyPage() {
       <h2>6. Contact</h2>
       <p>
         For privacy-related questions, email{' '}
-        <a href="mailto:privacy@open-mercato.com">privacy@open-mercato.com</a>.
+        <a href="mailto:info@catchthetornado.com">info@catchthetornado.com</a>.
       </p>
     </ContentLayout>
   )
