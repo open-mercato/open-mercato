@@ -18,11 +18,60 @@ export type AdminNavItem = {
   children?: AdminNavItem[]
 }
 
+export type AdminNavFeatureChecker = (features: string[]) => Promise<Iterable<string> | null | undefined>
+
+export type BuildAdminNavOptions = {
+  checkFeatures?: AdminNavFeatureChecker
+}
+
+/**
+ * @deprecated The internal fetch-based feature check will be removed.
+ *             Provide `options.checkFeatures` so buildAdminNav can reuse your RBAC context.
+ */
+async function fetchFeatureGrants(requestFeatures: string[]): Promise<Set<string>> {
+  const granted = new Set<string>()
+  if (!requestFeatures.length) return granted
+  let url = '/api/auth/feature-check'
+  let headersInit: Record<string, string> | undefined
+  if (typeof window === 'undefined') {
+    // On the server, build absolute URL and forward cookies so auth is available
+    try {
+      const { headers: getHeaders } = await import('next/headers')
+      const h = await getHeaders()
+      const host = h.get('x-forwarded-host') || h.get('host') || ''
+      const proto = h.get('x-forwarded-proto') || 'http'
+      const cookie = h.get('cookie') || ''
+      if (host) url = `${proto}://${host}/api/auth/feature-check`
+      headersInit = { cookie }
+    } catch {
+      // ignore; fall back to relative URL without forwarded cookies
+    }
+  }
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'include' as any,
+      headers: { 'content-type': 'application/json', ...(headersInit || {}) },
+      body: JSON.stringify({ features: requestFeatures }),
+    } as any)
+    if (res.ok) {
+      const data = await res.json().catch(() => ({ granted: [] }))
+      if (Array.isArray(data?.granted)) {
+        data.granted.forEach((f: string) => granted.add(f))
+      }
+    }
+  } catch {
+    // ignore fetch failures and keep feature set empty
+  }
+  return granted
+}
+
 export async function buildAdminNav(
   modules: any[],
   ctx: { auth?: { roles?: string[]; sub?: string; orgId?: string | null; tenantId?: string | null }; path?: string },
   userEntities?: Array<{ entityId: string; label: string; href: string }>,
-  translate?: (key: string | undefined, fallback: string) => string
+  translate?: (key: string | undefined, fallback: string) => string,
+  options?: BuildAdminNavOptions
 ): Promise<AdminNavItem[]> {
   function capitalize(s: string) {
     return s.charAt(0).toUpperCase() + s.slice(1)
@@ -45,48 +94,22 @@ export async function buildAdminNav(
   }
 
   // Batch check all features in a single API call
-  let userFeatures = new Set<string>()
-  let featureCheckFailed = false
-  if (allRequiredFeatures.size > 0) {
-    let url = '/api/auth/feature-check'
-    let headersInit: Record<string, string> | undefined
-    if (typeof window === 'undefined') {
-      // On the server, build absolute URL and forward cookies so auth is available
-      try {
-        const { headers: getHeaders } = await import('next/headers')
-        const h = await getHeaders()
-        const host = h.get('x-forwarded-host') || h.get('host') || ''
-        const proto = h.get('x-forwarded-proto') || 'http'
-        const cookie = h.get('cookie') || ''
-        if (host) url = `${proto}://${host}/api/auth/feature-check`
-        headersInit = { cookie }
-      } catch {
-        // ignore; fall back to relative URL without forwarded cookies
-      }
-    }
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        credentials: 'include' as any,
-        headers: { 'content-type': 'application/json', ...(headersInit || {}) },
-        body: JSON.stringify({ features: Array.from(allRequiredFeatures) }),
-      } as any)
-      if (res.ok) {
-        const data = await res.json().catch(() => ({ granted: [] }))
-        // Add all granted features to the cache
-        if (Array.isArray(data?.granted)) {
-          data.granted.forEach((f: string) => userFeatures.add(f))
-        }
-      } else {
-        featureCheckFailed = true
-      }
-    } catch {
-      featureCheckFailed = true
-    }
-  }
-  if (featureCheckFailed) {
-    userFeatures = new Set(allRequiredFeatures)
-  }
+	  let userFeatures = new Set<string>()
+	  if (allRequiredFeatures.size > 0) {
+	    const requestFeatures = Array.from(allRequiredFeatures)
+	    if (options?.checkFeatures) {
+	      try {
+	        const resolved = await options.checkFeatures(requestFeatures)
+	        if (resolved) {
+	          userFeatures = new Set(resolved)
+	        }
+	      } catch {
+	        // ignore and fall back to empty feature set
+	      }
+	    } else {
+	      userFeatures = await fetchFeatureGrants(requestFeatures)
+	    }
+	  }
 
   // Helper: check if user has all required features (from cache)
   function hasAllFeatures(required: string[]): boolean {
