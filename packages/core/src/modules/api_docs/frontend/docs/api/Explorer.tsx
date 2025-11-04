@@ -995,7 +995,8 @@ function TesterPanel(props: TesterPanelProps) {
     const headers: Array<[string, string]> = [['Accept', 'application/json']]
     const trimmedKey = apiKey.trim()
     if (trimmedKey) {
-      headers.push(['Authorization', `Bearer ${trimmedKey}`])
+      headers.push(['Authorization', `ApiKey ${trimmedKey}`])
+      headers.push(['X-Api-Key', trimmedKey])
     }
 
     let body: string | undefined
@@ -1234,7 +1235,7 @@ function TesterPanel(props: TesterPanelProps) {
         <div>
           <h2 className="text-lg font-semibold">Interactive tester</h2>
           <p className="text-xs text-muted-foreground">
-            Provide the endpoint parameters and your API token to execute a live request.
+            Provide the endpoint parameters and your API key to execute a live request.
           </p>
         </div>
         <span
@@ -1275,12 +1276,12 @@ function TesterPanel(props: TesterPanelProps) {
       </label>
 
       <label className="space-y-2 text-sm">
-        <span className="font-medium text-foreground">API token</span>
+        <span className="font-medium text-foreground">API key</span>
         <input
           type="text"
           value={apiKey}
           onChange={(event) => setApiKey(event.target.value)}
-          placeholder="Paste your Bearer API token"
+          placeholder="Paste your API key secret (omk_…)"
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
       </label>
