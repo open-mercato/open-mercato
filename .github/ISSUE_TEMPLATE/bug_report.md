@@ -1,7 +1,7 @@
 ---
 name: Bug report
 about: Report a defect or regression in Open Mercato
-title: "[Bug]: "
+title: "bug: "
 labels: bug
 assignees: ""
 ---
