@@ -16,6 +16,7 @@ import Link from 'next/link'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FieldRegistry, loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields/registry'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 
 type Def = { key: string; kind: string; configJson?: any; isActive?: boolean }
 
@@ -786,7 +787,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             // Validate fields client-side before hitting the API
             if (!validateAll()) {
               flash('Please fix validation errors in field definitions', 'error')
-              throw new Error('Validation failed')
+              throw createCrudFormError('Please fix validation errors in field definitions')
             }
             // Save entity settings only for custom entities
             if (entitySource === 'custom') {
@@ -799,13 +800,12 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
                 defaultEditor: (vals as any)?.defaultEditor || undefined,
               }
               const parsed = partial.safeParse(normalized)
-              if (!parsed.success) throw new Error('Validation failed')
+              if (!parsed.success) throw createCrudFormError('Validation failed')
               const res1 = await apiFetch('/api/entities/entities', {
                 method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, ...(parsed.data as any) })
               })
               if (!res1.ok) {
-                const j = await res1.json().catch(() => ({}))
-                throw new Error(j?.error || 'Failed to save entity')
+                await raiseCrudError(res1, 'Failed to save entity')
               }
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
             }
@@ -823,8 +823,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
               method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(defsPayload)
             })
             if (!res2.ok) {
-              const j = await res2.json().catch(() => ({}))
-              throw new Error(j?.error || 'Failed to save definitions')
+              await raiseCrudError(res2, 'Failed to save definitions')
             }
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
             // Invalidate all custom field definition caches so DataTables refresh with new labels
@@ -834,8 +833,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         onDelete={entitySource === 'custom' ? async () => {
           const res = await apiFetch('/api/entities/entities', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId }) })
           if (!res.ok) {
-            const j = await res.json().catch(() => ({}))
-            throw new Error(j?.error || 'Failed to delete entity')
+            await raiseCrudError(res, 'Failed to delete entity')
           }
           flash('Entity deleted', 'success')
           try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}

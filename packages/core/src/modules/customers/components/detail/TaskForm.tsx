@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@/lib/i18n/context'
 import type { TaskFormPayload } from './hooks/usePersonTasks'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
@@ -103,21 +104,8 @@ export function TaskForm({
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
-      const rawTitle = typeof values.title === 'string' ? values.title.trim() : ''
-      if (!rawTitle.length) {
-        throw new Error(t('customers.people.detail.tasks.titleRequired', 'Task name is required.'))
-      }
-      const base: TaskFormPayload['base'] = { title: rawTitle }
-      if (typeof values.is_done === 'boolean') {
-        base.is_done = values.is_done
-      }
-      const custom: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(values)) {
-        if (key.startsWith('cf_')) {
-          custom[key.slice(3)] = normalizeCustomFieldSubmitValue(value)
-        }
-      }
-      await onSubmit({ base, custom })
+      const payload = buildTaskSubmitPayload(values, t)
+      await onSubmit(payload)
     },
     [onSubmit, t],
   )
@@ -140,4 +128,23 @@ export function TaskForm({
       />
     </div>
   )
+}
+
+export function buildTaskSubmitPayload(values: Record<string, unknown>, t: (key: string, fallback?: string) => string): TaskFormPayload {
+  const rawTitle = typeof values.title === 'string' ? values.title.trim() : ''
+  if (!rawTitle.length) {
+    const message = t('customers.people.detail.tasks.titleRequired', 'Task name is required.')
+    throw createCrudFormError(message, { title: message })
+  }
+  const base: TaskFormPayload['base'] = { title: rawTitle }
+  if (typeof values.is_done === 'boolean') {
+    base.is_done = values.is_done
+  }
+  const custom: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(values)) {
+    if (key.startsWith('cf_')) {
+      custom[key.slice(3)] = normalizeCustomFieldSubmitValue(value)
+    }
+  }
+  return { base, custom }
 }

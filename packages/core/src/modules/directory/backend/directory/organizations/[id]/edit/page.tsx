@@ -11,6 +11,8 @@ import {
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 
 type TreeResponse = {
   items: OrganizationTreeNode[]
@@ -281,48 +283,90 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           successRedirect="/backend/directory/organizations?flash=Organization%20updated&type=success"
           extraActions={pathLabel ? <span className="text-xs text-muted-foreground">Path: {pathLabel}</span> : null}
           onSubmit={async (values) => {
-            const payloadId = typeof values.id === 'string' && values.id.length ? values.id : orgId
-            const payloadName = typeof values.name === 'string' ? values.name : ''
-            const payloadParentId = typeof values.parentId === 'string' && values.parentId.length ? values.parentId : null
-            const payload: {
-              id: string
-              name: string
-              isActive: boolean
-              parentId: string | null
-              childIds: string[]
-              tenantId?: string | null
-              customFields?: Record<string, unknown>
-            } = {
-              id: payloadId,
-              name: payloadName,
-              isActive: values.isActive !== false,
-              parentId: payloadParentId,
-              childIds: originalChildIds,
-            }
-            const customFields: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(values)) {
-              if (key.startsWith('cf_')) customFields[key.slice(3)] = value
-              else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
-            }
-            if (Object.keys(customFields).length > 0) {
-              payload.customFields = customFields
-            }
-            const submittedTenantId = typeof values.tenantId === 'string' && values.tenantId.trim().length > 0
-              ? values.tenantId.trim()
-              : tenantId
-            if (submittedTenantId) payload.tenantId = submittedTenantId
-            await apiFetch('/api/directory/organizations', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
+            await submitUpdateOrganization({
+              values: values as Record<string, unknown>,
+              orgId: orgId ?? '',
+              tenantId,
+              originalChildIds,
             })
           }}
           onDelete={async () => {
-            await apiFetch(`/api/directory/organizations?id=${encodeURIComponent(orgId)}`, { method: 'DELETE' })
+            const res = await apiFetch(`/api/directory/organizations?id=${encodeURIComponent(orgId ?? '')}`, { method: 'DELETE' })
+            if (!res.ok) {
+              await raiseCrudError(res, 'Failed to delete organization')
+            }
           }}
           deleteRedirect="/backend/directory/organizations?flash=Organization%20deleted&type=success"
         />
       </PageBody>
     </Page>
   )
+}
+
+type UpdateOrganizationPayload = {
+  id: string
+  name: string
+  isActive: boolean
+  parentId: string | null
+  childIds: string[]
+  tenantId?: string | null
+  customFields?: Record<string, unknown>
+}
+
+type UpdateOrganizationRequest = (payload: UpdateOrganizationPayload) => Promise<void>
+
+async function defaultUpdateOrganizationRequest(payload: UpdateOrganizationPayload) {
+  await updateCrud('directory/organizations', payload)
+}
+
+export async function submitUpdateOrganization(options: {
+  values: Record<string, unknown>
+  orgId: string
+  tenantId: string | null
+  originalChildIds: string[]
+  updateOrganization?: UpdateOrganizationRequest
+}): Promise<void> {
+  const {
+    values,
+    orgId,
+    tenantId,
+    originalChildIds,
+    updateOrganization = defaultUpdateOrganizationRequest,
+  } = options
+
+  const payloadId = typeof values.id === 'string' && values.id.length ? values.id : orgId
+  if (!payloadId) {
+    throw createCrudFormError('Organization identifier is required', { id: 'Organization identifier is required' })
+  }
+
+  const customFields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(values)) {
+    if (key.startsWith('cf_')) customFields[key.slice(3)] = value
+    else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
+  }
+
+  const submittedTenantId =
+    typeof values.tenantId === 'string' && values.tenantId.trim().length
+      ? values.tenantId.trim()
+      : tenantId
+
+  const payload: UpdateOrganizationPayload = {
+    id: payloadId,
+    name: typeof values.name === 'string' ? values.name : '',
+    isActive: values.isActive !== false,
+    parentId:
+      typeof values.parentId === 'string' && values.parentId.length
+        ? values.parentId
+        : null,
+    childIds: originalChildIds,
+  }
+
+  if (submittedTenantId !== undefined && submittedTenantId !== null) {
+    payload.tenantId = submittedTenantId
+  }
+  if (Object.keys(customFields).length > 0) {
+    payload.customFields = customFields
+  }
+
+  await updateOrganization(payload)
 }

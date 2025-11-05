@@ -6,6 +6,7 @@ import { useT } from '@/lib/i18n/context'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { DictionarySelectField } from '../formConfig'
 import { createDictionarySelectLabels } from './utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -767,12 +768,7 @@ export function DealForm({
       try {
         const parsed = schema.safeParse(values)
         if (!parsed.success) {
-          const issue = parsed.error.issues[0]
-          const message =
-            typeof issue?.message === 'string'
-              ? issue.message
-              : t('customers.people.detail.deals.error', 'Failed to save deal.')
-          throw new Error(message)
+          throw buildDealValidationError(parsed.error.issues, t)
         }
         const expectedCloseAt =
           parsed.data.expectedCloseAt && parsed.data.expectedCloseAt.length
@@ -839,6 +835,17 @@ export function DealForm({
       )}
     />
   )
+}
+
+export function buildDealValidationError(issues: z.ZodIssue[], t: (key: string, fallback?: string) => string) {
+  const issue = issues[0]
+  const message =
+    typeof issue?.message === 'string'
+      ? issue.message
+      : t('customers.people.detail.deals.error', 'Failed to save deal.')
+  const firstPath = Array.isArray(issue?.path) ? issue?.path?.[0] : undefined
+  const field = typeof firstPath === 'string' ? firstPath : undefined
+  throw createCrudFormError(message, field ? { [field]: message } : undefined)
 }
 
 export default DealForm

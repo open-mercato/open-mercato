@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError, readJsonSafe, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/data/validators'
 import { useRouter } from 'next/navigation'
 import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
@@ -43,32 +45,73 @@ export default function CreateEntityPage() {
           submitLabel="Create"
           cancelHref="/backend/entities/user"
           onSubmit={async (vals) => {
-            // Validate uniqueness client-side
-            const listRes = await apiFetch('/api/entities/entities')
-            const listJson = await listRes.json().catch(() => ({ items: [] }))
-            const exists = Array.isArray(listJson?.items) && listJson.items.some((it: any) => it?.entityId === (vals as any).entityId && it?.source === 'custom')
-            if (exists) throw new Error('Entity ID already exists')
-            
-            const res = await apiFetch('/api/entities/entities', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ 
-                ...(vals as any), 
-                labelField: 'name', 
-                defaultEditor: (vals as any)?.defaultEditor || undefined,
-              }),
+            const entityId = await submitCreateEntity({
+              values: vals as Record<string, unknown>,
             })
-            if (!res.ok) {
-              const j = await res.json().catch(() => ({}))
-              throw new Error(j?.error || 'Failed to create')
-            }
-            // Trigger sidebar refresh
-            try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
-            const entityId = (vals as any).entityId as string
+            try {
+              window.dispatchEvent(new Event('om:refresh-sidebar'))
+            } catch {}
             pushWithFlash(router, `/backend/entities/user/${encodeURIComponent(entityId)}`, 'Entity created', 'success')
           }}
         />
       </PageBody>
     </Page>
   )
+}
+
+type EntityListEntry = {
+  entityId?: string
+  source?: string
+}
+
+type FetchCustomEntities = () => Promise<EntityListEntry[]>
+
+async function defaultFetchCustomEntities(): Promise<EntityListEntry[]> {
+  const res = await apiFetch('/api/entities/entities')
+  if (!res.ok) {
+    await raiseCrudError(res, 'Failed to load entities')
+  }
+  const data = await readJsonSafe<{ items?: EntityListEntry[] }>(res)
+  return Array.isArray(data?.items) ? data!.items! : []
+}
+
+type CreateEntityRequest = (payload: Record<string, unknown>) => Promise<void>
+
+async function defaultCreateEntityRequest(payload: Record<string, unknown>) {
+  await createCrud('entities/entities', payload)
+}
+
+export async function submitCreateEntity(options: {
+  values: Record<string, unknown>
+  fetchEntities?: FetchCustomEntities
+  createEntity?: CreateEntityRequest
+}): Promise<string> {
+  const { values, fetchEntities = defaultFetchCustomEntities, createEntity = defaultCreateEntityRequest } = options
+  const rawEntityId = typeof values.entityId === 'string' ? values.entityId.trim() : ''
+  if (!rawEntityId) {
+    throw createCrudFormError('Entity ID is required', { entityId: 'Entity ID is required' })
+  }
+
+  const existing = await fetchEntities()
+  const exists = existing.some(
+    (entry) => entry?.entityId === rawEntityId && (entry?.source === 'custom' || entry?.source === undefined),
+  )
+  if (exists) {
+    const message = 'Entity ID already exists'
+    throw createCrudFormError(message, { entityId: message })
+  }
+
+  const payload: Record<string, unknown> = {
+    ...values,
+    entityId: rawEntityId,
+    labelField: 'name',
+    defaultEditor:
+      typeof (values as Record<string, unknown>).defaultEditor === 'string' &&
+      (values as Record<string, unknown>).defaultEditor
+        ? (values as Record<string, unknown>).defaultEditor
+        : undefined,
+  }
+
+  await createEntity(payload)
+  return rawEntityId
 }
