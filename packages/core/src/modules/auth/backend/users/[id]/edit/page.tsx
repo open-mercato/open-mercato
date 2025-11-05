@@ -4,6 +4,8 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
@@ -335,20 +337,24 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               roles: Array.isArray(values.roles) ? values.roles : [],
               ...(Object.keys(customFields).length ? { customFields } : {}),
             }
-            await apiFetch('/api/auth/users', { 
-              method: 'PUT', 
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload), 
-            })
+            await updateCrud('auth/users', payload)
             // Save ACL data
-            await apiFetch('/api/auth/users/acl', { 
+            const aclRes = await apiFetch('/api/auth/users/acl', { 
               method: 'PUT', 
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ userId: id, ...aclData }) 
             })
+            if (!aclRes.ok) {
+              await raiseCrudError(aclRes, 'Failed to update user access control')
+            }
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
-          onDelete={async () => { await apiFetch(`/api/auth/users?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' }) }}
+          onDelete={async () => {
+            const res = await apiFetch(`/api/auth/users?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' })
+            if (!res.ok) {
+              await raiseCrudError(res, 'Failed to delete user')
+            }
+          }}
           deleteRedirect="/backend/users?flash=User%20deleted&type=success"
         />
       </PageBody>

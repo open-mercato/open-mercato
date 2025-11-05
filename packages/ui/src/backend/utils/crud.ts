@@ -29,11 +29,12 @@ export function buildCrudQuery(params: Record<string, any>): string {
 }
 
 import { apiFetch } from './api'
+import { raiseCrudError } from './serverErrors'
 
 export async function fetchCrudList<T>(apiPath: string, params: Record<string, any>, init?: RequestInit): Promise<ListResponse<T>> {
   const qs = buildCrudQuery(params)
   const res = await apiFetch(`/api/${apiPath}?${qs}`, { ...(init || {}) })
-  if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to fetch list'))
+  if (!res.ok) await raiseCrudError(res, 'Failed to fetch list')
   return res.json()
 }
 
@@ -53,7 +54,7 @@ export async function createCrud(apiPath: string, body: any, init?: RequestInit)
     body: JSON.stringify(body),
     ...(init || {}),
   })
-  if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to create'))
+  if (!res.ok) await raiseCrudError(res, 'Failed to create')
   return res
 }
 
@@ -64,12 +65,12 @@ export async function updateCrud(apiPath: string, body: any, init?: RequestInit)
     body: JSON.stringify(body),
     ...(init || {}),
   })
-  if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to update'))
+  if (!res.ok) await raiseCrudError(res, 'Failed to update')
   return res
 }
 
 export async function deleteCrud(apiPath: string, id: string, init?: RequestInit): Promise<Response> {
   const res = await apiFetch(`/api/${apiPath}?id=${encodeURIComponent(id)}`, { method: 'DELETE', ...(init || {}) })
-  if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete'))
+  if (!res.ok) await raiseCrudError(res, 'Failed to delete')
   return res
 }

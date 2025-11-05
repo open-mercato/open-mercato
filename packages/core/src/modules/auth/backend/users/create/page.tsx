@@ -4,6 +4,8 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
@@ -258,19 +260,7 @@ export default function CreateUserPage() {
               const rawTenant = typeof values.tenantId === 'string' ? values.tenantId.trim() : null
               payload.tenantId = rawTenant && rawTenant.length ? rawTenant : null
             }
-            const res = await apiFetch('/api/auth/users', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            })
-            if (!res.ok) {
-              let message = 'Failed to create user'
-              try {
-                const data = await res.clone().json()
-                if (data && typeof data.error === 'string') message = data.error
-              } catch {}
-              throw new Error(message)
-            }
+            const res = await createCrud('auth/users', payload)
             const created = await res.json().catch(() => null)
             const newUserId = created && typeof created.id === 'string' ? created.id : null
 
@@ -289,7 +279,7 @@ export default function CreateUserPage() {
                 }),
               })
               if (!widgetRes.ok) {
-                throw new Error('Failed to assign dashboard widgets to the new user')
+                await raiseCrudError(widgetRes, 'Failed to assign dashboard widgets to the new user')
               }
             }
           }}

@@ -12,9 +12,82 @@ import { Trash2, Save } from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
+import {
+  mapCrudServerErrorToFormErrors,
+  parseServerMessage,
+  mapServerFieldNameToFormId,
+  type CrudServerFieldErrors,
+  type FieldNameMapperOptions,
+} from './utils/serverErrors'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
+const FOCUSABLE_SELECTOR =
+  '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function tryParseJsonString(input: unknown): unknown {
+  if (typeof input !== 'string') return null
+  try {
+    return JSON.parse(input)
+  } catch {
+    return null
+  }
+}
+
+type NormalizedCrudError = {
+  message?: string
+  status?: number
+  raw?: string | null
+  details?: unknown
+  fieldErrors?: CrudServerFieldErrors
+  [key: string]: unknown
+}
+
+function normalizeCrudError(err: unknown): NormalizedCrudError {
+  if (!err || typeof err !== 'object') {
+    const parsed = tryParseJsonString(err)
+    return (parsed && typeof parsed === 'object')
+      ? { ...(parsed as Record<string, unknown>) }
+      : { message: typeof err === 'string' ? err : undefined }
+  }
+
+  const base: NormalizedCrudError = { ...(err as Record<string, unknown>) }
+  if (typeof base.raw === 'string') {
+    const parsedRaw = tryParseJsonString(base.raw)
+    if (parsedRaw && typeof parsedRaw === 'object') {
+      Object.assign(base, parsedRaw as Record<string, unknown>)
+    }
+  }
+  if (typeof base.message === 'string') {
+    const parsedMessage = tryParseJsonString(base.message)
+    if (parsedMessage && typeof parsedMessage === 'object') {
+      Object.assign(base, parsedMessage as Record<string, unknown>)
+    }
+  }
+  return base
+}
+
+function extractFieldErrorsFromDetails(details: unknown, options?: FieldNameMapperOptions): CrudServerFieldErrors {
+  if (!Array.isArray(details)) return {}
+  const mapped: CrudServerFieldErrors = {}
+  for (const issue of details) {
+    if (!issue || typeof issue !== 'object') continue
+    const message = typeof (issue as any).message === 'string' ? (issue as any).message : null
+    const path = Array.isArray((issue as any).path) ? (issue as any).path : []
+    const field = path.find((part) => typeof part === 'string' && part.trim().length > 0)
+    if (!message || !field) continue
+    const targetField = mapServerFieldNameToFormId(String(field), options)
+    mapped[targetField] = message
+  }
+  return mapped
+}
+
+function mergeFieldErrors(primary?: CrudServerFieldErrors | null, secondary?: CrudServerFieldErrors | null): CrudServerFieldErrors {
+  const next: CrudServerFieldErrors = {}
+  if (secondary) Object.assign(next, secondary)
+  if (primary) Object.assign(next, primary)
+  return next
+}
 
 export type CrudFieldBase = {
   id: string
@@ -160,7 +233,6 @@ export function CrudForm<TValues extends Record<string, any>>({
   const deleteSuccessMessage = t('ui.forms.flash.deleteSuccess')
   const deleteErrorMessage = t('ui.forms.flash.deleteError')
   const saveErrorMessage = t('ui.forms.flash.saveError')
-  const unexpectedErrorMessage = t('ui.forms.errors.unexpected')
   const formId = React.useId()
   const [values, setValues] = React.useState<Record<string, any>>({ ...(initialValues || {}) })
   const [errors, setErrors] = React.useState<Record<string, string>>({})
@@ -338,6 +410,7 @@ export function CrudForm<TValues extends Record<string, any>>({
   }, [formId])
 
   const lastFocusedFieldRef = React.useRef<string | null>(null)
+  const lastErrorFieldRef = React.useRef<string | null>(null)
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
@@ -350,16 +423,14 @@ export function CrudForm<TValues extends Record<string, any>>({
     if (!firstFieldId) return
     if (lastFocusedFieldRef.current === firstFieldId) return
 
-    const selectors = '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
     const run = () => {
       const form = document.getElementById(formId)
       if (!form) return
 
       const container = form.querySelector<HTMLElement>(`[data-crud-field-id="${firstFieldId}"]`)
       const target =
-        container?.querySelector<HTMLElement>(selectors) ??
-        form.querySelector<HTMLElement>(selectors)
+        container?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??
+        form.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
 
       if (target && typeof target.focus === 'function') {
         target.focus()
@@ -386,6 +457,36 @@ export function CrudForm<TValues extends Record<string, any>>({
       }
     }
   }, [firstFieldId, formId, isLoading, isLoadingCustomFields])
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return
+    const entries = Object.entries(errors)
+    if (!entries.length) {
+      lastErrorFieldRef.current = null
+      return
+    }
+    const [fieldId] = entries[0]
+    if (!fieldId || lastErrorFieldRef.current === fieldId) return
+
+    const form = document.getElementById(formId)
+    if (!form) return
+    const container = form.querySelector<HTMLElement>(`[data-crud-field-id="${fieldId}"]`)
+    const target =
+      container?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??
+      form.querySelector<HTMLElement>(`[name="${fieldId}"]`) ??
+      container ??
+      null
+
+    if (target && typeof target.focus === 'function') {
+      target.focus()
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+        try {
+          target.select()
+        } catch {}
+      }
+      lastErrorFieldRef.current = fieldId
+    }
+  }, [errors, formId])
 
   // Separate basic fields from custom fields for progressive loading
   const basicFields = React.useMemo(() => fields, [fields])
@@ -506,39 +607,39 @@ export function CrudForm<TValues extends Record<string, any>>({
     try {
       await onSubmit?.(parsed)
       if (successRedirect) router.push(successRedirect)
-    } catch (err: any) {
-      // Try to extract field-level errors from structured responses
-      let msg = (err && typeof err === 'object' && typeof err.message === 'string') ? err.message : unexpectedErrorMessage
-      let fieldErrors: Record<string, string> | null = null
-      // Custom error shape from callers: { fieldErrors }
-      if (err && typeof err === 'object' && err.fieldErrors && typeof err.fieldErrors === 'object') {
-        fieldErrors = err.fieldErrors as Record<string, string>
-      } else {
-        // Sometimes message may be JSON with { error, fields }
-        try {
-          const parsed = JSON.parse(msg)
-          if (parsed?.fields && typeof parsed.fields === 'object') {
-            fieldErrors = parsed.fields as Record<string, string>
-            msg = parsed?.error || parsed?.message || msg
-          } else if (parsed?.error || parsed?.message) {
-            msg = parsed.error || parsed.message
-          }
-        } catch {}
+    } catch (error: unknown) {
+      const parsedError = normalizeCrudError(error)
+      const { message: helperMessage, fieldErrors: helperFieldErrors } = mapCrudServerErrorToFormErrors(parsedError, { customEntity })
+      const fromDetails = extractFieldErrorsFromDetails(parsedError.details, { customEntity })
+      const combinedFieldErrors = mergeFieldErrors(helperFieldErrors, fromDetails)
+      const hasFieldErrors = Object.keys(combinedFieldErrors).length > 0
+      const firstFieldMessage = hasFieldErrors
+        ? (() => {
+            const firstKey = Object.keys(combinedFieldErrors)[0]
+            if (!firstKey) return null
+            const value = combinedFieldErrors[firstKey]
+            return typeof value === 'string' && value.trim().length ? value.trim() : null
+          })()
+        : null
+      if (hasFieldErrors) {
+        setErrors(combinedFieldErrors)
       }
 
-      if (fieldErrors) {
-        const next: Record<string, string> = {}
-        for (const [k, v] of Object.entries(fieldErrors)) {
-          // Map server keys to form field ids
-          const fid = customEntity
-            ? (k.startsWith('cf_') ? k.slice(3) : (k.startsWith('cf:') ? k.slice(3) : k))
-            : (k.startsWith('cf_') ? k : (k.startsWith('cf:') ? `cf_${k.slice(3)}` : `cf_${k}`))
-          next[fid] = String(v)
+      let displayMessage = typeof helperMessage === 'string' && helperMessage.trim() ? helperMessage.trim() : ''
+      if (hasFieldErrors) {
+        const lowered = displayMessage.toLowerCase()
+        const highlightedLower = highlightedMessage.toLowerCase()
+        if (!displayMessage || lowered === 'invalid input' || lowered === highlightedLower) {
+          displayMessage = firstFieldMessage ?? highlightedMessage
         }
-        setErrors(next)
       }
-
-      const displayMessage = typeof msg === 'string' && msg.trim() ? msg : saveErrorMessage
+      if (!displayMessage && err instanceof Error && typeof err.message === 'string' && err.message.trim()) {
+        displayMessage = err.message.trim()
+      }
+      if (!displayMessage) {
+        displayMessage = hasFieldErrors ? highlightedMessage : saveErrorMessage
+      }
+      displayMessage = parseServerMessage(displayMessage)
       flash(displayMessage, 'error')
       setFormError(displayMessage)
     } finally {
