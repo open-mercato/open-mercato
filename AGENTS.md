@@ -101,6 +101,10 @@ This repository is designed for extensibility. Agents should leverage the module
 
 ### HTTP calls in UI
 - In client components and utilities, use `apiFetch` from `@open-mercato/ui/backend/utils/api` instead of the global `fetch`. It automatically attaches proper headers and base URL handling consistent with the app.
+- For CRUD form submissions, call `createCrud` / `updateCrud` / `deleteCrud`; these already delegate to `raiseCrudError`, so you always get a structured error object with `message`, `details`, and `fieldErrors`.
+- When local validation needs to abort, throw `createCrudFormError(message, fieldErrors?)` from `@open-mercato/ui/backend/utils/serverErrors` instead of ad-hoc objects or strings.
+- To read JSON bodies defensively, prefer `readJsonSafe(response)`—it never throws and keeps compatibility with older call-sites.
+- Avoid swallowing response bodies (`res.json().catch(() => ({}))` or `await res.json().catch(() => null)`). Use the shared helpers so the error pipeline stays consistent.
 
 ## Code Style
 - Keep modules self-contained; re-use common utilities via `src/lib/`.

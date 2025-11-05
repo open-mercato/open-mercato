@@ -3,6 +3,8 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError, readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 
@@ -20,7 +22,7 @@ export default function CreateRolePage() {
       try {
         const res = await apiFetch('/api/auth/roles?page=1&pageSize=1')
         if (!res.ok) return
-        const data = await res.json().catch(() => ({}))
+        const data = await readJsonSafe<{ isSuperAdmin?: boolean }>(res)
         if (!cancelled) setActorIsSuperAdmin(Boolean(data?.isSuperAdmin))
       } catch {
         if (!cancelled) setActorIsSuperAdmin(false)
@@ -101,15 +103,15 @@ export default function CreateRolePage() {
             if (actorIsSuperAdmin) {
               const rawTenant = typeof values.tenantId === 'string' ? values.tenantId.trim() : null
               payload.tenantId = rawTenant && rawTenant.length ? rawTenant : null
+              if (!payload.tenantId) {
+                const message = 'Tenant is required'
+                throw createCrudFormError(message, { tenantId: message })
+              }
             }
             if (Object.keys(customFields).length) {
               payload.customFields = customFields
             }
-            await apiFetch('/api/auth/roles', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            })
+            await createCrud('auth/roles', payload)
           }}
         />
       </PageBody>

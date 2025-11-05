@@ -3,6 +3,8 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError, raiseCrudError, readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -167,25 +169,16 @@ export default function CreateApiKeyPage() {
               }
               if (actorIsSuperAdmin) {
                 const tenant = typeof selectedTenantId === 'string' && selectedTenantId.trim().length > 0 ? selectedTenantId.trim() : null
-                if (!tenant) throw new Error(t('api_keys.errors.tenantRequired'))
+                if (!tenant) {
+                  const message = t('api_keys.errors.tenantRequired')
+                  throw createCrudFormError(message, { tenantId: message })
+                }
                 payload.tenantId = tenant
               }
-              const res = await apiFetch('/api/api_keys/keys', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(payload),
-              })
-              if (!res.ok) {
-                let message = t('api_keys.form.error.createFailed')
-                try {
-                  const data = await res.clone().json()
-                  if (data && typeof data.error === 'string') message = data.error
-                } catch {}
-                throw new Error(message)
-              }
-              const created = await res.json().catch(() => null)
+              const res = await createCrud('api_keys/keys', payload)
+              const created = await readJsonSafe<{ secret?: string; keyPrefix?: string | null }>(res)
               if (!created || typeof created.secret !== 'string') {
-                throw new Error(t('api_keys.form.error.secretMissing'))
+                throw createCrudFormError(t('api_keys.form.error.secretMissing'))
               }
               setCreatedSecret({ secret: created.secret, keyPrefix: created.keyPrefix })
               flash(t('api_keys.form.success'), 'success')

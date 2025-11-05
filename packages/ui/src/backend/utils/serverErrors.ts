@@ -3,6 +3,10 @@ export type CrudServerFieldErrors = Record<string, string>
 export type NormalizedCrudServerError = {
   message?: string
   fieldErrors?: CrudServerFieldErrors
+  details?: unknown
+  status?: number
+  raw?: string | null
+  [key: string]: unknown
 }
 
 const JSON_FIELD_KEYS = ['fieldErrors', 'fields', 'errors', 'data'] as const
@@ -267,4 +271,32 @@ export async function raiseCrudError(res: Response, fallbackMessage?: string): P
 
   const message = parseServerMessage(fallbackMessage ?? `Request failed (${res.status})`)
   throw { message, status: res.status, raw: trimmed ?? null }
+}
+
+export type CrudFormError = Error & {
+  status?: number
+  fieldErrors?: CrudServerFieldErrors
+  details?: unknown
+}
+
+export function createCrudFormError(
+  message: string,
+  fieldErrors?: CrudServerFieldErrors,
+  extras?: Partial<Pick<CrudFormError, 'status' | 'details'>>,
+): CrudFormError {
+  const error = new Error(message) as CrudFormError
+  if (fieldErrors && Object.keys(fieldErrors).length) error.fieldErrors = fieldErrors
+  if (extras?.status !== undefined) error.status = extras.status
+  if (extras?.details !== undefined) error.details = extras.details
+  return error
+}
+
+export async function readJsonSafe<T>(res: Response): Promise<T | null> {
+  try {
+    const text = await res.text()
+    if (!text) return null
+    return JSON.parse(text) as T
+  } catch {
+    return null
+  }
 }

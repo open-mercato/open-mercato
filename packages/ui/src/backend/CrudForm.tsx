@@ -12,7 +12,8 @@ import { Trash2, Save } from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
-import { mapCrudServerErrorToFormErrors, parseServerMessage, mapServerFieldNameToFormId } from './utils/serverErrors'
+import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
+import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -53,11 +54,11 @@ export type CrudBuiltinField = CrudFieldBase & {
 
 export type CrudCustomFieldRenderProps = {
   id: string
-  value: any
+  value: unknown
   error?: string
   autoFocus?: boolean
   disabled?: boolean
-  setValue: (value: any) => void
+  setValue: (value: unknown) => void
   // Optional context for advanced custom inputs
   entityId?: string
   recordId?: string
@@ -70,8 +71,10 @@ export type CrudCustomField = CrudFieldBase & {
 
 export type CrudField = CrudBuiltinField | CrudCustomField
 
-export type CrudFormProps<TValues extends Record<string, any>> = {
-  schema?: z.ZodTypeAny
+type CrudFormValues<TValues extends Record<string, unknown>> = Partial<TValues> & Record<string, unknown>
+
+export type CrudFormProps<TValues extends Record<string, unknown>> = {
+  schema?: z.ZodType<TValues>
   fields: CrudField[]
   initialValues?: Partial<TValues>
   submitLabel?: string
@@ -106,8 +109,8 @@ export type CrudFormProps<TValues extends Record<string, any>> = {
 
 // Group-level custom component context
 export type CrudFormGroupComponentProps = {
-  values: Record<string, any>
-  setValue: (id: string, v: any) => void
+  values: Record<string, unknown>
+  setValue: (id: string, v: unknown) => void
   errors: Record<string, string>
 }
 
@@ -125,7 +128,7 @@ export type CrudFormGroup = {
   kind?: 'customFields'
 }
 
-export function CrudForm<TValues extends Record<string, any>>({
+export function CrudForm<TValues extends Record<string, unknown>>({
   schema,
   fields,
   initialValues,
@@ -164,7 +167,9 @@ export function CrudForm<TValues extends Record<string, any>>({
   const deleteErrorMessage = t('ui.forms.flash.deleteError')
   const saveErrorMessage = t('ui.forms.flash.saveError')
   const formId = React.useId()
-  const [values, setValues] = React.useState<Record<string, any>>({ ...(initialValues || {}) })
+  const [values, setValues] = React.useState<CrudFormValues<TValues>>(
+    () => ({ ...(initialValues ?? {}) } as CrudFormValues<TValues>)
+  )
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [pending, setPending] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
@@ -189,6 +194,12 @@ export function CrudForm<TValues extends Record<string, any>>({
     return []
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
+  const recordId = React.useMemo(() => {
+    const raw = values.id
+    if (typeof raw === 'string') return raw
+    if (typeof raw === 'number') return String(raw)
+    return undefined
+  }, [values])
   // Unified delete handler with confirmation
   const handleDelete = React.useCallback(async () => {
     if (!onDelete) return
@@ -209,10 +220,11 @@ export function CrudForm<TValues extends Record<string, any>>({
   
   // Determine whether this form is creating a new record (no `id` yet)
   const isNewRecord = React.useMemo(() => {
-    const id = (values as any)?.id
-    return id === undefined || id === null || id === ''
+    const rawId = values.id
+    if (rawId === undefined || rawId === null) return true
+    return typeof rawId === 'string' ? rawId.trim().length === 0 : false
   }, [values])
-  const showDelete = !!onDelete && (typeof (deleteVisible as any) === 'boolean' ? !!deleteVisible : !isNewRecord)
+  const showDelete = Boolean(onDelete) && (typeof deleteVisible === 'boolean' ? deleteVisible : !isNewRecord)
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
@@ -315,7 +327,7 @@ export function CrudForm<TValues extends Record<string, any>>({
         for (const group of list) {
           const resolved = resolveGroupFields(group)
           for (const field of resolved) {
-            if (field?.id && !(field as any).disabled) return field.id
+            if (field?.id && !field.disabled) return field.id
           }
         }
         return null as string | null
@@ -328,7 +340,7 @@ export function CrudForm<TValues extends Record<string, any>>({
     }
 
     for (const field of allFields) {
-      if (field?.id && !(field as any).disabled) return field.id
+      if (field?.id && !field.disabled) return field.id
     }
     return null
   }, [allFields, groups, resolveGroupFields])
@@ -418,27 +430,17 @@ export function CrudForm<TValues extends Record<string, any>>({
     }
   }, [errors, formId])
 
-  // Separate basic fields from custom fields for progressive loading
-  const basicFields = React.useMemo(() => fields, [fields])
-  const customFields = React.useMemo(() => {
-    if (!cfFields.length) return []
-    const provided = new Set(fields.map(f => f.id))
-    return cfFields.filter(f => !provided.has(f.id))
-  }, [fields, cfFields])
-
-  const setValue = React.useCallback((id: string, v: any) => {
+  const setValue = React.useCallback((id: string, nextValue: unknown) => {
     setValues((prev) => {
-      // Only update if the value actually changed to prevent unnecessary re-renders
-      if (prev[id] === v) return prev
-      return { ...prev, [id]: v }
+      if (Object.is(prev[id], nextValue)) return prev
+      return { ...prev, [id]: nextValue } as CrudFormValues<TValues>
     })
   }, [])
 
   // Apply initialValues when provided (reapply when initialValues change for edit forms)
   React.useEffect(() => {
-    if (initialValues) {
-      setValues((prev) => ({ ...prev, ...(initialValues as any) }))
-    }
+    if (!initialValues) return
+    setValues((prev) => ({ ...prev, ...initialValues } as CrudFormValues<TValues>))
   }, [initialValues])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -449,25 +451,25 @@ export function CrudForm<TValues extends Record<string, any>>({
     const requiredMessage = t('ui.forms.errors.required')
     const highlightedMessage = t('ui.forms.errors.highlighted')
 
-    // Make sure any inputs that commit on blur (rich text, textarea, number)
-    // flush their local state into the form values before validation/submit.
-    // Trigger a blur on the active element and yield once to let React process onBlur.
+    // Make sure inputs that commit on blur flush their local state before submit.
     try {
       if (typeof document !== 'undefined') {
-        const ae = document.activeElement as HTMLElement | null
-        if (ae && typeof (ae as any).blur === 'function') {
-          ;(ae as any).blur()
+        const activeElement = document.activeElement
+        if (activeElement instanceof HTMLElement) {
+          activeElement.blur()
           await new Promise<void>((resolve) => setTimeout(resolve, 0))
         }
       }
-    } catch {}
+    } catch {
+      // ignore focus cleanup errors
+    }
 
     // Basic required-field validation when no zod schema is provided
     const requiredErrors: Record<string, string> = {}
-    for (const f of allFields) {
-      if (!('required' in f) || !f.required) continue
-      if ((f as any).disabled) continue
-      const v = values[f.id]
+    for (const field of allFields) {
+      if (!field.required) continue
+      if (field.disabled) continue
+      const v = values[field.id]
       const isArray = Array.isArray(v)
       const isString = typeof v === 'string'
       const empty =
@@ -475,8 +477,8 @@ export function CrudForm<TValues extends Record<string, any>>({
         v === null ||
         (isString && v.trim() === '') ||
         (isArray && v.length === 0) ||
-        ((f as any).type === 'checkbox' && v !== true)
-      if (empty) requiredErrors[f.id] = requiredMessage
+        (field.type === 'checkbox' && v !== true)
+      if (empty) requiredErrors[field.id] = requiredMessage
     }
     if (Object.keys(requiredErrors).length) {
       setErrors(requiredErrors)
@@ -491,17 +493,20 @@ export function CrudForm<TValues extends Record<string, any>>({
         const defs = await mod.fetchCustomFieldDefs(resolvedEntityIds)
         const { validateValuesAgainstDefs } = await import('@open-mercato/shared/modules/entities/validation')
         // Build values keyed by def.key for validation
-        const cfValues: Record<string, any> = {}
+        const cfValues: Record<string, unknown> = {}
         if (customEntity) {
-          for (const d of defs as any[]) {
-            if (Object.prototype.hasOwnProperty.call(values, d.key)) cfValues[d.key] = (values as any)[d.key]
+          for (const def of defs) {
+            if (Object.prototype.hasOwnProperty.call(values, def.key)) {
+              cfValues[def.key] = values[def.key]
+            }
           }
         } else {
           for (const [k, v] of Object.entries(values)) {
             if (k.startsWith('cf_')) cfValues[k.replace(/^cf_/, '')] = v
           }
         }
-        const result = validateValuesAgainstDefs(cfValues, defs as any)
+        const defsForValidation = defs as unknown as CustomFieldDefLike[]
+        const result = validateValuesAgainstDefs(cfValues, defsForValidation)
         if (!result.ok) {
           if (customEntity) {
             const mapped: Record<string, string> = {}
@@ -518,24 +523,26 @@ export function CrudForm<TValues extends Record<string, any>>({
       }
     }
 
-    let parsed: any = values
+    let parsedValues: TValues
     if (schema) {
-      const res = (schema as z.ZodTypeAny).safeParse(values)
+      const res = schema.safeParse(values)
       if (!res.success) {
         const fieldErrors: Record<string, string> = {}
-        res.error.issues.forEach((iss) => {
-          if (iss.path && iss.path.length) fieldErrors[String(iss.path[0])] = iss.message
+        res.error.issues.forEach((issue) => {
+          if (issue.path && issue.path.length) fieldErrors[String(issue.path[0])] = issue.message
         })
         setErrors(fieldErrors)
         flash(highlightedMessage, 'error')
         return
       }
-      parsed = res.data
+      parsedValues = res.data
+    } else {
+      parsedValues = values as TValues
     }
 
     setPending(true)
     try {
-      await onSubmit?.(parsed)
+      await onSubmit?.(parsedValues)
       if (successRedirect) router.push(successRedirect)
     } catch (err: unknown) {
       const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity })
@@ -575,19 +582,18 @@ export function CrudForm<TValues extends Record<string, any>>({
     }
   }
 
-type RTEProps = { value?: string; onChange: (html: string) => void }
 // Markdown editor using @uiw/react-md-editor (client-only)
 type MDProps = { value?: string; onChange: (md: string) => void }
 // Use the correct type for the imported component. If @uiw/react-md-editor exports a type for its props, use it.
 // Otherwise, define a minimal type here.
 type MDEditorProps = {
-  value?: string;
-  height?: number;
-  onChange?: (value?: string) => void;
-  previewOptions?: { remarkPlugins?: any[] };
-};
-const MDEditor = dynamic<MDEditorProps>(() => import('@uiw/react-md-editor'), { ssr: false });
-const MarkdownEditor = React.memo(({ value = '', onChange }: MDProps) => {
+  value?: string
+  height?: number
+  onChange?: (value?: string) => void
+  previewOptions?: { remarkPlugins?: unknown[] }
+}
+const MDEditor = dynamic<MDEditorProps>(() => import('@uiw/react-md-editor'), { ssr: false })
+const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange }: MDProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const [local, setLocal] = React.useState<string>(value)
   const typingRef = React.useRef(false)
@@ -614,7 +620,7 @@ const MarkdownEditor = React.memo(({ value = '', onChange }: MDProps) => {
     })
   }, [local, onChange])
   return (
-    <div ref={containerRef} data-color-mode="light" className="w-full" onBlur={commit as any}>
+    <div ref={containerRef} data-color-mode="light" className="w-full" onBlur={() => commit()}>
       <MDEditor
         value={local}
         height={220}
@@ -660,7 +666,9 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
     try {
       document.execCommand(cmd, false, arg)
       // do not call onChange eagerly; rely on blur commit
-    } catch (_) {}
+    } catch {
+      // ignore execCommand failures
+    }
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -776,14 +784,15 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
     let cancelled = false
     const loadAll = async () => {
       const loaders = allFields
-        .filter((f): f is CrudBuiltinField & { loadOptions: (query?: string) => Promise<CrudFieldOption[]> } =>
-          (f as any).loadOptions != null
+        .filter(
+          (f): f is CrudBuiltinField & { loadOptions: NonNullable<CrudBuiltinField['loadOptions']> } =>
+            f.type !== 'custom' && typeof f.loadOptions === 'function'
         )
         .map(async (f) => {
           try {
-            const opts = await (f as any).loadOptions()
+            const opts = await f.loadOptions()
             if (!cancelled) setDynamicOptions((prev) => ({ ...prev, [f.id]: opts }))
-          } catch (_) {
+          } catch {
             // ignore
           }
         })
@@ -798,7 +807,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   const loadFieldOptions = React.useCallback(async (field: CrudField, query?: string): Promise<CrudFieldOption[]> => {
     if (!('type' in field) || field.type === 'custom') return EMPTY_OPTIONS
     const builtin = field as CrudBuiltinField
-    const loader = (builtin as any).loadOptions
+    const loader = builtin.loadOptions
     if (typeof loader === 'function') {
       if (query === undefined && Array.isArray(dynamicOptions[field.id])) return dynamicOptions[field.id]
       try {
@@ -849,10 +858,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
   // no auto-focus; let the browser/user manage focus
 
-  const usesResponsiveLayout = allFields.some((field) => {
-    const layout = (field as any).layout
-    return layout === 'half' || layout === 'third'
-  })
+  const usesResponsiveLayout = allFields.some(
+    (field) => field.layout === 'half' || field.layout === 'third'
+  )
   const grid = twoColumn
     ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4'
     : usesResponsiveLayout
@@ -860,135 +868,171 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       : 'grid grid-cols-1 gap-4'
 
   type FieldControlProps = {
-    f: CrudField
-    value: any
+    field: CrudField
+    value: unknown
     error?: string
     options: CrudFieldOption[]
-    idx: number
-    setValue: (id: string, v: any) => void
+    setValue: (id: string, v: unknown) => void
     loadFieldOptions: (field: CrudField, query?: string) => Promise<CrudFieldOption[]>
     autoFocus: boolean
     onSubmitRequest: () => void
     wrapperClassName?: string
     entityIdForField?: string
+    recordId?: string
   }
 
-  const FieldControl = React.useMemo(
-    () =>
-      React.memo(function FieldControlImpl({
-        f,
-        value,
-        error,
-        options,
-        idx,
-        setValue,
-        loadFieldOptions,
-        autoFocus,
-        onSubmitRequest,
-        wrapperClassName,
-        entityIdForField,
-      }: FieldControlProps) {
-    // Memoize the setValue callback for this specific field to prevent unnecessary re-renders
-    const fieldSetValue = React.useCallback((v: any) => setValue(f.id, v), [setValue, f.id])
-    const hasLoader = typeof (f as any).loadOptions === 'function'
-    const disabled = (f as any).disabled === true
+  const FieldControl = React.memo(function FieldControlImpl({
+    field,
+    value,
+    error,
+    options,
+    setValue,
+    loadFieldOptions,
+    autoFocus,
+    onSubmitRequest,
+    wrapperClassName,
+    entityIdForField,
+    recordId,
+  }: FieldControlProps) {
+    const fieldSetValue = React.useCallback(
+      (nextValue: unknown) => setValue(field.id, nextValue),
+      [setValue, field.id]
+    )
+    const builtin = field.type === 'custom' ? null : field
+    const hasLoader = typeof builtin?.loadOptions === 'function'
+    const disabled = Boolean(field.disabled)
     const autoFocusField = autoFocus && !disabled
 
     React.useEffect(() => {
-      if (!hasLoader) return
-      loadFieldOptions(f).catch(() => {})
-    }, [hasLoader, f, loadFieldOptions])
+      if (!hasLoader || field.type === 'custom') return
+      loadFieldOptions(field).catch(() => {})
+    }, [field, hasLoader, loadFieldOptions])
 
+    const placeholder = builtin?.placeholder
     const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
 
     return (
-      <div className={rootClassName} data-crud-field-id={f.id}>
-        {f.type !== 'checkbox' ? (
+      <div className={rootClassName} data-crud-field-id={field.id}>
+        {field.type !== 'checkbox' ? (
           <label className="block text-sm font-medium">
-            {f.label}
-            {f.required ? <span className="text-red-600"> *</span> : null}
+            {field.label}
+            {field.required ? <span className="text-red-600"> *</span> : null}
           </label>
         ) : null}
-        {f.type === 'text' && (
+        {field.type === 'text' && (
           <TextInput
-            value={value ?? ''}
-            placeholder={(f as any).placeholder}
-            onChange={fieldSetValue}
+            value={value == null ? '' : String(value)}
+            placeholder={placeholder}
+            onChange={(next) => fieldSetValue(next)}
             autoFocus={autoFocusField}
             onSubmit={onSubmitRequest}
             disabled={disabled}
           />
         )}
-        {f.type === 'number' && (
-          <NumberInput value={value} placeholder={(f as any).placeholder} onChange={fieldSetValue} autoFocus={autoFocus} onSubmit={onSubmitRequest} />
+        {field.type === 'number' && (
+          <NumberInput
+            value={value}
+            placeholder={placeholder}
+            onChange={fieldSetValue}
+            autoFocus={autoFocusField}
+            onSubmit={onSubmitRequest}
+          />
         )}
-        {f.type === 'date' && (
+        {field.type === 'date' && (
           <input
             type="date"
             className="w-full h-9 rounded border px-2 text-sm"
-            value={value ?? ''}
-            onChange={(e) => setValue(f.id, e.target.value || undefined)}
-            autoFocus={autoFocus}
+            value={typeof value === 'string' ? value : ''}
+            onChange={(e) => setValue(field.id, e.target.value || undefined)}
+            autoFocus={autoFocusField}
             data-crud-focus-target=""
+            disabled={disabled}
           />
         )}
-        {f.type === 'textarea' && (
-          <TextAreaInput value={value ?? ''} placeholder={(f as any).placeholder} onChange={fieldSetValue} autoFocus={autoFocus} />
+        {field.type === 'textarea' && (
+          <TextAreaInput
+            value={value == null ? '' : String(value)}
+            placeholder={placeholder}
+            onChange={(next) => fieldSetValue(next)}
+            autoFocus={autoFocusField}
+          />
         )}
-        {f.type === 'richtext' && ((f as any).editor === 'simple') && (
+        {field.type === 'richtext' && builtin?.editor === 'simple' && (
           <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
         )}
-        {f.type === 'richtext' && ((f as any).editor === 'html') && (
+        {field.type === 'richtext' && builtin?.editor === 'html' && (
           <HtmlRichTextEditor value={String(value ?? '')} onChange={fieldSetValue} />
         )}
-        {f.type === 'richtext' && (!('editor' in f) || ((f as any).editor !== 'simple' && (f as any).editor !== 'html')) && (
+        {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
           <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
         )}
-        {f.type === 'tags' && (
+        {field.type === 'tags' && (
           <TagsInput
-            value={Array.isArray(value) ? (value as string[]) : []}
-            onChange={fieldSetValue}
-            placeholder={(f as any).placeholder}
-            autoFocus={autoFocus}
-            suggestions={options.map((o) => o.label)}
-            loadSuggestions={typeof (f as any).loadOptions === 'function'
-              ? async (query?: string) => {
-                  const opts = await loadFieldOptions(f, query)
-                  return opts.map((opt) => opt.label)
-                }
-              : undefined}
+            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+            onChange={(next) => fieldSetValue(next)}
+            placeholder={placeholder}
+            autoFocus={autoFocusField}
+            suggestions={options.map((opt) => opt.label)}
+            loadSuggestions={
+              typeof builtin?.loadOptions === 'function'
+                ? async (query?: string) => {
+                    const opts = await loadFieldOptions(field, query)
+                    return opts.map((opt) => opt.label)
+                  }
+                : undefined
+            }
           />
         )}
-        {f.type === 'checkbox' && (
+        {field.type === 'checkbox' && (
           <label className="inline-flex items-center gap-2">
-            <input type="checkbox" className="size-4" checked={!!value} onChange={(e) => setValue(f.id, e.target.checked)} data-crud-focus-target="" />
-            <span className="text-sm">{f.label}</span>
+            <input
+              type="checkbox"
+              className="size-4"
+              checked={value === true}
+              onChange={(e) => setValue(field.id, e.target.checked)}
+              data-crud-focus-target=""
+              disabled={disabled}
+            />
+            <span className="text-sm">{field.label}</span>
           </label>
         )}
-        {f.type === 'select' && !((f as any).multiple) && (
+        {field.type === 'select' && !builtin?.multiple && (
           <select
             className="w-full h-9 rounded border px-2 text-sm"
-            value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')}
-            onChange={(e) => setValue(f.id, e.target.value || undefined)}
+            value={
+              Array.isArray(value)
+                ? String(value[0] ?? '')
+                : value == null
+                  ? ''
+                  : String(value)
+            }
+            onChange={(e) => setValue(field.id, e.target.value || undefined)}
             data-crud-focus-target=""
+            disabled={disabled}
           >
             <option value="">—</option>
-            {options.map((opt) => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
+            {options.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
           </select>
         )}
-        {f.type === 'select' && ((f as any).multiple) && (f as any).listbox === true && (
+        {field.type === 'select' && builtin?.multiple && builtin.listbox === true && (
           <ListboxMultiSelect
             options={options}
-            placeholder={(f as any).placeholder}
-            value={Array.isArray(value) ? (value as string[]) : []}
-            onChange={(vals) => setValue(f.id, vals)}
-            autoFocus={autoFocus}
+            placeholder={placeholder}
+            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+            onChange={(vals) => setValue(field.id, vals)}
+            autoFocus={autoFocusField}
           />
         )}
-        {f.type === 'select' && ((f as any).multiple) && !((f as any).listbox === true) && (
+        {field.type === 'select' && builtin?.multiple && builtin.listbox !== true && (
           <div className="flex flex-wrap gap-3">
             {options.map((opt) => {
-              const arr: string[] = Array.isArray(value) ? (value as string[]) : []
+              const arr = Array.isArray(value)
+                ? value.filter((item): item is string => typeof item === 'string')
+                : []
               const checked = arr.includes(opt.value)
               return (
                 <label key={opt.value} className="inline-flex items-center gap-2">
@@ -998,10 +1042,14 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
                     checked={checked}
                     onChange={(e) => {
                       const next = new Set(arr)
-                      if (e.target.checked) next.add(opt.value)
-                      else next.delete(opt.value)
-                      setValue(f.id, Array.from(next))
+                      if (e.target.checked) {
+                        next.add(opt.value)
+                      } else {
+                        next.delete(opt.value)
+                      }
+                      setValue(field.id, Array.from(next))
                     }}
+                    disabled={disabled}
                   />
                   <span className="text-sm">{opt.label}</span>
                 </label>
@@ -1009,36 +1057,57 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             })}
           </div>
         )}
-        {f.type === 'relation' && (
-          <RelationSelect options={options} placeholder={(f as any).placeholder} value={Array.isArray(value) ? (value[0] ?? '') : (value ?? '')} onChange={fieldSetValue} autoFocus={autoFocus} />
+        {field.type === 'relation' && (
+          <RelationSelect
+            options={options}
+            placeholder={placeholder}
+            value={
+              Array.isArray(value)
+                ? String(value[0] ?? '')
+                : value == null
+                  ? ''
+                  : String(value)
+            }
+            onChange={(selected) => setValue(field.id, selected)}
+            autoFocus={autoFocusField}
+          />
         )}
-        {f.type === 'custom' && (
-          <>{(f as any).component({ id: f.id, value, error, setValue: fieldSetValue, entityId: entityIdForField, recordId: (values as any)?.id, autoFocus })}</>
+        {field.type === 'custom' && (
+          <>
+            {field.component({
+              id: field.id,
+              value,
+              error,
+              setValue: fieldSetValue,
+              entityId: entityIdForField,
+              recordId,
+              autoFocus,
+              disabled,
+            })}
+          </>
         )}
-        {(f as any).description ? (
-          <div className="text-xs text-muted-foreground">{(f as any).description}</div>
+        {field.description ? (
+          <div className="text-xs text-muted-foreground">{field.description}</div>
         ) : null}
-        {error ? (
-          <div className="text-xs text-red-600">{error}</div>
-        ) : null}
+        {error ? <div className="text-xs text-red-600">{error}</div> : null}
       </div>
     )
-  }, (prev, next) => {
-    // More efficient comparison - only check what actually matters
-    return (
-      prev.f.id === next.f.id && 
-      prev.f.type === next.f.type &&
-      prev.f.label === next.f.label &&
-      prev.f.required === next.f.required &&
-      prev.value === next.value && 
-      prev.error === next.error && 
-      prev.options === next.options &&
-      prev.loadFieldOptions === next.loadFieldOptions &&
-      prev.autoFocus === next.autoFocus &&
-      prev.onSubmitRequest === next.onSubmitRequest &&
-      prev.wrapperClassName === next.wrapperClassName
-    )
-  }), [])
+  },
+  (prev, next) =>
+    prev.field.id === next.field.id &&
+    prev.field.type === next.field.type &&
+    prev.field.label === next.field.label &&
+    prev.field.required === next.field.required &&
+    prev.value === next.value &&
+    prev.error === next.error &&
+    prev.options === next.options &&
+    prev.loadFieldOptions === next.loadFieldOptions &&
+    prev.autoFocus === next.autoFocus &&
+    prev.onSubmitRequest === next.onSubmitRequest &&
+    prev.wrapperClassName === next.wrapperClassName &&
+    prev.entityIdForField === next.entityIdForField &&
+    prev.recordId === next.recordId
+  )
 
   // Helper to render a list of field configs
   const resolveLayoutClass = (layout?: CrudFieldBase['layout']) => {
@@ -1053,30 +1122,29 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   }
 
   const renderFields = (fieldList: CrudField[]) => {
-    const usesResponsive = fieldList.some((field) => {
-      const layout = (field as any).layout
-      return layout === 'half' || layout === 'third'
-    })
+    const usesResponsive = fieldList.some(
+      (field) => field.layout === 'half' || field.layout === 'third'
+    )
     const gridClass = usesResponsive ? 'grid grid-cols-1 gap-4 md:grid-cols-6' : 'grid grid-cols-1 gap-4'
     return (
       <div className={gridClass}>
-        {fieldList.map((f, idx) => {
-          const layout = ((f as any).layout ?? 'full') as CrudFieldBase['layout']
+        {fieldList.map((f) => {
+          const layout = f.layout ?? 'full'
           const wrapperClassName = usesResponsive ? resolveLayoutClass(layout) : undefined
           return (
             <FieldControl
               key={f.id}
-              f={f}
+              field={f}
               value={values[f.id]}
               error={errors[f.id]}
               options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
-              idx={idx}
               setValue={setValue}
               loadFieldOptions={loadFieldOptions}
               autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
               onSubmitRequest={requestSubmit}
               wrapperClassName={wrapperClassName}
               entityIdForField={primaryEntityId ?? undefined}
+              recordId={recordId}
             />
           )
         })}
@@ -1317,23 +1385,23 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
             className={embedded ? 'space-y-4' : 'rounded-lg border bg-card p-4 space-y-4'}
           >
             <div className={grid}>
-              {allFields.map((f, idx) => {
-                const layout = ((f as any).layout ?? 'full') as CrudFieldBase['layout']
+              {allFields.map((f) => {
+                const layout = f.layout ?? 'full'
                 const wrapperClassName = usesResponsiveLayout ? resolveLayoutClass(layout) : undefined
                 return (
                   <FieldControl
                     key={f.id}
-                    f={f}
+                    field={f}
                     value={values[f.id]}
                     error={errors[f.id]}
                     options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
-                    idx={idx}
                     setValue={setValue}
                     loadFieldOptions={loadFieldOptions}
                     autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
                     onSubmitRequest={requestSubmit}
                     wrapperClassName={wrapperClassName}
                     entityIdForField={primaryEntityId ?? undefined}
+                    recordId={recordId}
                   />
                 )
               })}
@@ -1429,15 +1497,22 @@ function TextInput({
   autoFocus,
   onSubmit,
   disabled,
-}: { value: any; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void; disabled?: boolean }) {
-  const [local, setLocal] = React.useState<string>(value ?? '')
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  autoFocus?: boolean
+  onSubmit?: () => void
+  disabled?: boolean
+}) {
+  const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
   const userTypingRef = React.useRef(false)
   
   React.useEffect(() => {
     // Sync from props whenever the input is unfocused or the user hasn't typed yet.
     if (!isFocusedRef.current || !userTypingRef.current) {
-      setLocal(value ?? '')
+      setLocal(value)
     }
   }, [value])
   
@@ -1487,7 +1562,19 @@ function TextInput({
 }
 
 // Local-buffer number input to avoid focus loss when parent re-renders
-function NumberInput({ value, onChange, placeholder, autoFocus, onSubmit }: { value: any; onChange: (v: number | undefined) => void; placeholder?: string; autoFocus?: boolean; onSubmit?: () => void }) {
+function NumberInput({
+  value,
+  onChange,
+  placeholder,
+  autoFocus,
+  onSubmit,
+}: {
+  value: number | string | null | undefined
+  onChange: (v: number | undefined) => void
+  placeholder?: string
+  autoFocus?: boolean
+  onSubmit?: () => void
+}) {
   const [local, setLocal] = React.useState<string>(value !== undefined && value !== null ? String(value) : '')
   const isFocusedRef = React.useRef(false)
   
@@ -1541,12 +1628,22 @@ function NumberInput({ value, onChange, placeholder, autoFocus, onSubmit }: { va
 }
 
 // Local-buffer textarea to avoid form-wide re-renders while typing
-function TextAreaInput({ value, onChange, placeholder, autoFocus }: { value: any; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean }) {
-  const [local, setLocal] = React.useState<string>(value ?? '')
+function TextAreaInput({
+  value,
+  onChange,
+  placeholder,
+  autoFocus,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  autoFocus?: boolean
+}) {
+  const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
 
   React.useEffect(() => {
-    if (!isFocusedRef.current) setLocal(value ?? '')
+    if (!isFocusedRef.current) setLocal(value)
   }, [value])
 
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {

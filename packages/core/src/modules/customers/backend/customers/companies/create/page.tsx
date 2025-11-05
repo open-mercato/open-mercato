@@ -4,7 +4,8 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError, readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
@@ -48,32 +49,18 @@ export default function CreateCompanyPage() {
               if (err instanceof Error) {
                 if (err.message === 'DISPLAY_NAME_REQUIRED') {
                   const message = t('customers.companies.form.displayName.error')
-                  throw { message, fieldErrors: { displayName: message } }
+                  throw createCrudFormError(message, { displayName: message })
                 }
                 if (err.message === 'ANNUAL_REVENUE_INVALID') {
                   const message = t('customers.companies.form.annualRevenue.error')
-                  throw { message, fieldErrors: { annualRevenue: message } }
+                  throw createCrudFormError(message, { annualRevenue: message })
                 }
               }
               throw err
             }
 
-            const res = await apiFetch('/api/customers/companies', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            })
-
-            if (!res.ok) {
-              let message = t('customers.companies.form.error.create')
-              try {
-                const data = await res.clone().json()
-                if (data && typeof data.error === 'string') message = data.error
-              } catch {}
-              throw new Error(message)
-            }
-
-            const created = await res.json().catch(() => null)
+            const res = await createCrud('customers/companies', payload)
+            const created = await readJsonSafe<{ id?: string; entityId?: string }>(res)
             const newId =
               created && typeof created.id === 'string'
                 ? created.id
@@ -113,19 +100,7 @@ export default function CreateCompanyPage() {
                 const country = normalize(entry.country)
                 if (country !== undefined) body.country = country.toUpperCase()
                 try {
-                  const addressRes = await apiFetch('/api/customers/addresses', {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify(body),
-                  })
-                  if (!addressRes.ok) {
-                    let message = t('customers.companies.detail.addresses.error')
-                    try {
-                      const details = await addressRes.clone().json()
-                      if (details && typeof details.error === 'string') message = details.error
-                    } catch {}
-                    flash(message, 'error')
-                  }
+                  await createCrud('customers/addresses', body)
                 } catch (addressErr) {
                   const message =
                     addressErr instanceof Error && addressErr.message

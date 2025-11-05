@@ -3,6 +3,8 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 import { WidgetVisibilityEditor } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -178,32 +180,21 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
             if (Object.keys(customFields).length) {
               payload.customFields = customFields
             }
-            await apiFetch('/api/auth/roles', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            })
-            await apiFetch('/api/auth/roles/acl', {
+            await updateCrud('auth/roles', payload)
+            const aclRes = await apiFetch('/api/auth/roles/acl', {
               method: 'PUT',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ roleId: id, tenantId: effectiveTenantId, ...aclData }),
             })
+            if (!aclRes.ok) {
+              await raiseCrudError(aclRes, 'Failed to update role access control')
+            }
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
           onDelete={async () => {
             const res = await apiFetch(`/api/auth/roles?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' })
             if (!res.ok) {
-              let message = 'Failed to delete role'
-              try {
-                const data = await res.clone().json()
-                if (data && typeof data.error === 'string' && data.error.trim()) message = data.error
-              } catch {
-                try {
-                  const text = await res.text()
-                  if (text.trim()) message = text
-                } catch {}
-              }
-              throw new Error(message)
+              await raiseCrudError(res, 'Failed to delete role')
             }
           }}
           deleteRedirect="/backend/roles?flash=Role%20deleted&type=success"
