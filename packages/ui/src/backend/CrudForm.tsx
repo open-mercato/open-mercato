@@ -12,82 +12,12 @@ import { Trash2, Save } from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
-import {
-  mapCrudServerErrorToFormErrors,
-  parseServerMessage,
-  mapServerFieldNameToFormId,
-  type CrudServerFieldErrors,
-  type FieldNameMapperOptions,
-} from './utils/serverErrors'
+import { mapCrudServerErrorToFormErrors, parseServerMessage, mapServerFieldNameToFormId } from './utils/serverErrors'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
 const FOCUSABLE_SELECTOR =
   '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
-function tryParseJsonString(input: unknown): unknown {
-  if (typeof input !== 'string') return null
-  try {
-    return JSON.parse(input)
-  } catch {
-    return null
-  }
-}
-
-type NormalizedCrudError = {
-  message?: string
-  status?: number
-  raw?: string | null
-  details?: unknown
-  fieldErrors?: CrudServerFieldErrors
-  [key: string]: unknown
-}
-
-function normalizeCrudError(err: unknown): NormalizedCrudError {
-  if (!err || typeof err !== 'object') {
-    const parsed = tryParseJsonString(err)
-    return (parsed && typeof parsed === 'object')
-      ? { ...(parsed as Record<string, unknown>) }
-      : { message: typeof err === 'string' ? err : undefined }
-  }
-
-  const base: NormalizedCrudError = { ...(err as Record<string, unknown>) }
-  if (typeof base.raw === 'string') {
-    const parsedRaw = tryParseJsonString(base.raw)
-    if (parsedRaw && typeof parsedRaw === 'object') {
-      Object.assign(base, parsedRaw as Record<string, unknown>)
-    }
-  }
-  if (typeof base.message === 'string') {
-    const parsedMessage = tryParseJsonString(base.message)
-    if (parsedMessage && typeof parsedMessage === 'object') {
-      Object.assign(base, parsedMessage as Record<string, unknown>)
-    }
-  }
-  return base
-}
-
-function extractFieldErrorsFromDetails(details: unknown, options?: FieldNameMapperOptions): CrudServerFieldErrors {
-  if (!Array.isArray(details)) return {}
-  const mapped: CrudServerFieldErrors = {}
-  for (const issue of details) {
-    if (!issue || typeof issue !== 'object') continue
-    const message = typeof (issue as any).message === 'string' ? (issue as any).message : null
-    const path = Array.isArray((issue as any).path) ? (issue as any).path : []
-    const field = path.find((part) => typeof part === 'string' && part.trim().length > 0)
-    if (!message || !field) continue
-    const targetField = mapServerFieldNameToFormId(String(field), options)
-    mapped[targetField] = message
-  }
-  return mapped
-}
-
-function mergeFieldErrors(primary?: CrudServerFieldErrors | null, secondary?: CrudServerFieldErrors | null): CrudServerFieldErrors {
-  const next: CrudServerFieldErrors = {}
-  if (secondary) Object.assign(next, secondary)
-  if (primary) Object.assign(next, primary)
-  return next
-}
 
 export type CrudFieldBase = {
   id: string
@@ -607,11 +537,9 @@ export function CrudForm<TValues extends Record<string, any>>({
     try {
       await onSubmit?.(parsed)
       if (successRedirect) router.push(successRedirect)
-    } catch (error: unknown) {
-      const parsedError = normalizeCrudError(error)
-      const { message: helperMessage, fieldErrors: helperFieldErrors } = mapCrudServerErrorToFormErrors(parsedError, { customEntity })
-      const fromDetails = extractFieldErrorsFromDetails(parsedError.details, { customEntity })
-      const combinedFieldErrors = mergeFieldErrors(helperFieldErrors, fromDetails)
+    } catch (err: unknown) {
+      const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity })
+      const combinedFieldErrors = serverFieldErrors ?? {}
       const hasFieldErrors = Object.keys(combinedFieldErrors).length > 0
       const firstFieldMessage = hasFieldErrors
         ? (() => {
