@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 export type EmailDuplicateMatch = {
   id: string
@@ -49,14 +49,14 @@ export function useEmailDuplicateCheck(
           matchMode === 'prefix'
             ? `emailStartsWith=${encodeURIComponent(normalized)}`
             : `email=${encodeURIComponent(normalized)}`
-        const res = await apiFetch(`/api/customers/people?${queryParam}&pageSize=5&page=1`, {
+        const call = await apiCall<{ items?: unknown[] }>(`/api/customers/people?${queryParam}&pageSize=5&page=1`, {
           signal: controller.signal,
         })
-        if (!res.ok) {
+        if (!call.ok) {
           if (!cancelled) setDuplicate(null)
           return
         }
-        const payload = await res.json().catch(() => ({}))
+        const payload = call.result ?? {}
         const items = Array.isArray(payload?.items) ? payload.items : []
         const match =
           items

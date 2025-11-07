@@ -8,7 +8,8 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { buildOrganizationTreeOptions, formatOrganizationTreeLabel, type OrganizationTreeNode } from '@open-mercato/core/modules/directory/lib/tree'
@@ -31,10 +32,11 @@ async function fetchOrganizationFilterOptions(): Promise<FilterOption[]> {
   search.set('view', 'tree')
   search.set('status', 'all')
   try {
-    const res = await apiFetch(`/api/directory/organizations?${search.toString()}`)
-    if (!res.ok) return []
-    const data = await res.json().catch(() => ({}))
-    const nodes = Array.isArray(data?.items) ? (data.items as OrganizationTreeNode[]) : []
+    const call = await apiCall<{ items?: OrganizationTreeNode[] }>(
+      `/api/directory/organizations?${search.toString()}`,
+    )
+    if (!call.ok) return []
+    const nodes = Array.isArray(call.result?.items) ? (call.result!.items as OrganizationTreeNode[]) : []
     const flattened = buildOrganizationTreeOptions(nodes)
     return flattened
       .filter((opt) => typeof opt.value === 'string' && opt.value.length > 0)
@@ -55,10 +57,9 @@ async function fetchRoleFilterOptions(query?: string): Promise<FilterOption[]> {
   search.set('pageSize', '50')
   if (query && query.trim()) search.set('search', query.trim())
   try {
-    const res = await apiFetch(`/api/auth/roles?${search.toString()}`)
-    if (!res.ok) return []
-    const data = await res.json().catch(() => ({}))
-    const items = Array.isArray(data?.items) ? data.items : []
+    const call = await apiCall<{ items?: unknown[] }>(`/api/auth/roles?${search.toString()}`)
+    if (!call.ok) return []
+    const items = Array.isArray(call.result?.items) ? call.result!.items : []
     return items
       .map((item: any): FilterOption | null => {
         const id = typeof item?.id === 'string' ? item.id : null
@@ -81,9 +82,9 @@ async function fetchRoleOptionsByIds(ids: string[]): Promise<FilterOption[]> {
       search.set('id', id)
       search.set('page', '1')
       search.set('pageSize', '1')
-      const res = await apiFetch(`/api/auth/roles?${search.toString()}`)
-      if (!res.ok) return null
-      const data = await res.json().catch(() => ({}))
+      const call = await apiCall<{ items?: unknown[] }>(`/api/auth/roles?${search.toString()}`)
+      if (!call.ok) return null
+      const data = call.result
       const match = Array.isArray(data?.items) ? data.items.find((item: any) => item?.id === id) : null
       const name = typeof match?.name === 'string' ? match.name : null
       if (!name) return null
@@ -299,8 +300,13 @@ export default function UsersListPage() {
   const { data: usersData, isLoading } = useQuery({
     queryKey: ['users', params, scopeVersion],
     queryFn: async () => {
-      const res = await apiFetch(`/api/auth/users?${params}`)
-      return res.json() as Promise<{ items: Row[]; total: number; totalPages: number; isSuperAdmin?: boolean }>
+      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; isSuperAdmin?: boolean }>(
+        `/api/auth/users?${params}`,
+      )
+      if (!call.ok) {
+        await raiseCrudError(call.response, 'Failed to load users')
+      }
+      return call.result ?? { items: [], total: 0, totalPages: 1 }
     },
   })
 
@@ -332,14 +338,9 @@ export default function UsersListPage() {
   const handleDelete = React.useCallback(async (row: Row) => {
     if (!window.confirm(`Delete user "${row.email}"?`)) return
     try {
-      const res = await apiFetch(`/api/auth/users?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
-      if (!res.ok) {
-        let message = 'Failed to delete user'
-        try {
-          const data = await res.json()
-          if (data?.error && typeof data.error === 'string') message = data.error
-        } catch {}
-        throw new Error(message)
+      const call = await apiCall(`/api/auth/users?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+      if (!call.ok) {
+        await raiseCrudError(call.response, 'Failed to delete user')
       }
       flash('User deleted', 'success')
       await queryClient.invalidateQueries({ queryKey: ['users'] })
