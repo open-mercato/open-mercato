@@ -2,6 +2,7 @@
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 
 const fields: CrudField[] = [
@@ -32,11 +33,7 @@ export default function CreateTenantPage() {
           cancelHref="/backend/directory/tenants"
           successRedirect="/backend/directory/tenants?flash=Tenant%20created&type=success"
           onSubmit={async (values) => {
-            const customFields: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(values)) {
-              if (key.startsWith('cf_')) customFields[key.slice(3)] = value
-              else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
-            }
+            const customFields = collectCustomFieldValues(values)
             const payload: {
               name: string
               isActive: boolean

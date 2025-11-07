@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
@@ -12,6 +13,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 
 type TreeResponse = {
@@ -38,6 +40,7 @@ const TREE_PADDING = 12
 
 export default function EditOrganizationPage({ params }: { params?: { id?: string } }) {
   const orgId = params?.id
+  const t = useT()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [pathLabel, setPathLabel] = React.useState<string>('')
   const [tenantId, setTenantId] = React.useState<string | null>(null)
@@ -288,12 +291,15 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
               orgId: orgId ?? '',
               tenantId,
               originalChildIds,
+              messages: {
+                orgIdRequired: t('directory.organizations.errors.orgIdRequired', 'Organization identifier is required'),
+              },
             })
           }}
           onDelete={async () => {
             const res = await apiFetch(`/api/directory/organizations?id=${encodeURIComponent(orgId ?? '')}`, { method: 'DELETE' })
             if (!res.ok) {
-              await raiseCrudError(res, 'Failed to delete organization')
+              await raiseCrudError(res, t('directory.organizations.errors.deleteFailed', 'Failed to delete organization'))
             }
           }}
           deleteRedirect="/backend/directory/organizations?flash=Organization%20deleted&type=success"
@@ -325,6 +331,9 @@ export async function submitUpdateOrganization(options: {
   tenantId: string | null
   originalChildIds: string[]
   updateOrganization?: UpdateOrganizationRequest
+  messages?: {
+    orgIdRequired?: string
+  }
 }): Promise<void> {
   const {
     values,
@@ -332,18 +341,16 @@ export async function submitUpdateOrganization(options: {
     tenantId,
     originalChildIds,
     updateOrganization = defaultUpdateOrganizationRequest,
+    messages,
   } = options
 
   const payloadId = typeof values.id === 'string' && values.id.length ? values.id : orgId
   if (!payloadId) {
-    throw createCrudFormError('Organization identifier is required', { id: 'Organization identifier is required' })
+    const message = messages?.orgIdRequired ?? 'Organization identifier is required'
+    throw createCrudFormError(message, { id: message })
   }
 
-  const customFields: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(values)) {
-    if (key.startsWith('cf_')) customFields[key.slice(3)] = value
-    else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
-  }
+  const customFields = collectCustomFieldValues(values)
 
   const submittedTenantId =
     typeof values.tenantId === 'string' && values.tenantId.trim().length

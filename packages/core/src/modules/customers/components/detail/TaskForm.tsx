@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@/lib/i18n/context'
 import type { TaskFormPayload } from './hooks/usePersonTasks'
@@ -140,11 +141,8 @@ export function buildTaskSubmitPayload(values: Record<string, unknown>, t: (key:
   if (typeof values.is_done === 'boolean') {
     base.is_done = values.is_done
   }
-  const custom: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(values)) {
-    if (key.startsWith('cf_')) {
-      custom[key.slice(3)] = normalizeCustomFieldSubmitValue(value)
-    }
-  }
+  const custom = collectCustomFieldValues(values, {
+    transform: (value) => normalizeCustomFieldSubmitValue(value),
+  })
   return { base, custom }
 }

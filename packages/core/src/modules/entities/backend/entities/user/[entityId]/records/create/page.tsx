@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import { useT } from '@/lib/i18n/context'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { z } from 'zod'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -16,15 +17,20 @@ export async function submitCustomEntityRecord(options: {
   entityId: string
   values: Record<string, unknown>
   createRecord?: CreateRecordRequest
+  messages?: {
+    entityIdRequired?: string
+  }
 }) {
-  const { entityId, values, createRecord = defaultCreateRecordRequest } = options
+  const { entityId, values, createRecord = defaultCreateRecordRequest, messages } = options
   if (!entityId || !entityId.trim()) {
-    throw createCrudFormError('Entity identifier is required', { entityId: 'Entity identifier is required' })
+    const message = messages?.entityIdRequired ?? 'Entity identifier is required'
+    throw createCrudFormError(message, { entityId: message })
   }
   await createRecord({ entityId, values })
 }
 
 export default function CreateRecordPage({ params }: { params: { entityId?: string } }) {
+  const t = useT()
   const router = useRouter()
   const entityId = decodeURIComponent(params?.entityId || '')
 
@@ -36,17 +42,23 @@ export default function CreateRecordPage({ params }: { params: { entityId?: stri
 
   return (
     <CrudForm
-      title={`Create record`}
+      title={t('entities.userEntities.records.form.createTitle', 'Create record')}
       backHref={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
       schema={schema}
       fields={fields}
       entityId={entityId}
       customEntity
-      submitLabel="Create"
+      submitLabel={t('entities.userEntities.records.form.submitCreate', 'Create')}
       cancelHref={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
       successRedirect={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
       onSubmit={async (values) => {
-        await submitCustomEntityRecord({ entityId, values: values as Record<string, unknown> })
+        await submitCustomEntityRecord({
+          entityId,
+          values: values as Record<string, unknown>,
+          messages: {
+            entityIdRequired: t('entities.userEntities.records.errors.entityIdRequired', 'Entity identifier is required'),
+          },
+        })
         router.push(`/backend/entities/user/${encodeURIComponent(entityId)}/records`)
       }}
     />

@@ -1,5 +1,7 @@
 "use client"
+import * as React from 'react'
 import { z } from 'zod'
+import { useT } from '@/lib/i18n/context'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -14,44 +16,57 @@ const schema = upsertCustomEntitySchema
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 
 export default function CreateEntityPage() {
+  const t = useT()
   const router = useRouter()
-  const fields: CrudField[] = [
-    { id: 'entityId', label: 'Entity ID', type: 'text', required: true, placeholder: 'module_name:entity_id' },
-    { id: 'label', label: 'Label', type: 'text', required: true },
-    { id: 'description', label: 'Description', type: 'textarea' },
+  const fields = React.useMemo<CrudField[]>(() => ([
+    {
+      id: 'entityId',
+      label: t('entities.userEntities.form.entityId.label', 'Entity ID'),
+      type: 'text',
+      required: true,
+      placeholder: t('entities.userEntities.form.entityId.placeholder', 'module_name:entity_id'),
+    },
+    { id: 'label', label: t('entities.userEntities.form.label.label', 'Label'), type: 'text', required: true },
+    { id: 'description', label: t('entities.userEntities.form.description.label', 'Description'), type: 'textarea' },
     {
       id: 'defaultEditor',
-      label: 'Default Editor (multiline)',
+      label: t('entities.userEntities.form.defaultEditor.label', 'Default Editor (multiline)'),
       type: 'select',
       options: [
-        { value: '', label: 'Default (Markdown)' },
-        { value: 'markdown', label: 'Markdown (UIW)' },
-        { value: 'simpleMarkdown', label: 'Simple Markdown' },
-        { value: 'htmlRichText', label: 'HTML Rich Text' },
+        { value: '', label: t('entities.userEntities.form.defaultEditor.options.default', 'Default (Markdown)') },
+        { value: 'markdown', label: t('entities.userEntities.form.defaultEditor.options.markdown', 'Markdown (UIW)') },
+        { value: 'simpleMarkdown', label: t('entities.userEntities.form.defaultEditor.options.simpleMarkdown', 'Simple Markdown') },
+        { value: 'htmlRichText', label: t('entities.userEntities.form.defaultEditor.options.htmlRichText', 'HTML Rich Text') },
       ],
-    } as any,
-    { id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' } as CrudField,
-  ]
+    } as unknown as CrudField,
+    { id: 'showInSidebar', label: t('entities.userEntities.form.showInSidebar.label', 'Show in sidebar'), type: 'checkbox' } as CrudField,
+  ]), [t])
 
   return (
     <Page>
       <PageBody>
         <CrudForm
-          title="Create Entity"
+          title={t('entities.userEntities.form.title', 'Create Entity')}
           backHref="/backend/entities/user"
           schema={schema}
           fields={fields}
           initialValues={{ entityId: 'user:your_entity', label: '', showInSidebar: false }}
-          submitLabel="Create"
+          submitLabel={t('entities.userEntities.form.submit', 'Create')}
           cancelHref="/backend/entities/user"
           onSubmit={async (vals) => {
             const entityId = await submitCreateEntity({
               values: vals as Record<string, unknown>,
+              messages: {
+                entityIdRequired: t('entities.userEntities.errors.entityIdRequired', 'Entity ID is required'),
+                entityIdExists: t('entities.userEntities.errors.entityIdExists', 'Entity ID already exists'),
+                loadFailed: t('entities.userEntities.errors.loadFailed', 'Failed to load entities'),
+              },
             })
             try {
               window.dispatchEvent(new Event('om:refresh-sidebar'))
             } catch {}
-            pushWithFlash(router, `/backend/entities/user/${encodeURIComponent(entityId)}`, 'Entity created', 'success')
+            const successMessage = t('entities.userEntities.flash.created', 'Entity created')
+            pushWithFlash(router, `/backend/entities/user/${encodeURIComponent(entityId)}`, successMessage, 'success')
           }}
         />
       </PageBody>
@@ -64,12 +79,12 @@ type EntityListEntry = {
   source?: string
 }
 
-type FetchCustomEntities = () => Promise<EntityListEntry[]>
+type FetchCustomEntities = (errorMessage?: string) => Promise<EntityListEntry[]>
 
-async function defaultFetchCustomEntities(): Promise<EntityListEntry[]> {
+async function defaultFetchCustomEntities(errorMessage?: string): Promise<EntityListEntry[]> {
   const res = await apiFetch('/api/entities/entities')
   if (!res.ok) {
-    await raiseCrudError(res, 'Failed to load entities')
+    await raiseCrudError(res, errorMessage ?? 'Failed to load entities')
   }
   const data = await readJsonSafe<{ items?: EntityListEntry[] }>(res)
   return Array.isArray(data?.items) ? data!.items! : []
@@ -85,19 +100,30 @@ export async function submitCreateEntity(options: {
   values: Record<string, unknown>
   fetchEntities?: FetchCustomEntities
   createEntity?: CreateEntityRequest
+  messages?: {
+    entityIdRequired?: string
+    entityIdExists?: string
+    loadFailed?: string
+  }
 }): Promise<string> {
-  const { values, fetchEntities = defaultFetchCustomEntities, createEntity = defaultCreateEntityRequest } = options
+  const {
+    values,
+    fetchEntities = defaultFetchCustomEntities,
+    createEntity = defaultCreateEntityRequest,
+    messages,
+  } = options
   const rawEntityId = typeof values.entityId === 'string' ? values.entityId.trim() : ''
   if (!rawEntityId) {
-    throw createCrudFormError('Entity ID is required', { entityId: 'Entity ID is required' })
+    const message = messages?.entityIdRequired ?? 'Entity ID is required'
+    throw createCrudFormError(message, { entityId: message })
   }
 
-  const existing = await fetchEntities()
+  const existing = await fetchEntities(messages?.loadFailed)
   const exists = existing.some(
     (entry) => entry?.entityId === rawEntityId && (entry?.source === 'custom' || entry?.source === undefined),
   )
   if (exists) {
-    const message = 'Entity ID already exists'
+    const message = messages?.entityIdExists ?? 'Entity ID already exists'
     throw createCrudFormError(message, { entityId: message })
   }
 

@@ -9,5 +9,8 @@
   "directory.audit.tenants.delete": "Mandanten löschen",
   "directory.audit.organizations.create": "Organisation anlegen",
   "directory.audit.organizations.update": "Organisation aktualisieren",
-  "directory.audit.organizations.delete": "Organisation löschen"
+  "directory.audit.organizations.delete": "Organisation löschen",
+  "directory.organizations.errors.tenantRequired": "Die Mandantenauswahl ist für Superadministratoren erforderlich",
+  "directory.organizations.errors.orgIdRequired": "Organisationskennung ist erforderlich",
+  "directory.organizations.errors.deleteFailed": "Organisation konnte nicht gelöscht werden"
 }

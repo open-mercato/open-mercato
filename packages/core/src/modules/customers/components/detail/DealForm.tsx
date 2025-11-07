@@ -10,6 +10,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { DictionarySelectField } from '../formConfig'
 import { createDictionarySelectLabels } from './utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
@@ -792,11 +793,8 @@ export function DealForm({
           personIds,
           companyIds,
         }
-        const customEntries: Record<string, unknown> = {}
-        Object.entries(values).forEach(([key, value]) => {
-          if (key.startsWith('cf_')) {
-            customEntries[key.slice(3)] = normalizeCustomFieldSubmitValue(value)
-          }
+        const customEntries = collectCustomFieldValues(values, {
+          transform: (value) => normalizeCustomFieldSubmitValue(value),
         })
         await onSubmit({ base, custom: customEntries })
       } finally {

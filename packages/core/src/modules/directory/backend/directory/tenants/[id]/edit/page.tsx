@@ -4,6 +4,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 
@@ -97,11 +98,7 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
           cancelHref="/backend/directory/tenants"
           successRedirect="/backend/directory/tenants?flash=Tenant%20updated&type=success"
           onSubmit={async (values) => {
-            const customFields: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(values)) {
-              if (key.startsWith('cf_')) customFields[key.slice(3)] = value
-              else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
-            }
+            const customFields = collectCustomFieldValues(values)
             const payload: {
               id: string
               name: string

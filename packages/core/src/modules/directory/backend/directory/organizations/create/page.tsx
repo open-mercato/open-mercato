@@ -1,11 +1,13 @@
 "use client"
 import * as React from 'react'
+import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { type OrganizationTreeNode } from '@open-mercato/core/modules/directory/lib/tree'
@@ -69,6 +71,7 @@ export default function CreateOrganizationPage() {
   const [tree, setTree] = React.useState<OrganizationTreeNode[]>([])
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
+  const t = useT()
 
   const loadTree = React.useCallback(async (tenantId: string | null) => {
     const params = new URLSearchParams({ view: 'tree', includeInactive: 'true' })
@@ -194,6 +197,9 @@ export default function CreateOrganizationPage() {
               values: values as Record<string, unknown>,
               actorIsSuperAdmin,
               selectedTenantId,
+              messages: {
+                tenantRequired: t('directory.organizations.errors.tenantRequired', 'Tenant selection is required for super administrators'),
+              },
             })
           }}
         />
@@ -222,19 +228,19 @@ export async function submitCreateOrganization(options: {
   actorIsSuperAdmin: boolean
   selectedTenantId: string | null
   createOrganization?: CreateOrganizationRequest
+  messages?: {
+    tenantRequired?: string
+  }
 }): Promise<void> {
   const {
     values,
     actorIsSuperAdmin,
     selectedTenantId,
     createOrganization = defaultCreateOrganizationRequest,
+    messages,
   } = options
 
-  const customFields: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(values)) {
-    if (key.startsWith('cf_')) customFields[key.slice(3)] = value
-    else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
-  }
+  const customFields = collectCustomFieldValues(values)
 
   const tenantValue =
     typeof values.tenantId === 'string' && values.tenantId.trim().length
@@ -242,8 +248,9 @@ export async function submitCreateOrganization(options: {
       : selectedTenantId
 
   if (actorIsSuperAdmin && !tenantValue) {
-    throw createCrudFormError('Tenant selection is required for super administrators', {
-      tenantId: 'Tenant selection is required for super administrators',
+    const message = messages?.tenantRequired ?? 'Tenant selection is required for super administrators'
+    throw createCrudFormError(message, {
+      tenantId: message,
     })
   }
 

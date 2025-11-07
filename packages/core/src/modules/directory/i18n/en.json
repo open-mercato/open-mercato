@@ -9,5 +9,8 @@
   "directory.audit.tenants.delete": "Delete tenant",
   "directory.audit.organizations.create": "Create organization",
   "directory.audit.organizations.update": "Update organization",
-  "directory.audit.organizations.delete": "Delete organization"
+  "directory.audit.organizations.delete": "Delete organization",
+  "directory.organizations.errors.tenantRequired": "Tenant selection is required for super administrators",
+  "directory.organizations.errors.orgIdRequired": "Organization identifier is required",
+  "directory.organizations.errors.deleteFailed": "Failed to delete organization"
 }

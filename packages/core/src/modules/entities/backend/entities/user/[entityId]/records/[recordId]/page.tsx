@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useT } from '@/lib/i18n/context'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { z } from 'zod'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -17,13 +18,19 @@ export async function submitCustomEntityRecordUpdate(options: {
   recordId: string
   values: Record<string, unknown>
   updateRecord?: UpdateRecordRequest
+  messages?: {
+    entityIdRequired?: string
+    recordIdRequired?: string
+  }
 }) {
-  const { entityId, recordId, values, updateRecord = defaultUpdateRecordRequest } = options
+  const { entityId, recordId, values, updateRecord = defaultUpdateRecordRequest, messages } = options
   if (!entityId || !entityId.trim()) {
-    throw createCrudFormError('Entity identifier is required', { entityId: 'Entity identifier is required' })
+    const message = messages?.entityIdRequired ?? 'Entity identifier is required'
+    throw createCrudFormError(message, { entityId: message })
   }
   if (!recordId || !recordId.trim()) {
-    throw createCrudFormError('Record identifier is required', { recordId: 'Record identifier is required' })
+    const message = messages?.recordIdRequired ?? 'Record identifier is required'
+    throw createCrudFormError(message, { recordId: message })
   }
   await updateRecord({ entityId, recordId, values })
 }
@@ -31,6 +38,7 @@ export async function submitCustomEntityRecordUpdate(options: {
 type RecordsResponse = { items: any[] }
 
 export default function EditRecordPage({ params }: { params: { entityId?: string; recordId?: string } }) {
+  const t = useT()
   const entityId = decodeURIComponent(params?.entityId || '')
   const recordId = decodeURIComponent(params?.recordId || '')
 
@@ -61,7 +69,7 @@ export default function EditRecordPage({ params }: { params: { entityId?: string
 
   return (
     <CrudForm
-      title={`Edit record`}
+      title={t('entities.userEntities.records.form.editTitle', 'Edit record')}
       backHref={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
       schema={schema}
       fields={fields}
@@ -69,17 +77,25 @@ export default function EditRecordPage({ params }: { params: { entityId?: string
       customEntity
       initialValues={initialValues || {}}
       isLoading={loading}
-      loadingMessage="Loading record..."
-      submitLabel="Save"
+      loadingMessage={t('entities.userEntities.records.loading', 'Loading record...')}
+      submitLabel={t('entities.userEntities.records.form.submitSave', 'Save')}
       cancelHref={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
       successRedirect={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
       onSubmit={async (values) => {
-        await submitCustomEntityRecordUpdate({ entityId, recordId, values: values as Record<string, unknown> })
+        await submitCustomEntityRecordUpdate({
+          entityId,
+          recordId,
+          values: values as Record<string, unknown>,
+          messages: {
+            entityIdRequired: t('entities.userEntities.records.errors.entityIdRequired', 'Entity identifier is required'),
+            recordIdRequired: t('entities.userEntities.records.errors.recordIdRequired', 'Record identifier is required'),
+          },
+        })
       }}
       onDelete={async () => {
         const res = await apiFetch(`/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`, { method: 'DELETE' })
         if (!res.ok) {
-          await raiseCrudError(res, 'Failed to delete record')
+          await raiseCrudError(res, t('entities.userEntities.records.errors.deleteFailed', 'Failed to delete record'))
         }
         // navigate back
         if (typeof window !== 'undefined') window.location.href = `/backend/entities/user/${encodeURIComponent(entityId)}/records`

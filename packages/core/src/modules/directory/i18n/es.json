@@ -9,5 +9,8 @@
   "directory.audit.tenants.delete": "Eliminar inquilino",
   "directory.audit.organizations.create": "Crear organización",
   "directory.audit.organizations.update": "Actualizar organización",
-  "directory.audit.organizations.delete": "Eliminar organización"
+  "directory.audit.organizations.delete": "Eliminar organización",
+  "directory.organizations.errors.tenantRequired": "La selección de inquilino es obligatoria para los superadministradores",
+  "directory.organizations.errors.orgIdRequired": "Se requiere el identificador de la organización",
+  "directory.organizations.errors.deleteFailed": "No se pudo eliminar la organización"
 }

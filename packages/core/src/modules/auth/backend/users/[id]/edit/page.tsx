@@ -5,6 +5,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
@@ -324,11 +325,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           successRedirect="/backend/users?flash=User%20saved&type=success"
           onSubmit={async (values) => {
             if (!id) return
-            const customFields: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(values)) {
-              if (key.startsWith('cf_')) customFields[key.slice(3)] = value
-              else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
-            }
+            const customFields = collectCustomFieldValues(values)
             const payload = {
               id: id ? String(id) : '',
               email: values.email,

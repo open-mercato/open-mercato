@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { useT } from '@/lib/i18n/context'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -312,19 +313,16 @@ export function ActivityForm({
             : undefined,
           dealId: rawDealId.length ? rawDealId : undefined,
         }
-        const customEntries: Record<string, unknown> = {}
         const reservedCustomKeys = new Set(['entityId', 'dealId'])
+        const customEntries = collectCustomFieldValues(values, {
+          transform: (value) => normalizeCustomFieldSubmitValue(value),
+          accept: (fieldId) => !reservedCustomKeys.has(fieldId),
+        })
         Object.entries(values).forEach(([key, value]) => {
-          const normalizedValue = normalizeCustomFieldSubmitValue(value)
-          if (key.startsWith('cf_')) {
-            const trimmedKey = key.slice(3)
-            if (reservedCustomKeys.has(trimmedKey)) return
-            customEntries[trimmedKey] = normalizedValue
-            return
-          }
+          if (key.startsWith('cf_')) return
           if (!baseFieldIds.has(key) && key !== 'id') {
             if (reservedCustomKeys.has(key)) return
-            customEntries[key] = normalizedValue
+            customEntries[key] = normalizeCustomFieldSubmitValue(value)
           }
         })
         await onSubmit({ base, custom: customEntries, entityId: resolvedEntityId.length ? resolvedEntityId : undefined })

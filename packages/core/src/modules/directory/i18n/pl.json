@@ -9,5 +9,8 @@
   "directory.audit.tenants.delete": "Usuń najemcę",
   "directory.audit.organizations.create": "Utwórz organizację",
   "directory.audit.organizations.update": "Aktualizuj organizację",
-  "directory.audit.organizations.delete": "Usuń organizację"
+  "directory.audit.organizations.delete": "Usuń organizację",
+  "directory.organizations.errors.tenantRequired": "Wybór najemcy jest wymagany dla superadministratorów",
+  "directory.organizations.errors.orgIdRequired": "Identyfikator organizacji jest wymagany",
+  "directory.organizations.errors.deleteFailed": "Nie udało się usunąć organizacji"
 }

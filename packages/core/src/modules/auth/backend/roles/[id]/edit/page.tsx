@@ -4,6 +4,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 import { WidgetVisibilityEditor } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
@@ -164,11 +165,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
           cancelHref="/backend/roles"
           successRedirect="/backend/roles?flash=Role%20saved&type=success"
           onSubmit={async (values) => {
-            const customFields: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(values)) {
-              if (key.startsWith('cf_')) customFields[key.slice(3)] = value
-              else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
-            }
+            const customFields = collectCustomFieldValues(values)
             const payload: Record<string, unknown> = { id }
             if (values.name !== undefined) payload.name = values.name
             let effectiveTenantId: string | null = selectedTenantId ?? (initial?.tenantId ?? null)

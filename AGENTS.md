@@ -26,11 +26,12 @@ This repository is designed for extensibility. Agents should leverage the module
   - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
 - Extensions and fields:
   - Per-module entity extensions: declare in `src/modules/<module>/data/extensions.ts` as `export const extensions: EntityExtension[]`.
-  - Custom fields: declare in `src/modules/<module>/ce.ts` under `entities[].fields`. `data/fields.ts` is no longer supported.
-  - Generators add these to `modules.generated.ts` so they’re available at runtime.
-  - Prefer using the DSL helpers from `@/modules/dsl`:
-    - `defineLink()` with `entityId()` or `linkable()` for module-to-module extensions.
-    - `defineFields()` with `cf.*` helpers for field sets.
+- Custom fields: declare in `src/modules/<module>/ce.ts` under `entities[].fields`. `data/fields.ts` is no longer supported.
+- Generators add these to `modules.generated.ts` so they’re available at runtime.
+- Prefer using the DSL helpers from `@/modules/dsl`:
+  - `defineLink()` with `entityId()` or `linkable()` for module-to-module extensions.
+  - `defineFields()` with `cf.*` helpers for field sets.
+- When submitting CRUD forms, collect custom-field payloads via `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues` instead of ad-hoc loops. Pass `{ transform }` to normalize values (e.g., `normalizeCustomFieldSubmitValue`) and always reuse this helper for both `cf_` and `cf:` prefixed keys so forms stay consistent.
 - Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
 - Generators build:
   - `src/modules/generated.ts` (routes/APIs/CLIs + info)
