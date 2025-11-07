@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { formatOrganizationTreeLabel } from '../lib/tree'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -46,14 +46,16 @@ type FetchState =
   | { status: 'error' }
   | { status: 'success'; nodes: OrganizationTreeNode[] }
 
-async function fetchTree(params: { tenantId?: string | null; status?: 'all' | 'active' | 'inactive' }) {
+async function fetchTree(params: { tenantId?: string | null; status?: 'all' | 'active' | 'inactive' }, errorMessage: string) {
   const search = new URLSearchParams()
   search.set('view', 'tree')
   if (params.tenantId) search.set('tenantId', params.tenantId)
   if (params.status) search.set('status', params.status)
-  const res = await apiFetch(`/api/directory/organizations?${search.toString()}`)
-  if (!res.ok) throw new Error('Failed to load organizations')
-  const json = await res.json().catch(() => ({}))
+  const json = await readApiResultOrThrow<{ items?: unknown[] }>(
+    `/api/directory/organizations?${search.toString()}`,
+    undefined,
+    { errorMessage, allowNullResult: true },
+  )
   return Array.isArray(json.items) ? (json.items as OrganizationTreeNode[]) : []
 }
 
@@ -130,6 +132,7 @@ export const OrganizationSelect = React.forwardRef<HTMLSelectElement, Organizati
   })
 
   React.useEffect(() => {
+    const errorMessage = t('organizationSelect.error', 'Failed to load organizations')
     if (providedNodes) {
       setFetchState({ status: 'success', nodes: normalizeNodes(providedNodes) })
       return
@@ -140,7 +143,7 @@ export const OrganizationSelect = React.forwardRef<HTMLSelectElement, Organizati
     }
     let cancelled = false
     setFetchState({ status: 'loading' })
-    fetchTree({ tenantId, status })
+    fetchTree({ tenantId, status }, errorMessage)
       .then((nodes) => {
         if (!cancelled) setFetchState({ status: 'success', nodes })
       })
@@ -148,7 +151,7 @@ export const OrganizationSelect = React.forwardRef<HTMLSelectElement, Organizati
         if (!cancelled) setFetchState({ status: 'error' })
       })
     return () => { cancelled = true }
-  }, [providedNodes, fetchOnMount, tenantId, status])
+  }, [providedNodes, fetchOnMount, tenantId, status, t])
 
   const nodes = React.useMemo(() => {
     if (providedNodes) {

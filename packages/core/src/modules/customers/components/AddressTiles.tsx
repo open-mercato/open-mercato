@@ -6,7 +6,7 @@ import { Loader2, Pencil, Plus, Trash2, X, Settings } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import Link from 'next/link'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { buildCountryOptions } from '@open-mercato/shared/lib/location/countries'
@@ -289,19 +289,22 @@ export function CustomerAddressTiles({
     async function loadFormat() {
       setFormatLoading(true)
       try {
-        const res = await apiFetch('/api/customers/settings/address-format')
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
+        const call = await apiCall<{ addressFormat?: string; error?: string }>(
+          '/api/customers/settings/address-format',
+        )
+        const payload = (call.result ?? {}) as Record<string, unknown>
+        if (!call.ok) {
           if (!cancelled) {
             const message =
-              typeof payload?.error === 'string'
-                ? payload.error
+              typeof (payload as Record<string, unknown>)?.error === 'string'
+                ? (payload as Record<string, unknown>).error as string
                 : t('customers.people.detail.addresses.formatLoadError', 'Failed to load address configuration')
             flash(message, 'error')
           }
           return
         }
-        const value = typeof payload?.addressFormat === 'string' ? payload.addressFormat : null
+        const valueRaw = payload?.addressFormat
+        const value = typeof valueRaw === 'string' ? valueRaw : null
         if (!cancelled && (value === 'street_first' || value === 'line_first')) {
           setFormat(value)
         }
@@ -343,13 +346,16 @@ export function CustomerAddressTiles({
       }
       setTypeSaving(true)
       try {
-        const res = await apiFetch('/api/customers/dictionaries/address-types', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ value: trimmed }),
-        })
-        const payload: Record<string, unknown> | null = await res.json().catch(() => null)
-        if (!res.ok) {
+        const call = await apiCall<Record<string, unknown>>(
+          '/api/customers/dictionaries/address-types',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ value: trimmed }),
+          },
+        )
+        const payload = call.result ?? null
+        if (!call.ok) {
           const errorMessage =
             typeof payload?.error === 'string'
               ? payload.error

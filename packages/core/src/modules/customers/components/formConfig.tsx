@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import type {
   CrudCustomFieldRenderProps,
@@ -165,18 +165,21 @@ export function DictionarySelectField({
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
-      const res = await apiFetch(`/api/customers/dictionaries/${kind}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          value: input.value,
-          label: input.label ?? input.value,
-          color: input.color ?? undefined,
-          icon: input.icon ?? undefined,
-        }),
-      })
-      const payload: Record<string, unknown> = await res.json().catch(() => ({}))
-      if (!res.ok) {
+      const call = await apiCall<Record<string, unknown>>(
+        `/api/customers/dictionaries/${kind}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            value: input.value,
+            label: input.label ?? input.value,
+            color: input.color ?? undefined,
+            icon: input.icon ?? undefined,
+          }),
+        },
+      )
+      const payload = call.result ?? {}
+      if (!call.ok) {
         const message = typeof payload.error === 'string' ? payload.error : labels.errorSave
         throw new Error(message)
       }
