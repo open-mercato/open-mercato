@@ -2,7 +2,8 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { emitOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
 import { OrganizationSelect, type OrganizationTreeNode } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect, type TenantRecord } from '@open-mercato/core/modules/directory/components/TenantSelect'
@@ -41,6 +42,15 @@ type TenantCookieState = {
   value: string
   hasCookie: boolean
   raw: string | null
+}
+
+type OrganizationSwitcherPayload = {
+  items?: unknown
+  selectedId?: string | null
+  canManage?: boolean
+  tenantId?: string | null
+  tenants?: unknown
+  isSuperAdmin?: boolean
 }
 
 function readSelectedOrganizationCookie(): SelectedCookieState {
@@ -163,17 +173,16 @@ export default function OrganizationSwitcher() {
       if (targetTenant) params.set('tenantId', targetTenant)
       const search = params.toString()
       const url = `/api/directory/organization-switcher${search ? `?${search}` : ''}`
-      const res = await apiFetch(url)
+      const call = await apiCall<OrganizationSwitcherPayload>(url)
       if (abortRef?.current) return
-      if (res.status === 401 || res.status === 403) {
+      if (call.status === 401 || call.status === 403) {
         setState({ status: 'hidden' })
         return
       }
-      if (!res.ok) {
-        setState({ status: 'error' })
-        return
+      if (!call.ok) {
+        await raiseCrudError(call.response, t('organizationSwitcher.error', 'Failed to load'))
       }
-      const json = await res.json().catch(() => ({}))
+      const json = (call.result ?? {}) as OrganizationSwitcherPayload
       if (abortRef?.current) return
       const rawItems = Array.isArray(json.items) ? json.items : []
       const selected = typeof json.selectedId === 'string' ? json.selectedId : null
@@ -256,7 +265,7 @@ export default function OrganizationSwitcher() {
       if (abortRef?.current) return
       setState({ status: 'error' })
     }
-  }, [persistSelection, persistTenant, router])
+  }, [persistSelection, persistTenant, router, t])
 
   const handleTenantChange = React.useCallback((nextTenantId: string | null) => {
     const normalized = typeof nextTenantId === 'string' && nextTenantId.trim().length > 0 ? nextTenantId.trim() : null

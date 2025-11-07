@@ -10,7 +10,7 @@ import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList, buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -179,11 +179,11 @@ export default function TodosTable() {
     queryKey: ['organizations', organizationIds],
     queryFn: async () => {
       if (organizationIds.length === 0) return { items: [] }
-      const response = await apiFetch(`/api/example/organizations?ids=${organizationIds.join(',')}`)
-      if (!response.ok) {
-        throw new Error('Failed to fetch organizations')
-      }
-      return response.json()
+      return readApiResultOrThrow<OrganizationsResponse>(
+        `/api/example/organizations?ids=${organizationIds.join(',')}`,
+        undefined,
+        { errorMessage: t('example.todos.table.error.generic', 'Failed to fetch organizations') },
+      )
     },
     enabled: organizationIds.length > 0,
   })

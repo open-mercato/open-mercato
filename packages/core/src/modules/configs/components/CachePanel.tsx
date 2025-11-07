@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 
@@ -40,17 +40,10 @@ export function CachePanel() {
   const loadStats = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }))
     try {
-      const response = await apiFetch(API_PATH)
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok || typeof payload?.generatedAt !== 'string') {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('configs.cache.loadError', 'Failed to load cache statistics.')
-        setState({ loading: false, error: message, stats: null })
-        return
-      }
-      setState({ loading: false, error: null, stats: payload as CrudCacheStats })
+      const stats = await readApiResultOrThrow<CrudCacheStats>(API_PATH, undefined, {
+        errorMessage: t('configs.cache.loadError', 'Failed to load cache statistics.'),
+      })
+      setState({ loading: false, error: null, stats })
     } catch (error) {
       const message =
         error instanceof Error && error.message
@@ -68,19 +61,23 @@ export function CachePanel() {
     let cancelled = false
     async function checkManageFeature() {
       try {
-        const response = await apiFetch('/api/auth/feature-check', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ features: ['configs.cache.manage'] }),
-        })
-        const payload = await response.json().catch(() => ({}))
+        const payload = await readApiResultOrThrow<{ ok?: boolean; granted?: unknown }>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ features: ['configs.cache.manage'] }),
+          },
+          {
+            errorMessage: t('configs.cache.loadError', 'Failed to load cache statistics.'),
+            allowNullResult: true,
+          },
+        )
         if (cancelled) return
         const granted = Array.isArray(payload?.granted)
           ? (payload.granted as unknown[]).filter((feature) => typeof feature === 'string') as string[]
           : []
-        const hasFeature =
-          payload?.ok === true ||
-          granted.includes('configs.cache.manage')
+        const hasFeature = payload?.ok === true || granted.includes('configs.cache.manage')
         setCanManage(hasFeature)
       } catch {
         if (!cancelled) setCanManage(false)
@@ -92,7 +89,7 @@ export function CachePanel() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   const handleRefresh = React.useCallback(() => {
     loadStats().catch(() => {})
@@ -108,21 +105,19 @@ export function CachePanel() {
     }
     setPurgingAll(true)
     try {
-      const response = await apiFetch(API_PATH, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'purgeAll' }),
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('configs.cache.purgeError', 'Failed to purge cache segment.')
-        flash(message, 'error')
-        return
-      }
-      const stats = payload?.stats as CrudCacheStats | undefined
+      const payload = await readApiResultOrThrow<{ stats?: CrudCacheStats }>(
+        API_PATH,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'purgeAll' }),
+        },
+        {
+          errorMessage: t('configs.cache.purgeError', 'Failed to purge cache segment.'),
+          allowNullResult: true,
+        },
+      )
+      const stats = payload?.stats
       if (stats) {
         setState({ loading: false, error: null, stats })
       } else {
@@ -152,21 +147,19 @@ export function CachePanel() {
     }
     setSegmentPurges((prev) => ({ ...prev, [segment]: true }))
     try {
-      const response = await apiFetch(API_PATH, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'purgeSegment', segment }),
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('configs.cache.purgeError', 'Failed to purge cache segment.')
-        flash(message, 'error')
-        return
-      }
-      const stats = payload?.stats as CrudCacheStats | undefined
+      const payload = await readApiResultOrThrow<{ stats?: CrudCacheStats; deleted?: number }>(
+        API_PATH,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'purgeSegment', segment }),
+        },
+        {
+          errorMessage: t('configs.cache.purgeError', 'Failed to purge cache segment.'),
+          allowNullResult: true,
+        },
+      )
+      const stats = payload?.stats
       if (stats) {
         setState({ loading: false, error: null, stats })
       } else {

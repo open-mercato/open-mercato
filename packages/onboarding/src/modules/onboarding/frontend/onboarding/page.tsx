@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useT, useLocale } from '@/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { onboardingStartSchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 
 type SubmissionState = 'idle' | 'loading' | 'success'
@@ -87,13 +87,16 @@ export default function OnboardingPage() {
     }
 
     try {
-      const response = await apiFetch('/api/onboarding/onboarding', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...parsed.data, termsAccepted: true }),
-      })
-      const data = await response.json().catch(() => ({})) as { ok?: boolean; error?: string; email?: string; fieldErrors?: Record<string, string> }
-      if (!response.ok || data.ok === false) {
+      const call = await apiCall<{ ok?: boolean; error?: string; email?: string; fieldErrors?: Record<string, string> }>(
+        '/api/onboarding/onboarding',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...parsed.data, termsAccepted: true }),
+        },
+      )
+      const data = call.result ?? {}
+      if (!call.ok || data.ok === false) {
         if (data.fieldErrors && typeof data.fieldErrors === 'object') {
           const mapped: FieldErrors = {}
           for (const key of Object.keys(data.fieldErrors)) {

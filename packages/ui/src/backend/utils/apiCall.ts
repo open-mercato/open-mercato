@@ -25,7 +25,9 @@ export async function apiCall<TReturn = Record<string, unknown>>(
   const fallback = options?.fallback ?? null
   let result: TReturn | null = null
   try {
-    const source = response.clone()
+    const source = typeof (response as Response & { clone?: () => Response }).clone === 'function'
+      ? response.clone()
+      : response
     if (parser) result = await parser(source)
     else result = await readJsonSafe<TReturn>(source, fallback)
   } catch {
