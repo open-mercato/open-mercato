@@ -581,204 +581,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       setPending(false)
     }
   }
-
-// Markdown editor using @uiw/react-md-editor (client-only)
-type MDProps = { value?: string; onChange: (md: string) => void }
-// Use the correct type for the imported component. If @uiw/react-md-editor exports a type for its props, use it.
-// Otherwise, define a minimal type here.
-type MDEditorProps = {
-  value?: string
-  height?: number
-  onChange?: (value?: string) => void
-  previewOptions?: { remarkPlugins?: unknown[] }
-}
-const MDEditor = dynamic<MDEditorProps>(() => import('@uiw/react-md-editor'), { ssr: false })
-const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange }: MDProps) {
-  const containerRef = React.useRef<HTMLDivElement | null>(null)
-  const [local, setLocal] = React.useState<string>(value)
-  const typingRef = React.useRef(false)
-
-  // Sync down from parent when not actively typing
-  React.useEffect(() => {
-    if (!typingRef.current) setLocal(value)
-  }, [value])
-
-  const handleChange = React.useCallback((v?: string) => {
-    typingRef.current = true
-    setLocal(v ?? '')
-  }, [])
-
-  const commit = React.useCallback(() => {
-    if (!typingRef.current) return
-    typingRef.current = false
-    const current = local
-    onChange(current)
-    // Try to preserve focus after parent re-render
-    requestAnimationFrame(() => {
-      const ta = containerRef.current?.querySelector('textarea') as HTMLTextAreaElement | null
-      ta?.focus()
-    })
-  }, [local, onChange])
-  return (
-    <div ref={containerRef} data-color-mode="light" className="w-full" onBlur={() => commit()}>
-      <MDEditor
-        value={local}
-        height={220}
-        onChange={handleChange}
-        previewOptions={{ remarkPlugins: [remarkGfm] }}
-      />
-    </div>
-  )
-}, (prev, next) => prev.value === next.value)
-
-// HTML Rich Text editor (contentEditable) with shortcuts; returns HTML string
-type HtmlRTProps = { value?: string; onChange: (html: string) => void }
-const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', onChange }: HtmlRTProps) {
-  const t = useT()
-  const boldLabel = t('ui.forms.richtext.bold')
-  const italicLabel = t('ui.forms.richtext.italic')
-  const underlineLabel = t('ui.forms.richtext.underline')
-  const listLabel = t('ui.forms.richtext.list')
-  const heading3Label = t('ui.forms.richtext.heading3')
-  const linkLabel = t('ui.forms.richtext.link')
-  const linkUrlPrompt = t('ui.forms.richtext.linkUrlPrompt')
-  const ref = React.useRef<HTMLDivElement | null>(null)
-  const applyingExternal = React.useRef(false)
-  const typingRef = React.useRef(false)
-
-  // Sync DOM when external value changes (but don't fight user typing)
-  React.useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const current = el.innerHTML
-    if (!typingRef.current && current !== value) {
-      applyingExternal.current = true
-      el.innerHTML = value || ''
-      // release the flag next tick
-      requestAnimationFrame(() => { applyingExternal.current = false })
-    }
-  }, [value])
-
-  const exec = (cmd: string, arg?: string) => {
-    const el = ref.current
-    if (!el) return
-    el.focus()
-    try {
-      document.execCommand(cmd, false, arg)
-      // do not call onChange eagerly; rely on blur commit
-    } catch {
-      // ignore execCommand failures
-    }
-  }
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const isMod = e.metaKey || e.ctrlKey
-    if (!isMod) return
-    const k = e.key.toLowerCase()
-    if (k === 'b') { e.preventDefault(); exec('bold') }
-    if (k === 'i') { e.preventDefault(); exec('italic') }
-    if (k === 'u') { e.preventDefault(); exec('underline') }
-  }
-
-  return (
-    <div className="w-full rounded border">
-      <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>{boldLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>{italicLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>{underlineLabel}</button>
-        <span className="mx-2 text-muted-foreground">|</span>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• {listLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>{heading3Label}</button>
-        <button
-          type="button"
-          className="px-2 py-0.5 text-xs rounded hover:bg-muted"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            const url = window.prompt(linkUrlPrompt)?.trim()
-            if (url) exec('createLink', url)
-          }}
-        >{linkLabel}</button>
-      </div>
-      <div
-        ref={ref}
-        className="w-full px-2 py-2 min-h-[160px] focus:outline-none prose prose-sm max-w-none"
-        contentEditable
-        suppressContentEditableWarning
-        onKeyDown={onKeyDown}
-        onInput={() => { if (!applyingExternal.current) typingRef.current = true }}
-        onBlur={() => {
-          const el = ref.current
-          if (!el) return
-          typingRef.current = false
-          onChange(el.innerHTML)
-        }}
-      />
-    </div>
-  )
-}, (prev, next) => prev.value === next.value)
-
-// Very simple markdown editor with Bold/Italic/Underline + shortcuts.
-type SimpleMDProps = { value?: string; onChange: (md: string) => void }
-const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange }: SimpleMDProps) {
-  const t = useT()
-  const boldLabel = t('ui.forms.richtext.bold')
-  const italicLabel = t('ui.forms.richtext.italic')
-  const underlineLabel = t('ui.forms.richtext.underline')
-  const markdownPlaceholder = t('ui.forms.richtext.placeholder')
-  const sampleText = t('ui.forms.richtext.sampleText')
-  const taRef = React.useRef<HTMLTextAreaElement | null>(null)
-  const [local, setLocal] = React.useState<string>(value)
-  const typingRef = React.useRef(false)
-
-  React.useEffect(() => {
-    if (!typingRef.current) setLocal(value)
-  }, [value])
-
-  const wrap = (before: string, after: string = before) => {
-    const el = taRef.current
-    if (!el) return
-    const start = el.selectionStart ?? 0
-    const end = el.selectionEnd ?? 0
-    const sel = value.slice(start, end) || sampleText
-    const next = value.slice(0, start) + before + sel + after + value.slice(end)
-    onChange(next)
-    queueMicrotask(() => {
-      const caret = start + before.length + sel.length + after.length
-      el.focus()
-      el.setSelectionRange(caret, caret)
-    })
-  }
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const isMod = e.metaKey || e.ctrlKey
-    if (!isMod) return
-    const key = e.key.toLowerCase()
-    if (key === 'b') { e.preventDefault(); wrap('**') }
-    if (key === 'i') { e.preventDefault(); wrap('_') }
-    if (key === 'u') { e.preventDefault(); wrap('__') }
-  }
-
-  return (
-    <div className="w-full rounded border">
-      <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>{boldLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>{italicLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</button>
-      </div>
-      <textarea
-        ref={taRef}
-        className="w-full min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
-        spellCheck={false}
-        value={local}
-        onChange={(e) => { typingRef.current = true; setLocal(e.target.value) }}
-        onBlur={() => { if (typingRef.current) { typingRef.current = false; onChange(local) } }}
-        onKeyDown={onKeyDown}
-        placeholder={markdownPlaceholder}
-      />
-    </div>
-  )
-}, (prev, next) => prev.value === next.value)
-
   // Load dynamic options for fields that require it
   React.useEffect(() => {
     let cancelled = false
@@ -867,248 +669,6 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       ? 'grid grid-cols-1 gap-4 md:grid-cols-6'
       : 'grid grid-cols-1 gap-4'
 
-  type FieldControlProps = {
-    field: CrudField
-    value: unknown
-    error?: string
-    options: CrudFieldOption[]
-    setValue: (id: string, v: unknown) => void
-    loadFieldOptions: (field: CrudField, query?: string) => Promise<CrudFieldOption[]>
-    autoFocus: boolean
-    onSubmitRequest: () => void
-    wrapperClassName?: string
-    entityIdForField?: string
-    recordId?: string
-  }
-
-  const FieldControl = React.memo(function FieldControlImpl({
-    field,
-    value,
-    error,
-    options,
-    setValue,
-    loadFieldOptions,
-    autoFocus,
-    onSubmitRequest,
-    wrapperClassName,
-    entityIdForField,
-    recordId,
-  }: FieldControlProps) {
-    const fieldSetValue = React.useCallback(
-      (nextValue: unknown) => setValue(field.id, nextValue),
-      [setValue, field.id]
-    )
-    const builtin = field.type === 'custom' ? null : field
-    const hasLoader = typeof builtin?.loadOptions === 'function'
-    const disabled = Boolean(field.disabled)
-    const autoFocusField = autoFocus && !disabled
-
-    React.useEffect(() => {
-      if (!hasLoader || field.type === 'custom') return
-      loadFieldOptions(field).catch(() => {})
-    }, [field, hasLoader, loadFieldOptions])
-
-    const placeholder = builtin?.placeholder
-    const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
-
-    return (
-      <div className={rootClassName} data-crud-field-id={field.id}>
-        {field.type !== 'checkbox' ? (
-          <label className="block text-sm font-medium">
-            {field.label}
-            {field.required ? <span className="text-red-600"> *</span> : null}
-          </label>
-        ) : null}
-        {field.type === 'text' && (
-          <TextInput
-            value={value == null ? '' : String(value)}
-            placeholder={placeholder}
-            onChange={(next) => fieldSetValue(next)}
-            autoFocus={autoFocusField}
-            onSubmit={onSubmitRequest}
-            disabled={disabled}
-          />
-        )}
-        {field.type === 'number' && (
-          <NumberInput
-            value={value}
-            placeholder={placeholder}
-            onChange={fieldSetValue}
-            autoFocus={autoFocusField}
-            onSubmit={onSubmitRequest}
-          />
-        )}
-        {field.type === 'date' && (
-          <input
-            type="date"
-            className="w-full h-9 rounded border px-2 text-sm"
-            value={typeof value === 'string' ? value : ''}
-            onChange={(e) => setValue(field.id, e.target.value || undefined)}
-            autoFocus={autoFocusField}
-            data-crud-focus-target=""
-            disabled={disabled}
-          />
-        )}
-        {field.type === 'textarea' && (
-          <TextAreaInput
-            value={value == null ? '' : String(value)}
-            placeholder={placeholder}
-            onChange={(next) => fieldSetValue(next)}
-            autoFocus={autoFocusField}
-          />
-        )}
-        {field.type === 'richtext' && builtin?.editor === 'simple' && (
-          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
-        )}
-        {field.type === 'richtext' && builtin?.editor === 'html' && (
-          <HtmlRichTextEditor value={String(value ?? '')} onChange={fieldSetValue} />
-        )}
-        {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
-          <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
-        )}
-        {field.type === 'tags' && (
-          <TagsInput
-            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
-            onChange={(next) => fieldSetValue(next)}
-            placeholder={placeholder}
-            autoFocus={autoFocusField}
-            suggestions={options.map((opt) => opt.label)}
-            loadSuggestions={
-              typeof builtin?.loadOptions === 'function'
-                ? async (query?: string) => {
-                    const opts = await loadFieldOptions(field, query)
-                    return opts.map((opt) => opt.label)
-                  }
-                : undefined
-            }
-          />
-        )}
-        {field.type === 'checkbox' && (
-          <label className="inline-flex items-center gap-2">
-            <input
-              type="checkbox"
-              className="size-4"
-              checked={value === true}
-              onChange={(e) => setValue(field.id, e.target.checked)}
-              data-crud-focus-target=""
-              disabled={disabled}
-            />
-            <span className="text-sm">{field.label}</span>
-          </label>
-        )}
-        {field.type === 'select' && !builtin?.multiple && (
-          <select
-            className="w-full h-9 rounded border px-2 text-sm"
-            value={
-              Array.isArray(value)
-                ? String(value[0] ?? '')
-                : value == null
-                  ? ''
-                  : String(value)
-            }
-            onChange={(e) => setValue(field.id, e.target.value || undefined)}
-            data-crud-focus-target=""
-            disabled={disabled}
-          >
-            <option value="">—</option>
-            {options.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        )}
-        {field.type === 'select' && builtin?.multiple && builtin.listbox === true && (
-          <ListboxMultiSelect
-            options={options}
-            placeholder={placeholder}
-            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
-            onChange={(vals) => setValue(field.id, vals)}
-            autoFocus={autoFocusField}
-          />
-        )}
-        {field.type === 'select' && builtin?.multiple && builtin.listbox !== true && (
-          <div className="flex flex-wrap gap-3">
-            {options.map((opt) => {
-              const arr = Array.isArray(value)
-                ? value.filter((item): item is string => typeof item === 'string')
-                : []
-              const checked = arr.includes(opt.value)
-              return (
-                <label key={opt.value} className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="size-4"
-                    checked={checked}
-                    onChange={(e) => {
-                      const next = new Set(arr)
-                      if (e.target.checked) {
-                        next.add(opt.value)
-                      } else {
-                        next.delete(opt.value)
-                      }
-                      setValue(field.id, Array.from(next))
-                    }}
-                    disabled={disabled}
-                  />
-                  <span className="text-sm">{opt.label}</span>
-                </label>
-              )
-            })}
-          </div>
-        )}
-        {field.type === 'relation' && (
-          <RelationSelect
-            options={options}
-            placeholder={placeholder}
-            value={
-              Array.isArray(value)
-                ? String(value[0] ?? '')
-                : value == null
-                  ? ''
-                  : String(value)
-            }
-            onChange={(selected) => setValue(field.id, selected)}
-            autoFocus={autoFocusField}
-          />
-        )}
-        {field.type === 'custom' && (
-          <>
-            {field.component({
-              id: field.id,
-              value,
-              error,
-              setValue: fieldSetValue,
-              entityId: entityIdForField,
-              recordId,
-              autoFocus,
-              disabled,
-            })}
-          </>
-        )}
-        {field.description ? (
-          <div className="text-xs text-muted-foreground">{field.description}</div>
-        ) : null}
-        {error ? <div className="text-xs text-red-600">{error}</div> : null}
-      </div>
-    )
-  },
-  (prev, next) =>
-    prev.field.id === next.field.id &&
-    prev.field.type === next.field.type &&
-    prev.field.label === next.field.label &&
-    prev.field.required === next.field.required &&
-    prev.value === next.value &&
-    prev.error === next.error &&
-    prev.options === next.options &&
-    prev.loadFieldOptions === next.loadFieldOptions &&
-    prev.autoFocus === next.autoFocus &&
-    prev.onSubmitRequest === next.onSubmitRequest &&
-    prev.wrapperClassName === next.wrapperClassName &&
-    prev.entityIdForField === next.entityIdForField &&
-    prev.recordId === next.recordId
-  )
-
   // Helper to render a list of field configs
   const resolveLayoutClass = (layout?: CrudFieldBase['layout']) => {
     switch (layout) {
@@ -1151,60 +711,6 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       </div>
     )
   }
-
-  // Stable listbox multi-select to avoid inline hooks causing re-renders
-  const ListboxMultiSelect = React.useMemo(() => {
-    return function ListboxMultiSelectImpl({ options, placeholder, value, onChange, autoFocus }: { options: CrudFieldOption[]; placeholder?: string; value: string[]; onChange: (vals: string[]) => void; autoFocus?: boolean }) {
-      const t = useT()
-      const searchPlaceholder = placeholder || t('ui.forms.listbox.searchPlaceholder')
-      const noMatchesLabel = t('ui.forms.listbox.noMatches')
-      const [query, setQuery] = React.useState('')
-      const filtered = React.useMemo(() => {
-        const q = query.toLowerCase().trim()
-        if (!q) return options
-        return options.filter(o => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q))
-      }, [options, query])
-      const toggle = React.useCallback((val: string) => {
-        const set = new Set(value)
-        if (set.has(val)) set.delete(val)
-        else set.add(val)
-        onChange(Array.from(set))
-      }, [value, onChange])
-      return (
-        <div className="w-full">
-          <input
-            className="mb-2 w-full h-8 rounded border px-2 text-sm"
-            placeholder={searchPlaceholder}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoFocus={autoFocus}
-            data-crud-focus-target=""
-          />
-          <div className="rounded border max-h-48 overflow-auto divide-y">
-            {filtered.map((opt) => {
-              const isSel = value.includes(opt.value)
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => toggle(opt.value)}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${isSel ? 'bg-muted' : ''}`}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <input type="checkbox" className="size-4" readOnly checked={isSel} />
-                    <span>{opt.label}</span>
-                  </span>
-                </button>
-              )
-            })}
-            {!filtered.length ? (
-              <div className="px-3 py-2 text-sm text-muted-foreground">{noMatchesLabel}</div>
-            ) : null}
-          </div>
-        </div>
-      )
-    }
-  }, [])
 
   // If groups are provided, render the two-column grouped layout
   if (groups && groups.length) {
@@ -1668,3 +1174,503 @@ function TextAreaInput({
     />
   )
 }
+
+// Markdown editor using @uiw/react-md-editor (client-only)
+type MDProps = { value?: string; onChange: (md: string) => void }
+type MDEditorProps = {
+  value?: string
+  height?: number
+  onChange?: (value?: string) => void
+  previewOptions?: { remarkPlugins?: unknown[] }
+}
+const MDEditor = dynamic<MDEditorProps>(() => import('@uiw/react-md-editor'), { ssr: false })
+const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange }: MDProps) {
+  const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const [local, setLocal] = React.useState<string>(value)
+  const typingRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!typingRef.current) setLocal(value)
+  }, [value])
+
+  const handleChange = React.useCallback((v?: string) => {
+    typingRef.current = true
+    setLocal(v ?? '')
+  }, [])
+
+  const commit = React.useCallback(() => {
+    if (!typingRef.current) return
+    typingRef.current = false
+    onChange(local)
+    requestAnimationFrame(() => {
+      const ta = containerRef.current?.querySelector('textarea') as HTMLTextAreaElement | null
+      ta?.focus()
+    })
+  }, [local, onChange])
+
+  return (
+    <div ref={containerRef} data-color-mode="light" className="w-full" onBlur={() => commit()}>
+      <MDEditor
+        value={local}
+        height={220}
+        onChange={handleChange}
+        previewOptions={{ remarkPlugins: [remarkGfm] }}
+      />
+    </div>
+  )
+}, (prev, next) => prev.value === next.value)
+
+// HTML Rich Text editor (contentEditable) with shortcuts; returns HTML string
+type HtmlRTProps = { value?: string; onChange: (html: string) => void }
+const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', onChange }: HtmlRTProps) {
+  const t = useT()
+  const boldLabel = t('ui.forms.richtext.bold')
+  const italicLabel = t('ui.forms.richtext.italic')
+  const underlineLabel = t('ui.forms.richtext.underline')
+  const listLabel = t('ui.forms.richtext.list')
+  const heading3Label = t('ui.forms.richtext.heading3')
+  const linkLabel = t('ui.forms.richtext.link')
+  const linkUrlPrompt = t('ui.forms.richtext.linkUrlPrompt')
+  const ref = React.useRef<HTMLDivElement | null>(null)
+  const applyingExternal = React.useRef(false)
+  const typingRef = React.useRef(false)
+
+  React.useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const current = el.innerHTML
+    if (!typingRef.current && current !== value) {
+      applyingExternal.current = true
+      el.innerHTML = value || ''
+      requestAnimationFrame(() => { applyingExternal.current = false })
+    }
+  }, [value])
+
+  const exec = (cmd: string, arg?: string) => {
+    const el = ref.current
+    if (!el) return
+    el.focus()
+    try {
+      document.execCommand(cmd, false, arg)
+    } catch {
+      // ignore execCommand failures
+    }
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const isMod = e.metaKey || e.ctrlKey
+    if (!isMod) return
+    const k = e.key.toLowerCase()
+    if (k === 'b') { e.preventDefault(); exec('bold') }
+    if (k === 'i') { e.preventDefault(); exec('italic') }
+    if (k === 'u') { e.preventDefault(); exec('underline') }
+  }
+
+  return (
+    <div className="w-full rounded border">
+      <div className="flex items-center gap-1 px-2 py-1 border-b">
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>{boldLabel}</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>{italicLabel}</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>{underlineLabel}</button>
+        <span className="mx-2 text-muted-foreground">|</span>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• {listLabel}</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>{heading3Label}</button>
+        <button
+          type="button"
+          className="px-2 py-0.5 text-xs rounded hover:bg-muted"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            const url = window.prompt(linkUrlPrompt)?.trim()
+            if (url) exec('createLink', url)
+          }}
+        >{linkLabel}</button>
+      </div>
+      <div
+        ref={ref}
+        className="w-full px-2 py-2 min-h-[160px] focus:outline-none prose prose-sm max-w-none"
+        contentEditable
+        suppressContentEditableWarning
+        onKeyDown={onKeyDown}
+        onInput={() => { if (!applyingExternal.current) typingRef.current = true }}
+        onBlur={() => {
+          const el = ref.current
+          if (!el) return
+          typingRef.current = false
+          onChange(el.innerHTML)
+        }}
+      />
+    </div>
+  )
+}, (prev, next) => prev.value === next.value)
+
+// Very simple markdown editor with Bold/Italic/Underline + shortcuts.
+type SimpleMDProps = { value?: string; onChange: (md: string) => void }
+const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange }: SimpleMDProps) {
+  const t = useT()
+  const boldLabel = t('ui.forms.richtext.bold')
+  const italicLabel = t('ui.forms.richtext.italic')
+  const underlineLabel = t('ui.forms.richtext.underline')
+  const markdownPlaceholder = t('ui.forms.richtext.placeholder')
+  const sampleText = t('ui.forms.richtext.sampleText')
+  const taRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const [local, setLocal] = React.useState<string>(value)
+  const typingRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!typingRef.current) setLocal(value)
+  }, [value])
+
+  const wrap = (before: string, after: string = before) => {
+    const el = taRef.current
+    if (!el) return
+    const start = el.selectionStart ?? 0
+    const end = el.selectionEnd ?? 0
+    const sel = value.slice(start, end) || sampleText
+    const next = value.slice(0, start) + before + sel + after + value.slice(end)
+    onChange(next)
+    queueMicrotask(() => {
+      const caret = start + before.length + sel.length + after.length
+      el.focus()
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const isMod = e.metaKey || e.ctrlKey
+    if (!isMod) return
+    const key = e.key.toLowerCase()
+    if (key === 'b') { e.preventDefault(); wrap('**') }
+    if (key === 'i') { e.preventDefault(); wrap('_') }
+    if (key === 'u') { e.preventDefault(); wrap('__') }
+  }
+
+  return (
+    <div className="w-full rounded border">
+      <div className="flex items-center gap-1 px-2 py-1 border-b">
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>{boldLabel}</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>{italicLabel}</button>
+        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</button>
+      </div>
+      <textarea
+        ref={taRef}
+        className="w-full min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
+        spellCheck={false}
+        value={local}
+        onChange={(e) => { typingRef.current = true; setLocal(e.target.value) }}
+        onBlur={() => { if (typingRef.current) { typingRef.current = false; onChange(local) } }}
+        onKeyDown={onKeyDown}
+        placeholder={markdownPlaceholder}
+      />
+    </div>
+  )
+}, (prev, next) => prev.value === next.value)
+
+type FieldControlProps = {
+  field: CrudField
+  value: unknown
+  error?: string
+  options: CrudFieldOption[]
+  setValue: (id: string, v: unknown) => void
+  loadFieldOptions: (field: CrudField, query?: string) => Promise<CrudFieldOption[]>
+  autoFocus: boolean
+  onSubmitRequest: () => void
+  wrapperClassName?: string
+  entityIdForField?: string
+  recordId?: string
+}
+
+type ListboxMultiSelectProps = {
+  options: CrudFieldOption[]
+  placeholder?: string
+  value: string[]
+  onChange: (vals: string[]) => void
+  autoFocus?: boolean
+}
+
+const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
+  options,
+  placeholder,
+  value,
+  onChange,
+  autoFocus,
+}: ListboxMultiSelectProps) {
+  const t = useT()
+  const searchPlaceholder = placeholder || t('ui.forms.listbox.searchPlaceholder')
+  const noMatchesLabel = t('ui.forms.listbox.noMatches')
+  const [query, setQuery] = React.useState('')
+  const filtered = React.useMemo(() => {
+    const q = query.toLowerCase().trim()
+    if (!q) return options
+    return options.filter((o) => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q))
+  }, [options, query])
+  const toggle = React.useCallback(
+    (val: string) => {
+      const set = new Set(value)
+      if (set.has(val)) set.delete(val)
+      else set.add(val)
+      onChange(Array.from(set))
+    },
+    [value, onChange]
+  )
+  return (
+    <div className="w-full">
+      <input
+        className="mb-2 w-full h-8 rounded border px-2 text-sm"
+        placeholder={searchPlaceholder}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        autoFocus={autoFocus}
+        data-crud-focus-target=""
+      />
+      <div className="rounded border max-h-48 overflow-auto divide-y">
+        {filtered.map((opt) => {
+          const isSel = value.includes(opt.value)
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => toggle(opt.value)}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${isSel ? 'bg-muted' : ''}`}
+            >
+              <span className="inline-flex items-center gap-2">
+                <input type="checkbox" className="size-4" readOnly checked={isSel} />
+                <span>{opt.label}</span>
+              </span>
+            </button>
+          )
+        })}
+        {!filtered.length ? (
+          <div className="px-3 py-2 text-sm text-muted-foreground">{noMatchesLabel}</div>
+        ) : null}
+      </div>
+    </div>
+  )
+})
+
+const FieldControl = React.memo(function FieldControlImpl({
+  field,
+  value,
+  error,
+  options,
+  setValue,
+  loadFieldOptions,
+  autoFocus,
+  onSubmitRequest,
+  wrapperClassName,
+  entityIdForField,
+  recordId,
+}: FieldControlProps) {
+  const fieldSetValue = React.useCallback(
+    (nextValue: unknown) => setValue(field.id, nextValue),
+    [setValue, field.id]
+  )
+  const builtin = field.type === 'custom' ? null : field
+  const hasLoader = typeof builtin?.loadOptions === 'function'
+  const disabled = Boolean(field.disabled)
+  const autoFocusField = autoFocus && !disabled
+
+  React.useEffect(() => {
+    if (!hasLoader || field.type === 'custom') return
+    loadFieldOptions(field).catch(() => {})
+  }, [field, hasLoader, loadFieldOptions])
+
+  const placeholder = builtin?.placeholder
+  const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
+
+  return (
+    <div className={rootClassName} data-crud-field-id={field.id}>
+      {field.type !== 'checkbox' ? (
+        <label className="block text-sm font-medium">
+          {field.label}
+          {field.required ? <span className="text-red-600"> *</span> : null}
+        </label>
+      ) : null}
+      {field.type === 'text' && (
+        <TextInput
+          value={value == null ? '' : String(value)}
+          placeholder={placeholder}
+          onChange={(next) => fieldSetValue(next)}
+          autoFocus={autoFocusField}
+          onSubmit={onSubmitRequest}
+          disabled={disabled}
+        />
+      )}
+      {field.type === 'number' && (
+        <NumberInput
+          value={value}
+          placeholder={placeholder}
+          onChange={fieldSetValue}
+          autoFocus={autoFocusField}
+          onSubmit={onSubmitRequest}
+        />
+      )}
+      {field.type === 'date' && (
+        <input
+          type="date"
+          className="w-full h-9 rounded border px-2 text-sm"
+          value={typeof value === 'string' ? value : ''}
+          onChange={(e) => setValue(field.id, e.target.value || undefined)}
+          autoFocus={autoFocusField}
+          data-crud-focus-target=""
+          disabled={disabled}
+        />
+      )}
+      {field.type === 'textarea' && (
+        <TextAreaInput
+          value={value == null ? '' : String(value)}
+          placeholder={placeholder}
+          onChange={(next) => fieldSetValue(next)}
+          autoFocus={autoFocusField}
+        />
+      )}
+      {field.type === 'richtext' && builtin?.editor === 'simple' && (
+        <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+      )}
+      {field.type === 'richtext' && builtin?.editor === 'html' && (
+        <HtmlRichTextEditor value={String(value ?? '')} onChange={fieldSetValue} />
+      )}
+      {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
+        <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+      )}
+      {field.type === 'tags' && (
+        <TagsInput
+          value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+          onChange={(next) => fieldSetValue(next)}
+          placeholder={placeholder}
+          autoFocus={autoFocusField}
+          suggestions={options.map((opt) => opt.label)}
+          loadSuggestions={
+            typeof builtin?.loadOptions === 'function'
+              ? async (query?: string) => {
+                  const opts = await loadFieldOptions(field, query)
+                  return opts.map((opt) => opt.label)
+                }
+              : undefined
+          }
+        />
+      )}
+      {field.type === 'checkbox' && (
+        <label className="inline-flex items-center gap-2">
+          <input
+            type="checkbox"
+            className="size-4"
+            checked={value === true}
+            onChange={(e) => setValue(field.id, e.target.checked)}
+            data-crud-focus-target=""
+            disabled={disabled}
+          />
+          <span className="text-sm">{field.label}</span>
+        </label>
+      )}
+      {field.type === 'select' && !builtin?.multiple && (
+        <select
+          className="w-full h-9 rounded border px-2 text-sm"
+          value={
+            Array.isArray(value)
+              ? String(value[0] ?? '')
+              : value == null
+                ? ''
+                : String(value)
+          }
+          onChange={(e) => setValue(field.id, e.target.value || undefined)}
+          data-crud-focus-target=""
+          disabled={disabled}
+        >
+          <option value="">—</option>
+          {options.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      )}
+      {field.type === 'select' && builtin?.multiple && builtin.listbox === true && (
+        <ListboxMultiSelect
+          options={options}
+          placeholder={placeholder}
+          value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+          onChange={(vals) => setValue(field.id, vals)}
+          autoFocus={autoFocusField}
+        />
+      )}
+      {field.type === 'select' && builtin?.multiple && builtin.listbox !== true && (
+        <div className="flex flex-wrap gap-3">
+          {options.map((opt) => {
+            const arr = Array.isArray(value)
+              ? value.filter((item): item is string => typeof item === 'string')
+              : []
+            const checked = arr.includes(opt.value)
+            return (
+              <label key={opt.value} className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="size-4"
+                  checked={checked}
+                  onChange={(e) => {
+                    const next = new Set(arr)
+                    if (e.target.checked) {
+                      next.add(opt.value)
+                    } else {
+                      next.delete(opt.value)
+                    }
+                    setValue(field.id, Array.from(next))
+                  }}
+                  disabled={disabled}
+                />
+                <span className="text-sm">{opt.label}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
+      {field.type === 'relation' && (
+        <RelationSelect
+          options={options}
+          placeholder={placeholder}
+          value={
+            Array.isArray(value)
+              ? String(value[0] ?? '')
+              : value == null
+                ? ''
+                : String(value)
+          }
+          onChange={(selected) => setValue(field.id, selected)}
+          autoFocus={autoFocusField}
+        />
+      )}
+      {field.type === 'custom' && (
+        <>
+          {field.component({
+            id: field.id,
+            value,
+            error,
+            setValue: fieldSetValue,
+            entityId: entityIdForField,
+            recordId,
+            autoFocus,
+            disabled,
+          })}
+        </>
+      )}
+      {field.description ? (
+        <div className="text-xs text-muted-foreground">{field.description}</div>
+      ) : null}
+      {error ? <div className="text-xs text-red-600">{error}</div> : null}
+    </div>
+  )
+},
+(prev, next) =>
+  prev.field.id === next.field.id &&
+  prev.field.type === next.field.type &&
+  prev.field.label === next.field.label &&
+  prev.field.required === next.field.required &&
+  prev.value === next.value &&
+  prev.error === next.error &&
+  prev.options === next.options &&
+  prev.loadFieldOptions === next.loadFieldOptions &&
+  prev.autoFocus === next.autoFocus &&
+  prev.onSubmitRequest === next.onSubmitRequest &&
+  prev.wrapperClassName === next.wrapperClassName &&
+  prev.entityIdForField === next.entityIdForField &&
+  prev.recordId === next.recordId
+)
