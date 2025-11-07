@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { FieldRegistry } from '@open-mercato/ui/backend/fields/registry'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 function humanSize(n: number): string {
   if (!Number.isFinite(n)) return String(n)
@@ -10,6 +10,11 @@ function humanSize(n: number): string {
   let x = n
   while (x >= 1024 && i < units.length - 1) { x /= 1024; i++ }
   return `${x.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+type AttachmentsResponse = {
+  items?: Array<{ id: string; url: string; fileName: string; fileSize: number }>
+  error?: string
 }
 
 const AttachmentInput = ({ entityId, recordId, def }: { entityId?: string; recordId?: string; def?: any }) => {
@@ -21,8 +26,16 @@ const AttachmentInput = ({ entityId, recordId, def }: { entityId?: string; recor
     if (!entityId || !recordId) return
     try {
       setLoading(true)
-      const res = await apiFetch(`/api/attachments?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`)
-      const j = await res.json().catch(() => ({ items: [] }))
+      const call = await apiCall<AttachmentsResponse>(
+        `/api/attachments?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      if (!call.ok) {
+        const message = call.result?.error || 'Failed to load attachments'
+        throw new Error(message)
+      }
+      const j = call.result ?? { items: [] }
       setItems(Array.isArray(j.items) ? j.items : [])
     } catch (e: any) {
       setError(e?.message || 'Failed to load')
@@ -53,10 +66,13 @@ const AttachmentInput = ({ entityId, recordId, def }: { entityId?: string; recor
       fd.set('recordId', recordId)
       if (def?.key) fd.set('fieldKey', String(def.key))
       fd.set('file', file)
-      const res = await apiFetch('/api/attachments', { method: 'POST', body: fd })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        setError(j?.error || 'Upload failed')
+      const call = await apiCall<{ error?: string }>(
+        '/api/attachments',
+        { method: 'POST', body: fd },
+        { fallback: null },
+      )
+      if (!call.ok) {
+        setError(call.result?.error || 'Upload failed')
         break
       }
     }

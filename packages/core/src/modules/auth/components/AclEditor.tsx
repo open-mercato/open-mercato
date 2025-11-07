@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import Link from 'next/link'
 import { hasFeature, matchFeature } from '@open-mercato/shared/security/features'
 
@@ -44,6 +44,25 @@ export type AclData = {
   isSuperAdmin: boolean
   features: string[]
   organizations: string[] | null
+}
+
+type FeatureListResponse = { items?: Feature[]; modules?: ModuleInfo[] }
+type AclPayload = {
+  hasCustomAcl?: boolean
+  isSuperAdmin?: boolean
+  features?: unknown
+  organizations?: unknown
+}
+type OrganizationListResponse = { items?: Array<{ id?: string; name?: string }> }
+
+async function readJsonOr<T>(
+  url: string,
+  init: RequestInit | undefined,
+  fallback: T,
+): Promise<T> {
+  const call = await apiCall<T>(url, init, { fallback })
+  if (!call.ok) return fallback
+  return call.result ?? fallback
 }
 
 export function AclEditor({
@@ -101,8 +120,11 @@ export function AclEditor({
     async function load() {
       setLoading(true)
       try {
-        const fRes = await apiFetch('/api/auth/features')
-        const fJson = await fRes.json()
+        const fJson = await readJsonOr<FeatureListResponse>(
+          '/api/auth/features',
+          undefined,
+          { items: [], modules: [] },
+        )
         if (!cancelled) {
           setFeatures(fJson.items || [])
           setModules(fJson.modules || [])
@@ -113,8 +135,11 @@ export function AclEditor({
         aclQuery.set(kind === 'user' ? 'userId' : 'roleId', targetId)
         if (tenantId) aclQuery.set('tenantId', tenantId)
         const aclQueryString = aclQuery.toString()
-        const aclRes = await apiFetch(`/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl${aclQueryString ? `?${aclQueryString}` : ''}`)
-        const aclJson = await aclRes.json()
+        const aclJson = await readJsonOr<AclPayload>(
+          `/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl${aclQueryString ? `?${aclQueryString}` : ''}`,
+          undefined,
+          { hasCustomAcl: true, isSuperAdmin: false, features: [], organizations: null },
+        )
         if (!cancelled) {
           const customAclExists = aclJson.hasCustomAcl !== false
           setHasCustomAcl(customAclExists)
@@ -129,8 +154,11 @@ export function AclEditor({
           const orgQuery = new URLSearchParams()
           if (tenantId) orgQuery.set('tenantId', tenantId)
           const orgQueryString = orgQuery.toString()
-          const oRes = await apiFetch(`/api/directory/organizations${orgQueryString ? `?${orgQueryString}` : ''}`)
-          const oJson = await oRes.json()
+          const oJson = await readJsonOr<OrganizationListResponse>(
+            `/api/directory/organizations${orgQueryString ? `?${orgQueryString}` : ''}`,
+            undefined,
+            { items: [] },
+          )
           if (!cancelled) setOrgOptions(oJson.items || [])
         } catch {}
       }
@@ -139,8 +167,11 @@ export function AclEditor({
           const roleQuery = new URLSearchParams({ pageSize: '1000' })
           if (tenantId) roleQuery.set('tenantId', tenantId)
           const roleQueryString = roleQuery.toString()
-          const rolesRes = await apiFetch(`/api/auth/roles${roleQueryString ? `?${roleQueryString}` : ''}`)
-          const rolesJson: RoleListResponse = await rolesRes.json().catch(() => ({}))
+          const rolesJson = await readJsonOr<RoleListResponse>(
+            `/api/auth/roles${roleQueryString ? `?${roleQueryString}` : ''}`,
+            undefined,
+            { items: [] },
+          )
           if (!cancelled) {
             const allRoles = Array.isArray(rolesJson.items) ? rolesJson.items : []
             const userRoleDetails = allRoles

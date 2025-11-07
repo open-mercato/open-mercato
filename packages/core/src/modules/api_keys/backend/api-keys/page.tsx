@@ -6,7 +6,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -64,14 +64,19 @@ export default function ApiKeysListPage() {
         params.set('page', String(page))
         params.set('pageSize', '20')
         if (search) params.set('search', search)
-        const res = await apiFetch(`/api/api_keys/keys?${params.toString()}`)
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
+        const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
+        const call = await apiCall<ResponsePayload>(
+          `/api/api_keys/keys?${params.toString()}`,
+          undefined,
+          { fallback },
+        )
+        if (!call.ok) {
+          const data = call.result
           const message = typeof data?.error === 'string' ? data.error : t('api_keys.list.error.loadFailed')
           flash(message, 'error')
           return
         }
-        const payload: ResponsePayload = await res.json()
+        const payload = call.result ?? fallback
         if (!cancelled) {
           setRows(Array.isArray(payload.items) ? payload.items : [])
           setTotal(payload.total || 0)
@@ -93,10 +98,13 @@ export default function ApiKeysListPage() {
   const handleDelete = React.useCallback(async (row: Row) => {
     if (!window.confirm(t('api_keys.list.confirmDelete', { name: row.name }))) return
     try {
-      const res = await apiFetch(`/api/api_keys/keys?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        const message = typeof data?.error === 'string' ? data.error : t('api_keys.list.error.deleteFailed')
+      const call = await apiCall<{ error?: string }>(
+        `/api/api_keys/keys?id=${encodeURIComponent(row.id)}`,
+        { method: 'DELETE' },
+        { fallback: null },
+      )
+      if (!call.ok) {
+        const message = typeof call.result?.error === 'string' ? call.result?.error : t('api_keys.list.error.deleteFailed')
         flash(message, 'error')
         return
       }
