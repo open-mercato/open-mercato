@@ -291,12 +291,12 @@ export function createCrudFormError(
   return error
 }
 
-export async function readJsonSafe<T>(res: Response): Promise<T | null> {
+export async function readJsonSafe<T>(res: Response, fallback: T | null = null): Promise<T | null> {
   try {
     const text = await res.text()
-    if (!text) return null
+    if (!text) return fallback
     return JSON.parse(text) as T
   } catch {
-    return null
+    return fallback
   }
 }

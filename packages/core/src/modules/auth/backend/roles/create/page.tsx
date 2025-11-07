@@ -2,10 +2,10 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { createCrudFormError, readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 
@@ -21,10 +21,10 @@ export default function CreateRolePage() {
     let cancelled = false
     async function loadActor() {
       try {
-        const res = await apiFetch('/api/auth/roles?page=1&pageSize=1')
-        if (!res.ok) return
-        const data = await readJsonSafe<{ isSuperAdmin?: boolean }>(res)
-        if (!cancelled) setActorIsSuperAdmin(Boolean(data?.isSuperAdmin))
+        const { ok, result } = await apiCall<{ isSuperAdmin?: boolean }>(
+          '/api/auth/roles?page=1&pageSize=1',
+        )
+        if (!cancelled && ok) setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
       } catch {
         if (!cancelled) setActorIsSuperAdmin(false)
       }

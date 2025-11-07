@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
-import { createCrudFormError, readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
@@ -59,8 +59,10 @@ export default function CreateCompanyPage() {
               throw err
             }
 
-            const res = await createCrud('customers/companies', payload)
-            const created = await readJsonSafe<{ id?: string; entityId?: string }>(res)
+            const { result: created } = await createCrud<{ id?: string; entityId?: string }>(
+              'customers/companies',
+              payload,
+            )
             const newId =
               created && typeof created.id === 'string'
                 ? created.id

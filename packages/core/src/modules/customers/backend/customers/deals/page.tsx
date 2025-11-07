@@ -9,7 +9,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
+import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -692,19 +692,10 @@ export default function CustomersDealsPage() {
       if (!confirmed) return
       setPendingDeleteId(dealId)
       try {
-        const res = await apiFetch('/api/customers/deals', {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: dealId }),
+        await deleteCrud('customers/deals', {
+          body: { id: dealId },
+          errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
         })
-        const responseBody = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof responseBody?.error === 'string'
-              ? responseBody.error
-              : t('customers.deals.list.deleteError', 'Failed to delete deal.')
-          throw new Error(message)
-        }
         flash(t('customers.deals.list.deleteSuccess', 'Deal deleted.'), 'success')
         setRows((prev) => prev.filter((row) => row.id !== dealId))
         setTotal((prev) => Math.max(0, prev - 1))

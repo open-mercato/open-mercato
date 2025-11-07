@@ -257,9 +257,8 @@ export default function CreateUserPage() {
               const rawTenant = typeof values.tenantId === 'string' ? values.tenantId.trim() : null
               payload.tenantId = rawTenant && rawTenant.length ? rawTenant : null
             }
-            const res = await createCrud('auth/users', payload)
-            const created = await res.json().catch(() => null)
-            const newUserId = created && typeof created.id === 'string' ? created.id : null
+            const { result: created } = await createCrud<{ id?: string }>('auth/users', payload)
+            const newUserId = typeof created?.id === 'string' ? created.id : null
 
             if (widgetMode === 'override' && newUserId) {
               const widgetRes = await apiFetch('/api/dashboards/users/widgets', {

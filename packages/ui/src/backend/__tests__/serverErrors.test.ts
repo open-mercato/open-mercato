@@ -1,4 +1,4 @@
-import { mapCrudServerErrorToFormErrors, raiseCrudError } from '../utils/serverErrors'
+import { mapCrudServerErrorToFormErrors, raiseCrudError, readJsonSafe } from '../utils/serverErrors'
 
 describe('serverErrors helpers', () => {
   it('maps details array into field errors and message', () => {
@@ -67,5 +67,17 @@ describe('serverErrors helpers', () => {
       status: 500,
       message: 'Fallback message',
     })
+  })
+
+  it('readJsonSafe returns fallback when body empty', async () => {
+    const response = new Response('', { status: 200 })
+    const result = await readJsonSafe<{ ok: boolean }>(response, { ok: false })
+    expect(result).toEqual({ ok: false })
+  })
+
+  it('readJsonSafe returns fallback when parsing fails', async () => {
+    const response = new Response('not json', { status: 200 })
+    const result = await readJsonSafe<{ ok: boolean }>(response, { ok: true })
+    expect(result).toEqual({ ok: true })
   })
 })

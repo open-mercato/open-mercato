@@ -45,8 +45,7 @@ export default function CreateTenantPage() {
             if (Object.keys(customFields).length > 0) {
               payload.customFields = customFields
             }
-            const res = await createCrud('directory/tenants', payload)
-            await res.json().catch(() => null) // ignore body; createCrud returns response for consistency
+            await createCrud('directory/tenants', payload)
           }}
         />
       </PageBody>
