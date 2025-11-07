@@ -21,6 +21,9 @@ import type { SidebarPreferencesSettings } from '@open-mercato/shared/modules/na
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
+import type { AwilixContainer } from 'awilix'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 type NavItem = {
   href: string
@@ -44,6 +47,27 @@ export default async function BackendLayout({ children, params }: { children: Re
   const auth = await getAuthFromCookies()
   const cookieStore = await cookies()
   const headerStore = await headers()
+  const rawSelectedOrg = cookieStore.get('om_selected_org')?.value
+  const rawSelectedTenant = cookieStore.get('om_selected_tenant')?.value
+  const selectedOrgForScope = rawSelectedOrg === undefined
+    ? undefined
+    : rawSelectedOrg && rawSelectedOrg.trim().length > 0
+      ? rawSelectedOrg
+      : null
+  const selectedTenantForScope = rawSelectedTenant === undefined
+    ? undefined
+    : rawSelectedTenant && rawSelectedTenant.trim().length > 0
+      ? rawSelectedTenant
+      : null
+
+  let requestContainer: AwilixContainer | null = null
+  const ensureContainer = async (): Promise<AwilixContainer> => {
+    if (!requestContainer) {
+      requestContainer = await createRequestContainer()
+    }
+    return requestContainer
+  }
+
   let path = headerStore.get('x-next-url') ?? ''
   if (path.includes('?')) path = path.split('?')[0]
   let resolvedParams: { slug?: string[] } = {}
@@ -70,11 +94,45 @@ export default async function BackendLayout({ children, params }: { children: Re
   const { translate, locale } = await resolveTranslations()
   const vectorApiKeyAvailable = Boolean(process.env.OPENAI_API_KEY)
   const vectorMissingKeyMessage = translate('vector.messages.missingKey', 'Vector search requires configuring OPENAI_API_KEY.')
+
+  const featureChecker = auth
+    ? async (features: string[]): Promise<Set<string>> => {
+        if (!features?.length) return new Set()
+        try {
+          const container = await ensureContainer()
+          const rbac = container.resolve<RbacService>('rbacService')
+          const { organizationId, scope, allowedOrganizationIds } = await resolveFeatureCheckContext({
+            container,
+            auth,
+            selectedId: selectedOrgForScope,
+            tenantId: selectedTenantForScope,
+          })
+          if (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length === 0) {
+            return new Set()
+          }
+          const tenantForCheck = scope.tenantId ?? auth.tenantId ?? null
+          const orgForCheck = organizationId ?? null
+          const context = { tenantId: tenantForCheck, organizationId: orgForCheck }
+          const hasAll = await rbac.userHasAllFeatures(auth.sub, features, context)
+          if (hasAll) return new Set(features)
+          const granted: string[] = []
+          for (const feature of features) {
+            const hasFeature = await rbac.userHasAllFeatures(auth.sub, [feature], context)
+            if (hasFeature) granted.push(feature)
+          }
+          return new Set(granted)
+        } catch {
+          return new Set()
+        }
+      }
+    : undefined
+
   const entries = await buildAdminNav(
     modules,
     ctx,
     undefined,
     (key, fallback) => (key ? translate(key, fallback) : fallback),
+    featureChecker ? { checkFeatures: featureChecker } : undefined,
   )
 
   const groupMap = new Map<string, {
@@ -127,7 +185,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   let sidebarPreference: SidebarPreferencesSettings | null = null
   if (auth) {
     try {
-      const container = await createRequestContainer()
+      const container = await ensureContainer()
       const em = container.resolve('em') as EntityManager
       if (Array.isArray(auth.roles) && auth.roles.length) {
         const roleScope: FilterQuery<Role> = auth.tenantId

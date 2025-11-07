@@ -26,11 +26,12 @@ This repository is designed for extensibility. Agents should leverage the module
   - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
 - Extensions and fields:
   - Per-module entity extensions: declare in `src/modules/<module>/data/extensions.ts` as `export const extensions: EntityExtension[]`.
-  - Custom fields: declare in `src/modules/<module>/ce.ts` under `entities[].fields`. `data/fields.ts` is no longer supported.
-  - Generators add these to `modules.generated.ts` so they’re available at runtime.
-  - Prefer using the DSL helpers from `@/modules/dsl`:
-    - `defineLink()` with `entityId()` or `linkable()` for module-to-module extensions.
-    - `defineFields()` with `cf.*` helpers for field sets.
+- Custom fields: declare in `src/modules/<module>/ce.ts` under `entities[].fields`. `data/fields.ts` is no longer supported.
+- Generators add these to `modules.generated.ts` so they’re available at runtime.
+- Prefer using the DSL helpers from `@/modules/dsl`:
+  - `defineLink()` with `entityId()` or `linkable()` for module-to-module extensions.
+  - `defineFields()` with `cf.*` helpers for field sets.
+- When submitting CRUD forms, collect custom-field payloads via `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues` instead of ad-hoc loops. Pass `{ transform }` to normalize values (e.g., `normalizeCustomFieldSubmitValue`) and always reuse this helper for both `cf_` and `cf:` prefixed keys so forms stay consistent.
 - Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
 - Generators build:
   - `src/modules/generated.ts` (routes/APIs/CLIs + info)
@@ -101,6 +102,13 @@ This repository is designed for extensibility. Agents should leverage the module
 
 ### HTTP calls in UI
 - In client components and utilities, use `apiFetch` from `@open-mercato/ui/backend/utils/api` instead of the global `fetch`. It automatically attaches proper headers and base URL handling consistent with the app.
+- For CRUD form submissions, call `createCrud` / `updateCrud` / `deleteCrud`; these already delegate to `raiseCrudError`, so you always get a structured error object with `message`, `details`, and `fieldErrors`.
+- When you need to call ad-hoc endpoints, use `apiCall()` which returns `{ ok, status, result, response }`. It handles `apiFetch`, JSON parsing (via `readJsonSafe(res, fallback)`), and keeps the Response instance intact for error propagation.
+- The CRUD helpers now expose the parsed response (`const { result } = await createCrud<Payload>('module/resource', body)`); read data from the `result` field instead of cloning the response or calling `res.json()` yourself.
+- `readJsonSafe(response, fallback)` accepts an optional fallback (default `null`) so callers never have to wrap parsing in `try/catch`. Pass explicit fallbacks when the UI needs defaults.
+- When local validation needs to abort, throw `createCrudFormError(message, fieldErrors?)` from `@open-mercato/ui/backend/utils/serverErrors` instead of ad-hoc objects or strings.
+- To read JSON bodies defensively, prefer `readJsonSafe(response)`—it never throws and keeps compatibility with older call-sites.
+- Avoid swallowing response bodies (`res.json().catch(() => ({}))` or `await res.json().catch(() => null)`). Use the shared helpers so the error pipeline stays consistent.
 
 ## Code Style
 - Keep modules self-contained; re-use common utilities via `src/lib/`.

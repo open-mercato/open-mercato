@@ -59,11 +59,12 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "roles_tenant_id_name_unique",
           "columnNames": [
+            "tenant_id",
             "name"
           ],
-          "composite": false,
-          "keyName": "roles_name_unique",
+          "composite": true,
           "constraint": true,
           "primary": false,
           "unique": true

@@ -93,6 +93,7 @@ async function run(cmd: Cmd) {
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
         tableName: `mikro_orm_migrations_${modId}`,
+        dropTables: false,
       },
       schemaGenerator: {
         disableForeignKeys: true,

@@ -3,12 +3,15 @@ import * as React from 'react'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
 import { WidgetVisibilityEditor } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
+import { useT } from '@/lib/i18n/context'
 
 type EditUserFormValues = {
   email: string
@@ -41,6 +44,10 @@ type UserApiItem = {
 type UserListResponse = {
   items?: UserApiItem[]
   isSuperAdmin?: boolean
+}
+
+type FeatureCheckResponse = {
+  ok?: boolean
 }
 
 type TenantAwareOrganizationSelectProps = {
@@ -92,6 +99,7 @@ function TenantAwareOrganizationSelectInput({
 
 export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
+  const t = useT()
   const [initialUser, setInitialUser] = React.useState<LoadedUser | null>(null)
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -104,7 +112,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   React.useEffect(() => {
     if (!id) {
       setLoading(false)
-      setError('No user ID provided')
+      setError(t('auth.users.form.errors.noId', 'No user ID provided'))
       return
     }
     let cancelled = false
@@ -113,13 +121,15 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       setError(null)
       setCustomFieldValues({})
       try {
-        const res = await apiFetch(`/api/auth/users?id=${encodeURIComponent(String(id))}&page=1&pageSize=1`)
-        const payload: UserListResponse = await res.json().catch(() => ({}))
-        const item = Array.isArray(payload.items) ? payload.items[0] : undefined
+        const { ok, result } = await apiCall<UserListResponse>(
+          `/api/auth/users?id=${encodeURIComponent(String(id))}&page=1&pageSize=1`,
+        )
+        if (!ok) throw new Error('load_failed')
+        const item = Array.isArray(result?.items) ? result?.items?.[0] : undefined
         if (!cancelled) {
-          setActorIsSuperAdmin(Boolean(payload?.isSuperAdmin))
+          setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
           if (!item) {
-            setError('User not found')
+            setError(t('auth.users.form.errors.notFound', 'User not found'))
             setCustomFieldValues({})
             setInitialUser(null)
             setSelectedTenantId(null)
@@ -148,17 +158,20 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         }
       } catch (err) {
         console.error('Failed to load user:', err)
-        if (!cancelled) setError('Failed to load user data')
+        if (!cancelled) setError(t('auth.users.form.errors.load', 'Failed to load user data'))
         if (!cancelled) setCustomFieldValues({})
       }
       try {
-        const f = await apiFetch('/api/auth/feature-check', { 
-          method: 'POST', 
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ features: ['directory.organizations.view'] }) 
-        })
-        const j = await f.json()
-        if (!cancelled) setCanEditOrgs(!!j.ok)
+        const featureCheck = await apiCall<FeatureCheckResponse>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ features: ['directory.organizations.view'] }),
+          },
+          { fallback: { ok: false } },
+        )
+        if (!cancelled) setCanEditOrgs(Boolean(featureCheck.result?.ok))
       } catch (err) {
         console.error('Failed to check features:', err)
       }
@@ -166,7 +179,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     }
     load()
     return () => { cancelled = true }
-  }, [id])
+  }, [id, t])
 
   const selectedOrgId = initialUser?.organizationId ? String(initialUser.organizationId) : null
   const preloadedTenants = React.useMemo(() => {
@@ -187,13 +200,13 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
 
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [
-      { id: 'email', label: 'Email', type: 'text', required: true },
-      { id: 'password', label: 'Password', type: 'text' },
+      { id: 'email', label: t('auth.users.form.field.email', 'Email'), type: 'text', required: true },
+      { id: 'password', label: t('auth.users.form.field.password', 'Password'), type: 'text' },
     ]
     if (actorIsSuperAdmin) {
       items.push({
         id: 'tenantId',
-        label: 'Tenant',
+        label: t('auth.users.form.field.tenant', 'Tenant'),
         type: 'custom',
         required: true,
         component: ({ value, setValue }) => (
@@ -215,7 +228,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     }
     items.push({
       id: 'organizationId',
-      label: 'Organization',
+      label: t('auth.users.form.field.organization', 'Organization'),
       type: 'custom',
       component: ({ id, value, setValue }) => {
         const normalizedValue = typeof value === 'string' ? (value.length > 0 ? value : null) : (value ?? null)
@@ -230,9 +243,9 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         )
       },
     })
-    items.push({ id: 'roles', label: 'Roles', type: 'tags', loadOptions: loadRoleOptions })
+    items.push({ id: 'roles', label: t('auth.users.form.field.roles', 'Roles'), type: 'tags', loadOptions: loadRoleOptions })
     return items
-  }, [actorIsSuperAdmin, loadRoleOptions, preloadedTenants, selectedOrgId, selectedTenantId])
+  }, [actorIsSuperAdmin, loadRoleOptions, preloadedTenants, selectedOrgId, selectedTenantId, t])
 
   const detailFieldIds = React.useMemo(() => {
     const base: string[] = ['email', 'password', 'organizationId', 'roles']
@@ -240,12 +253,12 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     return base
   }, [actorIsSuperAdmin])
 
-  const groups: CrudFormGroup[] = [
-    { id: 'details', title: 'Details', column: 1, fields: detailFieldIds },
-    { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
+  const groups: CrudFormGroup[] = React.useMemo(() => [
+    { id: 'details', title: t('auth.users.form.group.details', 'Details'), column: 1, fields: detailFieldIds },
+    { id: 'custom', title: t('auth.users.form.group.customFields', 'Custom Data'), column: 2, kind: 'customFields' },
     {
       id: 'acl',
-      title: 'Access',
+      title: t('auth.users.form.group.access', 'Access'),
       column: 1,
       component: () => (id
         ? (
@@ -264,7 +277,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     },
     {
       id: 'dashboardWidgets',
-      title: 'Dashboard Widgets',
+      title: t('auth.users.form.group.widgets', 'Dashboard Widgets'),
       column: 2,
       component: () => (id && initialUser
         ? (
@@ -277,7 +290,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         ) : null
       ),
     },
-  ]
+  ], [aclData, actorIsSuperAdmin, canEditOrgs, detailFieldIds, id, initialUser, selectedTenantId, t])
 
   const initialValues = React.useMemo(() => {
     if (initialUser) {
@@ -309,24 +322,20 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           </div>
         )}
         <CrudForm<EditUserFormValues>
-          title="Edit User"
+          title={t('auth.users.form.title.edit', 'Edit User')}
           backHref="/backend/users"
           fields={fields}
           groups={groups}
           entityId={E.auth.user}
           initialValues={initialValues}
           isLoading={loading}
-          loadingMessage="Loading user data..."
-          submitLabel="Save"
+          loadingMessage={t('auth.users.form.loading', 'Loading user data...')}
+          submitLabel={t('auth.users.form.action.save', 'Save')}
           cancelHref="/backend/users"
-          successRedirect="/backend/users?flash=User%20saved&type=success"
+          successRedirect={`/backend/users?flash=${encodeURIComponent(t('auth.users.flash.updated', 'User saved'))}&type=success`}
           onSubmit={async (values) => {
             if (!id) return
-            const customFields: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(values)) {
-              if (key.startsWith('cf_')) customFields[key.slice(3)] = value
-              else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
-            }
+            const customFields = collectCustomFieldValues(values)
             const payload = {
               id: id ? String(id) : '',
               email: values.email,
@@ -335,21 +344,18 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               roles: Array.isArray(values.roles) ? values.roles : [],
               ...(Object.keys(customFields).length ? { customFields } : {}),
             }
-            await apiFetch('/api/auth/users', { 
-              method: 'PUT', 
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload), 
-            })
-            // Save ACL data
-            await apiFetch('/api/auth/users/acl', { 
-              method: 'PUT', 
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ userId: id, ...aclData }) 
+            await updateCrud('auth/users', payload)
+            await updateCrud('auth/users/acl', { userId: id, ...aclData }, {
+              errorMessage: t('auth.users.form.errors.aclUpdate', 'Failed to update user access control'),
             })
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
-          onDelete={async () => { await apiFetch(`/api/auth/users?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' }) }}
-          deleteRedirect="/backend/users?flash=User%20deleted&type=success"
+          onDelete={async () => {
+            await deleteCrud('auth/users', String(id), {
+              errorMessage: t('auth.users.form.errors.delete', 'Failed to delete user'),
+            })
+          }}
+          deleteRedirect={`/backend/users?flash=${encodeURIComponent(t('auth.users.flash.deleted', 'User deleted'))}&type=success`}
         />
       </PageBody>
     </Page>

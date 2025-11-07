@@ -49,8 +49,7 @@ export default function TermsPage() {
 
       <h2>5. Governing Law</h2>
       <p>
-        These Terms are governed by the laws of the jurisdiction in which you access the Service, excluding its conflict
-        of laws principles.
+        These Terms are governed by the laws of the jurisdiction of Poland.
       </p>
 
       <h2>6. Changes</h2>
@@ -62,7 +61,7 @@ export default function TermsPage() {
       <h2>7. Contact</h2>
       <p>
         Questions about these Terms may be directed to{' '}
-        <a href="mailto:hello@open-mercato.com">hello@open-mercato.com</a>.
+        <a href="mailto:info@catchthetornado.com">info@catchthetornado.com</a>.
       </p>
     </ContentLayout>
   )
