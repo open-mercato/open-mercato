@@ -4,7 +4,8 @@ import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -61,27 +62,15 @@ export default function CreatePersonPage() {
             } catch (err) {
               if (err instanceof Error && err.message === 'DISPLAY_NAME_REQUIRED') {
                 const message = t('customers.people.form.displayName.error')
-                throw { message, fieldErrors: { displayName: message } }
+                throw createCrudFormError(message, { displayName: message })
               }
               throw err
             }
 
-            const res = await apiFetch('/api/customers/people', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            })
-
-            if (!res.ok) {
-              let message = t('customers.people.form.error.create')
-              try {
-                const data = await res.clone().json()
-                if (data && typeof data.error === 'string') message = data.error
-              } catch {}
-              throw new Error(message)
-            }
-
-            const created = await res.json().catch(() => null)
+            const { result: created } = await createCrud<{ id?: string; entityId?: string }>(
+              'customers/people',
+              payload,
+            )
             const newId =
               created && typeof created.id === 'string'
                 ? created.id
@@ -121,24 +110,14 @@ export default function CreatePersonPage() {
                 const country = normalize(entry.country)
                 if (country !== undefined) body.country = country.toUpperCase()
                 try {
-                  const addressRes = await apiFetch('/api/customers/addresses', {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify(body),
-                  })
-                  if (!addressRes.ok) {
-                    let message = t('customers.people.detail.addresses.error')
-                    try {
-                      const details = await addressRes.clone().json()
-                      if (details && typeof details.error === 'string') message = details.error
-                    } catch {}
-                    flash(message, 'error')
-                  }
+                  await createCrud('customers/addresses', body)
                 } catch (addressErr) {
                   const message =
-                    addressErr instanceof Error && addressErr.message
-                      ? addressErr.message
-                      : t('customers.people.detail.addresses.error')
+                    (addressErr && typeof addressErr === 'object' && typeof (addressErr as any).message === 'string'
+                      ? (addressErr as any).message
+                      : null) ||
+                    (addressErr instanceof Error && addressErr.message ? addressErr.message : null) ||
+                    t('customers.people.detail.addresses.error')
                   flash(message, 'error')
                 }
               }

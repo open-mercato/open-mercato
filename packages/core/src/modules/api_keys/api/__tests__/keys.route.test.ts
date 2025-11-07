@@ -3,30 +3,54 @@
 import { features } from '../../acl'
 
 const secretFixture = { secret: 'omk_test.secret', prefix: 'omk_testpref' }
+
+type QueueEntry = { entity?: unknown }
+type OrmEntityInput = { data: Record<string, unknown>; [key: string]: unknown }
+
+interface MockEntityManager {
+  findOne: jest.Mock<Promise<unknown>, [unknown, Record<string, unknown>?]>
+  find: jest.Mock<Promise<unknown[]>, [unknown, Record<string, unknown>?]>
+  fork: jest.Mock<MockEntityManager, []>
+}
+
+interface MockDataEngine {
+  __queue: QueueEntry[]
+  createOrmEntity: jest.Mock<Promise<Record<string, unknown>>, [OrmEntityInput]>
+  emitOrmEntityEvent: jest.Mock<Promise<void>, [QueueEntry | undefined]>
+  markOrmEntityChange: jest.Mock<void, [QueueEntry | undefined]>
+  flushOrmEntityChanges: jest.Mock<Promise<void>, []>
+}
+
+interface MockRbacService {
+  invalidateUserCache: jest.Mock<Promise<void>, [string]>
+  loadAcl: jest.Mock<Promise<{ isSuperAdmin: boolean } | null>, [string, { tenantId: string | null; organizationId: string | null }]>
+}
+
+interface MockContainer {
+  resolve: jest.Mock<unknown, [string]>
+}
+
+const queue: QueueEntry[] = []
+
 const mockGetAuthFromCookies = jest.fn()
 const mockResolveScope = jest.fn()
-const mockEm = {
-  findOne: jest.fn(),
-} as any
-const mockDataEngine = {
-  __queue: [] as any[],
-  createOrmEntity: jest.fn(),
-  emitOrmEntityEvent: jest.fn(),
-  markOrmEntityChange: jest.fn((entry: any) => {
-    if (!entry || !entry.entity) return
-    mockDataEngine.__queue.push(entry)
-  }),
-  flushOrmEntityChanges: jest.fn(async () => {
-    while (mockDataEngine.__queue.length > 0) {
-      const next = mockDataEngine.__queue.shift()
-      await mockDataEngine.emitOrmEntityEvent(next)
-    }
-  }),
-} as any
-const mockRbac = {
-  invalidateUserCache: jest.fn(),
+const mockEm: MockEntityManager = {
+  findOne: jest.fn<Promise<unknown>, [unknown, Record<string, unknown>?]>(),
+  find: jest.fn<Promise<unknown[]>, [unknown, Record<string, unknown>?]>(),
+  fork: jest.fn<MockEntityManager, []>(),
 }
-const mockContainer = {
+const mockDataEngine: MockDataEngine = {
+  __queue: queue,
+  createOrmEntity: jest.fn<Promise<Record<string, unknown>>, [OrmEntityInput]>(),
+  emitOrmEntityEvent: jest.fn<Promise<void>, [QueueEntry | undefined]>(),
+  markOrmEntityChange: jest.fn<void, [QueueEntry | undefined]>(),
+  flushOrmEntityChanges: jest.fn<Promise<void>, []>(),
+}
+const mockRbac: MockRbacService = {
+  invalidateUserCache: jest.fn<Promise<void>, [string]>(),
+  loadAcl: jest.fn<Promise<{ isSuperAdmin: boolean } | null>, [string, { tenantId: string | null; organizationId: string | null }]>(),
+}
+const mockContainer: MockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
     if (token === 'dataEngine') return mockDataEngine
@@ -34,7 +58,7 @@ const mockContainer = {
     return undefined
   }),
 }
-const mockHashApiKey = jest.fn((secret: string) => `hashed:${secret}`)
+const mockHashApiKey = jest.fn<string, [string]>((secret) => `hashed:${secret}`)
 
 jest.mock('@/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
@@ -63,13 +87,21 @@ jest.mock('../../services/apiKeyService', () => {
   }
 })
 
-const routeModule = require('../keys/route') as typeof import('../keys/route')
-const { metadata, POST } = routeModule
+type RouteModule = typeof import('../keys/route')
+let routeMetadata: RouteModule['metadata']
+let postHandler: RouteModule['POST']
+
+beforeAll(async () => {
+  const routeModule = await import('../keys/route')
+  routeMetadata = routeModule.metadata
+  postHandler = routeModule.POST
+})
 
 describe('API Keys route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockDataEngine.__queue.length = 0
+    mockEm.fork.mockReturnValue(mockEm)
     mockGetAuthFromCookies.mockResolvedValue({
       sub: 'user-1',
       tenantId: '123e4567-e89b-12d3-a456-426614174000',
@@ -80,37 +112,65 @@ describe('API Keys route', () => {
       filterIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
       allowedIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
     })
-    mockEm.findOne.mockImplementation(async (_entity: unknown, criteria: Record<string, unknown>) => {
-      if ('name' in criteria && criteria.name === 'manager') {
-        return {
-          id: 'role-123',
-          name: 'Manager',
-          tenantId: '123e4567-e89b-12d3-a456-426614174000',
+    mockEm.findOne.mockResolvedValue(null)
+    mockEm.find.mockImplementation(async (_entity: unknown, criteria: Record<string, unknown> = {}) => {
+      const nameValue = typeof criteria.name === 'string' ? criteria.name : null
+      if (nameValue && nameValue.toLowerCase() === 'manager') {
+        return [
+          {
+            id: 'role-123',
+            name: 'Manager',
+            tenantId: '123e4567-e89b-12d3-a456-426614174000',
+          },
+        ]
+      }
+      if (criteria && typeof criteria === 'object' && 'id' in criteria) {
+        const idCandidate = (criteria as { id?: unknown }).id
+        if (idCandidate && typeof idCandidate === 'object' && '$in' in idCandidate) {
+          const ids = (idCandidate as { $in?: unknown }).$in
+          if (Array.isArray(ids)) {
+            return ids.map((id) => ({
+              id: String(id),
+              name: id === 'role-123' ? 'Manager' : null,
+              tenantId: '123e4567-e89b-12d3-a456-426614174000',
+            }))
+          }
         }
       }
-      return null
+      return []
     })
-    mockDataEngine.createOrmEntity.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+    mockDataEngine.createOrmEntity.mockImplementation(async ({ data }: OrmEntityInput) => ({
       id: 'key-1',
       ...data,
     }))
     mockDataEngine.emitOrmEntityEvent.mockResolvedValue(undefined)
+    mockDataEngine.markOrmEntityChange.mockImplementation((entry: QueueEntry | undefined) => {
+      if (!entry?.entity) return
+      mockDataEngine.__queue.push(entry)
+    })
+    mockDataEngine.flushOrmEntityChanges.mockImplementation(async () => {
+      while (mockDataEngine.__queue.length > 0) {
+        const next = mockDataEngine.__queue.shift()
+        await mockDataEngine.emitOrmEntityEvent(next)
+      }
+    })
     mockRbac.invalidateUserCache.mockResolvedValue(undefined)
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false })
     mockHashApiKey.mockClear()
   })
 
   it('exports the expected ACL features', () => {
-    const featureIds = features.map((entry: any) => (typeof entry === 'string' ? entry : entry.id))
+    const featureIds = features.map((entry) => entry.id)
     expect(featureIds).toEqual(expect.arrayContaining(['api_keys.view', 'api_keys.create', 'api_keys.delete']))
   })
 
   it('declares authorization metadata for GET/POST/DELETE', () => {
-    expect(metadata.GET?.requireAuth).toBe(true)
-    expect(metadata.GET?.requireFeatures).toEqual(['api_keys.view'])
-    expect(metadata.POST?.requireAuth).toBe(true)
-    expect(metadata.POST?.requireFeatures).toEqual(['api_keys.create'])
-    expect(metadata.DELETE?.requireAuth).toBe(true)
-    expect(metadata.DELETE?.requireFeatures).toEqual(['api_keys.delete'])
+    expect(routeMetadata.GET?.requireAuth).toBe(true)
+    expect(routeMetadata.GET?.requireFeatures).toEqual(['api_keys.view'])
+    expect(routeMetadata.POST?.requireAuth).toBe(true)
+    expect(routeMetadata.POST?.requireFeatures).toEqual(['api_keys.create'])
+    expect(routeMetadata.DELETE?.requireAuth).toBe(true)
+    expect(routeMetadata.DELETE?.requireFeatures).toEqual(['api_keys.delete'])
   })
 
   it('creates API keys with organization scope, hashed secret, and role mapping', async () => {
@@ -119,7 +179,7 @@ describe('API Keys route', () => {
       description: 'Machine access',
       roles: ['manager'],
     }
-    const res = await POST(
+    const res = await postHandler(
       new Request('http://localhost/api/api_keys/keys', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -159,7 +219,7 @@ describe('API Keys route', () => {
       filterIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
       allowedIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
     })
-    const res = await POST(
+    const res = await postHandler(
       new Request('http://localhost/api/api_keys/keys', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

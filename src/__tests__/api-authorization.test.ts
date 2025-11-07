@@ -14,6 +14,10 @@ const mockRbac = {
   userHasAllFeatures: jest.fn<
     ReturnType<RbacService['userHasAllFeatures']>,
     Parameters<RbacService['userHasAllFeatures']>
+  >(),
+  loadAcl: jest.fn<
+    ReturnType<RbacService['loadAcl']>,
+    Parameters<RbacService['loadAcl']>
   >()
 }
 jest.mock('@/lib/di/container', () => ({
@@ -81,9 +85,24 @@ jest.mock('@/generated/modules.generated', () => ({
 const mockGetAuthFromRequest = getAuthFromRequest as jest.MockedFunction<typeof getAuthFromRequest>
 
 describe('API Route Authorization', () => {
+  let consoleWarnSpy: jest.SpyInstance
+
+  beforeAll(() => {
+    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
+  afterAll(() => {
+    consoleWarnSpy.mockRestore()
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockRbac.loadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: [],
+      organizations: null,
+    })
   })
 
   describe('GET /example/test', () => {

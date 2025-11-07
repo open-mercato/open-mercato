@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -593,23 +594,11 @@ export function DealsSection({
           companyIds,
         }
         if (Object.keys(custom).length) payload.customFields = custom
-        const res = await apiFetch('/api/customers/deals', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
+        const { result } = await createCrud<{ id?: string }>('customers/deals', payload, {
+          errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
         })
-        const responseBody = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof responseBody?.error === 'string'
-              ? responseBody.error
-              : translate('customers.people.detail.deals.error', 'Failed to save deal.')
-          throw new Error(message)
-        }
         const dealId =
-          typeof responseBody?.id === 'string' && responseBody.id.trim().length
-            ? responseBody.id
-            : generateTempId()
+          typeof result?.id === 'string' && result.id.trim().length ? result.id : generateTempId()
         const belongsToScope =
           (scope.kind !== 'person' || personIds.includes(scope.entityId)) &&
           (scope.kind !== 'company' || companyIds.includes(scope.entityId))
@@ -670,19 +659,9 @@ export function DealsSection({
           companyIds,
         }
         if (Object.keys(custom).length) payload.customFields = custom
-        const res = await apiFetch('/api/customers/deals', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
+        await updateCrud('customers/deals', payload, {
+          errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
         })
-        const responseBody = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof responseBody?.error === 'string'
-              ? responseBody.error
-              : translate('customers.people.detail.deals.error', 'Failed to save deal.')
-          throw new Error(message)
-        }
         const hasCustomChanges = Object.keys(custom).length > 0
         const customValuesForState = hasCustomChanges ? sanitizeCustomValues(custom) : null
         const remainsInScope =
@@ -743,19 +722,10 @@ export function DealsSection({
       if (!confirmed) return
       setPendingAction({ kind: 'delete', id: deal.id })
       try {
-        const res = await apiFetch('/api/customers/deals', {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: deal.id }),
+        await deleteCrud('customers/deals', {
+          body: { id: deal.id },
+          errorMessage: translate('customers.people.detail.deals.deleteError', 'Failed to delete deal.'),
         })
-        const responseBody = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof responseBody?.error === 'string'
-              ? responseBody.error
-              : translate('customers.people.detail.deals.deleteError', 'Failed to delete deal.')
-          throw new Error(message)
-        }
         setDeals((prev) => prev.filter((item) => item.id !== deal.id))
         flash(translate('customers.people.detail.deals.deleteSuccess', 'Deal deleted.'), 'success')
       } catch (err) {

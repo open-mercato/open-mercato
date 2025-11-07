@@ -750,5 +750,10 @@ function arrayEquals(left: string[] | undefined, right: string[]): boolean {
 
 async function throwDuplicateEmailError(): Promise<never> {
   const { translate } = await resolveTranslations()
-  throw new CrudHttpError(400, { error: translate('auth.users.errors.emailExists', 'Email already in use') })
+  const message = translate('auth.users.errors.emailExists', 'Email already in use')
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { email: message },
+    details: [{ path: ['email'], message, code: 'duplicate', origin: 'validation' }],
+  })
 }

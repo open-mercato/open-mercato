@@ -4,6 +4,9 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 
 type TenantFormValues = {
   id: string
@@ -21,25 +24,6 @@ const groups: CrudFormGroup[] = [
   { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
 ]
 
-async function ensureResponseOk(res: Response, fallback: string): Promise<void> {
-  if (res.ok) return
-  let message = fallback
-  const contentType = res.headers.get('content-type') || ''
-  try {
-    if (contentType.includes('application/json')) {
-      const data = await res.json()
-      const extracted = data?.error || data?.message
-      if (extracted && typeof extracted === 'string') message = extracted
-    } else {
-      const text = (await res.text()).trim()
-      if (text) message = text
-    }
-  } catch {
-    // ignore parsing failures, fall back to generic message
-  }
-  throw new Error(message)
-}
-
 export default function EditTenantPage({ params }: { params?: { id?: string } }) {
   const tenantId = params?.id
   const [initial, setInitial] = React.useState<TenantFormValues | null>(null)
@@ -54,7 +38,7 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
       setError(null)
       try {
         const res = await apiFetch(`/api/directory/tenants?id=${encodeURIComponent(tenantId)}`)
-        if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to load tenant'))
+        if (!res.ok) await raiseCrudError(res, 'Failed to load tenant')
         const data = await res.json()
         const rows = Array.isArray(data?.items) ? data.items : []
         const row = rows[0]
@@ -114,11 +98,7 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
           cancelHref="/backend/directory/tenants"
           successRedirect="/backend/directory/tenants?flash=Tenant%20updated&type=success"
           onSubmit={async (values) => {
-            const customFields: Record<string, unknown> = {}
-            for (const [key, value] of Object.entries(values)) {
-              if (key.startsWith('cf_')) customFields[key.slice(3)] = value
-              else if (key.startsWith('cf:')) customFields[key.slice(3)] = value
-            }
+            const customFields = collectCustomFieldValues(values)
             const payload: {
               id: string
               name: string
@@ -132,16 +112,13 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
             if (Object.keys(customFields).length > 0) {
               payload.customFields = customFields
             }
-            const res = await apiFetch('/api/directory/tenants', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            })
-            await ensureResponseOk(res, 'Failed to update tenant')
+            await updateCrud('directory/tenants', payload)
           }}
           onDelete={async () => {
             const res = await apiFetch(`/api/directory/tenants?id=${encodeURIComponent(tenantId)}`, { method: 'DELETE' })
-            await ensureResponseOk(res, 'Failed to delete tenant')
+            if (!res.ok) {
+              await raiseCrudError(res, 'Failed to delete tenant')
+            }
           }}
           deleteRedirect="/backend/directory/tenants?flash=Tenant%20deleted&type=success"
         />

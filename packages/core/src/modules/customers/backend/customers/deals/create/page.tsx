@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useT } from '@/lib/i18n/context'
 import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
 import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
@@ -38,19 +38,9 @@ export default function CreateDealPage() {
         }
         if (Object.keys(custom).length) payload.customFields = custom
 
-        const res = await apiFetch('/api/customers/deals', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
+        await createCrud('customers/deals', payload, {
+          errorMessage: t('customers.deals.create.error', 'Failed to create deal.'),
         })
-        const responseBody = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof responseBody?.error === 'string'
-              ? responseBody.error
-              : t('customers.deals.create.error', 'Failed to create deal.')
-          throw new Error(message)
-        }
         flash(t('customers.people.detail.deals.success', 'Deal created.'), 'success')
         router.push('/backend/customers/deals')
       } catch (err) {

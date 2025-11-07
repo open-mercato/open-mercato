@@ -2,6 +2,9 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { PluggableList } from 'unified'
 import { Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
@@ -18,6 +21,19 @@ import {
 import { ensureDictionaryEntries } from '@open-mercato/core/modules/dictionaries/components/hooks/useDictionaryEntries'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { extractDictionaryValue } from './customFieldUtils'
+
+const MARKDOWN_PREVIEW_PLUGINS: PluggableList = [remarkGfm]
+const MARKDOWN_FIELD_TYPES = new Set<CrudField['type']>(['text', 'textarea', 'richtext'])
+const MARKDOWN_CLASSNAME =
+  'text-sm text-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
+
+function renderMarkdownValue(content: string) {
+  return (
+    <ReactMarkdown remarkPlugins={MARKDOWN_PREVIEW_PLUGINS} className={MARKDOWN_CLASSNAME}>
+      {content}
+    </ReactMarkdown>
+  )
+}
 
 type CustomDataSectionProps = {
   entityId?: string
@@ -129,6 +145,12 @@ function formatFieldValue(field: CrudField, value: unknown, emptyLabel: string, 
   }
 
   const resolved = resolveOptionLabel(value)
+  if (typeof value === 'string' && MARKDOWN_FIELD_TYPES.has(field.type)) {
+    if (!resolved.trim().length) {
+      return <span className="text-muted-foreground">{emptyLabel}</span>
+    }
+    return renderMarkdownValue(value)
+  }
   if (!resolved.length) return <span className="text-muted-foreground">{emptyLabel}</span>
   return resolved
 }

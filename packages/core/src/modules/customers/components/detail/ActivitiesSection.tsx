@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -323,19 +324,9 @@ export function ActivitiesSection({
         }
         if (base.dealId) payload.dealId = base.dealId
         if (Object.keys(custom).length) payload.customFields = custom
-        const res = await apiFetch('/api/customers/activities', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
+        await createCrud('customers/activities', payload, {
+          errorMessage: t('customers.people.detail.activities.error', 'Failed to save activity'),
         })
-        const responseBody = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof responseBody?.error === 'string'
-              ? responseBody.error
-              : t('customers.people.detail.activities.error', 'Failed to save activity')
-          throw new Error(message)
-        }
         await loadActivities()
         flash(t('customers.people.detail.activities.success', 'Activity saved'), 'success')
       } catch (err) {
@@ -363,10 +354,9 @@ export function ActivitiesSection({
       setPendingAction({ kind: 'update', id: activityId })
       pushLoading()
       try {
-        const res = await apiFetch('/api/customers/activities', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
+        await updateCrud(
+          'customers/activities',
+          {
             id: activityId,
             entityId: submissionEntityId,
             activityType: base.activityType,
@@ -375,16 +365,9 @@ export function ActivitiesSection({
             occurredAt: base.occurredAt ?? undefined,
             dealId: base.dealId ?? undefined,
             ...(Object.keys(custom).length ? { customFields: custom } : {}),
-          }),
-        })
-        const responseBody = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof responseBody?.error === 'string'
-              ? responseBody.error
-              : t('customers.people.detail.activities.error', 'Failed to save activity')
-          throw new Error(message)
-        }
+          },
+          { errorMessage: t('customers.people.detail.activities.error', 'Failed to save activity') },
+        )
         await loadActivities()
         flash(t('customers.people.detail.activities.updateSuccess', 'Activity updated.'), 'success')
       } catch (err) {
@@ -416,19 +399,10 @@ export function ActivitiesSection({
       if (!confirmed) return
       setPendingAction({ kind: 'delete', id: activity.id })
       try {
-        const res = await apiFetch('/api/customers/activities', {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: activity.id }),
+        await deleteCrud('customers/activities', {
+          body: { id: activity.id },
+          errorMessage: t('customers.people.detail.activities.deleteError', 'Failed to delete activity.'),
         })
-        const responseBody = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof responseBody?.error === 'string'
-              ? responseBody.error
-              : t('customers.people.detail.activities.deleteError', 'Failed to delete activity.')
-          throw new Error(message)
-        }
         setActivities((prev) => prev.filter((existing) => existing.id !== activity.id))
         flash(t('customers.people.detail.activities.deleteSuccess', 'Activity deleted.'), 'success')
       } catch (err) {
