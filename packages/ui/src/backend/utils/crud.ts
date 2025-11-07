@@ -28,8 +28,7 @@ export function buildCrudQuery(params: Record<string, any>): string {
   return toQuery(params)
 }
 
-import { apiFetch } from './api'
-import { apiCall, type ApiCallResult } from './apiCall'
+import { apiCall, readApiResultOrThrow, type ApiCallResult } from './apiCall'
 import { raiseCrudError } from './serverErrors'
 
 function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, string>): HeadersInit {
@@ -63,9 +62,9 @@ export type CrudResponse<TReturn> = ApiCallResult<TReturn>
 
 export async function fetchCrudList<T>(apiPath: string, params: Record<string, any>, init?: RequestInit): Promise<ListResponse<T>> {
   const qs = buildCrudQuery(params)
-  const res = await apiFetch(`/api/${apiPath}?${qs}`, { ...(init || {}) })
-  if (!res.ok) await raiseCrudError(res, 'Failed to fetch list')
-  return res.json()
+  return readApiResultOrThrow<ListResponse<T>>(`/api/${apiPath}?${qs}`, init, {
+    errorMessage: 'Failed to fetch list',
+  })
 }
 
 export function buildCrudExportUrl(apiPath: string, params: Record<string, any>, format: CrudExportFormat): string {

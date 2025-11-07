@@ -1,9 +1,13 @@
 jest.mock('../../utils/api', () => ({
   apiFetch: jest.fn(),
 }))
+jest.mock('../../utils/serverErrors', () => ({
+  raiseCrudError: jest.fn(),
+}))
 
 import { apiFetch } from '../../utils/api'
-import { apiCall } from '../../utils/apiCall'
+import { raiseCrudError } from '../../utils/serverErrors'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '../../utils/apiCall'
 
 describe('apiCall', () => {
   beforeEach(() => {
@@ -33,5 +37,54 @@ describe('apiCall', () => {
     const result = await apiCall<{ parsed: boolean }>('/api/custom', undefined, { parse: parser })
     expect(parser).toHaveBeenCalled()
     expect(result.result).toEqual({ parsed: true })
+  })
+})
+
+describe('apiCallOrThrow', () => {
+  beforeEach(() => {
+    jest.resetAllMocks()
+  })
+
+  it('returns call result when successful', async () => {
+    const payload = { ok: true }
+    ;(apiFetch as jest.Mock).mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }))
+    const call = await apiCallOrThrow<{ ok: boolean }>('/api/success', undefined, { errorMessage: 'failed' })
+    expect(call.ok).toBe(true)
+    expect(call.result).toEqual(payload)
+    expect(raiseCrudError).not.toHaveBeenCalled()
+  })
+
+  it('delegates to raiseCrudError when response is not ok', async () => {
+    const response = new Response(JSON.stringify({ error: 'nope' }), { status: 500 })
+    ;(apiFetch as jest.Mock).mockResolvedValue(response)
+    ;(raiseCrudError as jest.Mock).mockRejectedValue(new Error('nope'))
+    await expect(apiCallOrThrow('/api/fail', undefined, { errorMessage: 'failed' })).rejects.toThrow('nope')
+    expect(raiseCrudError).toHaveBeenCalledWith(response, 'failed')
+  })
+})
+
+describe('readApiResultOrThrow', () => {
+  beforeEach(() => {
+    jest.resetAllMocks()
+  })
+
+  it('returns parsed result when present', async () => {
+    const payload = { ok: true }
+    ;(apiFetch as jest.Mock).mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }))
+    const result = await readApiResultOrThrow<{ ok: boolean }>('/api/result')
+    expect(result).toEqual(payload)
+  })
+
+  it('throws when result is null and not allowed', async () => {
+    ;(apiFetch as jest.Mock).mockResolvedValue(new Response('', { status: 200 }))
+    await expect(
+      readApiResultOrThrow('/api/empty', undefined, { errorMessage: 'failed', emptyResultMessage: 'missing' }),
+    ).rejects.toThrow('missing')
+  })
+
+  it('allows null result when configured', async () => {
+    ;(apiFetch as jest.Mock).mockResolvedValue(new Response('', { status: 200 }))
+    const result = await readApiResultOrThrow('/api/empty-ok', undefined, { allowNullResult: true })
+    expect(result).toBeNull()
   })
 })
