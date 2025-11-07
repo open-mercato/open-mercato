@@ -8,6 +8,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
+import { useT } from '@/lib/i18n/context'
 
 type CreateRoleFormValues = {
   name: string
@@ -15,6 +16,7 @@ type CreateRoleFormValues = {
 } & Record<string, unknown>
 
 export default function CreateRolePage() {
+  const t = useT()
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
 
   React.useEffect(() => {
@@ -35,12 +37,12 @@ export default function CreateRolePage() {
 
   const fields = React.useMemo<CrudField[]>(() => {
     const list: CrudField[] = [
-      { id: 'name', label: 'Name', type: 'text', required: true },
+      { id: 'name', label: t('auth.roles.form.field.name', 'Name'), type: 'text', required: true },
     ]
     if (actorIsSuperAdmin) {
       list.push({
         id: 'tenantId',
-        label: 'Tenant',
+        label: t('auth.roles.form.field.tenant', 'Tenant'),
         type: 'custom',
         required: true,
         component: ({ value, setValue }) => (
@@ -58,7 +60,7 @@ export default function CreateRolePage() {
       })
     }
     return list
-  }, [actorIsSuperAdmin])
+  }, [actorIsSuperAdmin, t])
 
   const detailFieldIds = React.useMemo(() => {
     const base = ['name']
@@ -67,9 +69,9 @@ export default function CreateRolePage() {
   }, [actorIsSuperAdmin])
 
   const groups: CrudFormGroup[] = React.useMemo(() => ([
-    { id: 'details', title: 'Details', column: 1, fields: detailFieldIds },
-    { id: 'customFields', title: 'Custom Fields', column: 2, kind: 'customFields' },
-  ]), [detailFieldIds])
+    { id: 'details', title: t('auth.roles.form.group.details', 'Details'), column: 1, fields: detailFieldIds },
+    { id: 'customFields', title: t('entities.customFields.title', 'Custom Fields'), column: 2, kind: 'customFields' },
+  ]), [detailFieldIds, t])
 
   const initialValues = React.useMemo<Partial<CreateRoleFormValues>>(
     () => ({
@@ -83,15 +85,15 @@ export default function CreateRolePage() {
     <Page>
       <PageBody>
         <CrudForm<CreateRoleFormValues>
-          title="Create Role"
+          title={t('auth.roles.form.title.create', 'Create Role')}
           backHref="/backend/roles"
           entityId={E.auth.role}
           fields={fields}
           groups={groups}
           initialValues={initialValues}
-          submitLabel="Create"
+          submitLabel={t('auth.roles.form.action.create', 'Create')}
           cancelHref="/backend/roles"
-          successRedirect="/backend/roles?flash=Role%20created&type=success"
+          successRedirect={`/backend/roles?flash=${encodeURIComponent(t('auth.roles.flash.created', 'Role created'))}&type=success`}
           onSubmit={async (values) => {
             const customFields = collectCustomFieldValues(values)
             const payload: Record<string, unknown> = {
@@ -101,7 +103,7 @@ export default function CreateRolePage() {
               const rawTenant = typeof values.tenantId === 'string' ? values.tenantId.trim() : null
               payload.tenantId = rawTenant && rawTenant.length ? rawTenant : null
               if (!payload.tenantId) {
-                const message = 'Tenant is required'
+                const message = t('auth.roles.form.errors.tenantRequired', 'Tenant is required')
                 throw createCrudFormError(message, { tenantId: message })
               }
             }
