@@ -9,7 +9,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 
 type CreateRecordRequest = (payload: { entityId: string; values: Record<string, unknown> }) => Promise<void>
 
-async function defaultCreateRecordRequest(payload: { entityId: string; values: Record<string, unknown> }) {
+const defaultCreateRecordRequest: CreateRecordRequest = async (payload) => {
   await createCrud('entities/records', payload)
 }
 

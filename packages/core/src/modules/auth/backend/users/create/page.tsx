@@ -3,14 +3,14 @@ import * as React from 'react'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { useT } from '@/lib/i18n/context'
 
 type CreateUserFormValues = {
   email: string
@@ -22,6 +22,10 @@ type CreateUserFormValues = {
 
 type UserListResponse = {
   isSuperAdmin?: boolean
+}
+
+type WidgetCatalogResponse = {
+  items?: Array<{ id?: string | null; title?: string | null; description?: string | null }>
 }
 
 type TenantAwareOrganizationSelectProps = {
@@ -72,6 +76,7 @@ function TenantAwareOrganizationSelectInput({
 }
 
 export default function CreateUserPage() {
+  const t = useT()
   const [widgetCatalog, setWidgetCatalog] = React.useState<Array<{ id: string; title: string; description: string | null }>>([])
   const [widgetLoading, setWidgetLoading] = React.useState(true)
   const [widgetError, setWidgetError] = React.useState<string | null>(null)
@@ -86,11 +91,10 @@ export default function CreateUserPage() {
       setWidgetLoading(true)
       setWidgetError(null)
       try {
-        const res = await apiFetch('/api/dashboards/widgets/catalog')
-        if (!res.ok) throw new Error(`Failed with status ${res.status}`)
-        const data = await res.json()
+        const { ok, result } = await apiCall<WidgetCatalogResponse>('/api/dashboards/widgets/catalog')
+        if (!ok) throw new Error('request_failed')
         if (!cancelled) {
-          const rawItems: unknown[] = Array.isArray(data.items) ? data.items : []
+          const rawItems: unknown[] = Array.isArray(result?.items) ? result?.items ?? [] : []
           const normalized = rawItems
             .map((item: unknown) => {
               if (!item || typeof item !== 'object') return null
@@ -109,23 +113,26 @@ export default function CreateUserPage() {
         }
       } catch (err) {
         console.error('Failed to load dashboard widget catalog', err)
-        if (!cancelled) setWidgetError('Unable to load dashboard widgets. You can configure them later from the user page.')
+        if (!cancelled) {
+          setWidgetError(t(
+            'auth.users.widgets.errors.load',
+            'Unable to load dashboard widgets. You can configure them later from the user page.',
+          ))
+        }
       } finally {
         if (!cancelled) setWidgetLoading(false)
       }
     }
     loadCatalog()
     return () => { cancelled = true }
-  }, [])
+  }, [t])
 
   React.useEffect(() => {
     let cancelled = false
     async function loadActor() {
       try {
-        const res = await apiFetch('/api/auth/users?page=1&pageSize=1')
-        if (!res.ok) return
-        const payload: UserListResponse = await res.json().catch(() => ({}))
-        if (!cancelled) setActorIsSuperAdmin(Boolean(payload?.isSuperAdmin))
+        const { ok, result } = await apiCall<UserListResponse>('/api/auth/users?page=1&pageSize=1')
+        if (!cancelled && ok) setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
       } catch (err) {
         console.error('Failed to resolve actor super admin flag', err)
       }
@@ -148,13 +155,13 @@ export default function CreateUserPage() {
 
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [
-      { id: 'email', label: 'Email', type: 'text', required: true },
-      { id: 'password', label: 'Password', type: 'text', required: true },
+      { id: 'email', label: t('auth.users.form.field.email', 'Email'), type: 'text', required: true },
+      { id: 'password', label: t('auth.users.form.field.password', 'Password'), type: 'text', required: true },
     ]
     if (actorIsSuperAdmin) {
       items.push({
         id: 'tenantId',
-        label: 'Tenant',
+        label: t('auth.users.form.field.tenant', 'Tenant'),
         type: 'custom',
         required: true,
         component: ({ value, setValue }) => (
@@ -174,7 +181,7 @@ export default function CreateUserPage() {
     }
     items.push({
       id: 'organizationId',
-      label: 'Organization',
+      label: t('auth.users.form.field.organization', 'Organization'),
       type: 'custom',
       component: ({ id, value, setValue }) => {
         const normalizedValue = typeof value === 'string' ? value : value ?? null
@@ -188,9 +195,9 @@ export default function CreateUserPage() {
         )
       },
     })
-    items.push({ id: 'roles', label: 'Roles', type: 'tags', loadOptions: loadRoleOptions })
+    items.push({ id: 'roles', label: t('auth.users.form.field.roles', 'Roles'), type: 'tags', loadOptions: loadRoleOptions })
     return items
-  }, [actorIsSuperAdmin, loadRoleOptions, selectedTenantId])
+  }, [actorIsSuperAdmin, loadRoleOptions, selectedTenantId, t])
 
   const detailFieldIds = React.useMemo(() => {
     const base: string[] = ['email', 'password', 'organizationId', 'roles']
@@ -198,13 +205,22 @@ export default function CreateUserPage() {
     return base
   }, [actorIsSuperAdmin])
 
-  const groups: CrudFormGroup[] = [
-    { id: 'details', title: 'Details', column: 1, fields: detailFieldIds },
-    { id: 'acl', title: 'Access', column: 1, component: () => (<div className="text-sm text-muted-foreground">ACL can be edited after creating the user.</div>) },
-    { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
+  const groups: CrudFormGroup[] = React.useMemo(() => [
+    { id: 'details', title: t('auth.users.form.group.details', 'Details'), column: 1, fields: detailFieldIds },
+    {
+      id: 'acl',
+      title: t('auth.users.form.group.access', 'Access'),
+      column: 1,
+      component: () => (
+        <div className="text-sm text-muted-foreground">
+          {t('auth.users.form.aclHint', 'ACL can be edited after creating the user.')}
+        </div>
+      ),
+    },
+    { id: 'custom', title: t('auth.users.form.group.customFields', 'Custom Data'), column: 2, kind: 'customFields' },
     {
       id: 'dashboardWidgets',
-      title: 'Dashboard Widgets',
+      title: t('auth.users.form.group.widgets', 'Dashboard Widgets'),
       column: 2,
       component: () => (
         <DashboardWidgetSelector
@@ -218,7 +234,7 @@ export default function CreateUserPage() {
         />
       ),
     },
-  ]
+  ], [detailFieldIds, t, widgetCatalog, widgetError, widgetLoading, widgetMode, selectedWidgets, toggleWidget])
 
   const initialValues = React.useMemo<Partial<CreateUserFormValues>>(
     () => ({
@@ -235,15 +251,15 @@ export default function CreateUserPage() {
     <Page>
       <PageBody>
         <CrudForm<CreateUserFormValues>
-          title="Create User"
+          title={t('auth.users.form.title.create', 'Create User')}
           backHref="/backend/users"
           fields={fields}
           groups={groups}
           entityId={E.auth.user}
           initialValues={initialValues}
-          submitLabel="Create"
+          submitLabel={t('auth.users.form.action.create', 'Create')}
           cancelHref="/backend/users"
-          successRedirect="/backend/users?flash=User%20created&type=success"
+          successRedirect={`/backend/users?flash=${encodeURIComponent(t('auth.users.flash.created', 'User created'))}&type=success`}
           onSubmit={async (values) => {
             const customFields = collectCustomFieldValues(values)
             const payload: Record<string, unknown> = {
@@ -261,22 +277,17 @@ export default function CreateUserPage() {
             const newUserId = typeof created?.id === 'string' ? created.id : null
 
             if (widgetMode === 'override' && newUserId) {
-              const widgetRes = await apiFetch('/api/dashboards/users/widgets', {
-                method: 'PUT',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  userId: newUserId,
-                  mode: 'override',
-                  widgetIds: selectedWidgets,
-                  organizationId: values.organizationId ? values.organizationId : null,
-                  tenantId: actorIsSuperAdmin
-                    ? (typeof values.tenantId === 'string' && values.tenantId.length ? values.tenantId : null)
-                    : null,
-                }),
+              await updateCrud('dashboards/users/widgets', {
+                userId: newUserId,
+                mode: 'override',
+                widgetIds: selectedWidgets,
+                organizationId: values.organizationId ? values.organizationId : null,
+                tenantId: actorIsSuperAdmin
+                  ? (typeof values.tenantId === 'string' && values.tenantId.length ? values.tenantId : null)
+                  : null,
+              }, {
+                errorMessage: t('auth.users.form.errors.widgetsAssign', 'Failed to assign dashboard widgets to the new user'),
               })
-              if (!widgetRes.ok) {
-                await raiseCrudError(widgetRes, 'Failed to assign dashboard widgets to the new user')
-              }
             }
           }}
         />
@@ -302,10 +313,11 @@ function DashboardWidgetSelector({
   selected: string[]
   onToggle: (id: string) => void
 }) {
+  const t = useT()
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Spinner size="sm" /> Loading widgets…
+        <Spinner size="sm" /> {t('auth.users.widgets.loading', 'Loading widgets…')}
       </div>
     )
   }
@@ -325,7 +337,7 @@ function DashboardWidgetSelector({
                 checked={mode === 'inherit'}
                 onChange={() => onModeChange('inherit')}
               />
-              Inherit from roles
+              {t('auth.users.widgets.mode.inherit', 'Inherit from roles')}
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -334,7 +346,7 @@ function DashboardWidgetSelector({
                 checked={mode === 'override'}
                 onChange={() => onModeChange('override')}
               />
-              Override for this user
+              {t('auth.users.widgets.mode.override', 'Override for this user')}
             </label>
           </div>
           {mode === 'override' && (
@@ -357,7 +369,7 @@ function DashboardWidgetSelector({
           )}
           {mode === 'inherit' && (
             <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              New users inherit widgets from their assigned roles. Override to pick a custom set.
+              {t('auth.users.widgets.mode.hint', 'New users inherit widgets from their assigned roles. Override to pick a custom set.')}
             </div>
           )}
         </>

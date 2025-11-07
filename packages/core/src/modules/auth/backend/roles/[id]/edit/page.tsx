@@ -2,14 +2,14 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { AclEditor, type AclData } from '@open-mercato/core/modules/auth/components/AclEditor'
 import { WidgetVisibilityEditor } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
+import { useT } from '@/lib/i18n/context'
 
 type EditRoleFormValues = {
   name?: string
@@ -24,8 +24,14 @@ type RoleRecord = {
   usersCount?: number | null
 } & Record<string, unknown>
 
+type RoleListResponse = {
+  items?: RoleRecord[]
+  isSuperAdmin?: boolean
+}
+
 export default function EditRolePage({ params }: { params?: { id?: string } }) {
   const id = params?.id
+  const t = useT()
   const [initial, setInitial] = React.useState<RoleRecord | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
@@ -38,12 +44,12 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
     let cancelled = false
     async function load() {
       try {
-        const res = await apiFetch(`/api/auth/roles?id=${encodeURIComponent(roleId)}`)
-        const j = await res.json()
-        const foundList = Array.isArray(j.items) ? j.items : []
-        const found = (foundList[0] ?? null) as RoleRecord | null
+        const { ok, result } = await apiCall<RoleListResponse>(`/api/auth/roles?id=${encodeURIComponent(roleId)}`)
+        if (!ok) throw new Error(t('auth.roles.form.errors.load', 'Failed to load role'))
+        const foundList = Array.isArray(result?.items) ? result?.items : []
+        const found = (foundList?.[0] ?? null) as RoleRecord | null
         if (!cancelled) {
-          setActorIsSuperAdmin(Boolean(j?.isSuperAdmin))
+          setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
           setInitial(found || null)
           const tenant = found && typeof found.tenantId === 'string' ? found.tenantId : null
           setSelectedTenantId(tenant)
@@ -58,7 +64,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
     }
     load()
     return () => { cancelled = true }
-  }, [id])
+  }, [id, t])
 
   const preloadedTenants = React.useMemo(() => {
     if (!selectedTenantId) return null
@@ -73,7 +79,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
     const list: CrudField[] = [
       {
         id: 'name',
-        label: 'Name',
+        label: t('auth.roles.form.field.name', 'Name'),
         type: 'text',
         required: true,
         disabled,
@@ -82,7 +88,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
     if (actorIsSuperAdmin) {
       list.push({
         id: 'tenantId',
-        label: 'Tenant',
+        label: t('auth.roles.form.field.tenant', 'Tenant'),
         type: 'custom',
         required: true,
         component: ({ value, setValue }) => (
@@ -103,7 +109,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
       })
     }
     return list
-  }, [actorIsSuperAdmin, initial, preloadedTenants, selectedTenantId])
+  }, [actorIsSuperAdmin, initial, preloadedTenants, selectedTenantId, t])
 
   const detailFieldIds = React.useMemo(() => {
     const base = ['name']
@@ -112,11 +118,11 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
   }, [actorIsSuperAdmin])
 
   const groups: CrudFormGroup[] = React.useMemo(() => ([
-    { id: 'details', title: 'Details', column: 1, fields: detailFieldIds },
-    { id: 'customFields', title: 'Custom Fields', column: 2, kind: 'customFields' },
+    { id: 'details', title: t('auth.roles.form.group.details', 'Details'), column: 1, fields: detailFieldIds },
+    { id: 'customFields', title: t('entities.customFields.title', 'Custom Fields'), column: 2, kind: 'customFields' },
     {
       id: 'acl',
-      title: 'Access',
+      title: t('auth.roles.form.group.access', 'Access'),
       column: 1,
       component: () => (id
         ? (
@@ -134,7 +140,7 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
     },
     {
       id: 'dashboardWidgets',
-      title: 'Dashboard Widgets',
+      title: t('auth.roles.form.group.widgets', 'Dashboard Widgets'),
       column: 2,
       component: () => (id && !loading
         ? (
@@ -146,24 +152,23 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
         )
         : null),
     },
-  ]), [aclData, actorIsSuperAdmin, detailFieldIds, id, initial, loading, selectedTenantId])
+  ]), [aclData, actorIsSuperAdmin, detailFieldIds, id, initial, loading, selectedTenantId, t])
 
   if (!id) return null
   return (
     <Page>
       <PageBody>
         <CrudForm<EditRoleFormValues>
-          title="Edit Role"
+          title={t('auth.roles.form.title.edit', 'Edit Role')}
           backHref="/backend/roles"
           entityId={E.auth.role}
           fields={fields}
           groups={groups}
           initialValues={initial || { id, tenantId: null }}
           isLoading={loading}
-          loadingMessage="Loading data..."
-          submitLabel="Save"
+          loadingMessage={t('auth.roles.form.loading', 'Loading data...')}
           cancelHref="/backend/roles"
-          successRedirect="/backend/roles?flash=Role%20saved&type=success"
+          successRedirect={`/backend/roles?flash=${encodeURIComponent(t('auth.roles.flash.updated', 'Role saved'))}&type=success`}
           onSubmit={async (values) => {
             const customFields = collectCustomFieldValues(values)
             const payload: Record<string, unknown> = { id }
@@ -178,23 +183,17 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
               payload.customFields = customFields
             }
             await updateCrud('auth/roles', payload)
-            const aclRes = await apiFetch('/api/auth/roles/acl', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ roleId: id, tenantId: effectiveTenantId, ...aclData }),
+            await updateCrud('auth/roles/acl', { roleId: id, tenantId: effectiveTenantId, ...aclData }, {
+              errorMessage: t('auth.roles.form.errors.aclUpdate', 'Failed to update role access control'),
             })
-            if (!aclRes.ok) {
-              await raiseCrudError(aclRes, 'Failed to update role access control')
-            }
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
           }}
           onDelete={async () => {
-            const res = await apiFetch(`/api/auth/roles?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' })
-            if (!res.ok) {
-              await raiseCrudError(res, 'Failed to delete role')
-            }
+            await deleteCrud('auth/roles', String(id), {
+              errorMessage: t('auth.roles.form.errors.delete', 'Failed to delete role'),
+            })
           }}
-          deleteRedirect="/backend/roles?flash=Role%20deleted&type=success"
+          deleteRedirect={`/backend/roles?flash=${encodeURIComponent(t('auth.roles.flash.deleted', 'Role deleted'))}&type=success`}
         />
       </PageBody>
     </Page>
