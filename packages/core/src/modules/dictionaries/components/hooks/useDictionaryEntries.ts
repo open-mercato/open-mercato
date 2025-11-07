@@ -1,6 +1,6 @@
 "use client"
 
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQuery, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
 import {
   createDictionaryMap,
@@ -33,9 +33,9 @@ export const dictionaryEntriesQueryOptions = (dictionaryId: string, scopeVersion
   staleTime: DICTIONARY_ENTRIES_STALE_TIME,
   gcTime: DICTIONARY_ENTRIES_STALE_TIME,
   queryFn: async (): Promise<DictionaryEntriesQueryData> => {
-    const res = await apiFetch(`/api/dictionaries/${dictionaryId}/entries`)
-    const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>
-    if (!res.ok) {
+    const call = await apiCall<Record<string, unknown>>(`/api/dictionaries/${dictionaryId}/entries`)
+    const payload = call.result ?? {}
+    if (!call.ok) {
       const message =
         typeof payload.error === 'string'
           ? payload.error

@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { usePathname } from 'next/navigation'
-import { apiFetch } from './utils/api'
+import { apiCall } from './utils/apiCall'
 import { LanguageSwitcher } from '../frontend/LanguageSwitcher'
 import { LastOperationBanner } from './operations/LastOperationBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
@@ -185,8 +185,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     setLoadingPreferences(true)
    try {
      const baseSnapshot = AppShell.cloneGroups(navGroups)
-     const res = await apiFetch('/api/auth/sidebar/preferences')
-      const data = res.ok ? await res.json().catch(() => null) : null
+     const call = await apiCall<{
+       settings?: Record<string, unknown>
+       canApplyToRoles?: boolean
+       roles?: Array<{ id?: string; name?: string; hasPreference?: boolean }>
+     }>('/api/auth/sidebar/preferences')
+      const data = call.ok ? (call.result ?? null) : null
       const rawSettings = data?.settings
       const responseOrder = Array.isArray(rawSettings?.groupOrder)
         ? rawSettings.groupOrder
@@ -328,16 +332,19 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         payload.applyToRoles = applyToRolesPayload
         payload.clearRoleIds = clearRoleIdsPayload
       }
-      const res = await apiFetch('/api/auth/sidebar/preferences', {
+      const call = await apiCall<{
+        canApplyToRoles?: boolean
+        roles?: Array<{ id?: string; name?: string; hasPreference?: boolean }>
+      }>('/api/auth/sidebar/preferences', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      if (!res.ok) {
+      if (!call.ok) {
         setCustomizationError(t('appShell.sidebarCustomizationSaveError'))
         return
       }
-      const data = await res.json().catch(() => null)
+      const data = call.result ?? null
       if (data?.canApplyToRoles !== undefined) {
         setCanApplyToRoles(data.canApplyToRoles === true)
       }
@@ -485,9 +492,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     async function refreshFullNav() {
       if (!adminNavApi) return
       try {
-        const res = await apiFetch(adminNavApi, { credentials: 'include' as any })
-        if (!res.ok) return
-        const data = await res.json()
+        const call = await apiCall<{ groups?: unknown[] }>(adminNavApi, { credentials: 'include' as any })
+        if (!call.ok) return
+        const data = call.result
         if (cancelled) return
         const nextGroups = Array.isArray(data?.groups) ? data.groups : []
         if (nextGroups.length) setNavGroups((prev) => AppShell.cloneGroups(mergePreservingIcons(prev, nextGroups as any)))
@@ -537,9 +544,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     }
     async function refreshFullNav() {
       try {
-        const res = await apiFetch(api, { credentials: 'include' as any })
-        if (!res.ok) return
-        const data = await res.json()
+        const call = await apiCall<{ groups?: unknown[] }>(api, { credentials: 'include' as any })
+        if (!call.ok) return
+        const data = call.result
         if (cancelled) return
         const nextGroups = Array.isArray(data?.groups) ? data.groups : []
         if (nextGroups.length) setNavGroups((prev) => AppShell.cloneGroups(mergePreservingIcons(prev, nextGroups as any)))

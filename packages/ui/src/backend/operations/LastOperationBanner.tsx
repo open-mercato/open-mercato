@@ -3,7 +3,7 @@ import * as React from 'react'
 import { Undo2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Button } from '../../primitives/button'
-import { apiFetch } from '../utils/api'
+import { apiCall } from '../utils/apiCall'
 import { flash } from '../FlashMessages'
 import { useLastOperation, markUndoSuccess } from './store'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -26,13 +26,15 @@ export function LastOperationBanner() {
     if (!undoToken || isPending) return
     setPendingToken(undoToken)
     try {
-      const res = await apiFetch('/api/audit_logs/audit-logs/actions/undo', {
+      const call = await apiCall<Record<string, unknown>>('/api/audit_logs/audit-logs/actions/undo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ undoToken }),
       })
-      if (!res.ok) {
-        const message = await res.text().catch(() => '')
+      if (!call.ok) {
+        const message =
+          (call.result && typeof call.result.error === 'string' && call.result.error) ||
+          ''
         throw new Error(message || 'Failed to undo')
       }
       markUndoSuccess(undoToken)

@@ -6,7 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import { DictionaryEntriesEditor } from './DictionaryEntriesEditor'
 
@@ -42,13 +42,13 @@ export function DictionariesManager() {
   const loadDictionaries = React.useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiFetch('/api/dictionaries')
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(typeof data?.error === 'string' ? data.error : 'Failed to load dictionaries')
+      const call = await apiCall<{ items?: unknown[]; error?: string }>('/api/dictionaries')
+      if (!call.ok) {
+        throw new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to load dictionaries')
       }
-      const list = Array.isArray(data.items)
-        ? data.items.map((item: any) => ({
+      const resultItems = Array.isArray(call.result?.items) ? call.result!.items : []
+      const list = Array.isArray(resultItems)
+        ? resultItems.map((item: any) => ({
             id: String(item.id),
             key: String(item.key),
             name: String(item.name ?? item.key),
@@ -131,25 +131,23 @@ export function DictionariesManager() {
         description: form.description.trim() || undefined,
       }
       if (dialog.mode === 'create') {
-        const res = await apiFetch('/api/dictionaries', {
+        const call = await apiCall<Record<string, unknown>>('/api/dictionaries', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
         })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          throw new Error(typeof data?.error === 'string' ? data.error : 'Failed to create dictionary')
+        if (!call.ok) {
+          throw new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary')
         }
         flash(t('dictionaries.config.success.create', 'Dictionary created.'), 'success')
       } else if (dialog.dictionary) {
-        const res = await apiFetch(`/api/dictionaries/${dialog.dictionary.id}`, {
+        const call = await apiCall<Record<string, unknown>>(`/api/dictionaries/${dialog.dictionary.id}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
         })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          throw new Error(typeof data?.error === 'string' ? data.error : 'Failed to update dictionary')
+        if (!call.ok) {
+          throw new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to update dictionary')
         }
         flash(t('dictionaries.config.success.update', 'Dictionary updated.'), 'success')
       }
@@ -182,10 +180,9 @@ export function DictionariesManager() {
       if (!confirmed) return
       setDeleting(dictionary.id)
       try {
-        const res = await apiFetch(`/api/dictionaries/${dictionary.id}`, { method: 'DELETE' })
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          throw new Error(typeof data?.error === 'string' ? data.error : 'Failed to delete dictionary')
+        const call = await apiCall<Record<string, unknown>>(`/api/dictionaries/${dictionary.id}`, { method: 'DELETE' })
+        if (!call.ok) {
+          throw new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary')
         }
         flash(t('dictionaries.config.success.delete', 'Dictionary deleted.'), 'success')
         await loadDictionaries()
