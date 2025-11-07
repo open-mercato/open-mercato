@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useT } from '@/lib/i18n/context'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { z } from 'zod'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 
@@ -49,8 +49,11 @@ export default function EditRecordPage({ params }: { params: { entityId?: string
     let cancelled = false
     async function load() {
       try {
-        const res = await apiFetch(`/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=1&pageSize=1&sortField=id&sortDir=asc&id=${encodeURIComponent(recordId)}`)
-        const j: RecordsResponse = await res.json().catch(() => ({ items: [] }))
+        const j = await readApiResultOrThrow<RecordsResponse>(
+          `/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=1&pageSize=1&sortField=id&sortDir=asc&id=${encodeURIComponent(recordId)}`,
+          undefined,
+          { errorMessage: 'Failed to load record', fallback: { items: [] } },
+        )
         const item = (j.items || []).find((x: any) => String(x.id) === String(recordId)) || null
         if (!cancelled) setInitialValues(item || {})
       } catch {
@@ -93,9 +96,12 @@ export default function EditRecordPage({ params }: { params: { entityId?: string
         })
       }}
       onDelete={async () => {
-        const res = await apiFetch(`/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`, { method: 'DELETE' })
-        if (!res.ok) {
-          await raiseCrudError(res, t('entities.userEntities.records.errors.deleteFailed', 'Failed to delete record'))
+        const call = await apiCall(
+          `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`,
+          { method: 'DELETE' },
+        )
+        if (!call.ok) {
+          await raiseCrudError(call.response, t('entities.userEntities.records.errors.deleteFailed', 'Failed to delete record'))
         }
         // navigate back
         if (typeof window !== 'undefined') window.location.href = `/backend/entities/user/${encodeURIComponent(entityId)}/records`

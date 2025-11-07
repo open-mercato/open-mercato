@@ -1,9 +1,9 @@
 import type { CrudField } from '../CrudForm'
 import type { CustomFieldDefDto } from './customFieldDefs'
 import { filterCustomFieldDefs } from './customFieldDefs'
-import { apiFetch } from './api'
 import { fetchCustomFieldDefs } from './customFieldDefs'
 import { FieldRegistry, loadGeneratedFieldRegistrations } from '../fields/registry'
+import { apiCall } from './apiCall'
 
 let registryReady: Promise<void> | null = null
 
@@ -31,6 +31,23 @@ function buildOptionsUrl(base: string, query?: string): string {
     const sep = base.includes('?') ? '&' : '?'
     if (base.includes('query=')) return `${base}${sep}q=${encodeURIComponent(query)}`
     return `${base}${sep}query=${encodeURIComponent(query)}`
+  }
+}
+
+type OptionsResponse = { items?: unknown[] }
+
+async function loadRemoteOptions(url: string): Promise<Array<{ value: string; label: string }>> {
+  try {
+    const call = await apiCall<OptionsResponse>(url, undefined, { fallback: { items: [] } })
+    if (!call.ok) return []
+    const payload = call.result ?? { items: [] }
+    const items = Array.isArray(payload?.items) ? payload.items : []
+    return items.map((it: any) => ({
+      value: String(it?.value ?? it),
+      label: String(it?.label ?? it?.value ?? it),
+    }))
+  } catch {
+    return []
   }
 }
 
@@ -79,14 +96,8 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?
           ...(d.optionsUrl
             ? {
                 loadOptions: async (query?: string) => {
-                  try {
-                    const res = await apiFetch(buildOptionsUrl(d.optionsUrl!, query))
-                    const json = await res.json()
-                    const items = Array.isArray(json?.items) ? json.items : []
-                    return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
-                  } catch {
-                    return []
-                  }
+                  const url = buildOptionsUrl(d.optionsUrl!, query)
+                  return loadRemoteOptions(url)
                 },
               }
             : {}),
@@ -105,12 +116,8 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?
           // Enable async suggestions when optionsUrl provided
           if (d.optionsUrl) {
             base.loadOptions = async (query?: string) => {
-              try {
-                const res = await apiFetch(buildOptionsUrl(d.optionsUrl!, query))
-                const json = await res.json()
-                const items = Array.isArray(json?.items) ? json.items : []
-                return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
-              } catch { return [] }
+              const url = buildOptionsUrl(d.optionsUrl!, query)
+              return loadRemoteOptions(url)
             }
           }
           fields.push(base)
@@ -136,7 +143,11 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?
   return fields
 }
 
-export async function fetchCustomFieldFormFields(entityIds: string | string[], fetchImpl: typeof fetch = apiFetch, options?: { bareIds?: boolean }): Promise<CrudField[]> {
+export async function fetchCustomFieldFormFields(
+  entityIds: string | string[],
+  fetchImpl?: typeof fetch,
+  options?: { bareIds?: boolean },
+): Promise<CrudField[]> {
   await ensureFieldRegistryReady()
   const defs: CustomFieldDefDto[] = await fetchCustomFieldDefs(entityIds, fetchImpl)
   return buildFormFieldsFromCustomFields(defs, options)
@@ -144,7 +155,7 @@ export async function fetchCustomFieldFormFields(entityIds: string | string[], f
 
 export async function fetchCustomFieldFormFieldsWithDefinitions(
   entityIds: string | string[],
-  fetchImpl: typeof fetch = apiFetch,
+  fetchImpl?: typeof fetch,
   options?: { bareIds?: boolean },
 ): Promise<{ fields: CrudField[]; definitions: CustomFieldDefDto[] }> {
   await ensureFieldRegistryReady()

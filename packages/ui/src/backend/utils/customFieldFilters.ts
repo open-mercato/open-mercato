@@ -2,10 +2,10 @@ import * as React from 'react'
 import { useCustomFieldDefs, type UseCustomFieldDefsOptions } from './customFieldDefs'
 import { Filter } from '@/lib/query/types'
 import type { FilterDef } from '../FilterOverlay'
-import { apiFetch } from './api'
 import type { CustomFieldDefDto } from './customFieldDefs'
 import { filterCustomFieldDefs, fetchCustomFieldDefs as loadCustomFieldDefs } from './customFieldDefs'
 import { type UseQueryResult } from '@tanstack/react-query'
+import { apiCall } from './apiCall'
 
 function buildOptionsUrl(base: string, query?: string): string {
   if (!query) return base
@@ -21,6 +21,23 @@ function buildOptionsUrl(base: string, query?: string): string {
     const sep = base.includes('?') ? '&' : '?'
     if (base.includes('query=')) return `${base}${sep}q=${encodeURIComponent(query)}`
     return `${base}${sep}query=${encodeURIComponent(query)}`
+  }
+}
+
+type OptionsResponse = { items?: unknown[] }
+
+async function loadRemoteOptions(url: string): Promise<Array<{ value: string; label: string }>> {
+  try {
+    const call = await apiCall<OptionsResponse>(url, undefined, { fallback: { items: [] } })
+    if (!call.ok) return []
+    const payload = call.result ?? { items: [] }
+    const items = Array.isArray(payload?.items) ? payload.items : []
+    return items.map((it: any) => ({
+      value: String(it?.value ?? it),
+      label: String(it?.label ?? it?.value ?? it),
+    }))
+  } catch {
+    return []
   }
 }
 
@@ -42,14 +59,8 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
       // When optionsUrl is provided, allow async options loading for filters too
       if (d.optionsUrl) {
         ;(base as FilterDef).loadOptions = async (query?: string) => {
-          try {
-            const res = await apiFetch(buildOptionsUrl(d.optionsUrl!, query))
-            const json = await res.json()
-            const items = Array.isArray(json?.items) ? json.items : []
-            return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
-          } catch {
-            return []
-          }
+          const url = buildOptionsUrl(d.optionsUrl!, query)
+          return loadRemoteOptions(url)
         }
       }
       f.push(base)
@@ -65,14 +76,8 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
       // Enable async suggestions when optionsUrl provided
       if (d.optionsUrl) {
         ;(base as any).loadOptions = async (query?: string) => {
-          try {
-            const res = await apiFetch(buildOptionsUrl(d.optionsUrl!, query))
-            const json = await res.json()
-            const items = Array.isArray(json?.items) ? json.items : []
-            return items.map((it: any) => ({ value: String(it.value ?? it), label: String(it.label ?? it.value ?? it) }))
-          } catch {
-            return []
-          }
+          const url = buildOptionsUrl(d.optionsUrl!, query)
+          return loadRemoteOptions(url)
         }
       }
       f.push(base)
@@ -94,7 +99,7 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
   return out
 }
 
-export async function fetchCustomFieldFilterDefs(entityIds: string | string[], fetchImpl: typeof fetch = apiFetch): Promise<FilterDef[]> {
+export async function fetchCustomFieldFilterDefs(entityIds: string | string[], fetchImpl?: typeof fetch): Promise<FilterDef[]> {
   const defs: CustomFieldDefDto[] = await loadCustomFieldDefs(entityIds, fetchImpl)
   return buildFilterDefsFromCustomFields(defs)
 }
