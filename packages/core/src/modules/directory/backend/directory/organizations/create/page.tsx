@@ -6,7 +6,7 @@ import { OrganizationSelect } from '@open-mercato/core/modules/directory/compone
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -23,6 +23,7 @@ type ChildTreeSelectProps = {
 }
 
 function ChildTreeSelect({ nodes, value, onChange }: ChildTreeSelectProps) {
+  const t = useT()
   const selected = React.useMemo(() => new Set(value), [value])
   const handleToggle = React.useCallback((id: string) => {
     const next = new Set(value)
@@ -33,7 +34,9 @@ function ChildTreeSelect({ nodes, value, onChange }: ChildTreeSelectProps) {
 
   if (!nodes.length) {
     return (
-      <div className="text-sm text-muted-foreground">No organizations available to assign.</div>
+      <div className="text-sm text-muted-foreground">
+        {t('directory.organizations.form.children.empty', 'No organizations available to assign.')}
+      </div>
     )
   }
 
@@ -77,13 +80,8 @@ export default function CreateOrganizationPage() {
     const params = new URLSearchParams({ view: 'tree', includeInactive: 'true' })
     if (tenantId) params.set('tenantId', tenantId)
     try {
-      const res = await apiFetch(`/api/directory/organizations?${params.toString()}`)
-      if (!res.ok) {
-        setTree([])
-        return
-      }
-      const data: TreeResponse = await res.json()
-      const items = Array.isArray(data.items) ? data.items : []
+      const call = await apiCall<TreeResponse>(`/api/directory/organizations?${params.toString()}`)
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
       setTree(items)
     } catch {
       setTree([])
@@ -94,11 +92,8 @@ export default function CreateOrganizationPage() {
     let cancelled = false
     async function bootstrap() {
       try {
-        const res = await apiFetch('/api/auth/roles?page=1&pageSize=1')
-        if (res.ok) {
-          const payload = await res.json().catch(() => ({}))
-          if (!cancelled) setActorIsSuperAdmin(Boolean(payload?.isSuperAdmin))
-        }
+        const call = await apiCall<{ isSuperAdmin?: boolean }>('/api/auth/roles?page=1&pageSize=1')
+        if (!cancelled) setActorIsSuperAdmin(Boolean(call.result?.isSuperAdmin))
       } catch {
         if (!cancelled) setActorIsSuperAdmin(false)
       }
@@ -117,7 +112,7 @@ export default function CreateOrganizationPage() {
     ...(actorIsSuperAdmin ? [
       {
         id: 'tenantId',
-        label: 'Tenant',
+        label: t('directory.organizations.form.field.tenant', 'Tenant'),
         type: 'custom',
         required: true,
         component: ({ value, setValue }) => (
@@ -135,10 +130,10 @@ export default function CreateOrganizationPage() {
         ),
       } as CrudField,
     ] : []),
-    { id: 'name', label: 'Name', type: 'text', required: true },
+    { id: 'name', label: t('directory.organizations.form.field.name', 'Name'), type: 'text', required: true },
     {
       id: 'parentId',
-      label: 'Parent',
+      label: t('directory.organizations.form.field.parent', 'Parent'),
       type: 'custom',
       component: ({ id, value, setValue }) => (
         <OrganizationSelect
@@ -148,14 +143,14 @@ export default function CreateOrganizationPage() {
           tenantId={selectedTenantId}
           fetchOnMount={true}
           includeEmptyOption
-          emptyOptionLabel="— Root level —"
+          emptyOptionLabel={t('directory.organizations.form.rootOption', '— Root level —')}
           className="w-full h-9 rounded border px-2 text-sm"
         />
       ),
     },
     {
       id: 'childIds',
-      label: 'Children',
+      label: t('directory.organizations.form.field.children', 'Children'),
       type: 'custom',
       component: ({ value, setValue }) => (
         <ChildTreeSelect
@@ -165,8 +160,8 @@ export default function CreateOrganizationPage() {
         />
       ),
     },
-    { id: 'isActive', label: 'Active', type: 'checkbox' },
-  ], [actorIsSuperAdmin, selectedTenantId, tree])
+    { id: 'isActive', label: t('directory.organizations.form.field.isActive', 'Active'), type: 'checkbox' },
+  ], [actorIsSuperAdmin, selectedTenantId, t, tree])
 
   const detailFields = React.useMemo(() => (
     actorIsSuperAdmin
@@ -175,23 +170,25 @@ export default function CreateOrganizationPage() {
   ), [actorIsSuperAdmin])
 
   const groups: CrudFormGroup[] = React.useMemo(() => ([
-    { id: 'details', title: 'Details', column: 1, fields: detailFields },
-    { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
-  ]), [detailFields])
+    { id: 'details', title: t('directory.organizations.form.group.details', 'Details'), column: 1, fields: detailFields },
+    { id: 'custom', title: t('directory.organizations.form.group.customFields', 'Custom Data'), column: 2, kind: 'customFields' },
+  ]), [detailFields, t])
+  const formTitle = t('directory.nav.organizations.create', 'Create Organization')
+  const successMessage = encodeURIComponent(t('directory.organizations.flash.created', 'Organization created'))
 
   return (
     <Page>
       <PageBody>
         <CrudForm
-          title="Create Organization"
+          title={formTitle}
           backHref="/backend/directory/organizations"
           fields={fields}
           groups={groups}
           entityId={E.directory.organization}
           initialValues={{ tenantId: selectedTenantId ?? null, name: '', parentId: '', childIds: [], isActive: true }}
-          submitLabel="Create"
+          submitLabel={t('directory.organizations.form.action.create', 'Create')}
           cancelHref="/backend/directory/organizations"
-          successRedirect="/backend/directory/organizations?flash=Organization%20created&type=success"
+          successRedirect={`/backend/directory/organizations?flash=${successMessage}&type=success`}
           onSubmit={async (values) => {
             await submitCreateOrganization({
               values: values as Record<string, unknown>,

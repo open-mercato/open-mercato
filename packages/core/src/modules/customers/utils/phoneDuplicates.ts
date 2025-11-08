@@ -1,4 +1,4 @@
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type { PhoneDuplicateMatch } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 
 type LookupOptions = {
@@ -22,9 +22,9 @@ export async function lookupPhoneDuplicate(
   for (let page = 1; page <= MAX_PAGES; page += 1) {
     try {
       const url = `/api/customers/people?hasPhone=true&page=${page}&pageSize=${PAGE_SIZE}&sortField=createdAt&sortDir=desc`
-      const res = await apiFetch(url)
-      if (!res.ok) continue
-      const payload = await res.json().catch(() => ({}))
+      const call = await apiCall<{ items?: unknown[]; total?: number }>(url)
+      if (!call.ok) continue
+      const payload = call.result ?? {}
       const items = Array.isArray(payload?.items) ? payload.items : []
       for (const item of items) {
         const id = typeof item?.id === 'string' ? item.id : null

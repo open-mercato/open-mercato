@@ -18,6 +18,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import type {
   CrudCustomFieldRenderProps,
@@ -38,6 +39,7 @@ import {
   invalidateCustomerDictionary,
 } from './detail/hooks/useCustomerDictionary'
 import type { CustomerDictionaryKind } from '../lib/dictionaries'
+import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
 
 export const metadata = {
   navHidden: true,
@@ -953,10 +955,11 @@ export function buildPersonPayload(values: PersonFormValues, organizationId?: st
   assign('companyEntityId', typeof values.companyEntityId === 'string' ? values.companyEntityId : undefined)
   assign('description', typeof values.description === 'string' ? values.description : undefined)
 
-  for (const [key, fieldValue] of Object.entries(values)) {
-    if (key.startsWith('cf_')) {
-      payload[key] = fieldValue
-    }
+  const customFields = collectCustomFieldValues(values, {
+    transform: (value) => normalizeCustomFieldSubmitValue(value),
+  })
+  if (Object.keys(customFields).length) {
+    payload.customFields = customFields
   }
 
   if (organizationId) payload.organizationId = organizationId
@@ -1286,10 +1289,11 @@ export function buildCompanyPayload(values: CompanyFormValues, organizationId?: 
     payload.annualRevenue = normalized
   }
 
-  for (const [key, fieldValue] of Object.entries(values)) {
-    if (key.startsWith('cf_')) {
-      payload[key] = fieldValue
-    }
+  const customFields = collectCustomFieldValues(values, {
+    transform: (value) => normalizeCustomFieldSubmitValue(value),
+  })
+  if (Object.keys(customFields).length) {
+    payload.customFields = customFields
   }
 
   if (organizationId) payload.organizationId = organizationId

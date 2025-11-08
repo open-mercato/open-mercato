@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ActionLogItem } from '../../components/AuditLogsActions'
@@ -44,19 +44,23 @@ export default function AuditLogsPage() {
 
   const fetchActions = React.useCallback(async () => {
     const query = undoableOnly ? '?undoableOnly=true' : ''
-    const res = await apiFetch(`/api/audit_logs/audit-logs/actions${query}`)
-    if (!res.ok) throw new Error(await res.text().catch(() => ''))
-    return res.json() as Promise<ActionLogResponse>
-  }, [undoableOnly])
+    return readApiResultOrThrow<ActionLogResponse>(
+      `/api/audit_logs/audit-logs/actions${query}`,
+      undefined,
+      { errorMessage: t('audit_logs.error.load') },
+    )
+  }, [undoableOnly, t])
 
   const fetchAccess = React.useCallback(async (page: number, pageSize: number) => {
     const params = new URLSearchParams()
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
-    const res = await apiFetch(`/api/audit_logs/audit-logs/access?${params.toString()}`)
-    if (!res.ok) throw new Error(await res.text().catch(() => ''))
-    return res.json() as Promise<AccessLogResponse>
-  }, [])
+    return readApiResultOrThrow<AccessLogResponse>(
+      `/api/audit_logs/audit-logs/access?${params.toString()}`,
+      undefined,
+      { errorMessage: t('audit_logs.error.load') },
+    )
+  }, [t])
 
   const loadAll = React.useCallback(async (page: number, pageSize: number) => {
     const [actionsRes, accessRes] = await Promise.all([

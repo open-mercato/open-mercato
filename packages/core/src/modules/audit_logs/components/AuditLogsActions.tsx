@@ -4,7 +4,7 @@ import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ActionLogDetailsDialog } from './ActionLogDetailsDialog'
 import { Undo2, RotateCcw } from 'lucide-react'
@@ -91,47 +91,39 @@ export function AuditLogsActions({
     if (!token) return
     setUndoingToken(token)
     try {
-      const res = await apiFetch('/api/audit_logs/audit-logs/actions/undo', {
+      await apiCallOrThrow('/api/audit_logs/audit-logs/actions/undo', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ undoToken: token }),
-      })
-      if (!res.ok) {
-        const message = await res.text().catch(() => null)
-        throw new Error(message || 'Undo failed')
-      }
+      }, { errorMessage: t('audit_logs.error.undo') })
       markUndoSuccess(token)
       await onRefresh()
     } catch (err) {
-      console.error('Undo failed', err)
+      console.error('audit_logs.actions.undo', err)
       onUndoError?.()
     } finally {
       setUndoingToken(null)
     }
-  }, [onRefresh, onUndoError])
+  }, [onRefresh, onUndoError, t])
 
   const handleRedo = React.useCallback(async (logId: string | null) => {
     if (!logId) return
     setRedoingId(logId)
     try {
-      const res = await apiFetch('/api/audit_logs/audit-logs/actions/redo', {
+      await apiCallOrThrow('/api/audit_logs/audit-logs/actions/redo', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ logId }),
-      })
-      if (!res.ok) {
-        const message = await res.text().catch(() => null)
-        throw new Error(message || 'Redo failed')
-      }
+      }, { errorMessage: t('audit_logs.error.redo') })
       markRedoConsumed(logId)
       await onRefresh()
     } catch (err) {
-      console.error('Redo failed', err)
+      console.error('audit_logs.actions.redo', err)
       onRedoError?.()
     } finally {
       setRedoingId(null)
     }
-  }, [onRefresh, onRedoError])
+  }, [onRefresh, onRedoError, t])
 
   const columns = React.useMemo<ColumnDef<ActionLogItem, any>[]>(() => [
     {
