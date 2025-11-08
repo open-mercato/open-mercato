@@ -1,6 +1,6 @@
 "use client"
 
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { QueryClient } from '@tanstack/react-query'
 import * as React from 'react'
 
@@ -24,15 +24,11 @@ const cache = new Map<string, { promise: Promise<CurrencyDictionaryPayload>; cli
 const CACHE_KEY = JSON.stringify(QUERY_KEY)
 
 async function fetchCurrencyDictionary(): Promise<CurrencyDictionaryPayload> {
-  const res = await apiFetch('/api/customers/dictionaries/currency')
-  const payload = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const message =
-      typeof payload?.error === 'string'
-        ? payload.error
-        : 'Failed to load currency dictionary.'
-    throw new Error(message)
-  }
+  const payload = await readApiResultOrThrow<Record<string, unknown>>(
+    '/api/customers/dictionaries/currency',
+    undefined,
+    { errorMessage: 'Failed to load currency dictionary.' },
+  )
   const id = typeof payload?.id === 'string' ? payload.id : ''
   if (!id) {
     throw new Error('Currency dictionary is not configured yet.')

@@ -11,7 +11,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -138,20 +138,11 @@ export function CustomerTodosTable(): React.JSX.Element {
   const { data, isLoading, error, refetch, isFetching } = useQuery<CustomerTodosResponse>({
     queryKey: ['customers-todos', params, scopeVersion],
     queryFn: async () => {
-      const response = await apiFetch(`/api/customers/todos?${params}`)
-      if (!response.ok) {
-        let message = t('customers.workPlan.customerTodos.table.error.load')
-        try {
-          const parsed = await response.json()
-          if (parsed?.error && typeof parsed.error === 'string') {
-            message = parsed.error
-          }
-        } catch {
-          // ignore parse errors
-        }
-        throw new Error(message)
-      }
-      return response.json() as Promise<CustomerTodosResponse>
+      return readApiResultOrThrow<CustomerTodosResponse>(
+        `/api/customers/todos?${params}`,
+        undefined,
+        { errorMessage: t('customers.workPlan.customerTodos.table.error.load') },
+      )
     },
   })
 

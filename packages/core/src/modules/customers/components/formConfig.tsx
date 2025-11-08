@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import type {
@@ -461,14 +461,11 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   const loadOptions = React.useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiFetch('/api/customers/companies?pageSize=100&sortField=name&sortDir=asc')
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message = typeof payload?.error === 'string' ? payload.error : labels.errorLoad
-        flash(message, 'error')
-        setOptions([])
-        return
-      }
+      const payload = await readApiResultOrThrow<{ items?: unknown[] }>(
+        '/api/customers/companies?pageSize=100&sortField=name&sortDir=asc',
+        undefined,
+        { errorMessage: labels.errorLoad },
+      )
       const items = Array.isArray(payload?.items) ? payload.items : []
       const normalized = items
         .map((item: unknown) => normalizeCompanyOption(item))
@@ -477,8 +474,9 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
           a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
         )
       setOptions(normalized)
-    } catch {
-      flash(labels.errorLoad, 'error')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : labels.errorLoad
+      flash(message, 'error')
       setOptions([])
     } finally {
       setLoading(false)
@@ -507,17 +505,16 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
     }
     setSaving(true)
     try {
-      const res = await apiFetch('/api/customers/companies', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ displayName: trimmed }),
-      })
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message = typeof payload?.error === 'string' ? payload.error : labels.errorSave
-        flash(message, 'error')
-        return
-      }
+      const call = await apiCallOrThrow<{ id?: string; entityId?: string }>(
+        '/api/customers/companies',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ displayName: trimmed }),
+        },
+        { errorMessage: labels.errorSave },
+      )
+      const payload = call.result ?? {}
       const createdId =
         typeof payload?.id === 'string'
           ? payload.id
@@ -531,8 +528,9 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
       setDialogOpen(false)
       setNewCompany('')
       setFormError(null)
-    } catch {
-      flash(labels.errorSave, 'error')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : labels.errorSave
+      flash(message, 'error')
     } finally {
       setSaving(false)
     }

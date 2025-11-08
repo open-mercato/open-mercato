@@ -8,7 +8,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -130,10 +130,9 @@ async function fetchPeopleLookup(query?: string): Promise<PersonLookupRecord[]> 
   search.set('pageSize', '20')
   if (query && query.trim().length) search.set('search', query.trim())
   try {
-    const res = await apiFetch(`/api/customers/people?${search.toString()}`)
-    if (!res.ok) return []
-    const data = await res.json().catch(() => ({}))
-    const items = Array.isArray(data?.items) ? data.items : []
+    const call = await apiCall<{ items?: unknown[] }>(`/api/customers/people?${search.toString()}`)
+    if (!call.ok) return []
+    const items = Array.isArray(call.result?.items) ? call.result.items : []
     return items
       .map((item: any) => {
         const id = typeof item?.id === 'string' ? item.id : null
@@ -159,10 +158,9 @@ async function fetchPeopleLookupByIds(ids: string[]): Promise<PersonLookupRecord
       search.set('page', '1')
       search.set('pageSize', '1')
       try {
-        const res = await apiFetch(`/api/customers/people?${search.toString()}`)
-        if (!res.ok) return null
-        const data = await res.json().catch(() => ({}))
-        const items = Array.isArray(data?.items) ? data.items : []
+        const call = await apiCall<{ items?: unknown[] }>(`/api/customers/people?${search.toString()}`)
+        if (!call.ok) return null
+        const items = Array.isArray(call.result?.items) ? call.result.items : []
         const match = items.find((item: any) => typeof item?.id === 'string' && item.id === id)
         if (!match) return null
         const name = typeof match?.display_name === 'string' ? match.display_name : null
@@ -183,10 +181,9 @@ async function fetchCompaniesLookup(query?: string): Promise<CompanyLookupRecord
   search.set('pageSize', '20')
   if (query && query.trim().length) search.set('search', query.trim())
   try {
-    const res = await apiFetch(`/api/customers/companies?${search.toString()}`)
-    if (!res.ok) return []
-    const data = await res.json().catch(() => ({}))
-    const items = Array.isArray(data?.items) ? data.items : []
+    const call = await apiCall<{ items?: unknown[] }>(`/api/customers/companies?${search.toString()}`)
+    if (!call.ok) return []
+    const items = Array.isArray(call.result?.items) ? call.result.items : []
     return items
       .map((item: any) => {
         const id = typeof item?.id === 'string' ? item.id : null
@@ -212,10 +209,9 @@ async function fetchCompaniesLookupByIds(ids: string[]): Promise<CompanyLookupRe
       search.set('page', '1')
       search.set('pageSize', '1')
       try {
-        const res = await apiFetch(`/api/customers/companies?${search.toString()}`)
-        if (!res.ok) return null
-        const data = await res.json().catch(() => ({}))
-        const items = Array.isArray(data?.items) ? data.items : []
+        const call = await apiCall<{ items?: unknown[] }>(`/api/customers/companies?${search.toString()}`)
+        if (!call.ok) return null
+        const items = Array.isArray(call.result?.items) ? call.result.items : []
         const match = items.find((item: any) => typeof item?.id === 'string' && item.id === id)
         if (!match) return null
         const name = typeof match?.display_name === 'string' ? match.display_name : null
@@ -610,20 +606,19 @@ export default function CustomersDealsPage() {
       setIsLoading(true)
       setCacheStatus(null)
       try {
-        const res = await apiFetch(`/api/customers/deals?${queryParams}`)
-        const rawCacheStatus = res.headers.get('x-om-cache')
+        const call = await apiCall<DealsResponse>(`/api/customers/deals?${queryParams}`)
+        const rawCacheStatus = call.response.headers?.get?.('x-om-cache')
         const normalizedCacheStatus = rawCacheStatus === 'hit' || rawCacheStatus === 'miss' ? rawCacheStatus : null
-        if (!res.ok) {
-          const details = await res.json().catch(() => ({}))
+        if (!call.ok) {
           const message =
-            typeof details?.error === 'string'
-              ? details.error
+            typeof call.result?.error === 'string'
+              ? call.result.error
               : t('customers.deals.list.error.load')
           flash(message, 'error')
           if (!cancelled) setCacheStatus(null)
           return
         }
-        const payload: DealsResponse = await res.json().catch(() => ({}))
+        const payload = call.result ?? {}
         if (cancelled) return
         setCacheStatus(normalizedCacheStatus)
         const items = Array.isArray(payload.items) ? payload.items : []

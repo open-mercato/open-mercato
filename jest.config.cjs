@@ -28,5 +28,6 @@ module.exports = {
   },
   testMatch: ['**/__tests__/**/*.test.(ts|tsx)'],
   setupFiles: ['<rootDir>/jest.setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/jest.dom.setup.ts'],
   collectCoverageFrom: ['src/**/*.(ts|tsx)', '!src/modules/**/migrations/**'],
 }
