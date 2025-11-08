@@ -36,7 +36,8 @@ describe('OrganizationSelect', () => {
     )
 
     expect(screen.getByRole('option', { name: 'All organizations' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /Org 1/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Org 1' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '↳ Org 1 / A' })).toBeInTheDocument()
   })
 
   it('fetches nodes on mount when not provided', async () => {
@@ -44,7 +45,7 @@ describe('OrganizationSelect', () => {
     renderWithProviders(<OrganizationSelect value="" />, { dict })
 
     await waitFor(() => {
-      expect(screen.getByRole('option', { name: /Org 1/ })).toBeInTheDocument()
+      expect(screen.getByRole('option', { name: 'Org 1' })).toBeInTheDocument()
     })
   })
 

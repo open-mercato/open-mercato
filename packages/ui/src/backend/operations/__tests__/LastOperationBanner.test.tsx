@@ -35,6 +35,8 @@ const mockOperation = {
   undoToken: 'token-123',
 }
 
+const createMockResponse = (status: number): Response => ({ status } as Response)
+
 const dict = {
   'audit_logs.banner.last_operation': 'Last operation',
   'audit_logs.banner.undo': 'Undo',
@@ -68,7 +70,7 @@ describe('LastOperationBanner', () => {
       ok: true,
       status: 200,
       result: {},
-      response: new Response(null, { status: 200 }),
+      response: createMockResponse(200),
     })
 
     renderWithProviders(<LastOperationBanner />, { dict })
@@ -90,7 +92,7 @@ describe('LastOperationBanner', () => {
       ok: false,
       status: 500,
       result: { error: 'failed' },
-      response: new Response('failed', { status: 500 }),
+      response: createMockResponse(500),
     })
 
     renderWithProviders(<LastOperationBanner />, { dict })

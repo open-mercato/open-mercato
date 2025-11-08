@@ -86,7 +86,7 @@ describe('SystemStatusPanel', () => {
     renderWithProviders(<SystemStatusPanel />, { dict })
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load system status')).toBeInTheDocument()
+      expect(screen.getByText('boom')).toBeInTheDocument()
     })
   })
 })

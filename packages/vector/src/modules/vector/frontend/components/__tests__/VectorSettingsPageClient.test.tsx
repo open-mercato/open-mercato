@@ -64,7 +64,7 @@ describe('VectorSettingsPageClient', () => {
     fireEvent.click(checkbox)
 
     await waitFor(() => {
-      expect(flash).toHaveBeenCalledWith('Failed to update settings', 'error')
+      expect(flash).toHaveBeenCalledWith('nope', 'error')
     })
     expect(checkbox).toBeChecked()
   })

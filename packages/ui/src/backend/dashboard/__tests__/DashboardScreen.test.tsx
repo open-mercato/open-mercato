@@ -25,6 +25,8 @@ jest.mock('next/navigation', () => ({
   }),
 }))
 
+const createMockResponse = (status: number): Response => ({ status } as Response)
+
 const dict = {
   'dashboard.loadError': 'Failed to load dashboard',
   'dashboard.widgets.foo.title': 'Widget Foo',
@@ -75,7 +77,7 @@ describe('DashboardScreen', () => {
       ok: true,
       status: 200,
       result: widgetResponse,
-      response: new Response(null, { status: 200 }),
+      response: createMockResponse(200),
     })
 
     renderWithProviders(<DashboardScreen />, { dict })
@@ -92,7 +94,7 @@ describe('DashboardScreen', () => {
       ok: false,
       status: 500,
       result: null,
-      response: new Response(null, { status: 500 }),
+      response: createMockResponse(500),
     })
 
     renderWithProviders(<DashboardScreen />, { dict })

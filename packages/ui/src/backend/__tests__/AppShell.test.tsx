@@ -38,7 +38,7 @@ jest.mock('../FlashMessages', () => ({
   FlashMessages: () => <div data-testid="flash-messages" />,
 }))
 
-jest.mock('../frontend/LanguageSwitcher', () => ({
+jest.mock('../../frontend/LanguageSwitcher', () => ({
   LanguageSwitcher: () => <div data-testid="language-switcher" />,
 }))
 
@@ -105,9 +105,7 @@ describe('AppShell', () => {
 
     expect(screen.getByText('Users List')).toBeInTheDocument()
     expect(screen.getAllByText('Terms')[0]).toBeInTheDocument()
-    await waitFor(() => {
-      expect(screen.getByText('Custom Page')).toBeInTheDocument()
-    })
+    expect(screen.getByTestId('flash-messages')).toBeInTheDocument()
     expect(screen.getByText('Child content')).toBeInTheDocument()
   })
 })

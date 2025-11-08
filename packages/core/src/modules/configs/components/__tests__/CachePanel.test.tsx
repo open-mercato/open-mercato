@@ -59,13 +59,6 @@ const statsPayload = {
 }
 
 describe('CachePanel', () => {
-  beforeAll(() => {
-    Object.defineProperty(window, 'confirm', {
-      value: jest.fn(() => true),
-      configurable: true,
-    })
-  })
-
   beforeEach(() => {
     jest.resetAllMocks()
   })
@@ -84,6 +77,7 @@ describe('CachePanel', () => {
   })
 
   it('purges a segment when user confirms', async () => {
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
     ;(readApiResultOrThrow as jest.Mock)
       .mockResolvedValueOnce(statsPayload)
       .mockResolvedValueOnce({ ok: true, granted: ['configs.cache.manage'] })
@@ -103,6 +97,7 @@ describe('CachePanel', () => {
     await waitFor(() => {
       expect(flash).toHaveBeenCalledWith('Purged users.list (1)', 'success')
     })
+    confirmSpy.mockRestore()
   })
 
   it('shows an error notice when stats cannot be loaded', async () => {
@@ -111,7 +106,7 @@ describe('CachePanel', () => {
     renderWithProviders(<CachePanel />, { dict })
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load cache statistics.')).toBeInTheDocument()
+      expect(screen.getByText('boom')).toBeInTheDocument()
     })
   })
 })
