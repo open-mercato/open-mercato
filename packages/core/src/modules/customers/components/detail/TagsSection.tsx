@@ -7,7 +7,7 @@ import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { useT } from '@/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { slugifyTagLabel } from '../../lib/detailHelpers'
 
 export type TagOption = {
@@ -46,14 +46,11 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
   const fetchTags = React.useCallback(async (query?: string) => {
     const params = new URLSearchParams({ pageSize: '100' })
     if (query) params.set('search', query)
-    const res = await apiFetch(`/api/customers/tags?${params.toString()}`)
-    const payload = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      const message = typeof payload?.error === 'string'
-        ? payload.error
-        : t('customers.people.detail.tags.loadError', 'Failed to load tags.')
-      throw new Error(message)
-    }
+    const payload = await readApiResultOrThrow<Record<string, unknown>>(
+      `/api/customers/tags?${params.toString()}`,
+      undefined,
+      { errorMessage: t('customers.people.detail.tags.loadError', 'Failed to load tags.') },
+    )
     const items = Array.isArray(payload?.items) ? payload.items : []
     return items
       .map((item: unknown) => {
@@ -127,21 +124,19 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
     if (!trimmed.length) {
       throw new Error(t('customers.people.detail.tags.labelRequired', 'Tag name is required.'))
     }
-    const res = await apiFetch('/api/customers/tags', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        label: trimmed,
-        slug: slugifyTagLabel(trimmed),
-      }),
-    })
-    const payload = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      const message = typeof payload?.error === 'string'
-        ? payload.error
-        : t('customers.people.detail.tags.createError', 'Failed to create tag.')
-      throw new Error(message)
-    }
+    const response = await apiCallOrThrow<Record<string, unknown>>(
+      '/api/customers/tags',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          label: trimmed,
+          slug: slugifyTagLabel(trimmed),
+        }),
+      },
+      { errorMessage: t('customers.people.detail.tags.createError', 'Failed to create tag.'), },
+    )
+    const payload = response.result ?? {}
     const id = typeof payload?.id === 'string' ? payload.id : typeof payload?.tagId === 'string' ? payload.tagId : ''
     if (!id) throw new Error(t('customers.people.detail.tags.createError', 'Failed to create tag.'))
     const color = typeof payload?.color === 'string' && payload.color.trim().length ? payload.color.trim() : null
@@ -150,34 +145,28 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
 
   const assignTag = React.useCallback(async (tagId: string) => {
     if (!entityId) return
-    const res = await apiFetch('/api/customers/tags/assign', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tagId, entityId }),
-    })
-    if (!res.ok) {
-      const payload = await res.json().catch(() => ({}))
-      const message = typeof payload?.error === 'string'
-        ? payload.error
-        : t('customers.people.detail.tags.assignError', 'Failed to assign tag.')
-      throw new Error(message)
-    }
+    await apiCallOrThrow(
+      '/api/customers/tags/assign',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tagId, entityId }),
+      },
+      { errorMessage: t('customers.people.detail.tags.assignError', 'Failed to assign tag.') },
+    )
   }, [entityId, t])
 
   const unassignTag = React.useCallback(async (tagId: string) => {
     if (!entityId) return
-    const res = await apiFetch('/api/customers/tags/unassign', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tagId, entityId }),
-    })
-    if (!res.ok) {
-      const payload = await res.json().catch(() => ({}))
-      const message = typeof payload?.error === 'string'
-        ? payload.error
-        : t('customers.people.detail.tags.unassignError', 'Failed to remove tag.')
-      throw new Error(message)
-    }
+    await apiCallOrThrow(
+      '/api/customers/tags/unassign',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tagId, entityId }),
+      },
+      { errorMessage: t('customers.people.detail.tags.unassignError', 'Failed to remove tag.') },
+    )
   }, [entityId, t])
 
   const handleSave = React.useCallback(async () => {

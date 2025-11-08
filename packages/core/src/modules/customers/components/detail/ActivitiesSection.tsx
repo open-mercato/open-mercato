@@ -6,7 +6,7 @@ import { ArrowUpRightSquare, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -142,24 +142,21 @@ export function ActivitiesSection({
     async (
       input: { value: string; label?: string; color?: string | null; icon?: string | null },
     ): Promise<DictionaryOption> => {
-      const res = await apiFetch('/api/customers/dictionaries/activity-types', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          value: input.value,
-          label: input.label ?? undefined,
-          color: input.color ?? undefined,
-          icon: input.icon ?? undefined,
-        }),
-      })
-      const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>
-      if (!res.ok) {
-        const message =
-          typeof payload.error === 'string'
-            ? payload.error
-            : translate('customers.people.form.dictionary.error', 'Failed to save option')
-        throw new Error(message)
-      }
+      const response = await apiCallOrThrow<Record<string, unknown>>(
+        '/api/customers/dictionaries/activity-types',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            value: input.value,
+            label: input.label ?? undefined,
+            color: input.color ?? undefined,
+            icon: input.icon ?? undefined,
+          }),
+        },
+        { errorMessage: translate('customers.people.form.dictionary.error', 'Failed to save option') },
+      )
+      const payload = response.result ?? {}
       const valueCreated =
         typeof payload.value === 'string' && payload.value.trim().length
           ? payload.value.trim()
@@ -215,15 +212,11 @@ export function ActivitiesSection({
       })
       if (queryEntityId) params.set('entityId', queryEntityId)
       if (queryDealId) params.set('dealId', queryDealId)
-      const res = await apiFetch(`/api/customers/activities?${params.toString()}`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('customers.people.detail.activities.loadError', 'Failed to load activities.')
-        throw new Error(message)
-      }
+      const payload = await readApiResultOrThrow<Record<string, unknown>>(
+        `/api/customers/activities?${params.toString()}`,
+        undefined,
+        { errorMessage: t('customers.people.detail.activities.loadError', 'Failed to load activities.') },
+      )
       const items = Array.isArray(payload?.items) ? (payload.items as ActivitySummary[]) : []
       setActivities(items)
       setLoadError(null)

@@ -6,7 +6,7 @@ import { ArrowUpRightSquare, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -385,15 +385,11 @@ export function DealsSection({
       })
       if (scope.kind === 'person') params.set('personEntityId', scope.entityId)
       if (scope.kind === 'company') params.set('companyEntityId', scope.entityId)
-      const res = await apiFetch(`/api/customers/deals?${params.toString()}`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : translate('customers.people.detail.deals.loadError', 'Failed to load deals.')
-        throw new Error(message)
-      }
+      const payload = await readApiResultOrThrow<Record<string, unknown>>(
+        `/api/customers/deals?${params.toString()}`,
+        undefined,
+        { errorMessage: translate('customers.people.detail.deals.loadError', 'Failed to load deals.') },
+      )
       const rawItems = Array.isArray(payload?.items) ? payload.items : []
       const mapped: NormalizedDeal[] = rawItems.map((item: unknown) => {
         const record = (item && typeof item === 'object') ? (item as Record<string, unknown>) : {}

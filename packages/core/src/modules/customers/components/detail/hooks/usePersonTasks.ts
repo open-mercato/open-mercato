@@ -398,22 +398,16 @@ export function usePersonTasks({
     async (task: TodoLinkSummary) => {
       if (!task.id) throw new Error('Task link id missing')
       setIsMutating(true)
-      try {
-        const response = await apiFetch('/api/customers/todos', {
+    try {
+      await apiCallOrThrow(
+        '/api/customers/todos',
+        {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ id: task.id }),
-        })
-        if (!response.ok) {
-          let message = 'Failed to remove task.'
-          try {
-            const details = await response.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {
-            // ignore parse errors
-          }
-          throw new Error(message)
-        }
+        },
+        { errorMessage: 'Failed to remove task.' },
+      )
         setTasks((prev) => prev.filter((item) => item.id !== task.id))
         setPageInfo((prev) => ({
           page: prev.page,

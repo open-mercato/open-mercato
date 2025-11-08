@@ -9,7 +9,7 @@ import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Trash2 } from '
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { formatDateTime } from './utils'
 import type { CommentSummary, Translator, SectionAction, TabEmptyState } from './types'
 import { ICON_SUGGESTIONS } from '../../lib/dictionaries'
@@ -312,16 +312,11 @@ export function NotesSection({
         const params = new URLSearchParams()
         if (queryEntityId) params.set('entityId', queryEntityId)
         if (queryDealId) params.set('dealId', queryDealId)
-        const res = await apiFetch(`/api/customers/comments?${params.toString()}`)
-        if (!res.ok) {
-          const payload = await res.json().catch(() => ({}))
-          const message =
-            typeof payload?.error === 'string'
-              ? payload.error
-              : t('customers.people.detail.notes.loadError', 'Failed to load notes.')
-          throw new Error(message)
-        }
-        const payload = await res.json().catch(() => ({}))
+        const payload = await readApiResultOrThrow<Record<string, unknown>>(
+          `/api/customers/comments?${params.toString()}`,
+          undefined,
+          { errorMessage: t('customers.people.detail.notes.loadError', 'Failed to load notes.') },
+        )
         if (cancelled) return
         const items = Array.isArray(payload?.items) ? payload.items : []
         const mapped = items.map(mapComment)
@@ -424,26 +419,22 @@ export function NotesSection({
       setIsSubmitting(true)
       pushLoading()
       try {
-        const res = await apiFetch('/api/customers/comments', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            entityId: resolvedEntityId,
-            body,
-            appearanceIcon: icon ?? undefined,
-            appearanceColor: color ?? undefined,
-            dealId: targetDealId ?? undefined,
-          }),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.notes.error')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
-        const responseBody = await res.json().catch(() => ({}))
+        const response = await apiCallOrThrow<Record<string, unknown>>(
+          '/api/customers/comments',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              entityId: resolvedEntityId,
+              body,
+              appearanceIcon: icon ?? undefined,
+              appearanceColor: color ?? undefined,
+              dealId: targetDealId ?? undefined,
+            }),
+          },
+          { errorMessage: t('customers.people.detail.notes.error') },
+        )
+        const responseBody = response.result ?? {}
         setNotes((prev) => {
           const viewerId = viewerUserId ?? null
           const resolvedAuthorId =
@@ -504,19 +495,15 @@ export function NotesSection({
         if (sanitizedBody !== undefined) payload.body = sanitizedBody
         if (sanitizedIcon !== undefined) payload.appearanceIcon = sanitizedIcon
         if (sanitizedColor !== undefined) payload.appearanceColor = sanitizedColor
-        const res = await apiFetch('/api/customers/comments', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.notes.updateError')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
+        await apiCallOrThrow(
+          '/api/customers/comments',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('customers.people.detail.notes.updateError') },
+        )
         setNotes((prev) => {
           const nextComments = prev.map((comment) => {
             if (comment.id !== noteId) return comment
@@ -548,18 +535,14 @@ export function NotesSection({
       setDeletingNoteId(note.id)
       pushLoading()
       try {
-        const res = await apiFetch(`/api/customers/comments?id=${encodeURIComponent(note.id)}`, {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.notes.deleteError', 'Failed to delete note')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
+        await apiCallOrThrow(
+          `/api/customers/comments?id=${encodeURIComponent(note.id)}`,
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+          },
+          { errorMessage: t('customers.people.detail.notes.deleteError', 'Failed to delete note') },
+        )
         setNotes((prev) => prev.filter((existing) => existing.id !== note.id))
         flash(t('customers.people.detail.notes.deleteSuccess', 'Note deleted'), 'success')
       } catch (err) {
