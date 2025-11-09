@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   astToString,
   COMMENT_HEADER,
@@ -18,7 +18,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '..')
 const clientRoot = path.join(repoRoot, 'packages/client')
 const generatedDir = path.join(clientRoot, 'src/generated')
-const jsonOutputPath = path.join(generatedDir, 'openapi.json')
 const typesOutputPath = path.join(generatedDir, 'openapi.types.ts')
 
 async function ensureDir(dir: string) {
@@ -61,36 +60,55 @@ function toComponentName(hint: string, fallbackIndex: number): string {
   return base
 }
 
-function sanitizeOpenApiDocument(doc: any): any {
+const SCHEMA_KEYS = new Set([
+  'type',
+  'properties',
+  'items',
+  'anyOf',
+  'oneOf',
+  'allOf',
+  '$ref',
+  'enum',
+  'format',
+  'not',
+  'additionalProperties',
+  'required',
+  'pattern',
+  'minimum',
+  'maximum',
+])
+
+function looksLikeSchema(value: Record<string, unknown>): boolean {
+  if (typeof value.$ref === 'string') return true
+  for (const key of Object.keys(value)) {
+    if (SCHEMA_KEYS.has(key)) return true
+  }
+  return false
+}
+
+export function sanitizeOpenApiDocument(doc: any): any {
   const schemaNameMap = new Map<object, string>()
   const schemas: Record<string, JsonValue> = doc.components?.schemas ?? {}
   if (!doc.components) doc.components = {}
   doc.components.schemas = schemas
   let counter = Object.keys(schemas).length
 
-  const cloneSchemaValue = (value: any, hint: string): JsonValue => {
-    if (Array.isArray(value)) {
-      return value.map((entry, idx) => cloneSchemaValue(entry, `${hint}_${idx}`)) as JsonValue
+  const cloneContainer = (
+    source: Record<string, any>,
+    hint: string,
+    mode?: 'properties' | 'patternProperties'
+  ): JsonValue => {
+    const clone: Record<string, JsonValue> = {}
+    for (const [key, value] of Object.entries(source)) {
+      const forceSchema = mode === 'properties' || mode === 'patternProperties'
+      clone[key] = cloneSchemaValue(value, `${hint}_${key}`, key, forceSchema)
     }
-    if (isPlainObject(value)) {
-      if (schemaNameMap.has(value)) {
-        const name = schemaNameMap.get(value)!
-        return { $ref: `#/components/schemas/${name}` }
-      }
-      const clone: Record<string, JsonValue> = {}
-      for (const [key, child] of Object.entries(value)) {
-        clone[key] = cloneSchemaValue(child, `${hint}_${key}`)
-      }
-      return clone
-    }
-    return value as JsonValue
+    return clone
   }
 
-  const serializeSchema = (schema: any, hint: string): JsonValue => {
-    if (!schema || typeof schema !== 'object') return schema
-    if (typeof (schema as any).$ref === 'string') return schema
-    if (schemaNameMap.has(schema as object)) {
-      const name = schemaNameMap.get(schema as object)!
+  const serializeSchema = (schema: Record<string, any>, hint: string): JsonValue => {
+    if (schemaNameMap.has(schema)) {
+      const name = schemaNameMap.get(schema)!
       return { $ref: `#/components/schemas/${name}` }
     }
     counter += 1
@@ -100,9 +118,34 @@ function sanitizeOpenApiDocument(doc: any): any {
     while (schemas[name]) {
       name = `${tentativeName}${suffix++}`
     }
-    schemaNameMap.set(schema as object, name)
-    schemas[name] = cloneSchemaValue(schema, hint)
+    schemaNameMap.set(schema, name)
+    schemas[name] = cloneContainer(schema, hint)
     return { $ref: `#/components/schemas/${name}` }
+  }
+
+  const cloneSchemaValue = (
+    value: any,
+    hint: string,
+    parentKey?: string,
+    forceSchema = false
+  ): JsonValue => {
+    if (Array.isArray(value)) {
+      return value.map((entry, idx) => cloneSchemaValue(entry, `${hint}_${idx}`, parentKey, forceSchema)) as JsonValue
+    }
+    if (isPlainObject(value)) {
+      if (typeof value.$ref === 'string') return value
+      if (parentKey === 'properties' || parentKey === 'patternProperties') {
+        return cloneContainer(value, hint, parentKey)
+      }
+      if (parentKey === 'additionalProperties' && Object.keys(value).length) {
+        return serializeSchema(value, hint)
+      }
+      if (forceSchema || looksLikeSchema(value)) {
+        return serializeSchema(value, hint)
+      }
+      return cloneContainer(value, hint)
+    }
+    return value as JsonValue
   }
 
   const traverse = (value: any, hint: string): any => {
@@ -113,7 +156,7 @@ function sanitizeOpenApiDocument(doc: any): any {
     const result: Record<string, unknown> = { ...value }
     for (const [key, child] of Object.entries(result)) {
       if (key === 'schema' && child && typeof child === 'object') {
-        result[key] = serializeSchema(child, `${hint}_${key}`)
+        result[key] = cloneSchemaValue(child, `${hint}_${key}`, key)
       } else {
         result[key] = traverse(child, `${hint}_${key}`)
       }
@@ -135,9 +178,6 @@ async function main() {
     defaultSecurity: ['bearerAuth'],
   })
   const doc = sanitizeOpenApiDocument(rawDoc)
-
-  const jsonSerialized = JSON.stringify(doc, null, 2) + '\n'
-  const wroteJson = await writeIfChanged(jsonOutputPath, jsonSerialized)
 
   const header = '// AUTO-GENERATED by scripts/generate-api-client.ts -- DO NOT EDIT\n'
   const tsOptions: OpenAPITSOptions = {
@@ -180,14 +220,16 @@ async function main() {
   const typeSerialized = `${header}${COMMENT_HEADER}${printed.trimEnd()}\n`
   const wroteTypes = await writeIfChanged(typesOutputPath, typeSerialized)
 
-  if (wroteJson || wroteTypes) {
+  if (wroteTypes) {
     console.log('[api-client] generated OpenAPI artifacts')
   } else {
     console.log('[api-client] OpenAPI artifacts already up to date')
   }
 }
 
-main().catch((error) => {
-  console.error('[api-client] Failed to generate client artifacts:', error)
-  process.exitCode = 1
-})
+if (pathToFileURL(process.argv[1] ?? '').href === import.meta.url) {
+  main().catch((error) => {
+    console.error('[api-client] Failed to generate client artifacts:', error)
+    process.exitCode = 1
+  })
+}
