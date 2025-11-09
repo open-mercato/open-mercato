@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/client",
-  "version": "0.3.1",
+  "version": "0.3.3",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -15,7 +15,9 @@
   },
   "files": [
     "dist",
-    "src/generated"
+    "src/generated",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p ./tsconfig.build.json"
