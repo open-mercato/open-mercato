@@ -1,6 +1,6 @@
 # @open-mercato/client
 
-Typed API client for the Open Mercato platform, generated directly from the monorepo's OpenAPI specification.
+Typed API client for the Open Mercato platform, generated directly from the monorepo's OpenAPI specification. Full product docs live at https://docs.openmercato.com and the hosted API explorer is available at https://demo.openmercato.com/docs/api. Project homepage: https://github.com/open-mercato/open-mercato.
 
 ## Installation
 
@@ -24,6 +24,23 @@ const { data, error } = await client.GET('/customers/customers/people', {
 
 if (error) throw new Error(error.message ?? 'Request failed')
 console.log('people', data?.items)
+```
+
+The call above is fully typed: `data` is inferred from the OpenAPI definition for `/customers/customers/people`. You can also extract the generated type for explicit reuse:
+
+```ts
+import type { operations } from '@open-mercato/client'
+
+type ListPeopleResponse = operations['customers_get_customers_customers_people']['responses']['200']['content']['application/json']
+```
+
+To discover every available operation name, inspect `keyof operations`:
+
+```ts
+import type { operations } from '@open-mercato/client'
+
+type OperationName = keyof operations
+// hover OperationName to see strings like 'auth_get_auth_users', 'customers_post_customers_customers_people', etc.
 ```
 
 ### Base URL resolution
@@ -53,4 +70,3 @@ This script builds the OpenAPI document from enabled modules, normalizes recursi
 3. Tag/commit as needed for release automation.
 
 > The package's `files` entry only ships `dist/` and `src/generated/`, so remember to run `tsc` before publishing.
-

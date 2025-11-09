@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/client",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -19,6 +19,9 @@
   ],
   "scripts": {
     "build": "tsc -p ./tsconfig.build.json"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "openapi-fetch": "^0.15.0"
