@@ -1,4 +1,4 @@
-import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions } from '../types'
+import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -31,7 +31,7 @@ export function createJsonFileStrategy(filePath?: string, options?: { defaultTtl
     try {
       const content = fs.readFileSync(cacheFile, 'utf8')
       return JSON.parse(content) as StorageData
-    } catch (error) {
+    } catch {
       return { entries: {}, tagIndex: {} }
     }
   }
@@ -77,7 +77,7 @@ export function createJsonFileStrategy(filePath?: string, options?: { defaultTtl
     }
   }
 
-  const get = async (key: string, options?: CacheGetOptions): Promise<any | null> => {
+  const get = async (key: string, options?: CacheGetOptions): Promise<CacheValue | null> => {
     const data = readData()
     const entry = data.entries[key]
 
@@ -97,7 +97,7 @@ export function createJsonFileStrategy(filePath?: string, options?: { defaultTtl
     return entry.value
   }
 
-  const set = async (key: string, value: any, options?: CacheSetOptions): Promise<void> => {
+  const set = async (key: string, value: CacheValue, options?: CacheSetOptions): Promise<void> => {
     const data = readData()
 
     // Remove old entry from tag index if it exists
@@ -247,4 +247,3 @@ export function createJsonFileStrategy(filePath?: string, options?: { defaultTtl
     cleanup,
   }
 }
-

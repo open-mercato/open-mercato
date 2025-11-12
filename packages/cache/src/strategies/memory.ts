@@ -1,4 +1,4 @@
-import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions } from '../types'
+import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 
 /**
  * In-memory cache strategy with tag support
@@ -58,7 +58,7 @@ export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheSt
     return regex.test(key)
   }
 
-  const get = async (key: string, options?: CacheGetOptions): Promise<any | null> => {
+  const get = async (key: string, options?: CacheGetOptions): Promise<CacheValue | null> => {
     const entry = store.get(key)
     if (!entry) return null
 
@@ -73,7 +73,7 @@ export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheSt
     return entry.value
   }
 
-  const set = async (key: string, value: any, options?: CacheSetOptions): Promise<void> => {
+  const set = async (key: string, value: CacheValue, options?: CacheSetOptions): Promise<void> => {
     // Remove old entry from tag index if it exists
     const oldEntry = store.get(key)
     if (oldEntry) {
@@ -183,4 +183,3 @@ export function createMemoryStrategy(options?: { defaultTtl?: number }): CacheSt
     cleanup,
   }
 }
-

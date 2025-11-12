@@ -1,4 +1,27 @@
-import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions } from '../types'
+import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
+
+type RedisPipeline = {
+  set(key: string, value: string): RedisPipeline
+  setex(key: string, ttlSeconds: number, value: string): RedisPipeline
+  sadd(key: string, value: string): RedisPipeline
+  srem(key: string, member: string): RedisPipeline
+  del(key: string): RedisPipeline
+  exec(): Promise<unknown>
+}
+
+type RedisClient = {
+  get(key: string): Promise<string | null>
+  set(key: string, value: string): Promise<unknown>
+  setex(key: string, ttlSeconds: number, value: string): Promise<unknown>
+  del(key: string): Promise<unknown>
+  keys(pattern: string): Promise<string[]>
+  smembers(key: string): Promise<string[]>
+  pipeline(): RedisPipeline
+  quit(): Promise<void>
+}
+
+type RedisConstructor = new (url?: string) => RedisClient
+type RedisModule = RedisConstructor | { default: RedisConstructor }
 
 /**
  * Redis cache strategy with tag support
@@ -9,20 +32,20 @@ import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions } from
  * - Sets for tag index: tag:{tag} -> Set of keys
  */
 export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: number }): CacheStrategy {
-  let redis: any = null
+  let redis: RedisClient | null = null
   const defaultTtl = options?.defaultTtl
   const keyPrefix = 'cache:'
   const tagPrefix = 'tag:'
 
-  async function getRedisClient() {
+  async function getRedisClient(): Promise<RedisClient> {
     if (redis) return redis
 
     try {
-      // Try to require ioredis
-      const Redis = require('ioredis')
+      const imported = await import('ioredis') as RedisModule
+      const Redis = typeof imported === 'function' ? imported : imported.default
       redis = new Redis(redisUrl || process.env.REDIS_URL || process.env.CACHE_REDIS_URL || 'redis://localhost:6379')
       return redis
-    } catch (error) {
+    } catch {
       throw new Error('Redis client (ioredis) is required for Redis cache strategy. Install it with: yarn add ioredis')
     }
   }
@@ -49,7 +72,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     return regex.test(key)
   }
 
-  const get = async (key: string, options?: CacheGetOptions): Promise<any | null> => {
+  const get = async (key: string, options?: CacheGetOptions): Promise<CacheValue | null> => {
     const client = await getRedisClient()
     const cacheKey = getCacheKey(key)
     const data = await client.get(cacheKey)
@@ -69,14 +92,14 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
       }
 
       return entry.value
-    } catch (error) {
+    } catch {
       // Invalid JSON, remove it
       await client.del(cacheKey)
       return null
     }
   }
 
-  const set = async (key: string, value: any, options?: CacheSetOptions): Promise<void> => {
+  const set = async (key: string, value: CacheValue, options?: CacheSetOptions): Promise<void> => {
     const client = await getRedisClient()
     const cacheKey = getCacheKey(key)
 
@@ -91,7 +114,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
           pipeline.srem(getTagKey(tag), key)
         }
         await pipeline.exec()
-      } catch (error) {
+      } catch {
         // Ignore parse errors
       }
     }
@@ -144,7 +167,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
         return false
       }
       return true
-    } catch (error) {
+    } catch {
       return false
     }
   }
@@ -171,7 +194,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
 
       await pipeline.exec()
       return true
-    } catch (error) {
+    } catch {
       // Just delete the key if we can't parse it
       await client.del(cacheKey)
       return true
@@ -249,7 +272,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
           if (isExpired(entry)) {
             expired++
           }
-        } catch (error) {
+        } catch {
           // Ignore parse errors
         }
       }
@@ -273,7 +296,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
             await deleteKey(key)
             removed++
           }
-        } catch (error) {
+        } catch {
           // Remove invalid entries
           await client.del(cacheKey)
           removed++
@@ -304,4 +327,3 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     close,
   }
 }
-

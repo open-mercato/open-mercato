@@ -99,7 +99,7 @@ export function AuditLogsActions({
       markUndoSuccess(token)
       await onRefresh()
     } catch (err) {
-      console.error('audit_logs.actions.undo', err)
+      console.error(t('audit_logs.actions.undo'), err)
       onUndoError?.()
     } finally {
       setUndoingToken(null)
@@ -118,7 +118,7 @@ export function AuditLogsActions({
       markRedoConsumed(logId)
       await onRefresh()
     } catch (err) {
-      console.error('audit_logs.actions.redo', err)
+      console.error(t('audit_logs.actions.redo'), err)
       onRedoError?.()
     } finally {
       setRedoingId(null)
