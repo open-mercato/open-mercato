@@ -1,4 +1,9 @@
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+type MutableOpenApiDoc = Record<string, any> & {
+  components?: {
+    schemas?: Record<string, JsonValue>
+  }
+}
 
 function isPlainObject(value: unknown): value is Record<string, any> {
   return typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype
@@ -40,10 +45,11 @@ function looksLikeSchema(value: Record<string, unknown>): boolean {
 }
 
 export function sanitizeOpenApiDocument<T extends Record<string, any>>(doc: T): T {
+  const target = doc as T & MutableOpenApiDoc
   const schemaNameMap = new Map<object, string>()
-  const schemas: Record<string, JsonValue> = doc.components?.schemas ?? {}
-  if (!doc.components) doc.components = {} as T['components']
-  doc.components.schemas = schemas as any
+  const schemas: Record<string, JsonValue> = target.components?.schemas ?? {}
+  if (!target.components) target.components = {}
+  target.components.schemas = schemas
   let counter = Object.keys(schemas).length
 
   const cloneContainer = (
@@ -117,5 +123,5 @@ export function sanitizeOpenApiDocument<T extends Record<string, any>>(doc: T): 
     return result
   }
 
-  return traverse(doc, 'doc')
+  return traverse(target, 'doc') as T
 }

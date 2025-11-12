@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import { createRequestContainer } from '@/lib/di/container'
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
-import { getAuthFromCookies, type AuthContext } from '@/lib/auth/server'
+import { getAuthFromCookies, getAuthFromRequest, type AuthContext } from '@/lib/auth/server'
 import type { QueryEngine, Where, Sort, Page, QueryCustomFieldSource, QueryJoinEdge } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -748,8 +748,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     }
   }
 
-  async function ensureAuth() {
-    const auth = await getAuthFromCookies()
+  async function ensureAuth(request?: Request | null) {
+    const auth = request ? await getAuthFromRequest(request) : await getAuthFromCookies()
     if (!auth) return null
     if (auth.tenantId && !isUuid(auth.tenantId)) return null
     return auth
@@ -757,7 +757,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   async function withCtx(request: Request): Promise<CrudCtx> {
     const container = await createRequestContainer()
-    const rawAuth = await ensureAuth()
+    const rawAuth = await ensureAuth(request)
     let scope: OrganizationScope | null = null
     let selectedOrganizationId: string | null = null
     let organizationIds: string[] | null = null
