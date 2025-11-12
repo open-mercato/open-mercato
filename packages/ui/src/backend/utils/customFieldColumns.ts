@@ -15,11 +15,14 @@ export function applyCustomFieldVisibility<T>(columns: ColumnDef<T, any>[], defs
     const def = byKey.get(cfKey)
     if (!def) return false
     if (!isDefVisible(def, mode)) return false
-    if (!(c as any).header) (c as any).header = def.label || key
+    const currentHeader = (c as any).header
+    const fallbackHeader = typeof currentHeader === 'string' && currentHeader.trim().length ? currentHeader : key
+    const label = def.label && def.label.trim().length ? def.label : fallbackHeader
+    if (currentHeader == null || typeof currentHeader === 'string') {
+      (c as any).header = label
+    }
     const existingMeta = ((c as any).meta || {}) as Record<string, unknown>
-    const nextMeta = Object.assign({}, existingMeta, {
-      label: def.label || (typeof (c as any).header === 'string' ? (c as any).header : key),
-    })
+    const nextMeta = Object.assign({}, existingMeta, { label })
     ;(c as any).meta = nextMeta
     return true
   })

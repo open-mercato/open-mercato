@@ -45,9 +45,10 @@ function buildBaseColumns(t: (key: string, params?: Record<string, string | numb
       meta: { priority: 2 },
       cell: ({ getValue }) => <BooleanIcon value={!!getValue()} />,
     },
-    { accessorKey: 'cf_priority', meta: { priority: 4 } },
+    { accessorKey: 'cf_priority', header: t('example.todos.table.column.priority'), meta: { priority: 4 } },
     {
       accessorKey: 'cf_severity',
+      header: t('example.todos.table.column.severity'),
       cell: ({ getValue }) => {
         const raw = getValue()
         return <EnumBadge value={typeof raw === 'string' ? raw : null} map={severityPreset} />
@@ -56,11 +57,13 @@ function buildBaseColumns(t: (key: string, params?: Record<string, string | numb
     },
     {
       accessorKey: 'cf_blocked',
+      header: t('example.todos.table.column.blocked'),
       meta: { priority: 6 },
       cell: ({ getValue }) => <BooleanIcon value={!!getValue()} />,
     },
     {
       accessorKey: 'cf_labels',
+      header: t('example.todos.table.column.labels'),
       cell: ({ getValue }) => {
         const raw = getValue()
         const vals = Array.isArray(raw) ? raw.map((value) => String(value)) : []
