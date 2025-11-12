@@ -11,7 +11,7 @@ import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend
 import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList, buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { useCustomFieldDefs, type CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -32,6 +32,8 @@ type TodosResponse = {
 type OrganizationsResponse = {
   items: Array<{ id: string; name: string }>
 }
+
+const EMPTY_CUSTOM_FIELD_DEFS: CustomFieldDefDto[] = []
 
 function buildBaseColumns(t: (key: string, params?: Record<string, string | number>) => string): ColumnDef<TodoRow>[] {
   return [
@@ -118,9 +120,12 @@ export default function TodosTable() {
     return params.toString()
   }, [page, sorting, title, values])
 
-  const { data: cfDefs = [] } = useCustomFieldDefs('example:todo', {
+  const { data: rawCfDefs } = useCustomFieldDefs('example:todo', {
     keyExtras: [scopeVersion],
   })
+  const cfDefs = rawCfDefs ?? EMPTY_CUSTOM_FIELD_DEFS
+
+  const [columns, setColumns] = React.useState<ColumnDef<TodoRow>[]>([])
 
   const computedColumns = React.useMemo(() => {
     const base = buildBaseColumns(t)
@@ -128,8 +133,13 @@ export default function TodosTable() {
     return applyCustomFieldVisibility(base, cfDefs)
   }, [cfDefs, t])
 
+  React.useEffect(() => {
+    setColumns(computedColumns)
+  }, [computedColumns])
+
   const viewExportColumns = React.useMemo(() => {
-    return computedColumns
+    const sourceColumns = columns.length ? columns : computedColumns
+    return sourceColumns
       .map((col) => {
         const accessorKey = (col as any).accessorKey
         if (!accessorKey || typeof accessorKey !== 'string') return null
@@ -142,7 +152,7 @@ export default function TodosTable() {
         return { field: accessorKey, header }
       })
       .filter((col): col is { field: string; header: string } => !!col)
-  }, [computedColumns])
+  }, [columns, computedColumns])
 
   const fullExportParams = React.useMemo(() => {
     const params: Record<string, string> = { exportScope: 'full', all: 'true' }
@@ -154,7 +164,7 @@ export default function TodosTable() {
     return params
   }, [sorting])
 
-  const effectiveColumns = computedColumns
+  const effectiveColumns = columns.length ? columns : computedColumns
 
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
     queryKey: ['todos', queryParams, scopeVersion],

@@ -113,6 +113,7 @@ export function useCustomFieldDefs<TData = CustomFieldDefDto[]>(
     staleTime,
     gcTime,
     keyExtras,
+    fetchImpl,
   } = options
   const normalizedIds = React.useMemo(() => normalizeEntityIds(entityIds), [entityIds])
   const idsSignature = React.useMemo(() => JSON.stringify(normalizedIds), [normalizedIds])
