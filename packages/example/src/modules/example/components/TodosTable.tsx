@@ -122,20 +122,14 @@ export default function TodosTable() {
     keyExtras: [scopeVersion],
   })
 
-  const [columns, setColumns] = React.useState<ColumnDef<TodoRow>[]>([])
   const computedColumns = React.useMemo(() => {
     const base = buildBaseColumns(t)
     if (!cfDefs.length) return base
     return applyCustomFieldVisibility(base, cfDefs)
   }, [cfDefs, t])
 
-  React.useEffect(() => {
-    setColumns(computedColumns)
-  }, [computedColumns])
-
   const viewExportColumns = React.useMemo(() => {
-    const sourceColumns = columns.length ? columns : computedColumns
-    return sourceColumns
+    return computedColumns
       .map((col) => {
         const accessorKey = (col as any).accessorKey
         if (!accessorKey || typeof accessorKey !== 'string') return null
@@ -148,7 +142,7 @@ export default function TodosTable() {
         return { field: accessorKey, header }
       })
       .filter((col): col is { field: string; header: string } => !!col)
-  }, [columns, computedColumns])
+  }, [computedColumns])
 
   const fullExportParams = React.useMemo(() => {
     const params: Record<string, string> = { exportScope: 'full', all: 'true' }
@@ -160,7 +154,7 @@ export default function TodosTable() {
     return params
   }, [sorting])
 
-  const effectiveColumns = columns.length ? columns : computedColumns
+  const effectiveColumns = computedColumns
 
   const { data: todosData, isLoading, error } = useQuery<TodosResponse>({
     queryKey: ['todos', queryParams, scopeVersion],
