@@ -28,6 +28,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   buildCollectionTags,
   buildRecordTag,
+  canonicalizeResourceTag,
   debugCrudCache,
   deriveResourceFromCommandId,
   expandResourceAliases,
@@ -345,20 +346,12 @@ function resolveResourceAliasesList(
   opts: CrudFactoryOptions<any, any, any>,
   ormEntityName: string | undefined
 ): { primary: string; aliases: string[] } {
-  const aliases: string[] = []
-  const eventsResource = opts.events?.module && opts.events?.entity
-    ? `${opts.events.module}.${opts.events.entity}`
-    : null
-  if (eventsResource) aliases.push(eventsResource)
-
+  const eventsResource =
+    opts.events?.module && opts.events?.entity ? `${opts.events.module}.${opts.events.entity}` : null
   const commandResource = deriveResourceFromActions(opts.actions)
-  if (commandResource && !aliases.includes(commandResource)) aliases.push(commandResource)
-
-  if (ormEntityName && !aliases.includes(ormEntityName)) aliases.push(ormEntityName)
-
-  if (!aliases.length) aliases.push('resource')
-
-  return { primary: aliases[0], aliases }
+  const rawCandidate = eventsResource ?? commandResource ?? ormEntityName ?? 'resource'
+  const primary = canonicalizeResourceTag(rawCandidate) ?? 'resource'
+  return { primary, aliases: [] }
 }
 
 function mergeCommandMetadata(base: CommandLogMetadata, override: CommandLogMetadata | null | undefined): CommandLogMetadata {
