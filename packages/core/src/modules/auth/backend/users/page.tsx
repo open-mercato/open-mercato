@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { buildOrganizationTreeOptions, formatOrganizationTreeLabel, type OrganizationTreeNode } from '@open-mercato/core/modules/directory/lib/tree'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@/lib/i18n/context'
 
 type Row = {
   id: string
@@ -116,6 +117,7 @@ export default function UsersListPage() {
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
+  const t = useT()
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'email', desc: false }])
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
@@ -304,7 +306,7 @@ export default function UsersListPage() {
         `/api/auth/users?${params}`,
       )
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to load users')
+        await raiseCrudError(call.response, t('auth.users.list.error.load', 'Failed to load users'))
       }
       return call.result ?? { items: [], total: 0, totalPages: 1 }
     },
@@ -337,18 +339,19 @@ export default function UsersListPage() {
 
   const handleDelete = React.useCallback(async (row: Row) => {
     if (!window.confirm(`Delete user "${row.email}"?`)) return
+    const deleteErrorMessage = t('auth.users.list.error.delete', 'Failed to delete user')
     try {
       const call = await apiCall(`/api/auth/users?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to delete user')
+        await raiseCrudError(call.response, deleteErrorMessage)
       }
-      flash('User deleted', 'success')
+      flash(t('auth.users.flash.deleted', 'User deleted'), 'success')
       await queryClient.invalidateQueries({ queryKey: ['users'] })
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete user'
+      const message = error instanceof Error ? error.message : deleteErrorMessage
       flash(message, 'error')
     }
-  }, [queryClient])
+  }, [queryClient, t])
 
   return (
     <Page>

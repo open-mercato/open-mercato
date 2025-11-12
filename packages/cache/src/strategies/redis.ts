@@ -1,4 +1,5 @@
 import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
+import { CacheDependencyUnavailableError } from '../errors'
 
 type RedisPipeline = {
   set(key: string, value: string): RedisPipeline
@@ -45,8 +46,8 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
       const Redis = typeof imported === 'function' ? imported : imported.default
       redis = new Redis(redisUrl || process.env.REDIS_URL || process.env.CACHE_REDIS_URL || 'redis://localhost:6379')
       return redis
-    } catch {
-      throw new Error('Redis client (ioredis) is required for Redis cache strategy. Install it with: yarn add ioredis')
+    } catch (error) {
+      throw new CacheDependencyUnavailableError('redis', 'ioredis', error)
     }
   }
 

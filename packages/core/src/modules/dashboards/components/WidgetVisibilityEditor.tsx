@@ -48,6 +48,7 @@ const EMPTY: string[] = []
 
 export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
   const t = useT()
+  const { kind, targetId, tenantId, organizationId } = props
   const [catalog, setCatalog] = React.useState<WidgetCatalogItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
@@ -83,9 +84,9 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
   }, [t])
 
   const loadRoleData = React.useCallback(async () => {
-    const params = new URLSearchParams({ roleId: props.targetId })
-    if (props.tenantId) params.set('tenantId', props.tenantId)
-    if (props.organizationId) params.set('organizationId', props.organizationId)
+    const params = new URLSearchParams({ roleId: targetId })
+    if (tenantId) params.set('tenantId', tenantId)
+    if (organizationId) params.set('organizationId', organizationId)
     const data = await readApiResultOrThrow<RoleResponse>(
       `/api/dashboards/roles/widgets?${params.toString()}`,
       undefined,
@@ -97,12 +98,12 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
     setMode('override')
     setOriginalMode('override')
     setEffective(ids)
-  }, [props, t])
+  }, [organizationId, targetId, tenantId, t])
 
   const loadUserData = React.useCallback(async () => {
-    const params = new URLSearchParams({ userId: props.targetId })
-    if (props.tenantId) params.set('tenantId', props.tenantId)
-    if (props.organizationId) params.set('organizationId', props.organizationId)
+    const params = new URLSearchParams({ userId: targetId })
+    if (tenantId) params.set('tenantId', tenantId)
+    if (organizationId) params.set('organizationId', organizationId)
     const data = await readApiResultOrThrow<UserResponse>(
       `/api/dashboards/users/widgets?${params.toString()}`,
       undefined,
@@ -114,7 +115,7 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
     setMode(data.mode || 'inherit')
     setOriginalMode(data.mode || 'inherit')
     setEffective(Array.isArray(data.effectiveWidgetIds) ? data.effectiveWidgetIds : [])
-  }, [props, t])
+  }, [organizationId, targetId, tenantId, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -123,7 +124,7 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
       setError(null)
       try {
         await loadCatalog()
-        if (props.kind === 'role') await loadRoleData()
+        if (kind === 'role') await loadRoleData()
         else await loadUserData()
       } catch (err) {
         console.error('Failed to load widget visibility data', err)
@@ -136,7 +137,7 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
     }
     load()
     return () => { cancelled = true }
-  }, [loadCatalog, loadRoleData, loadUserData, props.kind, t])
+  }, [kind, loadCatalog, loadRoleData, loadUserData, t])
 
   const toggle = React.useCallback((id: string) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]))
@@ -152,11 +153,11 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
     setError(null)
     try {
       const saveError = t('dashboards.widgets.error.save', 'Unable to save dashboard widget preferences.')
-      if (props.kind === 'role') {
+      if (kind === 'role') {
         const payload = {
-          roleId: props.targetId,
-          tenantId: props.tenantId ?? null,
-          organizationId: props.organizationId ?? null,
+          roleId: targetId,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
           widgetIds: selected,
         }
         await apiCallOrThrow('/api/dashboards/roles/widgets', {
@@ -169,9 +170,9 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
         setEffective(selected)
       } else {
         const payload = {
-          userId: props.targetId,
-          tenantId: props.tenantId ?? null,
-          organizationId: props.organizationId ?? null,
+          userId: targetId,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
           mode,
           widgetIds: selected,
         }
@@ -183,7 +184,7 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
         setOriginal(selected)
         if (mode === 'inherit') {
           const refreshed = await readApiResultOrThrow<UserResponse>(
-            `/api/dashboards/users/widgets?userId=${encodeURIComponent(props.targetId)}`,
+            `/api/dashboards/users/widgets?userId=${encodeURIComponent(targetId)}`,
             undefined,
             { errorMessage: saveError },
           )
@@ -201,16 +202,16 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
     } finally {
       setSaving(false)
     }
-  }, [mode, props, selected, t])
+  }, [kind, mode, organizationId, selected, t, targetId, tenantId])
 
   const dirty = React.useMemo(() => {
-    if (props.kind === 'user') {
+    if (kind === 'user') {
       if (mode !== originalMode) return true
       if (mode === 'override') return selected.join('|') !== original.join('|')
       return false
     }
     return selected.join('|') !== original.join('|')
-  }, [mode, original, originalMode, props.kind, selected])
+  }, [kind, mode, original, originalMode, selected])
 
   if (loading) {
     return (
@@ -230,7 +231,7 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
       )}
 
-      {props.kind === 'user' && (
+      {kind === 'user' && (
         <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3 py-2">
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -255,13 +256,13 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
         </div>
       )}
 
-      {props.kind === 'user' && mode === 'inherit' && (
+      {kind === 'user' && mode === 'inherit' && (
         <div className="rounded-md border border-muted bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
           {t('dashboards.widgets.mode.hint', 'This user currently inherits widgets from their assigned roles. Switch to override to customize.')}
         </div>
       )}
 
-      {(props.kind === 'role' || mode === 'override') && (
+      {(kind === 'role' || mode === 'override') && (
         <div className="space-y-3">
           {catalog.map((widget) => (
             <label key={widget.id} className="flex items-start gap-3 rounded-md border px-3 py-2 hover:border-primary/40">
@@ -280,7 +281,7 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
         </div>
       )}
 
-      {props.kind === 'user' && effective.length > 0 && (
+      {kind === 'user' && effective.length > 0 && (
         <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           Effective widgets: {effective.map((id) => catalog.find((meta) => meta.id === id)?.title || id).join(', ')}
         </div>

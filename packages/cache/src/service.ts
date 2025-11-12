@@ -5,6 +5,7 @@ import { createSqliteStrategy } from './strategies/sqlite'
 import { createJsonFileStrategy } from './strategies/jsonfile'
 import { getCurrentCacheTenant } from './tenantContext'
 import { createHash } from 'node:crypto'
+import { CacheDependencyUnavailableError } from './errors'
 
 function normalizeTenantKey(raw: string | null | undefined): string {
   const value = typeof raw === 'string' ? raw.trim() : ''
@@ -228,28 +229,10 @@ export function createCacheService(options?: CacheServiceOptions): CacheStrategy
   const parsedEnvTtl = envTtl ? Number.parseInt(envTtl, 10) : undefined
   const defaultTtl = options?.defaultTtl ?? (typeof parsedEnvTtl === 'number' && Number.isFinite(parsedEnvTtl) ? parsedEnvTtl : undefined)
 
-  let strategy: CacheStrategy
+  const baseStrategy = createStrategyForType(strategyType, options, defaultTtl)
+  const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl)
 
-  switch (strategyType) {
-    case 'redis':
-      strategy = createRedisStrategy(options?.redisUrl, { defaultTtl })
-      break
-
-    case 'sqlite':
-      strategy = createSqliteStrategy(options?.sqlitePath, { defaultTtl })
-      break
-
-    case 'jsonfile':
-      strategy = createJsonFileStrategy(options?.jsonFilePath, { defaultTtl })
-      break
-
-    case 'memory':
-    default:
-      strategy = createMemoryStrategy({ defaultTtl })
-      break
-  }
-
-  return createTenantAwareWrapper(strategy)
+  return createTenantAwareWrapper(resilientStrategy)
 }
 
 /**
@@ -306,5 +289,79 @@ export class CacheService implements CacheStrategy {
     if (this.strategy.close) {
       return this.strategy.close()
     }
+  }
+}
+
+function createStrategyForType(strategyType: CacheStrategyName, options?: CacheServiceOptions, defaultTtl?: number): CacheStrategy {
+  switch (strategyType) {
+    case 'redis':
+      return createRedisStrategy(options?.redisUrl, { defaultTtl })
+    case 'sqlite':
+      return createSqliteStrategy(options?.sqlitePath, { defaultTtl })
+    case 'jsonfile':
+      return createJsonFileStrategy(options?.jsonFilePath, { defaultTtl })
+    case 'memory':
+    default:
+      return createMemoryStrategy({ defaultTtl })
+  }
+}
+
+function withDependencyFallback(strategy: CacheStrategy, strategyType: CacheStrategyName, defaultTtl?: number): CacheStrategy {
+  if (strategyType === 'memory') return strategy
+
+  let activeStrategy = strategy
+  let fallbackStrategy: CacheStrategy | null = null
+  let warned = false
+
+  const ensureFallback = (error: CacheDependencyUnavailableError) => {
+    if (!fallbackStrategy) {
+      fallbackStrategy = createMemoryStrategy({ defaultTtl })
+    }
+    if (!warned) {
+      const dependencyMessage = error.dependency
+        ? ` (missing dependency: ${error.dependency})`
+        : ''
+      console.warn(`[cache] ${error.strategy} strategy unavailable${dependencyMessage}. Falling back to memory strategy.`)
+      warned = true
+    }
+    activeStrategy = fallbackStrategy
+  }
+
+  const wrapMethod = <K extends keyof CacheStrategy>(method: K): CacheStrategy[K] => {
+    const handler = async (...args: Parameters<NonNullable<CacheStrategy[K]>>) => {
+      const fn = activeStrategy[method] as ((...methodArgs: Parameters<NonNullable<CacheStrategy[K]>>) => ReturnType<NonNullable<CacheStrategy[K]>>) | undefined
+      if (!fn) {
+        return undefined as Awaited<ReturnType<NonNullable<CacheStrategy[K]>>>
+      }
+
+      try {
+        return await fn(...args)
+      } catch (error) {
+        if (error instanceof CacheDependencyUnavailableError) {
+          ensureFallback(error)
+          const fallbackFn = activeStrategy[method] as ((...methodArgs: Parameters<NonNullable<CacheStrategy[K]>>) => ReturnType<NonNullable<CacheStrategy[K]>>) | undefined
+          if (!fallbackFn) {
+            return undefined as Awaited<ReturnType<NonNullable<CacheStrategy[K]>>>
+          }
+          return fallbackFn(...args)
+        }
+        throw error
+      }
+    }
+
+    return handler as CacheStrategy[K]
+  }
+
+  return {
+    get: wrapMethod('get'),
+    set: wrapMethod('set'),
+    has: wrapMethod('has'),
+    delete: wrapMethod('delete'),
+    deleteByTags: wrapMethod('deleteByTags'),
+    clear: wrapMethod('clear'),
+    keys: wrapMethod('keys'),
+    stats: wrapMethod('stats'),
+    cleanup: typeof strategy.cleanup === 'function' ? wrapMethod('cleanup') : undefined,
+    close: typeof strategy.close === 'function' ? wrapMethod('close') : undefined,
   }
 }

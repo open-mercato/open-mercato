@@ -80,6 +80,8 @@
   "auth.users.form.errors.load": "Failed to load user data",
   "auth.users.form.errors.aclUpdate": "Failed to update user access control",
   "auth.users.form.errors.delete": "Failed to delete user",
+  "auth.users.list.error.load": "Failed to load users",
+  "auth.users.list.error.delete": "Failed to delete user",
   "auth.users.flash.created": "User created",
   "auth.users.flash.updated": "User saved",
   "auth.users.flash.deleted": "User deleted",

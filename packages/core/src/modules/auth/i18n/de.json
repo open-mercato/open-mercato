@@ -80,6 +80,8 @@
   "auth.users.form.errors.load": "Benutzerdaten konnten nicht geladen werden",
   "auth.users.form.errors.aclUpdate": "Aktualisierung der Benutzerberechtigungen fehlgeschlagen",
   "auth.users.form.errors.delete": "Benutzer konnte nicht gelöscht werden",
+  "auth.users.list.error.load": "Benutzer konnten nicht geladen werden",
+  "auth.users.list.error.delete": "Benutzer konnte nicht gelöscht werden",
   "auth.users.flash.created": "Benutzer erstellt",
   "auth.users.flash.updated": "Benutzer gespeichert",
   "auth.users.flash.deleted": "Benutzer gelöscht",

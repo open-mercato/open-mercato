@@ -1,6 +1,7 @@
 import type { CacheStrategy, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import fs from 'node:fs'
 import path from 'node:path'
+import { CacheDependencyUnavailableError } from '../errors'
 
 type SqliteStatement<TResult = unknown> = {
   get(...args: unknown[]): TResult | undefined
@@ -69,8 +70,8 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
       `)
 
       return db
-    } catch {
-      throw new Error('SQLite client (better-sqlite3) is required for SQLite cache strategy. Install it with: yarn add better-sqlite3')
+    } catch (error) {
+      throw new CacheDependencyUnavailableError('sqlite', 'better-sqlite3', error)
     }
   }
 

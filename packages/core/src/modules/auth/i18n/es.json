@@ -80,6 +80,8 @@
   "auth.users.form.errors.load": "No se pudieron cargar los datos del usuario",
   "auth.users.form.errors.aclUpdate": "No se pudo actualizar el control de acceso del usuario",
   "auth.users.form.errors.delete": "No se pudo eliminar el usuario",
+  "auth.users.list.error.load": "No se pudieron cargar los usuarios",
+  "auth.users.list.error.delete": "No se pudo eliminar el usuario",
   "auth.users.flash.created": "Usuario creado",
   "auth.users.flash.updated": "Usuario guardado",
   "auth.users.flash.deleted": "Usuario eliminado",
