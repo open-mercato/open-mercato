@@ -59,7 +59,19 @@ function normalizeToken(raw: string | undefined): string | undefined {
   if (!raw) return undefined
   const trimmed = raw.trim()
   if (!trimmed) return undefined
-  return /^bearer\s/i.test(trimmed) ? trimmed : `Bearer ${trimmed}`
+
+  // Respect callers that already include the auth scheme (e.g., "Bearer", "ApiKey")
+  if (/^(bearer|apikey)\s/i.test(trimmed)) {
+    return trimmed
+  }
+
+  // API keys (omk_xxx.yyy) should use the ApiKey scheme by default
+  if (/^omk_[a-z0-9]+\.[a-z0-9]+$/i.test(trimmed)) {
+    return `ApiKey ${trimmed}`
+  }
+
+  // Fallback to Bearer tokens for everything else
+  return `Bearer ${trimmed}`
 }
 
 export function createOpenMercatoClient(options: OpenMercatoClientOptions = {}): OpenMercatoClient {
