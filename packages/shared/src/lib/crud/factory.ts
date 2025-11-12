@@ -508,7 +508,7 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
   const idField = options.idField || 'id'
   const tenantId = options.tenantId ?? auth.tenantId ?? null
   const organizationId = options.organizationId ?? auth.orgId ?? null
-  const actorUserId = auth.sub ?? null
+  const actorUserId = (auth.keyId ?? auth.sub) ?? null
   const fields = options.fields && options.fields.length ? options.fields : collectFieldNames(items)
   const accessType = options.accessType ?? determineAccessType(options.query, items.length, idField)
 
