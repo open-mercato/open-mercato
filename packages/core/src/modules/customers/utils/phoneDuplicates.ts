@@ -27,12 +27,14 @@ export async function lookupPhoneDuplicate(
       const payload = call.result ?? {}
       const items = Array.isArray(payload?.items) ? payload.items : []
       for (const item of items) {
-        const id = typeof item?.id === 'string' ? item.id : null
+        if (!item || typeof item !== 'object') continue
+        const record = item as { id?: unknown; display_name?: unknown; primary_phone?: unknown }
+        const id = typeof record.id === 'string' ? record.id : null
         if (!id || seen.has(id)) continue
         seen.add(id)
         if (recordId && id === recordId) continue
-        const displayName = typeof item?.display_name === 'string' ? item.display_name : null
-        const phoneRaw = typeof item?.primary_phone === 'string' ? item.primary_phone : ''
+        const displayName = typeof record.display_name === 'string' ? record.display_name : null
+        const phoneRaw = typeof record.primary_phone === 'string' ? record.primary_phone : ''
         const itemDigits = normalizeDigits(phoneRaw)
         if (!displayName || !itemDigits) continue
         if (itemDigits === digits) {

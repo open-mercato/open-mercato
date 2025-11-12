@@ -719,7 +719,7 @@ export function DealsSection({
       setPendingAction({ kind: 'delete', id: deal.id })
       try {
         await deleteCrud('customers/deals', {
-          body: { id: deal.id },
+          id: deal.id,
           errorMessage: translate('customers.people.detail.deals.deleteError', 'Failed to delete deal.'),
         })
         setDeals((prev) => prev.filter((item) => item.id !== deal.id))

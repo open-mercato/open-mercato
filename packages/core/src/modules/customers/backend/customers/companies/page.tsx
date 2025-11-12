@@ -381,7 +381,8 @@ export default function CustomersCompaniesPage() {
         const rawCacheStatus = call.response.headers?.get?.('x-om-cache')
         const normalizedCacheStatus = rawCacheStatus === 'hit' || rawCacheStatus === 'miss' ? rawCacheStatus : null
         if (!call.ok) {
-          const message = typeof call.result?.error === 'string' ? call.result.error : t('customers.companies.list.error.load')
+          const errorPayload = call.result as { error?: string } | undefined
+          const message = typeof errorPayload?.error === 'string' ? errorPayload.error : t('customers.companies.list.error.load')
           flash(message, 'error')
           if (!cancelled) setCacheStatus(null)
           return

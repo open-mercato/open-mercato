@@ -83,7 +83,7 @@ export default function CreateApiKeyPage() {
       component: ({ id, value, setValue }) => (
         <OrganizationSelect
           id={id}
-          value={typeof value === 'string' ? value : value ?? null}
+          value={typeof value === 'string' ? value : null}
           onChange={(next) => setValue(next ?? null)}
           includeEmptyOption
           emptyOptionLabel={t('api_keys.form.organizationPlaceholder')}
@@ -183,7 +183,8 @@ export default function CreateApiKeyPage() {
               if (!created || typeof created.secret !== 'string') {
                 throw createCrudFormError(t('api_keys.form.error.secretMissing'))
               }
-              setCreatedSecret({ secret: created.secret, keyPrefix: created.keyPrefix })
+              const keyPrefix = typeof created.keyPrefix === 'string' ? created.keyPrefix : ''
+              setCreatedSecret({ secret: created.secret, keyPrefix })
               flash(t('api_keys.form.success'), 'success')
             }}
           />

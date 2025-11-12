@@ -35,7 +35,7 @@ async function fetchCurrencyDictionary(): Promise<CurrencyDictionaryPayload> {
   }
   const entriesRaw = Array.isArray(payload?.entries) ? payload.entries : []
   const entries: CurrencyDictionaryEntry[] = entriesRaw
-    .map((entry: any) => {
+    .map((entry: any): CurrencyDictionaryEntry | null => {
       const value = typeof entry?.value === 'string' ? entry.value.trim().toUpperCase() : ''
       const label =
         typeof entry?.label === 'string' && entry.label.trim().length

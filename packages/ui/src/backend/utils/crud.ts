@@ -52,7 +52,7 @@ type CrudRequestExtras<TReturn> = {
 }
 
 export type CrudRequestInit<TReturn> = Omit<RequestInit, 'body' | 'method'> & CrudRequestExtras<TReturn>
-type CrudDeleteOptions<TReturn> = Omit<RequestInit, 'method'> &
+type CrudDeleteOptions<TReturn> = Omit<RequestInit, 'method' | 'body'> &
   CrudRequestExtras<TReturn> & {
     body?: unknown
     id?: string

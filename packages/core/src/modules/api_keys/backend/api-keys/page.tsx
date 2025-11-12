@@ -71,8 +71,8 @@ export default function ApiKeysListPage() {
           { fallback },
         )
         if (!call.ok) {
-          const data = call.result
-          const message = typeof data?.error === 'string' ? data.error : t('api_keys.list.error.loadFailed')
+          const errorPayload = call.result as { error?: string } | undefined
+          const message = typeof errorPayload?.error === 'string' ? errorPayload.error : t('api_keys.list.error.loadFailed')
           flash(message, 'error')
           return
         }
@@ -104,7 +104,8 @@ export default function ApiKeysListPage() {
         { fallback: null },
       )
       if (!call.ok) {
-        const message = typeof call.result?.error === 'string' ? call.result?.error : t('api_keys.list.error.deleteFailed')
+        const errorPayload = call.result as { error?: string } | undefined
+        const message = typeof errorPayload?.error === 'string' ? errorPayload.error : t('api_keys.list.error.deleteFailed')
         flash(message, 'error')
         return
       }

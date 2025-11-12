@@ -70,7 +70,7 @@ async function fetchDirectoryTenants(status: 'all' | 'active' | 'inactive', erro
     undefined,
     { errorMessage, allowNullResult: true },
   )
-  const items = Array.isArray(json.items) ? json.items : []
+  const items = Array.isArray(json?.items) ? json.items : []
   const normalized = items
     .map((item: unknown): TenantRecord | null => {
       if (!item || typeof item !== 'object') return null
@@ -94,7 +94,7 @@ async function fetchTenantsFromOrganizationSwitcher(status: 'all' | 'active' | '
     { errorMessage, allowNullResult: true },
   )
   const json = payload ?? {}
-  const rawTenants = Array.isArray(payload.tenants) ? payload.tenants : []
+  const rawTenants = Array.isArray(json.tenants) ? json.tenants : []
   const sanitized = sanitizeTenantList(rawTenants as TenantRecord[] | null)
   return mergeTenantLists(filterTenantsByStatus(sanitized, status))
 }

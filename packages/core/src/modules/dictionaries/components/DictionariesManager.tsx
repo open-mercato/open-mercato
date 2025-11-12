@@ -47,8 +47,8 @@ export function DictionariesManager() {
         throw new Error(typeof call.result?.error === 'string' ? call.result.error : 'Failed to load dictionaries')
       }
       const resultItems = Array.isArray(call.result?.items) ? call.result!.items : []
-      const list = Array.isArray(resultItems)
-        ? resultItems.map((item: any) => ({
+      const list: DictionarySummary[] = Array.isArray(resultItems)
+        ? resultItems.map((item: any): DictionarySummary => ({
             id: String(item.id),
             key: String(item.key),
             name: String(item.name ?? item.key),

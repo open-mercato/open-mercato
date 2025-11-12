@@ -10,6 +10,18 @@ interface AclData {
   organizations: string[] | null
 }
 
+function isAclData(value: unknown): value is AclData {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Partial<AclData>
+  if (typeof record.isSuperAdmin !== 'boolean') return false
+  if (!Array.isArray(record.features) || record.features.some((feature) => typeof feature !== 'string')) return false
+  if (record.organizations !== null && record.organizations !== undefined) {
+    if (!Array.isArray(record.organizations)) return false
+    if (record.organizations.some((org) => typeof org !== 'string')) return false
+  }
+  return true
+}
+
 export class RbacService {
   private cacheTtlMs: number = 5 * 60 * 1000 // 5 minutes default
   private cache: CacheStrategy | null = null
@@ -80,7 +92,9 @@ export class RbacService {
 
   private async getFromCache(cacheKey: string): Promise<AclData | null> {
     if (!this.cache) return null
-    return await this.cache.get(cacheKey)
+    const cached = await this.cache.get(cacheKey)
+    if (!cached) return null
+    return isAclData(cached) ? cached : null
   }
 
   private async setCache(cacheKey: string, data: AclData, userId: string, scope: { tenantId: string | null; organizationId: string | null }): Promise<void> {

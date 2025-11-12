@@ -43,7 +43,7 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
     })
   }, [tags])
 
-  const fetchTags = React.useCallback(async (query?: string) => {
+  const fetchTags = React.useCallback(async (query?: string): Promise<TagOption[]> => {
     const params = new URLSearchParams({ pageSize: '100' })
     if (query) params.set('search', query)
     const payload = await readApiResultOrThrow<Record<string, unknown>>(
@@ -53,7 +53,7 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
     )
     const items = Array.isArray(payload?.items) ? payload.items : []
     return items
-      .map((item: unknown) => {
+      .map((item: unknown): TagOption | null => {
         if (!item || typeof item !== 'object') return null
         const raw = item as { id?: unknown; tagId?: unknown; label?: unknown; slug?: unknown; color?: unknown }
         const rawId = typeof raw.id === 'string'

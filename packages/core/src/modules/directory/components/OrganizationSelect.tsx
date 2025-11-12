@@ -56,7 +56,7 @@ async function fetchTree(params: { tenantId?: string | null; status?: 'all' | 'a
     undefined,
     { errorMessage, allowNullResult: true },
   )
-  return Array.isArray(json.items) ? (json.items as OrganizationTreeNode[]) : []
+  return Array.isArray(json?.items) ? (json.items as OrganizationTreeNode[]) : []
 }
 
 function normalizeNodes(nodes: OrganizationTreeNode[] | null | undefined): OrganizationTreeNode[] {

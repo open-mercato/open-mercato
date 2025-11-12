@@ -91,21 +91,26 @@ export default function EditRolePage({ params }: { params?: { id?: string } }) {
         label: t('auth.roles.form.field.tenant', 'Tenant'),
         type: 'custom',
         required: true,
-        component: ({ value, setValue }) => (
-          <TenantSelect
-            id="tenantId"
-            value={typeof value === 'string' ? value : value ?? selectedTenantId}
-            onChange={(next) => {
-              const resolved = next ?? null
-              setValue(resolved)
-              setSelectedTenantId(resolved)
-              setAclData({ isSuperAdmin: false, features: [], organizations: null })
-            }}
-            includeEmptyOption
-            className="w-full h-9 rounded border px-2 text-sm"
-            tenants={preloadedTenants}
-          />
-        ),
+        component: ({ value, setValue }) => {
+          const normalizedValue = typeof value === 'string'
+            ? value
+            : (typeof selectedTenantId === 'string' ? selectedTenantId : null)
+          return (
+            <TenantSelect
+              id="tenantId"
+              value={normalizedValue}
+              onChange={(next) => {
+                const resolved = next ?? null
+                setValue(resolved)
+                setSelectedTenantId(resolved)
+                setAclData({ isSuperAdmin: false, features: [], organizations: null })
+              }}
+              includeEmptyOption
+              className="w-full h-9 rounded border px-2 text-sm"
+              tenants={preloadedTenants}
+            />
+          )
+        },
       })
     }
     return list

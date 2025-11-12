@@ -393,7 +393,7 @@ export function ActivitiesSection({
       setPendingAction({ kind: 'delete', id: activity.id })
       try {
         await deleteCrud('customers/activities', {
-          body: { id: activity.id },
+          id: activity.id,
           errorMessage: t('customers.people.detail.activities.deleteError', 'Failed to delete activity.'),
         })
         setActivities((prev) => prev.filter((existing) => existing.id !== activity.id))

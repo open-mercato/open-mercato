@@ -68,6 +68,28 @@ type CompanyLookupRecord = {
   email: string | null
 }
 
+function parsePersonLookupRecord(item: unknown): PersonLookupRecord | null {
+  if (typeof item !== 'object' || item === null) return null
+  const record = item as Record<string, unknown>
+  const id = typeof record.id === 'string' ? record.id : null
+  if (!id || !isUuid(id)) return null
+  const name = typeof record.display_name === 'string' ? record.display_name : null
+  const email = typeof record.primary_email === 'string' ? record.primary_email : null
+  const phone = typeof record.primary_phone === 'string' ? record.primary_phone : null
+  return { id, name, email, phone }
+}
+
+function parseCompanyLookupRecord(item: unknown): CompanyLookupRecord | null {
+  if (typeof item !== 'object' || item === null) return null
+  const record = item as Record<string, unknown>
+  const id = typeof record.id === 'string' ? record.id : null
+  if (!id || !isUuid(id)) return null
+  const name = typeof record.display_name === 'string' ? record.display_name : null
+  const domain = typeof record.primary_domain === 'string' ? record.primary_domain : null
+  const email = typeof record.primary_email === 'string' ? record.primary_email : null
+  return { id, name, domain, email }
+}
+
 type OptionsState = {
   options: FilterOption[]
   idToLabel: Record<string, string>
@@ -134,15 +156,8 @@ async function fetchPeopleLookup(query?: string): Promise<PersonLookupRecord[]> 
     if (!call.ok) return []
     const items = Array.isArray(call.result?.items) ? call.result.items : []
     return items
-      .map((item: any) => {
-        const id = typeof item?.id === 'string' ? item.id : null
-        if (!id || !isUuid(id)) return null
-        const name = typeof item?.display_name === 'string' ? item.display_name : null
-        const email = typeof item?.primary_email === 'string' ? item.primary_email : null
-        const phone = typeof item?.primary_phone === 'string' ? item.primary_phone : null
-        return { id, name, email, phone }
-      })
-      .filter((record: PersonLookupRecord | null): record is PersonLookupRecord => record !== null)
+      .map((item) => parsePersonLookupRecord(item))
+      .filter((record): record is PersonLookupRecord => record !== null)
   } catch {
     return []
   }
@@ -161,12 +176,10 @@ async function fetchPeopleLookupByIds(ids: string[]): Promise<PersonLookupRecord
         const call = await apiCall<{ items?: unknown[] }>(`/api/customers/people?${search.toString()}`)
         if (!call.ok) return null
         const items = Array.isArray(call.result?.items) ? call.result.items : []
-        const match = items.find((item: any) => typeof item?.id === 'string' && item.id === id)
-        if (!match) return null
-        const name = typeof match?.display_name === 'string' ? match.display_name : null
-        const email = typeof match?.primary_email === 'string' ? match.primary_email : null
-        const phone = typeof match?.primary_phone === 'string' ? match.primary_phone : null
-        return { id, name, email, phone }
+        const match = items
+          .map((item) => parsePersonLookupRecord(item))
+          .find((record) => record?.id === id)
+        return match ?? null
       } catch {
         return null
       }
@@ -185,15 +198,8 @@ async function fetchCompaniesLookup(query?: string): Promise<CompanyLookupRecord
     if (!call.ok) return []
     const items = Array.isArray(call.result?.items) ? call.result.items : []
     return items
-      .map((item: any) => {
-        const id = typeof item?.id === 'string' ? item.id : null
-        if (!id || !isUuid(id)) return null
-        const name = typeof item?.display_name === 'string' ? item.display_name : null
-        const domain = typeof item?.primary_domain === 'string' ? item.primary_domain : null
-        const email = typeof item?.primary_email === 'string' ? item.primary_email : null
-        return { id, name, domain, email }
-      })
-      .filter((record: CompanyLookupRecord | null): record is CompanyLookupRecord => record !== null)
+      .map((item) => parseCompanyLookupRecord(item))
+      .filter((record): record is CompanyLookupRecord => record !== null)
   } catch {
     return []
   }
@@ -212,12 +218,10 @@ async function fetchCompaniesLookupByIds(ids: string[]): Promise<CompanyLookupRe
         const call = await apiCall<{ items?: unknown[] }>(`/api/customers/companies?${search.toString()}`)
         if (!call.ok) return null
         const items = Array.isArray(call.result?.items) ? call.result.items : []
-        const match = items.find((item: any) => typeof item?.id === 'string' && item.id === id)
-        if (!match) return null
-        const name = typeof match?.display_name === 'string' ? match.display_name : null
-        const domain = typeof match?.primary_domain === 'string' ? match.primary_domain : null
-        const email = typeof match?.primary_email === 'string' ? match.primary_email : null
-        return { id, name, domain, email }
+        const match = items
+          .map((item) => parseCompanyLookupRecord(item))
+          .find((record) => record?.id === id)
+        return match ?? null
       } catch {
         return null
       }

@@ -174,14 +174,13 @@ export function AclEditor({
           )
           if (!cancelled) {
             const allRoles = Array.isArray(rolesJson.items) ? rolesJson.items : []
-            const userRoleDetails = allRoles
-              .map((role) => {
-                const name = typeof role?.name === 'string' ? role.name : ''
-                if (!name || !userRoles.includes(name)) return null
-                const id = role?.id ? String(role.id) : name
-                return { id, name }
-              })
-              .filter((role): role is { id: string; name: string } => !!role)
+            const userRoleDetails = allRoles.reduce<{ id: string; name: string }[]>((acc, role) => {
+              const name = typeof role?.name === 'string' ? role.name : ''
+              if (!name || !userRoles.includes(name)) return acc
+              const id = typeof role?.id === 'string' && role.id.length > 0 ? role.id : name
+              acc.push({ id, name })
+              return acc
+            }, [])
             setRoleDetails(userRoleDetails)
           }
         } catch {}

@@ -12,7 +12,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { buildOrganizationTreeOptions, formatOrganizationTreeLabel, type OrganizationTreeNode } from '@open-mercato/core/modules/directory/lib/tree'
+import { buildOrganizationTreeOptions, formatOrganizationTreeLabel, type OrganizationTreeNode, type OrganizationTreeOption } from '@open-mercato/core/modules/directory/lib/tree'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -38,7 +38,7 @@ async function fetchOrganizationFilterOptions(): Promise<FilterOption[]> {
     )
     if (!call.ok) return []
     const nodes = Array.isArray(call.result?.items) ? (call.result!.items as OrganizationTreeNode[]) : []
-    const flattened = buildOrganizationTreeOptions(nodes)
+    const flattened: OrganizationTreeOption[] = buildOrganizationTreeOptions(nodes)
     return flattened
       .filter((opt) => typeof opt.value === 'string' && opt.value.length > 0)
       .map((opt) => {

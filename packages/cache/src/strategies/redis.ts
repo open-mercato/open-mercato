@@ -1,5 +1,6 @@
 import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import { CacheDependencyUnavailableError } from '../errors'
+import { createRequire } from 'node:module'
 
 type RedisPipeline = {
   set(key: string, value: string): RedisPipeline
@@ -15,6 +16,7 @@ type RedisClient = {
   set(key: string, value: string): Promise<unknown>
   setex(key: string, ttlSeconds: number, value: string): Promise<unknown>
   del(key: string): Promise<unknown>
+  exists(key: string): Promise<number>
   keys(pattern: string): Promise<string[]>
   smembers(key: string): Promise<string[]>
   pipeline(): RedisPipeline
@@ -32,6 +34,17 @@ type RedisModule = RedisConstructor | { default: RedisConstructor }
  * - Hash for storing cache entries: cache:{key} -> {value, tags, expiresAt, createdAt}
  * - Sets for tag index: tag:{tag} -> Set of keys
  */
+const requireModule = createRequire(import.meta.url)
+
+function resolveRedisConstructor(): RedisConstructor {
+  try {
+    const required = requireModule('ioredis') as RedisModule
+    return typeof required === 'function' ? required : required.default
+  } catch (error) {
+    throw new CacheDependencyUnavailableError('redis', 'ioredis', error)
+  }
+}
+
 export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: number }): CacheStrategy {
   let redis: RedisClient | null = null
   const defaultTtl = options?.defaultTtl
@@ -41,14 +54,9 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
   async function getRedisClient(): Promise<RedisClient> {
     if (redis) return redis
 
-    try {
-      const imported = await import('ioredis') as RedisModule
-      const Redis = typeof imported === 'function' ? imported : imported.default
-      redis = new Redis(redisUrl || process.env.REDIS_URL || process.env.CACHE_REDIS_URL || 'redis://localhost:6379')
-      return redis
-    } catch (error) {
-      throw new CacheDependencyUnavailableError('redis', 'ioredis', error)
-    }
+    const Redis = resolveRedisConstructor()
+    redis = new Redis(redisUrl || process.env.REDIS_URL || process.env.CACHE_REDIS_URL || 'redis://localhost:6379')
+    return redis
   }
 
   function getCacheKey(key: string): string {
