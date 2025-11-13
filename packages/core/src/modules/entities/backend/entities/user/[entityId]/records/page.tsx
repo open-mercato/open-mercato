@@ -11,8 +11,9 @@ import { ContextHelp } from '@open-mercato/ui/backend/ContextHelp'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import Link from 'next/link'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
 type RecordsResponse = {
@@ -84,9 +85,20 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
             params.set(k, String(v))
           }
         }
-        const res = await apiFetch(`/api/entities/records?${params.toString()}`)
-        if (!res.ok) throw new Error('Failed to load records')
-        const j: RecordsResponse = await res.json()
+        const j = await readApiResultOrThrow<RecordsResponse>(
+          `/api/entities/records?${params.toString()}`,
+          undefined,
+          {
+            errorMessage: 'Failed to load records',
+            fallback: {
+              items: [],
+              total: 0,
+              page,
+              pageSize,
+              totalPages: 1,
+            },
+          },
+        )
         if (!cancelled) {
           setRawData(j.items || [])
           setTotal(j.total)
@@ -333,15 +345,29 @@ export RECORD_ID="<record uuid>"`}</code></pre>
                       const ok = window.confirm('Delete this record?')
                       if (!ok) return
                     }
-                    await apiFetch(`/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(String((row as any).id))}`, { method: 'DELETE' })
-                    // Refresh
-                    const res = await apiFetch(`/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=${pageSize}`)
-                    const j: RecordsResponse = await res.json()
+                    const deleteCall = await apiCall(
+                      `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(String((row as any).id))}`,
+                      { method: 'DELETE' },
+                    )
+                    if (!deleteCall.ok) {
+                      await raiseCrudError(deleteCall.response, 'Failed to delete record')
+                    }
+                    const j = await readApiResultOrThrow<RecordsResponse>(
+                      `/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=${pageSize}`,
+                      undefined,
+                      {
+                        errorMessage: 'Failed to reload records',
+                        fallback: { items: [], total: 0, page, pageSize, totalPages: 1 },
+                      },
+                    )
                     setRawData(j.items || [])
                     setTotal(j.total || 0)
                     setTotalPages(j.totalPages || 1)
                     flash('Record has been removed', 'success')
-                  } catch {}
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : 'Failed to delete record'
+                    flash(message, 'error')
+                  }
                 } },
               ]}
             />

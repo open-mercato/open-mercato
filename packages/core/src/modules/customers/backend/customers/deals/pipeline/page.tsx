@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -232,15 +232,11 @@ export default function SalesPipelinePage(): React.ReactElement {
       search.set('pageSize', String(DEALS_QUERY_LIMIT))
       search.set('sortField', 'createdAt')
       search.set('sortDir', 'desc')
-      const res = await apiFetch(`/api/customers/deals?${search.toString()}`)
-      const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>
-      if (!res.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : translate('customers.deals.pipeline.loadError', 'Failed to load deals.')
-        throw new Error(message)
-      }
+      const payload = await readApiResultOrThrow<Record<string, unknown>>(
+        `/api/customers/deals?${search.toString()}`,
+        undefined,
+        { errorMessage: translate('customers.deals.pipeline.loadError', 'Failed to load deals.') },
+      )
       const items = Array.isArray(payload?.items) ? payload.items : []
       const deals: DealRecord[] = []
       items.forEach((item) => {
@@ -337,19 +333,15 @@ export default function SalesPipelinePage(): React.ReactElement {
 
   const updateStageMutation = useMutation({
     mutationFn: async ({ id, pipelineStage }: { id: string; pipelineStage: string }) => {
-      const res = await apiFetch('/api/customers/deals', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id, pipelineStage }),
-      })
-      const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>
-      if (!res.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : translate('customers.deals.pipeline.moveError', 'Failed to update deal stage.')
-        throw new Error(message)
-      }
+      await apiCallOrThrow(
+        '/api/customers/deals',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id, pipelineStage }),
+        },
+        { errorMessage: translate('customers.deals.pipeline.moveError', 'Failed to update deal stage.') },
+      )
       return { id, pipelineStage }
     },
     onMutate: async ({ id, pipelineStage }) => {

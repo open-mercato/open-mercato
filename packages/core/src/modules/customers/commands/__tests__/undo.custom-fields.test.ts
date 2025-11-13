@@ -509,6 +509,9 @@ describe('customers commands undo custom fields', () => {
     }
 
     const ctx = createMockContext({ em, dataEngine, tenantId, organizationId })
+    if (!ctx.auth) {
+      throw new Error('Expected auth context in mock command runtime')
+    }
     ctx.auth.tenantId = tenantId
     ctx.auth.orgId = organizationId
     ctx.selectedOrganizationId = organizationId
@@ -1125,6 +1128,9 @@ describe('customers commands undo custom fields', () => {
     }
 
     const ctx = createMockContext({ em, dataEngine, tenantId, organizationId })
+    if (!ctx.auth) {
+      throw new Error('Expected auth context in mock command runtime')
+    }
     ctx.auth = { ...ctx.auth, tenantId, orgId: organizationId } as any
     ctx.selectedOrganizationId = organizationId
 
@@ -1139,8 +1145,8 @@ describe('customers commands undo custom fields', () => {
       todoCustom: { priority: 'high' },
     }
 
-    expect(ctx.auth.tenantId).toBe(tenantId)
-    expect(ctx.auth.orgId).toBe(organizationId)
+    expect(ctx.auth!.tenantId).toBe(tenantId)
+    expect(ctx.auth!.orgId).toBe(organizationId)
 
     const result = await handler.execute(input, ctx) as { linkId: string }
     expect(executeMock).toHaveBeenCalled()

@@ -5,7 +5,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -268,9 +268,11 @@ export default function QueryIndexesTable() {
     queryFn: async () => {
       const baseUrl = '/api/query_index/status'
       const url = refreshSeq > 0 ? `${baseUrl}?refresh=${refreshSeq}` : baseUrl
-      const res = await apiFetch(url)
-      if (!res.ok) throw new Error(t('query_index.table.errors.loadFailed'))
-      return res.json()
+      return readApiResultOrThrow<Resp>(
+        url,
+        undefined,
+        { errorMessage: t('query_index.table.errors.loadFailed') },
+      )
     },
     refetchInterval: 4000,
   })
@@ -288,11 +290,21 @@ export default function QueryIndexesTable() {
     async (action: 'reindex' | 'purge', entityId: string, opts?: { force?: boolean }) => {
       const body: Record<string, unknown> = { entityType: entityId }
       if (opts?.force) body.force = true
-      const res = await apiFetch(`/api/query_index/${action}`, { method: 'POST', body: JSON.stringify(body) })
-      if (!res.ok && typeof window !== 'undefined') {
-        const label =
-          action === 'purge' ? t('query_index.table.actions.purge') : t('query_index.table.actions.reindex')
-        window.alert(t('query_index.table.errors.actionFailed', { action: label }))
+      const actionLabel =
+        action === 'purge' ? t('query_index.table.actions.purge') : t('query_index.table.actions.reindex')
+      const errorMessage = t('query_index.table.errors.actionFailed', { action: actionLabel })
+      try {
+        await apiCallOrThrow(`/api/query_index/${action}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }, { errorMessage })
+      } catch (err) {
+        console.error('query_index.table.trigger', err)
+        if (typeof window !== 'undefined') {
+          const message = err instanceof Error ? err.message : errorMessage
+          window.alert(message)
+        }
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
     },
@@ -306,22 +318,27 @@ export default function QueryIndexesTable() {
         if (!confirmed) return
       }
 
-      let res: Response
-      if (action === 'reindex') {
-        res = await apiFetch('/api/vector/reindex', {
-          method: 'POST',
-          body: JSON.stringify({ entityId }),
-        })
-      } else {
-        const url = `/api/vector/index?entityId=${encodeURIComponent(entityId)}`
-        res = await apiFetch(url, { method: 'DELETE' })
-      }
-
-      if (!res.ok && typeof window !== 'undefined') {
-        const label = action === 'purge'
-          ? t('query_index.table.actions.vectorPurge')
-          : t('query_index.table.actions.vectorReindex')
-        window.alert(t('query_index.table.errors.actionFailed', { action: label }))
+      const actionLabel = action === 'purge'
+        ? t('query_index.table.actions.vectorPurge')
+        : t('query_index.table.actions.vectorReindex')
+      const errorMessage = t('query_index.table.errors.actionFailed', { action: actionLabel })
+      try {
+        if (action === 'reindex') {
+          await apiCallOrThrow('/api/vector/reindex', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ entityId }),
+          }, { errorMessage })
+        } else {
+          const url = `/api/vector/index?entityId=${encodeURIComponent(entityId)}`
+          await apiCallOrThrow(url, { method: 'DELETE' }, { errorMessage })
+        }
+      } catch (err) {
+        console.error('query_index.table.vectorAction', err)
+        if (typeof window !== 'undefined') {
+          const message = err instanceof Error ? err.message : errorMessage
+          window.alert(message)
+        }
       }
       qc.invalidateQueries({ queryKey: ['query-index-status'] })
     },

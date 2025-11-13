@@ -6,7 +6,7 @@ import { Users, Trash2, Loader2, ArrowUpRightSquare } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { SectionAction, TabEmptyState, Translator } from './types'
 import { useT } from '@/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -78,19 +78,15 @@ export function CompanyPeopleSection({
       setRemovingId(personId)
       onLoadingChange?.(true)
       try {
-        const res = await apiFetch('/api/customers/people', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: personId, companyEntityId: null }),
-        })
-        if (!res.ok) {
-          const details = await res.json().catch(() => ({}))
-          const message =
-            typeof details?.error === 'string'
-              ? details.error
-              : translate('customers.companies.detail.people.removeError', 'Failed to unlink person from company.')
-          throw new Error(message)
-        }
+        await apiCallOrThrow(
+          '/api/customers/people',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: personId, companyEntityId: null }),
+          },
+          { errorMessage: translate('customers.companies.detail.people.removeError', 'Failed to unlink person from company.') },
+        )
         setPeople((prev) => {
           const next = prev.filter((entry) => entry.id !== personId)
           onPeopleChange?.(next)

@@ -14,6 +14,7 @@ import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/ser
 import type { AwilixContainer } from 'awilix'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import {
+  canonicalizeResourceTag,
   deriveResourceFromCommandId,
   invalidateCrudCache,
   pickFirstIdentifier,
@@ -38,9 +39,13 @@ function extractAliasList(source: unknown): string[] {
   const record = source as Record<string, unknown>
   const raw = record.cacheAliases
   if (!Array.isArray(raw)) return []
-  return raw
-    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    .map((value) => value.trim())
+  const aliases = new Set<string>()
+  for (const value of raw) {
+    if (typeof value !== 'string') continue
+    const normalized = canonicalizeResourceTag(value)
+    if (normalized) aliases.add(normalized)
+  }
+  return Array.from(aliases)
 }
 
 export class CommandBus {

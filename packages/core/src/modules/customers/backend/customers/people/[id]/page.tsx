@@ -9,7 +9,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Plus } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import {
@@ -44,6 +46,7 @@ import type {
 } from '../../../../components/detail/types'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { normalizeCustomFieldSubmitValue } from '../../../../components/detail/customFieldUtils'
 
 type PersonOverview = {
   person: {
@@ -246,14 +249,11 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       setIsLoading(true)
       setError(null)
       try {
-        const res = await apiFetch(`/api/customers/people/${encodeURIComponent(personId)}?include=todos`)
-        if (!res.ok) {
-          const payload = await res.json().catch(() => ({}))
-          const message =
-            typeof payload?.error === 'string' ? payload.error : t('customers.people.detail.error.load')
-          throw new Error(message)
-        }
-        const payload = await res.json()
+        const payload = await readApiResultOrThrow<PersonOverview>(
+          `/api/customers/people/${encodeURIComponent(personId)}?include=todos`,
+          undefined,
+          { errorMessage: t('customers.people.detail.error.load') },
+        )
         if (cancelled) return
         setData(payload as PersonOverview)
       } catch (err) {
@@ -274,19 +274,15 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const savePerson = React.useCallback(
     async (patch: Record<string, unknown>, apply: (prev: PersonOverview) => PersonOverview) => {
       if (!data) return
-      const res = await apiFetch('/api/customers/people', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: data.person.id, ...patch }),
-      })
-      if (!res.ok) {
-        let message = t('customers.people.detail.inline.error')
-        try {
-          const details = await res.clone().json()
-          if (details && typeof details.error === 'string') message = details.error
-        } catch {}
-        throw new Error(message)
-      }
+      await apiCallOrThrow(
+        '/api/customers/people',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: data.person.id, ...patch }),
+        },
+        { errorMessage: t('customers.people.detail.inline.error') },
+      )
       setData((prev) => (prev ? apply(prev) : prev))
     },
     [data, t]
@@ -339,16 +335,14 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     if (!confirmed) return
     setIsDeleting(true)
     try {
-      const res = await apiFetch(`/api/customers/people?id=${encodeURIComponent(personId)}`, {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-      })
-      if (!res.ok) {
-        const details = await res.json().catch(() => ({}))
-        const message =
-          typeof details?.error === 'string' ? details.error : t('customers.people.list.deleteError')
-        throw new Error(message)
-      }
+      await apiCallOrThrow(
+        `/api/customers/people?id=${encodeURIComponent(personId)}`,
+        {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+        },
+        { errorMessage: t('customers.people.list.deleteError') },
+      )
       flash(t('customers.people.list.deleteSuccess'), 'success')
       router.push('/backend/customers/people')
     } catch (err) {
@@ -363,56 +357,55 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
   }, [])
   
-    const handleCustomFieldsSubmit = React.useCallback(
-      async (values: Record<string, unknown>) => {
-        if (!data) {
-          throw new Error(t('customers.people.detail.inline.error'))
+  const handleCustomFieldsSubmit = React.useCallback(
+    async (values: Record<string, unknown>) => {
+      if (!data) {
+        throw new Error(t('customers.people.detail.inline.error'))
+      }
+      const customPayload = collectCustomFieldValues(values, {
+        transform: (value) => normalizeCustomFieldSubmitValue(value),
+      })
+      const prefixed: Record<string, unknown> = {}
+      for (const [fieldId, value] of Object.entries(customPayload)) {
+        prefixed[`cf_${fieldId}`] = value
+      }
+      if (!Object.keys(customPayload).length) {
+        flash(t('ui.forms.flash.saveSuccess'), 'success')
+        return
+      }
+      try {
+        await apiCallOrThrow(
+          '/api/customers/people',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              id: data.person.id,
+              customFields: customPayload,
+            }),
+          },
+          { errorMessage: t('customers.people.detail.inline.error') },
+        )
+      } catch (err) {
+        const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
+        const mappedErrors = fieldErrors
+          ? Object.entries(fieldErrors).reduce<Record<string, string>>((acc, [key, value]) => {
+              const formKey = key.startsWith('cf_') ? key : `cf_${key}`
+              acc[formKey] = value
+              return acc
+            }, {})
+          : undefined
+        const error = new Error(helperMessage ?? t('customers.people.detail.inline.error')) as Error & {
+          fieldErrors?: Record<string, string>
         }
-        const customPayload: Record<string, unknown> = {}
-        const prefixed: Record<string, unknown> = {}
-        for (const [key, value] of Object.entries(values)) {
-          if (!key.startsWith('cf_')) continue
-          const normalizedValue = value === undefined ? null : value
-          customPayload[key.slice(3)] = normalizedValue
-          prefixed[key] = normalizedValue
-        }
-        if (!Object.keys(customPayload).length) {
-          flash(t('ui.forms.flash.saveSuccess'), 'success')
-          return
-        }
-        const res = await apiFetch('/api/customers/people', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            id: data.person.id,
-            customFields: customPayload,
-          }),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.inline.error')
-          let fieldErrors: Record<string, string> | null = null
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-            if (details && typeof details.fields === 'object' && details.fields !== null) {
-              fieldErrors = {}
-              for (const [rawKey, rawValue] of Object.entries(details.fields as Record<string, unknown>)) {
-                const formKey = rawKey.startsWith('cf_') ? rawKey : `cf_${rawKey}`
-                fieldErrors[formKey] = typeof rawValue === 'string' ? rawValue : message
-              }
-            }
-          } catch {
-            // ignore json parsing errors
-          }
-          const err = new Error(message) as Error & { fieldErrors?: Record<string, string> }
-          if (fieldErrors) err.fieldErrors = fieldErrors
-          throw err
-        }
-        setData((prev) => {
-          if (!prev) return prev
-          const nextCustomFields = { ...prefixed }
-          return { ...prev, customFields: nextCustomFields }
-        })
+        if (mappedErrors && Object.keys(mappedErrors).length) error.fieldErrors = mappedErrors
+        throw error
+      }
+      setData((prev) => {
+        if (!prev) return prev
+        const nextCustomFields = { ...prefixed }
+        return { ...prev, customFields: nextCustomFields }
+      })
         flash(t('ui.forms.flash.saveSuccess'), 'success')
       },
       [data, t]

@@ -36,7 +36,7 @@ function mapIssueArray(issues: unknown): CrudServerFieldErrors | null {
   const result: CrudServerFieldErrors = {}
   for (const issue of issues) {
     if (!issue || typeof issue !== 'object') continue
-    const pathValue = Array.isArray((issue as any).path) ? (issue as any).path : []
+    const pathValue: unknown[] = Array.isArray((issue as any).path) ? (issue as any).path : []
     let field: string | null = null
     for (const part of pathValue) {
       if (typeof part === 'string' && part.trim().length > 0) {

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -26,12 +26,20 @@ async function loadNewCustomers(settings: CustomerNewCustomersSettings): Promise
   if (settings.kind !== 'all') {
     params.set('kind', settings.kind)
   }
-  const response = await apiFetch(`/api/customers/dashboard/widgets/new-customers?${params.toString()}`)
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`)
+  const call = await apiCall<{ items?: unknown[]; error?: string }>(
+    `/api/customers/dashboard/widgets/new-customers?${params.toString()}`,
+  )
+  if (!call.ok) {
+    const message =
+      typeof (call.result as Record<string, unknown> | null)?.error === 'string'
+        ? ((call.result as Record<string, unknown>).error as string)
+        : `Request failed with status ${call.status}`
+    throw new Error(message)
   }
-  const payload = await response.json().catch(() => ({}))
-  const rawItems = Array.isArray((payload as any).items) ? (payload as any).items : []
+  const payload = call.result ?? {}
+  const rawItems = Array.isArray((payload as { items?: unknown[] }).items)
+    ? (payload as { items: unknown[] }).items
+    : []
   return rawItems
     .map((item: unknown): NewCustomerItem | null => {
       if (!item || typeof item !== 'object') return null

@@ -18,7 +18,7 @@ touch packages/inventory/src/modules/inventory/backend/inventory/create/page.met
 ```tsx title="backend/inventory/create/page.tsx"
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm';
 import type { CrudFormSchema } from '@open-mercato/ui/backend/CrudForm/types';
-import { apiFetch } from '@open-mercato/ui/backend/utils/api';
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall';
 import type { UpsertInventoryItemInput } from '../../data/validators';
 
 const schema: CrudFormSchema<UpsertInventoryItemInput> = {
@@ -32,14 +32,10 @@ const schema: CrudFormSchema<UpsertInventoryItemInput> = {
 };
 
 async function submit(data: UpsertInventoryItemInput) {
-  const response = await apiFetch('/api/items', {
+  return readApiResultOrThrow('/api/items', {
     method: 'POST',
     body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to create inventory item');
-  }
-  return response.json();
+  }, { errorMessage: 'Failed to create inventory item' });
 }
 
 const InventoryCreatePage = () => {
@@ -74,7 +70,7 @@ touch packages/inventory/src/modules/inventory/backend/inventory/[id]/edit/page.
 ```tsx title="[id]/edit/page.tsx"
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm';
 import type { CrudFormSchema } from '@open-mercato/ui/backend/CrudForm/types';
-import { apiFetch } from '@open-mercato/ui/backend/utils/api';
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall';
 import type { UpsertInventoryItemInput } from '../../../data/validators';
 
 const schema: CrudFormSchema<UpsertInventoryItemInput> = {
@@ -88,22 +84,14 @@ const schema: CrudFormSchema<UpsertInventoryItemInput> = {
 };
 
 async function fetchItem(id: string) {
-  const response = await apiFetch(`/api/items/${id}`);
-  if (!response.ok) {
-    throw new Error('Inventory item not found');
-  }
-  return response.json();
+  return readApiResultOrThrow(`/api/items/${id}`, undefined, { errorMessage: 'Inventory item not found' });
 }
 
 async function submit(id: string, data: UpsertInventoryItemInput) {
-  const response = await apiFetch(`/api/items/${id}`, {
+  return readApiResultOrThrow(`/api/items/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to update inventory item');
-  }
-  return response.json();
+  }, { errorMessage: 'Failed to update inventory item' });
 }
 
 type Props = { params: { id: string } };

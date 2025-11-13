@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { loadDashboardWidgetModule } from './widgetRegistry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 import { cn } from '@/lib/utils'
@@ -112,11 +112,11 @@ export function DashboardScreen() {
     setLoading(true)
     setError(null)
     try {
-      const res = await apiFetch('/api/dashboards/layout')
-      if (!res.ok) {
-        throw new Error(`Failed with status ${res.status}`)
+      const call = await apiCall<LayoutResponse>('/api/dashboards/layout')
+      if (!call.ok || !call.result) {
+        throw new Error(`Failed with status ${call.status}`)
       }
-      const data: LayoutResponse = await res.json()
+      const data = call.result
       const normalizedLayout = sortLayout(data.layout?.items ?? [])
       setLayout(normalizedLayout)
       setWidgetCatalog(data.widgets ?? [])
@@ -188,12 +188,12 @@ export function DashboardScreen() {
             settings: item.settings ?? null,
           })),
         }
-        const res = await apiFetch('/api/dashboards/layout', {
+        const call = await apiCall('/api/dashboards/layout', {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
         })
-        if (!res.ok) throw new Error(`Failed with status ${res.status}`)
+        if (!call.ok) throw new Error(`Failed with status ${call.status}`)
         setError(null)
       } catch (err) {
         console.error('Failed to save layout', err)
@@ -207,12 +207,12 @@ export function DashboardScreen() {
   const patchWidgetSettings = React.useCallback(async (itemId: string, nextSettings: unknown) => {
     adjustSaving(1)
     try {
-      const res = await apiFetch(`/api/dashboards/layout/${encodeURIComponent(itemId)}`, {
+      const call = await apiCall(`/api/dashboards/layout/${encodeURIComponent(itemId)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ settings: nextSettings }),
       })
-      if (!res.ok) throw new Error(`Failed with status ${res.status}`)
+      if (!call.ok) throw new Error(`Failed with status ${call.status}`)
       setError(null)
     } catch (err) {
       console.error('Failed to update widget settings', err)

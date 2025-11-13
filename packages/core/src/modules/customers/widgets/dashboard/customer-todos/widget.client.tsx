@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateCustomerTodoSettings, type CustomerTodoWidgetSettings } from './config'
@@ -25,12 +25,20 @@ async function loadTodos(settings: CustomerTodoWidgetSettings): Promise<TodoLink
   const params = new URLSearchParams({
     limit: String(settings.pageSize),
   })
-  const response = await apiFetch(`/api/customers/dashboard/widgets/customer-todos?${params.toString()}`)
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`)
+  const call = await apiCall<{ items?: unknown[]; error?: string }>(
+    `/api/customers/dashboard/widgets/customer-todos?${params.toString()}`,
+  )
+  if (!call.ok) {
+    const message =
+      typeof (call.result as Record<string, unknown> | null)?.error === 'string'
+        ? ((call.result as Record<string, unknown>).error as string)
+        : `Request failed with status ${call.status}`
+    throw new Error(message)
   }
-  const payload = await response.json().catch(() => ({}))
-  const rawItems = Array.isArray((payload as { items?: unknown }).items) ? (payload as { items: unknown[] }).items : []
+  const payload = call.result ?? {}
+  const rawItems = Array.isArray((payload as { items?: unknown }).items)
+    ? ((payload as { items: unknown[] }).items)
+    : []
   return rawItems
     .map((item): TodoLinkSummary | null => {
       if (!item || typeof item !== 'object') return null

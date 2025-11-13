@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import type { AddressFormatStrategy } from '../utils/addressFormat'
 
@@ -47,17 +47,18 @@ export function AddressFormatSettings() {
     async function load() {
       try {
         setLoading(true)
-        const res = await apiFetch('/api/customers/settings/address-format')
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
+        const call = await apiCall<{ addressFormat?: string; error?: string }>('/api/customers/settings/address-format')
+        const payload = (call.result ?? {}) as Record<string, unknown>
+        if (!call.ok) {
           const message =
             typeof payload?.error === 'string'
-              ? payload.error
+              ? String(payload.error)
               : t('customers.config.addressFormat.error', 'Failed to load address settings')
           if (!cancelled) setError(message)
           return
         }
-        const value = typeof payload?.addressFormat === 'string' ? payload.addressFormat : null
+        const valueRaw = payload?.addressFormat
+        const value = typeof valueRaw === 'string' ? valueRaw : null
         if (!cancelled && (value === 'line_first' || value === 'street_first')) {
           setFormat(value)
         }
@@ -85,13 +86,16 @@ export function AddressFormatSettings() {
       setPending(next)
       setError(null)
       try {
-        const res = await apiFetch('/api/customers/settings/address-format', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ addressFormat: next }),
-        })
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
+        const call = await apiCall<Record<string, unknown>>(
+          '/api/customers/settings/address-format',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ addressFormat: next }),
+          },
+        )
+        const payload = call.result ?? {}
+        if (!call.ok) {
           const message =
             typeof payload?.error === 'string'
               ? payload.error

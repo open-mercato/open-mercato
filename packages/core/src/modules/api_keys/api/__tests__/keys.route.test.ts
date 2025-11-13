@@ -33,6 +33,7 @@ interface MockContainer {
 const queue: QueueEntry[] = []
 
 const mockGetAuthFromCookies = jest.fn()
+const mockGetAuthFromRequest = jest.fn()
 const mockResolveScope = jest.fn()
 const mockEm: MockEntityManager = {
   findOne: jest.fn<Promise<unknown>, [unknown, Record<string, unknown>?]>(),
@@ -66,6 +67,7 @@ jest.mock('@/lib/di/container', () => ({
 
 jest.mock('@/lib/auth/server', () => ({
   getAuthFromCookies: jest.fn(() => mockGetAuthFromCookies()),
+  getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
@@ -103,6 +105,11 @@ describe('API Keys route', () => {
     mockDataEngine.__queue.length = 0
     mockEm.fork.mockReturnValue(mockEm)
     mockGetAuthFromCookies.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: '123e4567-e89b-12d3-a456-426614174000',
+      orgId: null,
+    })
+    mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
       tenantId: '123e4567-e89b-12d3-a456-426614174000',
       orgId: null,

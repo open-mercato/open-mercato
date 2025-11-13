@@ -17,7 +17,8 @@ import {
   DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import type {
   CrudCustomFieldRenderProps,
@@ -38,6 +39,7 @@ import {
   invalidateCustomerDictionary,
 } from './detail/hooks/useCustomerDictionary'
 import type { CustomerDictionaryKind } from '../lib/dictionaries'
+import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
 
 export const metadata = {
   navHidden: true,
@@ -165,18 +167,21 @@ export function DictionarySelectField({
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
-      const res = await apiFetch(`/api/customers/dictionaries/${kind}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          value: input.value,
-          label: input.label ?? input.value,
-          color: input.color ?? undefined,
-          icon: input.icon ?? undefined,
-        }),
-      })
-      const payload: Record<string, unknown> = await res.json().catch(() => ({}))
-      if (!res.ok) {
+      const call = await apiCall<Record<string, unknown>>(
+        `/api/customers/dictionaries/${kind}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            value: input.value,
+            label: input.label ?? input.value,
+            color: input.color ?? undefined,
+            icon: input.icon ?? undefined,
+          }),
+        },
+      )
+      const payload = call.result ?? {}
+      if (!call.ok) {
         const message = typeof payload.error === 'string' ? payload.error : labels.errorSave
         throw new Error(message)
       }
@@ -456,14 +461,11 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   const loadOptions = React.useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiFetch('/api/customers/companies?pageSize=100&sortField=name&sortDir=asc')
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message = typeof payload?.error === 'string' ? payload.error : labels.errorLoad
-        flash(message, 'error')
-        setOptions([])
-        return
-      }
+      const payload = await readApiResultOrThrow<{ items?: unknown[] }>(
+        '/api/customers/companies?pageSize=100&sortField=name&sortDir=asc',
+        undefined,
+        { errorMessage: labels.errorLoad },
+      )
       const items = Array.isArray(payload?.items) ? payload.items : []
       const normalized = items
         .map((item: unknown) => normalizeCompanyOption(item))
@@ -472,8 +474,9 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
           a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
         )
       setOptions(normalized)
-    } catch {
-      flash(labels.errorLoad, 'error')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : labels.errorLoad
+      flash(message, 'error')
       setOptions([])
     } finally {
       setLoading(false)
@@ -502,17 +505,16 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
     }
     setSaving(true)
     try {
-      const res = await apiFetch('/api/customers/companies', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ displayName: trimmed }),
-      })
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message = typeof payload?.error === 'string' ? payload.error : labels.errorSave
-        flash(message, 'error')
-        return
-      }
+      const call = await apiCallOrThrow<{ id?: string; entityId?: string }>(
+        '/api/customers/companies',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ displayName: trimmed }),
+        },
+        { errorMessage: labels.errorSave },
+      )
+      const payload = call.result ?? {}
       const createdId =
         typeof payload?.id === 'string'
           ? payload.id
@@ -526,8 +528,9 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
       setDialogOpen(false)
       setNewCompany('')
       setFormError(null)
-    } catch {
-      flash(labels.errorSave, 'error')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : labels.errorSave
+      flash(message, 'error')
     } finally {
       setSaving(false)
     }
@@ -622,8 +625,16 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
 export const createPersonFormSchema = () =>
   z
     .object({
+      displayName: z.string().trim().min(1),
       firstName: z.string().trim().min(1),
       lastName: z.string().trim().min(1),
+      jobTitle: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
       primaryEmail: z
         .string()
         .trim()
@@ -631,6 +642,13 @@ export const createPersonFormSchema = () =>
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val)),
+      primaryPhone: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
       status: z
         .string()
         .trim()
@@ -646,6 +664,13 @@ export const createPersonFormSchema = () =>
         .transform((val) => (val === '' ? undefined : val))
         .optional(),
       source: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      description: z
         .string()
         .trim()
         .optional()
@@ -950,10 +975,11 @@ export function buildPersonPayload(values: PersonFormValues, organizationId?: st
   assign('companyEntityId', typeof values.companyEntityId === 'string' ? values.companyEntityId : undefined)
   assign('description', typeof values.description === 'string' ? values.description : undefined)
 
-  for (const [key, fieldValue] of Object.entries(values)) {
-    if (key.startsWith('cf_')) {
-      payload[key] = fieldValue
-    }
+  const customFields = collectCustomFieldValues(values, {
+    transform: (value) => normalizeCustomFieldSubmitValue(value),
+  })
+  if (Object.keys(customFields).length) {
+    payload.customFields = customFields
   }
 
   if (organizationId) payload.organizationId = organizationId
@@ -1283,10 +1309,11 @@ export function buildCompanyPayload(values: CompanyFormValues, organizationId?: 
     payload.annualRevenue = normalized
   }
 
-  for (const [key, fieldValue] of Object.entries(values)) {
-    if (key.startsWith('cf_')) {
-      payload[key] = fieldValue
-    }
+  const customFields = collectCustomFieldValues(values, {
+    transform: (value) => normalizeCustomFieldSubmitValue(value),
+  })
+  if (Object.keys(customFields).length) {
+    payload.customFields = customFields
   }
 
   if (organizationId) payload.organizationId = organizationId

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import type {
   SystemStatusSnapshot,
@@ -105,16 +105,9 @@ export function SystemStatusPanel() {
   const loadSnapshot = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }))
     try {
-      const response = await apiFetch(API_PATH)
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('configs.systemStatus.error', 'Failed to load system status')
-        setState({ loading: false, error: message, snapshot: null })
-        return
-      }
+      const payload = await readApiResultOrThrow<unknown>(API_PATH, undefined, {
+        errorMessage: t('configs.systemStatus.error', 'Failed to load system status'),
+      })
       if (!isSystemStatusSnapshot(payload)) {
         setState({
           loading: false,

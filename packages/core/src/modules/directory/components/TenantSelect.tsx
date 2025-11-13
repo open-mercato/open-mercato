@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type TenantRecord = {
@@ -57,7 +57,7 @@ function filterTenantsByStatus(list: TenantRecord[], status: 'all' | 'active' | 
   return list
 }
 
-async function fetchDirectoryTenants(status: 'all' | 'active' | 'inactive'): Promise<TenantRecord[]> {
+async function fetchDirectoryTenants(status: 'all' | 'active' | 'inactive', errorMessage: string): Promise<TenantRecord[]> {
   const search = new URLSearchParams()
   search.set('page', '1')
   search.set('pageSize', '200')
@@ -65,10 +65,12 @@ async function fetchDirectoryTenants(status: 'all' | 'active' | 'inactive'): Pro
   search.set('sortDir', 'asc')
   if (status === 'active') search.set('isActive', 'true')
   if (status === 'inactive') search.set('isActive', 'false')
-  const res = await apiFetch(`/api/directory/tenants?${search.toString()}`)
-  if (!res.ok) throw new Error('Failed to load tenants')
-  const json = await res.json().catch(() => ({}))
-  const items = Array.isArray(json.items) ? json.items : []
+  const json = await readApiResultOrThrow<{ items?: unknown[] }>(
+    `/api/directory/tenants?${search.toString()}`,
+    undefined,
+    { errorMessage, allowNullResult: true },
+  )
+  const items = Array.isArray(json?.items) ? json.items : []
   const normalized = items
     .map((item: unknown): TenantRecord | null => {
       if (!item || typeof item !== 'object') return null
@@ -85,12 +87,14 @@ async function fetchDirectoryTenants(status: 'all' | 'active' | 'inactive'): Pro
   return mergeTenantLists(filterTenantsByStatus(normalized, status))
 }
 
-async function fetchTenantsFromOrganizationSwitcher(status: 'all' | 'active' | 'inactive'): Promise<TenantRecord[]> {
-  const res = await apiFetch('/api/directory/organization-switcher')
-  if (!res.ok) throw new Error('Failed to load tenants from organization switcher')
-  const json = await res.json().catch(() => ({}))
-  const payload = (json && typeof json === 'object') ? (json as Record<string, unknown>) : {}
-  const rawTenants = Array.isArray(payload.tenants) ? payload.tenants : []
+async function fetchTenantsFromOrganizationSwitcher(status: 'all' | 'active' | 'inactive', errorMessage: string): Promise<TenantRecord[]> {
+  const payload = await readApiResultOrThrow<Record<string, unknown>>(
+    '/api/directory/organization-switcher',
+    undefined,
+    { errorMessage, allowNullResult: true },
+  )
+  const json = payload ?? {}
+  const rawTenants = Array.isArray(json.tenants) ? json.tenants : []
   const sanitized = sanitizeTenantList(rawTenants as TenantRecord[] | null)
   return mergeTenantLists(filterTenantsByStatus(sanitized, status))
 }
@@ -133,6 +137,7 @@ export const TenantSelect = React.forwardRef<HTMLSelectElement, TenantSelectProp
   const [fetchStatus, setFetchStatus] = React.useState<'idle' | 'loading' | 'success' | 'error'>(fetchOnMount ? 'loading' : 'idle')
 
   React.useEffect(() => {
+    const fetchErrorMessage = t('tenantSelect.error', 'Failed to load tenants')
     if (!fetchOnMount) {
       setFetchStatus((prev) => (prev === 'loading' ? 'idle' : prev))
       return
@@ -141,14 +146,14 @@ export const TenantSelect = React.forwardRef<HTMLSelectElement, TenantSelectProp
     const loadTenants = async () => {
       setFetchStatus('loading')
       try {
-        const tenants = await fetchDirectoryTenants(status)
+        const tenants = await fetchDirectoryTenants(status, fetchErrorMessage)
         if (cancelled) return
         setRemoteTenants(tenants)
         setFetchStatus('success')
         return
       } catch {
         try {
-          const fallbackTenants = await fetchTenantsFromOrganizationSwitcher(status)
+          const fallbackTenants = await fetchTenantsFromOrganizationSwitcher(status, fetchErrorMessage)
           if (cancelled) return
           setRemoteTenants(fallbackTenants)
           setFetchStatus('success')
@@ -161,7 +166,7 @@ export const TenantSelect = React.forwardRef<HTMLSelectElement, TenantSelectProp
     }
     void loadTenants()
     return () => { cancelled = true }
-  }, [fetchOnMount, status])
+  }, [fetchOnMount, status, t])
 
   const mergedTenants = React.useMemo(
     () => mergeTenantLists(providedTenants, remoteTenants),

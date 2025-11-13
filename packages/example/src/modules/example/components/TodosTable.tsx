@@ -10,8 +10,8 @@ import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList, buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { useCustomFieldDefs, type CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -33,6 +33,8 @@ type OrganizationsResponse = {
   items: Array<{ id: string; name: string }>
 }
 
+const EMPTY_CUSTOM_FIELD_DEFS: CustomFieldDefDto[] = []
+
 function buildBaseColumns(t: (key: string, params?: Record<string, string | number>) => string): ColumnDef<TodoRow>[] {
   return [
     { accessorKey: 'title', header: t('example.todos.table.column.title'), meta: { priority: 1 } },
@@ -43,9 +45,10 @@ function buildBaseColumns(t: (key: string, params?: Record<string, string | numb
       meta: { priority: 2 },
       cell: ({ getValue }) => <BooleanIcon value={!!getValue()} />,
     },
-    { accessorKey: 'cf_priority', meta: { priority: 4 } },
+    { accessorKey: 'cf_priority', header: t('example.todos.table.column.priority'), meta: { priority: 4 } },
     {
       accessorKey: 'cf_severity',
+      header: t('example.todos.table.column.severity'),
       cell: ({ getValue }) => {
         const raw = getValue()
         return <EnumBadge value={typeof raw === 'string' ? raw : null} map={severityPreset} />
@@ -54,11 +57,13 @@ function buildBaseColumns(t: (key: string, params?: Record<string, string | numb
     },
     {
       accessorKey: 'cf_blocked',
+      header: t('example.todos.table.column.blocked'),
       meta: { priority: 6 },
       cell: ({ getValue }) => <BooleanIcon value={!!getValue()} />,
     },
     {
       accessorKey: 'cf_labels',
+      header: t('example.todos.table.column.labels'),
       cell: ({ getValue }) => {
         const raw = getValue()
         const vals = Array.isArray(raw) ? raw.map((value) => String(value)) : []
@@ -118,11 +123,13 @@ export default function TodosTable() {
     return params.toString()
   }, [page, sorting, title, values])
 
-  const { data: cfDefs = [] } = useCustomFieldDefs('example:todo', {
+  const { data: rawCfDefs } = useCustomFieldDefs('example:todo', {
     keyExtras: [scopeVersion],
   })
+  const cfDefs = rawCfDefs ?? EMPTY_CUSTOM_FIELD_DEFS
 
   const [columns, setColumns] = React.useState<ColumnDef<TodoRow>[]>([])
+
   const computedColumns = React.useMemo(() => {
     const base = buildBaseColumns(t)
     if (!cfDefs.length) return base
@@ -179,11 +186,11 @@ export default function TodosTable() {
     queryKey: ['organizations', organizationIds],
     queryFn: async () => {
       if (organizationIds.length === 0) return { items: [] }
-      const response = await apiFetch(`/api/example/organizations?ids=${organizationIds.join(',')}`)
-      if (!response.ok) {
-        throw new Error('Failed to fetch organizations')
-      }
-      return response.json()
+      return readApiResultOrThrow<OrganizationsResponse>(
+        `/api/example/organizations?ids=${organizationIds.join(',')}`,
+        undefined,
+        { errorMessage: t('example.todos.table.error.generic', 'Failed to fetch organizations') },
+      )
     },
     enabled: organizationIds.length > 0,
   })

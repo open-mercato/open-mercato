@@ -3,10 +3,11 @@ import * as React from 'react'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useT } from '@/lib/i18n/context'
 
 type TenantFormValues = {
   id: string
@@ -14,21 +15,20 @@ type TenantFormValues = {
   isActive: boolean
 } & Record<string, unknown>
 
-const fields: CrudField[] = [
-  { id: 'name', label: 'Name', type: 'text', required: true },
-  { id: 'isActive', label: 'Active', type: 'checkbox' },
-]
-
-const groups: CrudFormGroup[] = [
-  { id: 'details', title: 'Details', column: 1, fields: ['name', 'isActive'] },
-  { id: 'custom', title: 'Custom Data', column: 2, kind: 'customFields' },
-]
-
 export default function EditTenantPage({ params }: { params?: { id?: string } }) {
   const tenantId = params?.id
   const [initial, setInitial] = React.useState<TenantFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const t = useT()
+  const fields = React.useMemo<CrudField[]>(() => [
+    { id: 'name', label: t('directory.tenants.form.fields.name', 'Name'), type: 'text', required: true },
+    { id: 'isActive', label: t('directory.tenants.form.fields.active', 'Active'), type: 'checkbox' },
+  ], [t])
+  const groups = React.useMemo<CrudFormGroup[]>(() => [
+    { id: 'details', title: t('directory.tenants.form.groups.details', 'Details'), column: 1, fields: ['name', 'isActive'] },
+    { id: 'custom', title: t('directory.tenants.form.groups.custom', 'Custom Data'), column: 2, kind: 'customFields' },
+  ], [t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -37,12 +37,14 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
       setLoading(true)
       setError(null)
       try {
-        const res = await apiFetch(`/api/directory/tenants?id=${encodeURIComponent(tenantId)}`)
-        if (!res.ok) await raiseCrudError(res, 'Failed to load tenant')
-        const data = await res.json()
+        const data = await readApiResultOrThrow<{ items?: Record<string, unknown>[] }>(
+          `/api/directory/tenants?id=${encodeURIComponent(tenantId)}`,
+          undefined,
+          { errorMessage: t('directory.tenants.form.errors.load', 'Failed to load tenant'), fallback: { items: [] } },
+        )
         const rows = Array.isArray(data?.items) ? data.items : []
         const row = rows[0]
-        if (!row) throw new Error('Tenant not found')
+        if (!row) throw new Error(t('directory.tenants.form.errors.notFound', 'Tenant not found'))
         const cfValues: Record<string, unknown> = {}
         for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
           if (key.startsWith('cf_')) cfValues[key] = value
@@ -57,7 +59,7 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
         if (!cancelled) setInitial(values)
       } catch (err) {
         if (!cancelled) {
-          const message = err instanceof Error ? err.message : 'Failed to load tenant'
+          const message = err instanceof Error ? err.message : t('directory.tenants.form.errors.load', 'Failed to load tenant')
           setError(message)
         }
       } finally {
@@ -66,7 +68,7 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
     }
     load()
     return () => { cancelled = true }
-  }, [tenantId])
+  }, [tenantId, t])
 
   if (!tenantId) return null
 
@@ -86,15 +88,15 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
     <Page>
       <PageBody>
         <CrudForm<TenantFormValues>
-          title="Edit Tenant"
+          title={t('directory.tenants.form.title.edit', 'Edit Tenant')}
           backHref="/backend/directory/tenants"
           fields={fields}
           groups={groups}
           entityId={E.directory.tenant}
           initialValues={(initial || { id: tenantId, name: '', isActive: true }) as Partial<TenantFormValues>}
           isLoading={loading}
-          loadingMessage="Loading tenant…"
-          submitLabel="Save"
+          loadingMessage={t('directory.tenants.form.loading', 'Loading tenant…')}
+          submitLabel={t('common.save', 'Save')}
           cancelHref="/backend/directory/tenants"
           successRedirect="/backend/directory/tenants?flash=Tenant%20updated&type=success"
           onSubmit={async (values) => {
@@ -115,9 +117,12 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
             await updateCrud('directory/tenants', payload)
           }}
           onDelete={async () => {
-            const res = await apiFetch(`/api/directory/tenants?id=${encodeURIComponent(tenantId)}`, { method: 'DELETE' })
-            if (!res.ok) {
-              await raiseCrudError(res, 'Failed to delete tenant')
+            const call = await apiCall(
+              `/api/directory/tenants?id=${encodeURIComponent(tenantId)}`,
+              { method: 'DELETE' },
+            )
+            if (!call.ok) {
+              await raiseCrudError(call.response, t('directory.tenants.form.errors.delete', 'Failed to delete tenant'))
             }
           }}
           deleteRedirect="/backend/directory/tenants?flash=Tenant%20deleted&type=success"

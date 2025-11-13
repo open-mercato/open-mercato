@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { resolveTodoApiPath } from '../utils'
 import type { TodoLinkSummary } from '../types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
@@ -178,19 +178,11 @@ export function usePersonTasks({
         pageSize: String(pageSize),
         entityId,
       })
-      const response = await apiFetch(`/api/customers/todos?${params.toString()}`)
-      if (!response.ok) {
-        let message = 'Failed to load tasks.'
-        try {
-          const details = await response.clone().json()
-          if (details && typeof details.error === 'string') message = details.error
-        } catch {
-          // ignore parse errors
-        }
-        throw new Error(message)
-      }
-      const payload = (await response.json()) as CustomerTodosResponse
-      return payload
+      return readApiResultOrThrow<CustomerTodosResponse>(
+        `/api/customers/todos?${params.toString()}`,
+        undefined,
+        { errorMessage: 'Failed to load tasks.' },
+      )
     },
     [entityId, pageSize],
   )
@@ -281,22 +273,16 @@ export function usePersonTasks({
         if (normalizedDone !== undefined) payload.isDone = normalizedDone
         if (Object.keys(custom).length) payload.todoCustom = custom
 
-        const response = await apiFetch('/api/customers/todos', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        if (!response.ok) {
-          let message = 'Failed to create task.'
-          try {
-            const details = await response.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {
-            // ignore parse errors
-          }
-          throw new Error(message)
-        }
-        const body = (await response.json().catch(() => ({}))) as { linkId?: string; todoId?: string }
+        const response = await apiCallOrThrow<{ linkId?: string; todoId?: string }>(
+          '/api/customers/todos',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: 'Failed to create task.' },
+        )
+        const body = response.result ?? {}
         const linkId = typeof body.linkId === 'string' && body.linkId.length ? body.linkId : generateTempId()
         const todoId = typeof body.todoId === 'string' && body.todoId.length ? body.todoId : generateTempId()
         const createdAt = new Date().toISOString()
@@ -350,21 +336,15 @@ export function usePersonTasks({
         if (Object.keys(custom).length) {
           body.customFields = custom
         }
-        const response = await apiFetch(apiPath, {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-        if (!response.ok) {
-          let message = 'Failed to update task.'
-          try {
-            const details = await response.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {
-            // ignore parse errors
-          }
-          throw new Error(message)
-        }
+        await apiCallOrThrow(
+          apiPath,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          },
+          { errorMessage: 'Failed to update task.' },
+        )
         setTasks((prev) =>
           prev.map((item) => {
             if (item.id !== task.id) return item
@@ -418,22 +398,16 @@ export function usePersonTasks({
     async (task: TodoLinkSummary) => {
       if (!task.id) throw new Error('Task link id missing')
       setIsMutating(true)
-      try {
-        const response = await apiFetch('/api/customers/todos', {
+    try {
+      await apiCallOrThrow(
+        '/api/customers/todos',
+        {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ id: task.id }),
-        })
-        if (!response.ok) {
-          let message = 'Failed to remove task.'
-          try {
-            const details = await response.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {
-            // ignore parse errors
-          }
-          throw new Error(message)
-        }
+        },
+        { errorMessage: 'Failed to remove task.' },
+      )
         setTasks((prev) => prev.filter((item) => item.id !== task.id))
         setPageInfo((prev) => ({
           page: prev.page,

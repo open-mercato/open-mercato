@@ -45,6 +45,22 @@ export function normalizeTagSegment(value: string | null | undefined): string {
   return value.toString().trim().replace(/[^a-zA-Z0-9._-]/g, '-')
 }
 
+export function canonicalizeResourceTag(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null
+  const trimmed = String(value).trim()
+  if (!trimmed.length) return null
+  const withSeparators = trimmed
+    .replace(/::/g, '.')
+    .replace(/[/\\]+/g, '.')
+    .replace(/[\s]+/g, '.')
+    .replace(/_/g, '.')
+    .replace(/-+/g, '.')
+  const withCamelBreaks = withSeparators.replace(/([a-z0-9])([A-Z])/g, '$1.$2')
+  const collapsed = withCamelBreaks.replace(/\.{2,}/g, '.').replace(/^\.+|\.+$/g, '')
+  const lowered = collapsed.toLowerCase()
+  return lowered.length ? lowered : null
+}
+
 export function buildRecordTag(resource: string, tenantId: string | null, recordId: string): string {
   return [
     'crud',
@@ -131,25 +147,13 @@ export function deriveResourceFromCommandId(commandId: string | undefined | null
 
 export function expandResourceAliases(resource: string, aliases?: string[]): string[] {
   const set = new Set<string>()
-  const trimmed = resource?.trim()
-  if (trimmed) set.add(trimmed)
-  if (aliases) {
-    for (const alias of aliases) {
-      if (alias && typeof alias === 'string') set.add(alias.trim())
-    }
+  const inputs = [resource, ...(aliases ?? [])]
+  for (const candidate of inputs) {
+    const canonical = canonicalizeResourceTag(candidate)
+    if (canonical) set.add(canonical)
   }
-  for (const value of Array.from(set)) {
-    if (!value) continue
-    const lower = value.toLowerCase()
-    if (lower && !set.has(lower)) set.add(lower)
-    if (!value.includes('.') && /[A-Z]/.test(value)) {
-      const snake = value.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
-      if (snake && !set.has(snake)) set.add(snake)
-      const dotted = snake.replace(/_/g, '.')
-      if (dotted && !set.has(dotted)) set.add(dotted)
-    }
-  }
-  return Array.from(set).filter((v) => v.length > 0)
+  if (!set.size) return []
+  return Array.from(set)
 }
 
 export async function invalidateCrudCache(

@@ -1,0 +1,9 @@
+{
+  "dashboards.widgets.loading": "Loading widget options…",
+  "dashboards.widgets.error.load": "Unable to load widget configuration.",
+  "dashboards.widgets.error.save": "Unable to save dashboard widget preferences.",
+  "dashboards.widgets.flash.saved": "Dashboard widgets updated",
+  "dashboards.widgets.mode.inherit": "Inherit from roles",
+  "dashboards.widgets.mode.override": "Override for this user",
+  "dashboards.widgets.mode.hint": "This user currently inherits widgets from their assigned roles. Switch to override to customize."
+}

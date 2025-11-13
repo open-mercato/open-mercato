@@ -1,6 +1,6 @@
 "use client"
 
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQuery, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
 import {
   createDictionaryMap,
@@ -34,15 +34,11 @@ export const customerDictionaryQueryOptions = (kind: CustomerDictionaryKind, sco
   staleTime: DICTIONARY_STALE_TIME,
   gcTime: DICTIONARY_STALE_TIME,
   queryFn: async (): Promise<CustomerDictionaryQueryData> => {
-    const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
-    const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>
-    if (!res.ok) {
-      const message =
-        typeof payload.error === 'string'
-          ? payload.error
-          : 'Failed to load dictionary entries.'
-      throw new Error(message)
-    }
+    const payload = await readApiResultOrThrow<Record<string, unknown>>(
+      `/api/customers/dictionaries/${kind}`,
+      undefined,
+      { errorMessage: 'Failed to load dictionary entries.' },
+    )
     const items = Array.isArray(payload.items) ? payload.items : []
     const parsed = items
       .map((item) => {

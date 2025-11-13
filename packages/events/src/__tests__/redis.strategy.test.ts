@@ -36,7 +36,9 @@ describe('Event bus - redis strategy (mocked)', () => {
   test('create and emit non-persistent', async () => {
     const bus = createEventBus({ resolve: ((n: string) => n) as any })
     const recv: any[] = []
-    bus.on('e', (p)=>recv.push(p))
+    bus.on('e', (p) => {
+      recv.push(p)
+    })
     await bus.emitEvent('e', { ok: true })
     expect(recv.length).toBe(1)
   })

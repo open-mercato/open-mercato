@@ -209,21 +209,27 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         label: t('auth.users.form.field.tenant', 'Tenant'),
         type: 'custom',
         required: true,
-        component: ({ value, setValue }) => (
-          <TenantSelect
-            id="tenantId"
-            value={typeof value === 'string' ? value : value ?? selectedTenantId}
-            onChange={(next) => {
-              setValue(next ?? null)
-              setSelectedTenantId(next ?? null)
-              setAclData({ isSuperAdmin: false, features: [], organizations: null })
-            }}
-            includeEmptyOption
-            className="w-full h-9 rounded border px-2 text-sm"
-            required
-            tenants={preloadedTenants}
-          />
-        ),
+        component: ({ value, setValue }) => {
+          const normalizedValue = typeof value === 'string'
+            ? value
+            : (typeof selectedTenantId === 'string' ? selectedTenantId : null)
+          return (
+            <TenantSelect
+              id="tenantId"
+              value={normalizedValue}
+              onChange={(next) => {
+                const resolved = next ?? null
+                setValue(resolved)
+                setSelectedTenantId(resolved)
+                setAclData({ isSuperAdmin: false, features: [], organizations: null })
+              }}
+              includeEmptyOption
+              className="w-full h-9 rounded border px-2 text-sm"
+              required
+              tenants={preloadedTenants}
+            />
+          )
+        },
       })
     }
     items.push({
@@ -231,7 +237,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       label: t('auth.users.form.field.organization', 'Organization'),
       type: 'custom',
       component: ({ id, value, setValue }) => {
-        const normalizedValue = typeof value === 'string' ? (value.length > 0 ? value : null) : (value ?? null)
+        const normalizedValue = typeof value === 'string' ? (value.length > 0 ? value : null) : null
         return (
           <TenantAwareOrganizationSelectInput
             fieldId={id}

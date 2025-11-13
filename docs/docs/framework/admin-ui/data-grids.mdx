@@ -9,7 +9,7 @@ Admin list pages usually rely on the `DataGrid` component from `@open-mercato/ui
 
 ```tsx title="backend/inventory/items/page.tsx"
 import { DataGrid } from '@open-mercato/ui/backend/DataGrid';
-import { apiFetch } from '@open-mercato/ui/backend/utils/api';
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall';
 
 const columns = [
   { id: 'sku', header: 'SKU', width: 140 },
@@ -18,7 +18,7 @@ const columns = [
 ];
 
 export default async function InventoryGrid() {
-  const data = await apiFetch('/api/inventory/items?limit=50');
+  const data = await readApiResultOrThrow('/api/inventory/items?limit=50');
   return (
     <DataGrid
       title="Inventory"

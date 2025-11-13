@@ -1,32 +1,34 @@
-jest.mock('@open-mercato/ui/backend/utils/api', () => ({
-  apiFetch: jest.fn(),
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  apiCall: jest.fn(),
 }))
 
 import { lookupPhoneDuplicate } from '../phoneDuplicates'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
-const mockedApiFetch = apiFetch as jest.MockedFunction<typeof apiFetch>
+const mockedApiCall = apiCall as jest.MockedFunction<typeof apiCall>
 
-const createResponse = (payload: unknown, ok = true): Response => {
+const createResponse = (payload: unknown, ok = true) => {
   return {
     ok,
-    json: jest.fn().mockResolvedValue(payload),
-  } as unknown as Response
+    status: ok ? 200 : 500,
+    result: payload,
+    response: {} as Response,
+  }
 }
 
 describe('customers utils - phone duplicate lookup', () => {
   beforeEach(() => {
-    mockedApiFetch.mockReset()
+    mockedApiCall.mockReset()
   })
 
   it('returns null when no digits are provided', async () => {
     const result = await lookupPhoneDuplicate(' (   ) ')
     expect(result).toBeNull()
-    expect(mockedApiFetch).not.toHaveBeenCalled()
+    expect(mockedApiCall).not.toHaveBeenCalled()
   })
 
   it('returns first matching duplicate and builds link', async () => {
-    mockedApiFetch.mockResolvedValueOnce(
+    mockedApiCall.mockResolvedValueOnce(
       createResponse({
         items: [
           { id: 'c1', display_name: 'Ada Lovelace', primary_phone: '+1 (555) 123-4567' },
@@ -40,13 +42,13 @@ describe('customers utils - phone duplicate lookup', () => {
       label: 'Ada Lovelace',
       href: '/backend/customers/people/c1',
     })
-    expect(mockedApiFetch).toHaveBeenCalledWith(
+    expect(mockedApiCall).toHaveBeenCalledWith(
       '/api/customers/people?hasPhone=true&page=1&pageSize=50&sortField=createdAt&sortDir=desc'
     )
   })
 
   it('skips current record and continues scanning subsequent pages', async () => {
-    mockedApiFetch
+    mockedApiCall
       .mockResolvedValueOnce(
         createResponse({
           items: [
@@ -71,11 +73,11 @@ describe('customers utils - phone duplicate lookup', () => {
       label: 'Grace Hopper',
       href: '/backend/customers/people/duplicate',
     })
-    expect(mockedApiFetch).toHaveBeenCalledTimes(2)
+    expect(mockedApiCall).toHaveBeenCalledTimes(2)
   })
 
   it('ignores failed requests and returns null when nothing matches', async () => {
-    mockedApiFetch
+    mockedApiCall
       .mockRejectedValueOnce(new Error('network'))
       .mockResolvedValueOnce(
         createResponse({
@@ -90,6 +92,6 @@ describe('customers utils - phone duplicate lookup', () => {
 
     const result = await lookupPhoneDuplicate('+1 555 999-9999')
     expect(result).toBeNull()
-    expect(mockedApiFetch).toHaveBeenCalledTimes(3)
+    expect(mockedApiCall).toHaveBeenCalledTimes(3)
   })
 })

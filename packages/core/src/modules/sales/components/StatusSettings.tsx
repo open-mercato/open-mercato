@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
@@ -20,6 +20,7 @@ import {
   DictionaryTable,
   type DictionaryTableEntry,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 
 type SalesStatusKind = 'order-statuses' | 'order-line-statuses'
 
@@ -83,10 +84,16 @@ export function StatusSettings() {
   const loadEntries = React.useCallback(async (kind: SalesStatusKind) => {
     setLoadingKind((prev) => ({ ...prev, [kind]: true }))
     try {
-      const res = await apiFetch(apiPaths[kind])
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok || !data || typeof data !== 'object' || !Array.isArray((data as any).items)) {
-        throw new Error('Failed to load dictionary entries.')
+      const data = await readApiResultOrThrow<{ items?: any[] }>(
+        apiPaths[kind],
+        undefined,
+        {
+          errorMessage: translate('sales.config.statuses.error.load', 'Failed to load status entries.'),
+          fallback: { items: [] },
+        },
+      )
+      if (!data || typeof data !== 'object' || !Array.isArray((data as any).items)) {
+        throw new Error(translate('sales.config.statuses.error.load', 'Failed to load status entries.'))
       }
       const items: DictionaryTableEntry[] = (data as { items: any[] }).items.map((item) => ({
         id: String(item.id),
@@ -166,15 +173,13 @@ export function StatusSettings() {
     const message = translate('sales.config.statuses.deleteConfirm', 'Delete status "{{value}}"?').replace('{{value}}', entry.label || entry.value)
     if (!window.confirm(message)) return
     try {
-      const res = await apiFetch(apiPaths[kind], {
+      const call = await apiCall(apiPaths[kind], {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: entry.id }),
       })
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}))
-        const msg = typeof payload?.error === 'string' ? payload.error : translate('sales.config.statuses.error.delete', 'Failed to delete status.')
-        throw new Error(msg)
+      if (!call.ok) {
+        await raiseCrudError(call.response, translate('sales.config.statuses.error.delete', 'Failed to delete status.'))
       }
       flash(translate('sales.config.statuses.success.delete', 'Status deleted.'), 'success')
       await loadEntries(kind)
@@ -191,15 +196,13 @@ export function StatusSettings() {
     setSubmitting(true)
     try {
       if (dialog.mode === 'create') {
-        const res = await apiFetch(path, {
+        const call = await apiCall(path, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(values),
         })
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const msg = typeof payload?.error === 'string' ? payload.error : translate('sales.config.statuses.error.save', 'Failed to save status.')
-          throw new Error(msg)
+        if (!call.ok) {
+          await raiseCrudError(call.response, translate('sales.config.statuses.error.save', 'Failed to save status.'))
         }
         flash(translate('sales.config.statuses.success.save', 'Status saved.'), 'success')
       } else if (dialog.mode === 'edit') {
@@ -211,15 +214,13 @@ export function StatusSettings() {
         if (nextColor !== (entry.color ?? null)) body.color = nextColor
         const nextIcon = values.icon ?? null
         if (nextIcon !== (entry.icon ?? null)) body.icon = nextIcon
-        const res = await apiFetch(path, {
+        const call = await apiCall(path, {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
         })
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const msg = typeof payload?.error === 'string' ? payload.error : translate('sales.config.statuses.error.save', 'Failed to save status.')
-          throw new Error(msg)
+        if (!call.ok) {
+          await raiseCrudError(call.response, translate('sales.config.statuses.error.save', 'Failed to save status.'))
         }
         flash(translate('sales.config.statuses.success.save', 'Status saved.'), 'success')
       }

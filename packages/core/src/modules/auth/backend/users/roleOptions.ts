@@ -1,4 +1,4 @@
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type { CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 
 type RoleListResponse = {
@@ -16,11 +16,14 @@ export async function fetchRoleOptions(query?: string, params?: FetchRoleOptions
   if (tenantId) searchParams.set('tenantId', tenantId)
 
   try {
-    const res = await apiFetch(`/api/auth/roles?${searchParams.toString()}`)
-    if (!res.ok) return []
-    const data: RoleListResponse = await res.json().catch(() => ({}))
-    if (!Array.isArray(data.items)) return []
-    return data.items
+    const call = await apiCall<RoleListResponse>(
+      `/api/auth/roles?${searchParams.toString()}`,
+      undefined,
+      { fallback: { items: [] } },
+    )
+    if (!call.ok || !Array.isArray(call.result?.items)) return []
+    const { items } = call.result
+    return items
       .map((item) => {
         const name = typeof item?.name === 'string' ? item?.name.trim() : ''
         if (!name) return null

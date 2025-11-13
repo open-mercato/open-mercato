@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useQuery, type UseQueryResult, type QueryClient } from '@tanstack/react-query'
-import { apiFetch } from './api'
+import { readApiResultOrThrow } from './apiCall'
 
 export type CustomFieldDefDto = {
   entityId?: string
@@ -56,13 +56,40 @@ function buildDefinitionsQuery(entityIds: string[]): string {
   return params.toString()
 }
 
-export async function fetchCustomFieldDefs(entityIds: string | string[], fetchImpl: typeof fetch = apiFetch): Promise<CustomFieldDefDto[]> {
+type CustomFieldDefinitionsResponse = {
+  items?: CustomFieldDefDto[]
+}
+
+async function readDefinitionsViaFetch(
+  entityIds: string[],
+  fetchImpl: typeof fetch,
+): Promise<CustomFieldDefDto[]> {
+  const query = buildDefinitionsQuery(entityIds)
+  const res = await fetchImpl(`/api/entities/definitions?${query}`, {
+    headers: { 'content-type': 'application/json' },
+  })
+  const data = await res.json().catch(() => ({ items: [] }))
+  const items = Array.isArray(data?.items) ? data.items : []
+  return items
+}
+
+async function readDefinitionsViaApi(entityIds: string[]): Promise<CustomFieldDefDto[]> {
+  const query = buildDefinitionsQuery(entityIds)
+  const payload = await readApiResultOrThrow<CustomFieldDefinitionsResponse>(
+    `/api/entities/definitions?${query}`,
+    { headers: { 'content-type': 'application/json' } },
+    {
+      errorMessage: 'Failed to load custom field definitions',
+      fallback: { items: [] },
+    },
+  )
+  return Array.isArray(payload?.items) ? payload.items : []
+}
+
+export async function fetchCustomFieldDefs(entityIds: string | string[], fetchImpl?: typeof fetch): Promise<CustomFieldDefDto[]> {
   const filtered = normalizeEntityIds(entityIds)
   if (!filtered.length) return []
-  const query = buildDefinitionsQuery(filtered)
-  const res = await fetchImpl(`/api/entities/definitions?${query}`, { headers: { 'content-type': 'application/json' } })
-  const data = await res.json().catch(() => ({ items: [] }))
-  const items = (data?.items || []) as CustomFieldDefDto[]
+  const items = fetchImpl ? await readDefinitionsViaFetch(filtered, fetchImpl) : await readDefinitionsViaApi(filtered)
   items.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
   return items
 }
@@ -71,6 +98,7 @@ export type UseCustomFieldDefsOptions<TData = CustomFieldDefDto[]> = {
   enabled?: boolean
   staleTime?: number
   gcTime?: number
+  /** @deprecated Custom fetch implementations are no longer needed. */
   fetchImpl?: typeof fetch
   keyExtras?: Array<string | number | boolean | null | undefined>
   select?: (data: CustomFieldDefDto[]) => TData
@@ -84,8 +112,8 @@ export function useCustomFieldDefs<TData = CustomFieldDefDto[]>(
     enabled: enabledOption = true,
     staleTime,
     gcTime,
-    fetchImpl = apiFetch,
     keyExtras,
+    fetchImpl,
   } = options
   const normalizedIds = React.useMemo(() => normalizeEntityIds(entityIds), [entityIds])
   const idsSignature = React.useMemo(() => JSON.stringify(normalizedIds), [normalizedIds])

@@ -2,7 +2,7 @@
 'use client'
 
 import * as React from 'react'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -51,12 +51,11 @@ export function VectorSettingsPageClient(props: Props) {
     setLoading(true)
     setError(null)
     try {
-      const response = await apiFetch('/api/vector/settings')
-      const body = (await response.json().catch(() => ({}))) as SettingsResponse
-      if (!response.ok) {
-        const message = normalizeErrorMessage(body?.error, props.toggleErrorMessage)
-        throw new Error(message)
-      }
+      const body = await readApiResultOrThrow<SettingsResponse>(
+        '/api/vector/settings',
+        undefined,
+        { errorMessage: props.toggleErrorMessage, allowNullResult: true },
+      )
       if (body?.settings) {
         setSettings(body.settings)
         previousValueRef.current = body.settings.autoIndexingEnabled
@@ -96,16 +95,15 @@ export function VectorSettingsPageClient(props: Props) {
       })
       setSaving(true)
       try {
-        const response = await apiFetch('/api/vector/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ autoIndexingEnabled: nextValue }),
-        })
-        const body = (await response.json().catch(() => ({}))) as SettingsResponse
-        if (!response.ok) {
-          const message = normalizeErrorMessage(body?.error, props.toggleErrorMessage)
-          throw new Error(message)
-        }
+        const body = await readApiResultOrThrow<SettingsResponse>(
+          '/api/vector/settings',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ autoIndexingEnabled: nextValue }),
+          },
+          { errorMessage: props.toggleErrorMessage, allowNullResult: true },
+        )
         if (body?.settings) {
           setSettings(body.settings)
           previousValueRef.current = body.settings.autoIndexingEnabled

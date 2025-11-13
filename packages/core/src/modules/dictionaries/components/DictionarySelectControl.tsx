@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -43,10 +43,9 @@ export function DictionarySelectControl({
         return
       }
       try {
-        const res = await apiFetch(`/api/dictionaries/${dictionaryId}`)
-        const json = await res.json().catch(() => ({}))
+        const call = await apiCall<{ isInherited?: boolean }>(`/api/dictionaries/${dictionaryId}`)
         if (cancelled) return
-        if (res.ok && json && json.isInherited === true) {
+        if (call.ok && call.result && call.result.isInherited === true) {
           setInlineCreateEnabled(false)
           return
         }
@@ -109,26 +108,33 @@ export function DictionarySelectControl({
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
-      const res = await apiFetch(`/api/dictionaries/${dictionaryId}/entries`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          value: input.value,
-          label: input.label ?? input.value,
-          color: input.color,
-          icon: input.icon,
-        }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to create dictionary entry')
+      const call = await apiCall<Record<string, unknown>>(
+        `/api/dictionaries/${dictionaryId}/entries`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            value: input.value,
+            label: input.label ?? input.value,
+            color: input.color,
+            icon: input.icon,
+          }),
+        },
+      )
+      if (!call.ok) {
+        throw new Error(
+          typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary entry',
+        )
       }
       await invalidateDictionaryEntries(queryClient, dictionaryId)
       return {
-        value: String(json.value),
-        label: typeof json.label === 'string' && json.label.length ? json.label : String(json.value),
-        color: typeof json.color === 'string' ? json.color : null,
-        icon: typeof json.icon === 'string' ? json.icon : null,
+        value: String(call.result?.value ?? input.value),
+        label:
+          typeof call.result?.label === 'string' && call.result.label.length
+            ? call.result.label
+            : String(call.result?.value ?? input.value),
+        color: typeof call.result?.color === 'string' ? call.result.color : null,
+        icon: typeof call.result?.icon === 'string' ? call.result.icon : null,
       }
     },
     [dictionaryId, queryClient],

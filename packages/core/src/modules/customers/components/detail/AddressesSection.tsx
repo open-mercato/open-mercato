@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../AddressTiles'
 import type { AddressSummary, SectionAction, TabEmptyState, Translator } from './types'
@@ -118,15 +118,11 @@ export function AddressesSection({
     pushLoading()
     try {
       const params = new URLSearchParams({ entityId: normalizedEntityId, pageSize: '100' })
-      const res = await apiFetch(`/api/customers/addresses?${params.toString()}`)
-      const payload = (await res.json().catch(() => ({}))) as ApiAddressPayload
-      if (!res.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('customers.people.detail.addresses.error')
-        throw new Error(message)
-      }
+      const payload = await readApiResultOrThrow<ApiAddressPayload>(
+        `/api/customers/addresses?${params.toString()}`,
+        undefined,
+        { errorMessage: t('customers.people.detail.addresses.error') },
+      )
       const items = Array.isArray(payload?.items) ? payload.items : []
       const mapped = items
         .map(mapAddress)
@@ -180,35 +176,16 @@ export function AddressesSection({
       pushLoading()
       setIsSubmitting(true)
       try {
-        const res = await apiFetch('/api/customers/addresses', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(buildPayload({})(payload)),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.addresses.error')
-          let detailsPayload: unknown = null
-          try {
-            detailsPayload = await res.clone().json()
-            if (
-              detailsPayload &&
-              typeof detailsPayload === 'object' &&
-              typeof (detailsPayload as { error?: unknown }).error === 'string'
-            ) {
-              message = (detailsPayload as { error: string }).error
-            }
-          } catch {}
-          const error = new Error(message) as Error & { details?: unknown }
-          if (
-            detailsPayload &&
-            typeof detailsPayload === 'object' &&
-            Array.isArray((detailsPayload as { details?: unknown }).details)
-          ) {
-            error.details = (detailsPayload as { details: unknown }).details
-          }
-          throw error
-        }
-        const body = await res.json().catch(() => ({}))
+        const response = await apiCallOrThrow<Record<string, unknown>>(
+          '/api/customers/addresses',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(buildPayload({})(payload)),
+          },
+          { errorMessage: t('customers.people.detail.addresses.error') },
+        )
+        const body = response.result ?? {}
         const newAddress: AddressSummary = {
           id: typeof body?.id === 'string' ? body.id : generateTempId(),
           name: payload.name ?? null,
@@ -228,6 +205,14 @@ export function AddressesSection({
           return [newAddress, ...existing]
         })
         flash(t('customers.people.detail.addresses.success'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message ? err.message : t('customers.people.detail.addresses.error')
+        const error = new Error(message) as Error & { details?: unknown }
+        if (err && typeof err === 'object' && (err as { details?: unknown }).details) {
+          error.details = (err as { details?: unknown }).details
+        }
+        throw error
       } finally {
         setIsSubmitting(false)
         popLoading()
@@ -244,34 +229,15 @@ export function AddressesSection({
       pushLoading()
       setIsSubmitting(true)
       try {
-        const res = await apiFetch('/api/customers/addresses', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(buildPayload({ id })(payload)),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.addresses.error')
-          let detailsPayload: unknown = null
-          try {
-            detailsPayload = await res.clone().json()
-            if (
-              detailsPayload &&
-              typeof detailsPayload === 'object' &&
-              typeof (detailsPayload as { error?: unknown }).error === 'string'
-            ) {
-              message = (detailsPayload as { error: string }).error
-            }
-          } catch {}
-          const error = new Error(message) as Error & { details?: unknown }
-          if (
-            detailsPayload &&
-            typeof detailsPayload === 'object' &&
-            Array.isArray((detailsPayload as { details?: unknown }).details)
-          ) {
-            error.details = (detailsPayload as { details: unknown }).details
-          }
-          throw error
-        }
+        await apiCallOrThrow(
+          '/api/customers/addresses',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(buildPayload({ id })(payload)),
+          },
+          { errorMessage: t('customers.people.detail.addresses.error') },
+        )
         setAddresses((prev) => {
           return prev.map((address) => {
             if (address.id !== id) {
@@ -294,6 +260,14 @@ export function AddressesSection({
           })
         })
         flash(t('customers.people.detail.addresses.success'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message ? err.message : t('customers.people.detail.addresses.error')
+        const error = new Error(message) as Error & { details?: unknown }
+        if (err && typeof err === 'object' && (err as { details?: unknown }).details) {
+          error.details = (err as { details?: unknown }).details
+        }
+        throw error
       } finally {
         setIsSubmitting(false)
         popLoading()
@@ -309,27 +283,28 @@ export function AddressesSection({
       }
       pushLoading()
       setIsSubmitting(true)
-      try {
-        const res = await apiFetch('/api/customers/addresses', {
+    try {
+      await apiCallOrThrow(
+        '/api/customers/addresses',
+        {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ id }),
-        })
-        if (!res.ok) {
-          let message = t('customers.people.detail.addresses.error')
-          try {
-            const details = await res.clone().json()
-            if (details && typeof details.error === 'string') message = details.error
-          } catch {}
-          throw new Error(message)
-        }
-        setAddresses((prev) => prev.filter((address) => address.id !== id))
-        flash(t('customers.people.detail.addresses.deleted'), 'success')
-      } finally {
-        setIsSubmitting(false)
-        popLoading()
-      }
-    },
+        },
+        { errorMessage: t('customers.people.detail.addresses.error') },
+      )
+      setAddresses((prev) => prev.filter((address) => address.id !== id))
+      flash(t('customers.people.detail.addresses.deleted'), 'success')
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message ? err.message : t('customers.people.detail.addresses.error')
+      flash(message, 'error')
+      throw err
+    } finally {
+      setIsSubmitting(false)
+      popLoading()
+    }
+  },
     [normalizedEntityId, pushLoading, popLoading, t]
   )
 

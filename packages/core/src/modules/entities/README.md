@@ -67,7 +67,7 @@ Validation & security
 - Multi-tenant rules enforced; do not expose cross-tenant data.
 
 UI integration tips
-- In client components, prefer `apiFetch` (from `@open-mercato/ui/backend/utils/api`) instead of the global `fetch`.
+- In client components, prefer `apiCall` helpers (from `@open-mercato/ui/backend/utils/apiCall`) instead of the global `fetch`.
 - When building forms with CrudForm, pass `entityId` to auto-append custom fields, or call `fetchCustomFieldFormFields(entityId)`.
 
 Migrations

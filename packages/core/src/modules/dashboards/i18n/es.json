@@ -1,0 +1,9 @@
+{
+  "dashboards.widgets.loading": "Cargando opciones de widgets…",
+  "dashboards.widgets.error.load": "No se pudo cargar la configuración de widgets.",
+  "dashboards.widgets.error.save": "No se pudieron guardar las preferencias de los widgets del panel.",
+  "dashboards.widgets.flash.saved": "Widgets del panel actualizados",
+  "dashboards.widgets.mode.inherit": "Heredar de los roles",
+  "dashboards.widgets.mode.override": "Sobrescribir para este usuario",
+  "dashboards.widgets.mode.hint": "Este usuario hereda los widgets de sus roles asignados. Cambia a sobrescribir para personalizar."
+}
