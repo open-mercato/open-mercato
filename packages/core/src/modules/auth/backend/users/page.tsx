@@ -86,8 +86,14 @@ async function fetchRoleOptionsByIds(ids: string[]): Promise<FilterOption[]> {
       const call = await apiCall<{ items?: unknown[] }>(`/api/auth/roles?${search.toString()}`)
       if (!call.ok) return null
       const data = call.result
-      const match = Array.isArray(data?.items) ? data.items.find((item: any) => item?.id === id) : null
-      const name = typeof match?.name === 'string' ? match.name : null
+      const items = Array.isArray(data?.items) ? (data?.items as unknown[]) : []
+      const match = items.find((item) => {
+        if (!item || typeof item !== 'object') return false
+        const entry = item as Record<string, unknown>
+        return typeof entry.id === 'string' && entry.id === id
+      })
+      const record = match && typeof match === 'object' ? (match as Record<string, unknown>) : null
+      const name = typeof record?.name === 'string' ? record.name : null
       if (!name) return null
       return { value: id, label: name }
     } catch {

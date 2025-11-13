@@ -27,7 +27,7 @@ async function fetchTodos(settings: TodoSettings): Promise<TodoItem[]> {
     undefined,
     { errorMessage: 'Failed to load todos', allowNullResult: true },
   )
-  const items = Array.isArray(json.items) ? json.items : []
+  const items = Array.isArray(json?.items) ? json.items : []
   return items
     .map((candidate: unknown): TodoItem | null => {
       if (!candidate || typeof candidate !== 'object') return null

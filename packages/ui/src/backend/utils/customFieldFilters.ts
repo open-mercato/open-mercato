@@ -3,6 +3,7 @@ import { useCustomFieldDefs, type UseCustomFieldDefsOptions } from './customFiel
 import { Filter } from '@/lib/query/types'
 import type { FilterDef } from '../FilterOverlay'
 import type { CustomFieldDefDto } from './customFieldDefs'
+export type { CustomFieldDefDto }
 import { filterCustomFieldDefs, fetchCustomFieldDefs as loadCustomFieldDefs } from './customFieldDefs'
 import { type UseQueryResult } from '@tanstack/react-query'
 import { apiCall } from './apiCall'

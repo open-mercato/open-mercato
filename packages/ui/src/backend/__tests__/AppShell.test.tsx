@@ -9,8 +9,8 @@ import { renderWithProviders } from '../../../../../tests/helpers/renderWithProv
 
 jest.mock('next/link', () => {
   const React = require('react')
-  return React.forwardRef(({ children, href, ...rest }: any, ref) => (
-    <a href={typeof href === 'string' ? href : href?.toString?.()} ref={ref as any} {...rest}>
+  return React.forwardRef(({ children, href, ...rest }: any, ref: React.ForwardedRef<HTMLAnchorElement>) => (
+    <a href={typeof href === 'string' ? href : href?.toString?.()} ref={ref} {...rest}>
       {children}
     </a>
   ))
@@ -96,7 +96,7 @@ describe('AppShell', () => {
       >
         <ApplyBreadcrumb
           titleKey="custom.page.title"
-          breadcrumb={[{ labelKey: 'custom.page.breadcrumb', href: '/custom' }]}
+          breadcrumb={[{ label: 'Custom Trail', labelKey: 'custom.page.breadcrumb', href: '/custom' }]}
         />
         <div>Child content</div>
       </AppShell>,

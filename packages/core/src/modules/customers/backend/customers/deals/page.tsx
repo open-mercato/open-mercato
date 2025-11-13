@@ -610,19 +610,20 @@ export default function CustomersDealsPage() {
       setIsLoading(true)
       setCacheStatus(null)
       try {
-        const call = await apiCall<DealsResponse>(`/api/customers/deals?${queryParams}`)
+        const fallback: DealsResponse = { items: [], total: 0, totalPages: 1 }
+        const call = await apiCall<DealsResponse>(`/api/customers/deals?${queryParams}`, undefined, { fallback })
         const rawCacheStatus = call.response.headers?.get?.('x-om-cache')
         const normalizedCacheStatus = rawCacheStatus === 'hit' || rawCacheStatus === 'miss' ? rawCacheStatus : null
         if (!call.ok) {
           const message =
-            typeof call.result?.error === 'string'
-              ? call.result.error
+            typeof (call.result as { error?: string } | undefined)?.error === 'string'
+              ? (call.result as { error?: string }).error!
               : t('customers.deals.list.error.load')
           flash(message, 'error')
           if (!cancelled) setCacheStatus(null)
           return
         }
-        const payload = call.result ?? {}
+        const payload = call.result ?? fallback
         if (cancelled) return
         setCacheStatus(normalizedCacheStatus)
         const items = Array.isArray(payload.items) ? payload.items : []

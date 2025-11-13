@@ -39,6 +39,19 @@ type Feature = { id: string; title: string; module: string }
 type ModuleInfo = { id: string; title: string }
 type RoleListItem = { id?: string | null; name?: string | null }
 type RoleListResponse = { items?: RoleListItem[] }
+type RoleSummary = { id: string; name: string }
+
+function buildRoleSummaries(items: RoleListItem[], allowedNames: string[]): RoleSummary[] {
+  const summaries: RoleSummary[] = []
+  for (const role of items) {
+    const name = typeof role?.name === 'string' ? role.name : ''
+    if (!name || !allowedNames.includes(name)) continue
+    const hasValidId = typeof role?.id === 'string' && role.id.length > 0
+    const id = hasValidId ? (role!.id as string) : name
+    summaries.push({ id, name })
+  }
+  return summaries
+}
 
 export type AclData = {
   isSuperAdmin: boolean
@@ -97,7 +110,7 @@ export function AclEditor({
   const [orgOptions, setOrgOptions] = React.useState<{ id: string; name: string }[]>([])
   const [hasCustomAcl, setHasCustomAcl] = React.useState(true)
   const [overrideEnabled, setOverrideEnabled] = React.useState(false)
-  const [roleDetails, setRoleDetails] = React.useState<Array<{ id: string; name: string }>>([])
+  const [roleDetails, setRoleDetails] = React.useState<RoleSummary[]>([])
 
   const actorSanitizeFeatures = React.useCallback(
     (list: unknown): string[] => {
@@ -174,14 +187,8 @@ export function AclEditor({
           )
           if (!cancelled) {
             const allRoles = Array.isArray(rolesJson.items) ? rolesJson.items : []
-            const userRoleDetails = allRoles.reduce<{ id: string; name: string }[]>((acc, role) => {
-              const name = typeof role?.name === 'string' ? role.name : ''
-              if (!name || !userRoles.includes(name)) return acc
-              const id = typeof role?.id === 'string' && role.id.length > 0 ? role.id : name
-              acc.push({ id, name })
-              return acc
-            }, [])
-            setRoleDetails(userRoleDetails)
+            const userRoleDetails: RoleSummary[] = buildRoleSummaries(allRoles, userRoles)
+            setRoleDetails(userRoleDetails as unknown as Array<{ id: string; name: string }>)
           }
         } catch {}
       }
@@ -263,17 +270,21 @@ export function AclEditor({
             {roleDetails.length > 0 && (
               <span>
                 {' '}Assigned roles:{' '}
-                {roleDetails.map((role, idx) => (
-                  <React.Fragment key={role.id}>
-                    {idx > 0 && ', '}
-                    <Link 
-                      href={`/backend/roles/${role.id}/edit`}
-                      className="font-semibold text-blue-900 underline hover:text-blue-950 transition-colors"
-                    >
-                      {role.name}
-                    </Link>
-                  </React.Fragment>
-                ))}
+                {roleDetails.map((role, idx) => {
+                  const roleId = typeof role?.id === 'string' && role.id.length > 0 ? role.id : `role-${idx}`
+                  const roleName = typeof role?.name === 'string' && role.name.length > 0 ? role.name : roleId
+                  return (
+                    <React.Fragment key={roleId}>
+                      {idx > 0 && ', '}
+                      <Link 
+                        href={`/backend/roles/${roleId}/edit`}
+                        className="font-semibold text-blue-900 underline hover:text-blue-950 transition-colors"
+                      >
+                        {roleName}
+                      </Link>
+                    </React.Fragment>
+                  )
+                })}
               </span>
             )}
           </div>

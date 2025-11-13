@@ -480,14 +480,23 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         )
         const ent = (entJson.items || []).find((x: any) => x.entityId === entityId)
         if (mounted) {
-          setLabel(ent?.label || entityId)
-          if (ent?.source === 'code' || ent?.source === 'custom') setEntitySource(ent.source)
+          const record = ent as Record<string, unknown> | undefined
+          const labelValue =
+            typeof record?.label === 'string' && record.label.trim().length > 0 ? record.label : entityId
+          const descriptionValue = typeof record?.description === 'string' ? record.description : ''
+          const labelFieldValue =
+            typeof record?.labelField === 'string' && record.labelField.length > 0 ? record.labelField : 'name'
+          const defaultEditorValue =
+            typeof record?.defaultEditor === 'string' ? record.defaultEditor : ''
+          const showInSidebarValue = record?.showInSidebar === true
+          setLabel(labelValue)
+          if (record?.source === 'code' || record?.source === 'custom') setEntitySource(record.source)
           setEntityInitial({
-            label: ent?.label || entityId,
-            description: ent?.description || '',
-            labelField: (ent as any)?.labelField || 'name',
-            defaultEditor: (ent as any)?.defaultEditor || '',
-            showInSidebar: (ent as any)?.showInSidebar || false,
+            label: labelValue,
+            description: descriptionValue,
+            labelField: labelFieldValue,
+            defaultEditor: defaultEditorValue,
+            showInSidebar: showInSidebarValue,
           })
           setEntityFormLoading(false)
         }
@@ -656,7 +665,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       defaultEditor: z.union([z.enum(['markdown','simpleMarkdown','htmlRichText']).optional(), z.literal('')]).optional(),
       // Include showInSidebar so CrudForm doesn't strip it on submit
       showInSidebar: z.boolean().optional(),
-    }) as unknown as z.ZodTypeAny
+    }) as z.ZodType<Record<string, unknown>>
 
   const fields: CrudField[] = [
     { id: 'label', label: 'Label', type: 'text', required: true },

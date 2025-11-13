@@ -66,7 +66,7 @@ const mockDataEngine = {
   setCustomFields: jest.fn(async (args: any) => {
     await (setRecordCustomFields as any)(em, args)
   }),
-  emitOrmEntityEvent: jest.fn(async () => {}),
+  emitOrmEntityEvent: jest.fn(async (_entry: any) => {}),
   markOrmEntityChange: jest.fn(function (this: any, entry: any) {
     if (!entry || !entry.entity) return
     this.__pendingSideEffects.push(entry)
@@ -247,7 +247,9 @@ describe('CRUD Factory', () => {
     expect(setRecordCustomFields).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entityId: 'example.todo', values: { priority: 3 } }))
     // Event + indexer delegated to data engine
     expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
-    const createdArgs = mockDataEngine.emitOrmEntityEvent.mock.calls[0][0]
+    const createdCall = mockDataEngine.emitOrmEntityEvent.mock.calls.at(0)
+    expect(createdCall).toBeDefined()
+    const [createdArgs] = createdCall!
     expect(createdArgs.action).toBe('created')
     expect(createdArgs.identifiers.id).toBe(data.id)
     expect(createdArgs.events?.module).toBe('example')
@@ -270,7 +272,9 @@ describe('CRUD Factory', () => {
     expect(res.status).toBe(200)
     expect(setRecordCustomFields).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ values: { priority: 5 } }))
     expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
-    const updatedArgs = mockDataEngine.emitOrmEntityEvent.mock.calls[0][0]
+    const updatedCall = mockDataEngine.emitOrmEntityEvent.mock.calls.at(0)
+    expect(updatedCall).toBeDefined()
+    const [updatedArgs] = updatedCall!
     expect(updatedArgs.action).toBe('updated')
     expect(updatedArgs.identifiers.id).toBe(created.id)
     expect(updatedArgs.indexer?.entityType).toBe('example.todo')
@@ -284,7 +288,9 @@ describe('CRUD Factory', () => {
     const res = await route.DELETE(new Request(`http://x/api/example/todos?id=${created.id}`, { method: 'DELETE' }))
     expect(res.status).toBe(200)
     expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
-    const deletedArgs = mockDataEngine.emitOrmEntityEvent.mock.calls[0][0]
+    const deletedCall = mockDataEngine.emitOrmEntityEvent.mock.calls.at(0)
+    expect(deletedCall).toBeDefined()
+    const [deletedArgs] = deletedCall!
     expect(deletedArgs.action).toBe('deleted')
     expect(deletedArgs.identifiers.id).toBe(created.id)
     expect(deletedArgs.indexer?.entityType).toBe('example.todo')

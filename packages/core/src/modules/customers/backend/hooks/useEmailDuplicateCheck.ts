@@ -60,10 +60,12 @@ export function useEmailDuplicateCheck(
         const items = Array.isArray(payload?.items) ? payload.items : []
         const match =
           items
-            .map((item: Record<string, unknown>) => {
-              const id = typeof item?.id === 'string' ? item.id : null
-              const displayName = typeof item?.display_name === 'string' ? item.display_name : null
-              const emailValue = typeof item?.primary_email === 'string' ? item.primary_email.toLowerCase() : null
+            .map((raw) => {
+              if (!raw || typeof raw !== 'object') return null
+              const item = raw as Record<string, unknown>
+              const id = typeof item.id === 'string' ? item.id : null
+              const displayName = typeof item.display_name === 'string' ? item.display_name : null
+              const emailValue = typeof item.primary_email === 'string' ? item.primary_email.toLowerCase() : null
               return id && displayName && emailValue
                 ? { id, displayName, email: emailValue }
                 : null

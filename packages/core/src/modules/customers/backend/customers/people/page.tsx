@@ -383,16 +383,18 @@ export default function CustomersPeoplePage() {
       setIsLoading(true)
       setCacheStatus(null)
       try {
-        const call = await apiCall<PeopleResponse>(`/api/customers/people?${queryParams}`)
+        const fallback: PeopleResponse = { items: [], total: 0, totalPages: 1 }
+        const call = await apiCall<PeopleResponse>(`/api/customers/people?${queryParams}`, undefined, { fallback })
         const rawCacheStatus = call.response.headers?.get?.('x-om-cache')
         const normalizedCacheStatus = rawCacheStatus === 'hit' || rawCacheStatus === 'miss' ? rawCacheStatus : null
         if (!call.ok) {
-          const message = typeof call.result?.error === 'string' ? call.result.error : t('customers.people.list.error.load')
+          const errorPayload = call.result as { error?: string } | undefined
+          const message = typeof errorPayload?.error === 'string' ? errorPayload.error : t('customers.people.list.error.load')
           flash(message, 'error')
           if (!cancelled) setCacheStatus(null)
           return
         }
-        const payload = call.result ?? {}
+        const payload = call.result ?? fallback
         if (cancelled) return
         setCacheStatus(normalizedCacheStatus)
         const items = Array.isArray(payload.items) ? payload.items : []

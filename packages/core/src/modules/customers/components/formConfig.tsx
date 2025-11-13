@@ -625,8 +625,16 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
 export const createPersonFormSchema = () =>
   z
     .object({
+      displayName: z.string().trim().min(1),
       firstName: z.string().trim().min(1),
       lastName: z.string().trim().min(1),
+      jobTitle: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
       primaryEmail: z
         .string()
         .trim()
@@ -634,6 +642,13 @@ export const createPersonFormSchema = () =>
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val)),
+      primaryPhone: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
       status: z
         .string()
         .trim()
@@ -649,6 +664,13 @@ export const createPersonFormSchema = () =>
         .transform((val) => (val === '' ? undefined : val))
         .optional(),
       source: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
+      description: z
         .string()
         .trim()
         .optional()
