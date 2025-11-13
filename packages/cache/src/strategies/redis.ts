@@ -1,6 +1,5 @@
 import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import { CacheDependencyUnavailableError } from '../errors'
-import { createRequire } from 'node:module'
 
 type RedisPipeline = {
   set(key: string, value: string): RedisPipeline
@@ -34,15 +33,23 @@ type RedisModule = RedisConstructor | { default: RedisConstructor }
  * - Hash for storing cache entries: cache:{key} -> {value, tags, expiresAt, createdAt}
  * - Sets for tag index: tag:{tag} -> Set of keys
  */
-const requireModule = createRequire(import.meta.url)
+let redisConstructorPromise: Promise<RedisConstructor> | null = null
 
-function resolveRedisConstructor(): RedisConstructor {
-  try {
-    const required = requireModule('ioredis') as RedisModule
-    return typeof required === 'function' ? required : required.default
-  } catch (error) {
-    throw new CacheDependencyUnavailableError('redis', 'ioredis', error)
+async function resolveRedisConstructor(): Promise<RedisConstructor> {
+  if (!redisConstructorPromise) {
+    redisConstructorPromise = import('ioredis')
+      .then((required) => {
+        const mod = required as RedisModule
+        const ctor = typeof mod === 'function' ? mod : mod?.default
+        if (!ctor) throw new Error('ioredis export missing constructor')
+        return ctor
+      })
+      .catch((error) => {
+        redisConstructorPromise = null
+        throw new CacheDependencyUnavailableError('redis', 'ioredis', error)
+      })
   }
+  return redisConstructorPromise
 }
 
 export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: number }): CacheStrategy {
@@ -54,7 +61,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
   async function getRedisClient(): Promise<RedisClient> {
     if (redis) return redis
 
-    const Redis = resolveRedisConstructor()
+    const Redis = await resolveRedisConstructor()
     redis = new Redis(redisUrl || process.env.REDIS_URL || process.env.CACHE_REDIS_URL || 'redis://localhost:6379')
     return redis
   }
