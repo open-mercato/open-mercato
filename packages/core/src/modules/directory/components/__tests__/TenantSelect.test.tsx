@@ -2,6 +2,7 @@
  * @jest-environment jsdom
  */
 
+import '@testing-library/jest-dom'
 import * as React from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import { TenantSelect } from '../TenantSelect'

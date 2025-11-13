@@ -68,6 +68,18 @@ type AclPayload = {
 }
 type OrganizationListResponse = { items?: Array<{ id?: string; name?: string }> }
 
+function normalizeOrganizationOptions(items: OrganizationListResponse['items']): Array<{ id: string; name: string }> {
+  if (!Array.isArray(items)) return []
+  return items.reduce<Array<{ id: string; name: string }>>((acc, org) => {
+    if (!org) return acc
+    const id = typeof org.id === 'string' && org.id.trim().length > 0 ? org.id : null
+    if (!id) return acc
+    const name = typeof org.name === 'string' && org.name.trim().length > 0 ? org.name : id
+    acc.push({ id, name })
+    return acc
+  }, [])
+}
+
 async function readJsonOr<T>(
   url: string,
   init: RequestInit | undefined,
@@ -172,7 +184,7 @@ export function AclEditor({
             undefined,
             { items: [] },
           )
-          if (!cancelled) setOrgOptions(oJson.items || [])
+          if (!cancelled) setOrgOptions(normalizeOrganizationOptions(oJson.items))
         } catch {}
       }
       if (kind === 'user' && userRoles && userRoles.length > 0) {
@@ -188,7 +200,7 @@ export function AclEditor({
           if (!cancelled) {
             const allRoles = Array.isArray(rolesJson.items) ? rolesJson.items : []
             const userRoleDetails: RoleSummary[] = buildRoleSummaries(allRoles, userRoles)
-            setRoleDetails(userRoleDetails as unknown as Array<{ id: string; name: string }>)
+            setRoleDetails(userRoleDetails)
           }
         } catch {}
       }
