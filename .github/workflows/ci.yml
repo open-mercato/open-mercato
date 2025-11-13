@@ -1,0 +1,32 @@
+name: CI for Develop&Main
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Prepare generated modules
+        run: yarn modules:prepare
+
+      - name: Test
+        run: yarn test
+
+      - name: Build
+        run: yarn build
