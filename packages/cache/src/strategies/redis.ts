@@ -20,10 +20,13 @@ type RedisClient = {
   smembers(key: string): Promise<string[]>
   pipeline(): RedisPipeline
   quit(): Promise<void>
+  once?(event: 'end', listener: () => void): void
 }
 
 type RedisConstructor = new (url?: string) => RedisClient
-type RedisModule = RedisConstructor | { default: RedisConstructor }
+type PossibleRedisModule = unknown
+
+type RequireFn = (id: string) => unknown
 
 /**
  * Redis cache strategy with tag support
@@ -33,36 +36,133 @@ type RedisModule = RedisConstructor | { default: RedisConstructor }
  * - Hash for storing cache entries: cache:{key} -> {value, tags, expiresAt, createdAt}
  * - Sets for tag index: tag:{tag} -> Set of keys
  */
-let redisConstructorPromise: Promise<RedisConstructor> | null = null
+let redisModulePromise: Promise<PossibleRedisModule> | null = null
+type RedisRegistryEntry = { client?: RedisClient; creating?: Promise<RedisClient>; refs: number }
+const redisRegistry = new Map<string, RedisRegistryEntry>()
 
-async function resolveRedisConstructor(): Promise<RedisConstructor> {
-  if (!redisConstructorPromise) {
-    redisConstructorPromise = import('ioredis')
-      .then((required) => {
-        const mod = required as RedisModule
-        const ctor = typeof mod === 'function' ? mod : mod?.default
-        if (!ctor) throw new Error('ioredis export missing constructor')
-        return ctor
-      })
-      .catch((error) => {
-        redisConstructorPromise = null
-        throw new CacheDependencyUnavailableError('redis', 'ioredis', error)
-      })
+function resolveRequire(): RequireFn | null {
+  const nonWebpack = (globalThis as { __non_webpack_require__?: unknown }).__non_webpack_require__
+  if (typeof nonWebpack === 'function') return nonWebpack as RequireFn
+  if (typeof require === 'function') return require as RequireFn
+  if (typeof module !== 'undefined' && typeof module.require === 'function') {
+    return module.require.bind(module)
   }
-  return redisConstructorPromise
+  try {
+    const maybeRequire = Function('return typeof require !== "undefined" ? require : undefined')()
+    if (typeof maybeRequire === 'function') return maybeRequire as RequireFn
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+function loadRedisModuleViaRequire(): PossibleRedisModule | null {
+  const resolver = resolveRequire()
+  if (!resolver) return null
+  try {
+    return resolver('ioredis') as PossibleRedisModule
+  } catch {
+    return null
+  }
+}
+
+function pickRedisConstructor(mod: PossibleRedisModule): RedisConstructor | null {
+  const queue: unknown[] = [mod]
+  const seen = new Set<unknown>()
+  while (queue.length) {
+    const current = queue.shift()
+    if (!current || seen.has(current)) continue
+    seen.add(current)
+    if (typeof current === 'function') return current as RedisConstructor
+    if (typeof current === 'object') {
+      queue.push((current as { default?: unknown }).default)
+      queue.push((current as { Redis?: unknown }).Redis)
+      queue.push((current as { module?: { exports?: unknown } }).module?.exports)
+      queue.push((current as { exports?: unknown }).exports)
+    }
+  }
+  return null
+}
+
+async function loadRedisModule(): Promise<PossibleRedisModule> {
+  if (!redisModulePromise) {
+    redisModulePromise = (async () => {
+      const required = loadRedisModuleViaRequire() ?? (await import('ioredis'))
+      return required as PossibleRedisModule
+    })().catch((error) => {
+      redisModulePromise = null
+      throw new CacheDependencyUnavailableError('redis', 'ioredis', error)
+    })
+  }
+  return redisModulePromise
+}
+
+function retainRedisEntry(key: string): RedisRegistryEntry {
+  let entry = redisRegistry.get(key)
+  if (!entry) {
+    entry = { refs: 0 }
+    redisRegistry.set(key, entry)
+  }
+  entry.refs += 1
+  return entry
+}
+
+async function acquireRedisClient(key: string, entry: RedisRegistryEntry): Promise<RedisClient> {
+  if (entry.client) return entry.client
+  if (entry.creating) return entry.creating
+  entry.creating = loadRedisModule()
+    .then((mod) => {
+      const ctor = pickRedisConstructor(mod)
+      if (!ctor) {
+        throw new CacheDependencyUnavailableError('redis', 'ioredis', new Error('No usable Redis constructor'))
+      }
+      const client = new ctor(key)
+      entry.client = client
+      entry.creating = undefined
+      client.once?.('end', () => {
+        if (redisRegistry.get(key) === entry && entry.refs === 0) {
+          redisRegistry.delete(key)
+        } else if (redisRegistry.get(key) === entry) {
+          entry.client = undefined
+        }
+      })
+      return client
+    })
+    .catch((error) => {
+      entry.creating = undefined
+      throw error
+    })
+  return entry.creating
+}
+
+async function releaseRedisEntry(key: string, entry: RedisRegistryEntry): Promise<void> {
+  entry.refs = Math.max(0, entry.refs - 1)
+  if (entry.refs > 0) return
+  redisRegistry.delete(key)
+  if (entry.client) {
+    try {
+      await entry.client.quit()
+    } catch {
+      // ignore shutdown errors
+    } finally {
+      entry.client = undefined
+    }
+  }
 }
 
 export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: number }): CacheStrategy {
-  let redis: RedisClient | null = null
   const defaultTtl = options?.defaultTtl
   const keyPrefix = 'cache:'
   const tagPrefix = 'tag:'
+  const connectionUrl =
+    redisUrl || process.env.REDIS_URL || process.env.CACHE_REDIS_URL || 'redis://localhost:6379'
+  const registryEntry = retainRedisEntry(connectionUrl)
+  let redis: RedisClient | null = registryEntry.client ?? null
 
   async function getRedisClient(): Promise<RedisClient> {
     if (redis) return redis
 
-    const Redis = await resolveRedisConstructor()
-    redis = new Redis(redisUrl || process.env.REDIS_URL || process.env.CACHE_REDIS_URL || 'redis://localhost:6379')
+    redis = await acquireRedisClient(connectionUrl, registryEntry)
     return redis
   }
 
@@ -324,10 +424,8 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
   }
 
   const close = async (): Promise<void> => {
-    if (redis) {
-      await redis.quit()
-      redis = null
-    }
+    await releaseRedisEntry(connectionUrl, registryEntry)
+    redis = null
   }
 
   return {
