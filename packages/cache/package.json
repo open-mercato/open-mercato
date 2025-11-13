@@ -3,6 +3,7 @@
   "version": "0.3.2",
   "description": "Multi-strategy cache service with tag-based invalidation support",
   "main": "dist/index.js",
+  "private": false,
   "types": "dist/index.d.ts",
   "scripts": {
     "test": "jest"
@@ -31,5 +32,8 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
