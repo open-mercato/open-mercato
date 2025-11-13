@@ -18,7 +18,7 @@ touch packages/inventory/src/modules/inventory/backend/inventory/list/page.meta.
 ```tsx title="backend/inventory/list/page.tsx"
 import { DataGrid } from '@open-mercato/ui/backend/DataGrid';
 import type { DataGridColumn } from '@open-mercato/ui/backend/DataGrid/types';
-import { apiFetch } from '@open-mercato/ui/backend/utils/api';
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall';
 
 type InventoryItem = {
   id: string;
@@ -36,11 +36,7 @@ const columns: DataGridColumn<InventoryItem>[] = [
 ];
 
 async function fetchItems(): Promise<InventoryItem[]> {
-  const response = await apiFetch('/api/items');
-  if (!response.ok) {
-    throw new Error('Failed to load inventory items');
-  }
-  return response.json();
+  return readApiResultOrThrow('/api/items', undefined, { errorMessage: 'Failed to load inventory items' });
 }
 
 const InventoryListPage = async () => {

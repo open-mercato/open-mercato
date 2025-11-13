@@ -96,7 +96,7 @@ Whenever the checksum computed from the record, custom fields, and optional `che
 
 ## Frontend helpers
 
-The package exports `VectorSearchDialog` (global command palette) and `VectorSearchTable` (Data Designer page). Both rely on the shared `/api/vector/search` endpoint and the `fetchVectorResults()` helper from `frontend/utils.ts` which wraps `apiFetch` with a typed response. A module CLI (`yarn mercato vector reindex ...`) mirrors the REST endpoint to kick off bulk reindexing from scripts or CI.
+The package exports `VectorSearchDialog` (global command palette) and `VectorSearchTable` (Data Designer page). Both rely on the shared `/api/vector/search` endpoint and the `fetchVectorResults()` helper from `frontend/utils.ts` which wraps `apiCall` with a typed response. A module CLI (`yarn mercato vector reindex ...`) mirrors the REST endpoint to kick off bulk reindexing from scripts or CI.
 
 You can reuse `fetchVectorResults` in custom UIs to embed vector search in specialized workflows.
 

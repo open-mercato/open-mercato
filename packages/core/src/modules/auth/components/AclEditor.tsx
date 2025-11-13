@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import Link from 'next/link'
 import { hasFeature, matchFeature } from '@open-mercato/shared/security/features'
 
@@ -39,11 +39,55 @@ type Feature = { id: string; title: string; module: string }
 type ModuleInfo = { id: string; title: string }
 type RoleListItem = { id?: string | null; name?: string | null }
 type RoleListResponse = { items?: RoleListItem[] }
+type RoleSummary = { id: string; name: string }
+
+function buildRoleSummaries(items: RoleListItem[], allowedNames: string[]): RoleSummary[] {
+  const summaries: RoleSummary[] = []
+  for (const role of items) {
+    const name = typeof role?.name === 'string' ? role.name : ''
+    if (!name || !allowedNames.includes(name)) continue
+    const hasValidId = typeof role?.id === 'string' && role.id.length > 0
+    const id = hasValidId ? (role!.id as string) : name
+    summaries.push({ id, name })
+  }
+  return summaries
+}
 
 export type AclData = {
   isSuperAdmin: boolean
   features: string[]
   organizations: string[] | null
+}
+
+type FeatureListResponse = { items?: Feature[]; modules?: ModuleInfo[] }
+type AclPayload = {
+  hasCustomAcl?: boolean
+  isSuperAdmin?: boolean
+  features?: unknown
+  organizations?: unknown
+}
+type OrganizationListResponse = { items?: Array<{ id?: string; name?: string }> }
+
+function normalizeOrganizationOptions(items: OrganizationListResponse['items']): Array<{ id: string; name: string }> {
+  if (!Array.isArray(items)) return []
+  return items.reduce<Array<{ id: string; name: string }>>((acc, org) => {
+    if (!org) return acc
+    const id = typeof org.id === 'string' && org.id.trim().length > 0 ? org.id : null
+    if (!id) return acc
+    const name = typeof org.name === 'string' && org.name.trim().length > 0 ? org.name : id
+    acc.push({ id, name })
+    return acc
+  }, [])
+}
+
+async function readJsonOr<T>(
+  url: string,
+  init: RequestInit | undefined,
+  fallback: T,
+): Promise<T> {
+  const call = await apiCall<T>(url, init, { fallback })
+  if (!call.ok) return fallback
+  return call.result ?? fallback
 }
 
 export function AclEditor({
@@ -78,7 +122,7 @@ export function AclEditor({
   const [orgOptions, setOrgOptions] = React.useState<{ id: string; name: string }[]>([])
   const [hasCustomAcl, setHasCustomAcl] = React.useState(true)
   const [overrideEnabled, setOverrideEnabled] = React.useState(false)
-  const [roleDetails, setRoleDetails] = React.useState<Array<{ id: string; name: string }>>([])
+  const [roleDetails, setRoleDetails] = React.useState<RoleSummary[]>([])
 
   const actorSanitizeFeatures = React.useCallback(
     (list: unknown): string[] => {
@@ -101,8 +145,11 @@ export function AclEditor({
     async function load() {
       setLoading(true)
       try {
-        const fRes = await apiFetch('/api/auth/features')
-        const fJson = await fRes.json()
+        const fJson = await readJsonOr<FeatureListResponse>(
+          '/api/auth/features',
+          undefined,
+          { items: [], modules: [] },
+        )
         if (!cancelled) {
           setFeatures(fJson.items || [])
           setModules(fJson.modules || [])
@@ -113,8 +160,11 @@ export function AclEditor({
         aclQuery.set(kind === 'user' ? 'userId' : 'roleId', targetId)
         if (tenantId) aclQuery.set('tenantId', tenantId)
         const aclQueryString = aclQuery.toString()
-        const aclRes = await apiFetch(`/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl${aclQueryString ? `?${aclQueryString}` : ''}`)
-        const aclJson = await aclRes.json()
+        const aclJson = await readJsonOr<AclPayload>(
+          `/api/auth/${kind === 'user' ? 'users' : 'roles'}/acl${aclQueryString ? `?${aclQueryString}` : ''}`,
+          undefined,
+          { hasCustomAcl: true, isSuperAdmin: false, features: [], organizations: null },
+        )
         if (!cancelled) {
           const customAclExists = aclJson.hasCustomAcl !== false
           setHasCustomAcl(customAclExists)
@@ -129,9 +179,12 @@ export function AclEditor({
           const orgQuery = new URLSearchParams()
           if (tenantId) orgQuery.set('tenantId', tenantId)
           const orgQueryString = orgQuery.toString()
-          const oRes = await apiFetch(`/api/directory/organizations${orgQueryString ? `?${orgQueryString}` : ''}`)
-          const oJson = await oRes.json()
-          if (!cancelled) setOrgOptions(oJson.items || [])
+          const oJson = await readJsonOr<OrganizationListResponse>(
+            `/api/directory/organizations${orgQueryString ? `?${orgQueryString}` : ''}`,
+            undefined,
+            { items: [] },
+          )
+          if (!cancelled) setOrgOptions(normalizeOrganizationOptions(oJson.items))
         } catch {}
       }
       if (kind === 'user' && userRoles && userRoles.length > 0) {
@@ -139,18 +192,14 @@ export function AclEditor({
           const roleQuery = new URLSearchParams({ pageSize: '1000' })
           if (tenantId) roleQuery.set('tenantId', tenantId)
           const roleQueryString = roleQuery.toString()
-          const rolesRes = await apiFetch(`/api/auth/roles${roleQueryString ? `?${roleQueryString}` : ''}`)
-          const rolesJson: RoleListResponse = await rolesRes.json().catch(() => ({}))
+          const rolesJson = await readJsonOr<RoleListResponse>(
+            `/api/auth/roles${roleQueryString ? `?${roleQueryString}` : ''}`,
+            undefined,
+            { items: [] },
+          )
           if (!cancelled) {
             const allRoles = Array.isArray(rolesJson.items) ? rolesJson.items : []
-            const userRoleDetails = allRoles
-              .map((role) => {
-                const name = typeof role?.name === 'string' ? role.name : ''
-                if (!name || !userRoles.includes(name)) return null
-                const id = role?.id ? String(role.id) : name
-                return { id, name }
-              })
-              .filter((role): role is { id: string; name: string } => !!role)
+            const userRoleDetails: RoleSummary[] = buildRoleSummaries(allRoles, userRoles)
             setRoleDetails(userRoleDetails)
           }
         } catch {}
@@ -233,17 +282,21 @@ export function AclEditor({
             {roleDetails.length > 0 && (
               <span>
                 {' '}Assigned roles:{' '}
-                {roleDetails.map((role, idx) => (
-                  <React.Fragment key={role.id}>
-                    {idx > 0 && ', '}
-                    <Link 
-                      href={`/backend/roles/${role.id}/edit`}
-                      className="font-semibold text-blue-900 underline hover:text-blue-950 transition-colors"
-                    >
-                      {role.name}
-                    </Link>
-                  </React.Fragment>
-                ))}
+                {roleDetails.map((role, idx) => {
+                  const roleId = typeof role?.id === 'string' && role.id.length > 0 ? role.id : `role-${idx}`
+                  const roleName = typeof role?.name === 'string' && role.name.length > 0 ? role.name : roleId
+                  return (
+                    <React.Fragment key={roleId}>
+                      {idx > 0 && ', '}
+                      <Link 
+                        href={`/backend/roles/${roleId}/edit`}
+                        className="font-semibold text-blue-900 underline hover:text-blue-950 transition-colors"
+                      >
+                        {roleName}
+                      </Link>
+                    </React.Fragment>
+                  )
+                })}
               </span>
             )}
           </div>

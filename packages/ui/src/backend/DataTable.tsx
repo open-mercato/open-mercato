@@ -12,7 +12,8 @@ import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
-import { apiFetch } from './utils/api'
+import { apiCall } from './utils/apiCall'
+import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import type {
   PerspectiveDto,
@@ -526,13 +527,16 @@ export function DataTable<T>({
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       try {
-        const res = await apiFetch('/api/auth/feature-check', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ features: ['perspectives.use', 'perspectives.role_defaults'] }),
-        })
-        if (!res.ok) throw new Error(`feature-check failed (${res.status})`)
-        const data = await res.json().catch(() => ({}))
+        const call = await apiCall<{ granted?: unknown[] }>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ features: ['perspectives.use', 'perspectives.role_defaults'] }),
+          },
+        )
+        if (!call.ok) throw new Error(`feature-check failed (${call.status})`)
+        const data = call.result ?? {}
         const granted = Array.isArray(data?.granted) ? data.granted.map((f: any) => String(f)) : []
         const has = (feature: string) => granted.some((grantedFeature: string) => {
           if (grantedFeature === '*') return true
@@ -581,8 +585,8 @@ export function DataTable<T>({
     queryKey: ['table-perspectives', perspectiveTableId],
     queryFn: async () => {
       if (!perspectiveTableId) throw new Error('Missing table id')
-      const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}`)
-      if (res.status === 404) {
+      const call = await apiCall<PerspectivesIndexResponse>(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}`)
+      if (call.status === 404) {
         setPerspectiveApiMissing(true)
         return {
           tableId: perspectiveTableId,
@@ -593,13 +597,13 @@ export function DataTable<T>({
           canApplyToRoles: false,
         }
       }
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        const error = body?.error ?? 'Failed to load perspectives'
-        throw new Error(error)
+      if (!call.ok) {
+        await raiseCrudError(call.response, 'Failed to load perspectives')
       }
       setPerspectiveApiMissing(false)
-      return await res.json() as PerspectivesIndexResponse
+      const payload = call.result
+      if (!payload) throw new Error('Failed to load perspectives')
+      return payload
     },
     enabled: canUsePerspectives,
     initialData: perspectiveConfig?.initialState?.response,
@@ -848,20 +852,23 @@ export function DataTable<T>({
         // eslint-disable-next-line no-console
         console.debug('[DataTable] perspective payload', payload)
       }
-      const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (res.status === 404) {
+      const call = await apiCall<PerspectiveSaveResponse>(
+        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      )
+      if (call.status === 404) {
         throw new Error('Perspectives API is not available. Run `npm run modules:prepare` to regenerate module routes and restart the dev server.')
       }
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        const error = body?.error ?? 'Failed to save perspective'
-        throw new Error(error)
+      if (!call.ok) {
+        await raiseCrudError(call.response, 'Failed to save perspective')
       }
-      return await res.json() as PerspectiveSaveResponse
+      const result = call.result
+      if (!result) throw new Error('Failed to save perspective')
+      return result
     },
     onSuccess: (data) => {
       if (perspectiveTableId) {
@@ -914,14 +921,13 @@ export function DataTable<T>({
   const deletePerspectiveMutation = useMutation<void, Error, { perspectiveId: string }>({
     mutationFn: async ({ perspectiveId }) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
-      const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`, {
-        method: 'DELETE',
-      })
-      if (res.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        const error = body?.error ?? 'Failed to delete perspective'
-        throw new Error(error)
+      const call = await apiCall(
+        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
+        { method: 'DELETE' },
+      )
+      if (call.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
+      if (!call.ok) {
+        await raiseCrudError(call.response, 'Failed to delete perspective')
       }
     },
     onMutate: ({ perspectiveId }) => {
@@ -951,14 +957,13 @@ export function DataTable<T>({
   const clearRoleMutation = useMutation<void, Error, { roleId: string }>({
     mutationFn: async ({ roleId }) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
-      const res = await apiFetch(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`, {
-        method: 'DELETE',
-      })
-      if (res.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        const error = body?.error ?? 'Failed to clear role perspectives'
-        throw new Error(error)
+      const call = await apiCall(
+        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
+        { method: 'DELETE' },
+      )
+      if (call.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
+      if (!call.ok) {
+        await raiseCrudError(call.response, 'Failed to clear role perspectives')
       }
     },
     onMutate: ({ roleId }) => {

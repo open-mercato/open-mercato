@@ -1,5 +1,5 @@
 import { modules } from '@/generated/modules.generated'
-import { buildOpenApiDocument, generateMarkdownFromOpenApi } from '@open-mercato/shared/lib/openapi'
+import { buildOpenApiDocument, generateMarkdownFromOpenApi, sanitizeOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +14,7 @@ function resolveBaseUrl() {
 
 export async function GET() {
   const baseUrl = resolveBaseUrl()
-  const doc = buildOpenApiDocument(modules, {
+  const rawDoc = buildOpenApiDocument(modules, {
     title: 'Open Mercato API',
     version: '1.0.0',
     description: 'Auto-generated OpenAPI definition for all enabled modules.',
@@ -22,6 +22,7 @@ export async function GET() {
     baseUrlForExamples: baseUrl,
     defaultSecurity: ['bearerAuth'],
   })
+  const doc = sanitizeOpenApiDocument(rawDoc)
   const markdown = generateMarkdownFromOpenApi(doc)
   return new Response(markdown, {
     headers: {

@@ -9,7 +9,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Plus } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import {
@@ -29,6 +31,7 @@ import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights'
+import { normalizeCustomFieldSubmitValue } from '../../../../components/detail/customFieldUtils'
 import { renderMultilineMarkdownDisplay } from '../../../../components/detail/InlineEditors'
 import { formatTemplate } from '../../../../components/detail/utils'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -235,14 +238,11 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         const search = new URLSearchParams()
         search.append('include', 'todos')
         search.append('include', 'people')
-        const res = await apiFetch(`/api/customers/companies/${encodeURIComponent(companyId)}?${search.toString()}`)
-        if (!res.ok) {
-          const payload = await res.json().catch(() => ({}))
-          const message =
-            typeof payload?.error === 'string' ? payload.error : t('customers.companies.detail.error.load', 'Failed to load company.')
-          throw new Error(message)
-        }
-        const payload = await res.json()
+        const payload = await readApiResultOrThrow<CompanyOverview>(
+          `/api/customers/companies/${encodeURIComponent(companyId)}?${search.toString()}`,
+          undefined,
+          { errorMessage: t('customers.companies.detail.error.load', 'Failed to load company.') },
+        )
         if (cancelled) return
         setData(payload as CompanyOverview)
       } catch (err) {
@@ -263,21 +263,15 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const saveCompany = React.useCallback(
     async (patch: Record<string, unknown>, apply: (prev: CompanyOverview) => CompanyOverview) => {
       if (!data) return
-      const res = await apiFetch('/api/customers/companies', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: data.company.id, ...patch }),
-      })
-      if (!res.ok) {
-        let message = t('customers.companies.detail.inline.error', 'Unable to update company.')
-        try {
-          const details = await res.clone().json()
-          if (details && typeof details.error === 'string') message = details.error
-        } catch {
-          // ignore
-        }
-        throw new Error(message)
-      }
+      await apiCallOrThrow(
+        '/api/customers/companies',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: data.company.id, ...patch }),
+        },
+        { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+      )
       setData((prev) => (prev ? apply(prev) : prev))
     },
     [data, t],
@@ -344,45 +338,43 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const submitCustomFields = React.useCallback(
     async (prefixedValues: Record<string, unknown>, { showFlash = true } = {}) => {
       if (!data) throw new Error(t('customers.companies.detail.inline.error', 'Unable to update company.'))
-      const customPayload: Record<string, unknown> = {}
+      const customPayload = collectCustomFieldValues(prefixedValues, {
+        transform: (value) => normalizeCustomFieldSubmitValue(value),
+      })
       const normalized: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(prefixedValues)) {
-        if (!key.startsWith('cf_')) continue
-        const normalizedKey = key.slice(3)
-        customPayload[normalizedKey] = value === undefined ? null : value
-        normalized[key] = value === undefined ? null : value
+      for (const [fieldId, value] of Object.entries(customPayload)) {
+        normalized[`cf_${fieldId}`] = value
       }
       if (!Object.keys(customPayload).length) {
         if (showFlash) flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
         return
       }
-      const res = await apiFetch('/api/customers/companies', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id: data.company.id,
-          customFields: customPayload,
-        }),
-      })
-      if (!res.ok) {
-        let message = t('customers.companies.detail.inline.error', 'Unable to update company.')
-        let fieldErrors: Record<string, string> | null = null
-        try {
-          const details = await res.clone().json()
-          if (details && typeof details.error === 'string') message = details.error
-          if (details && typeof details.fields === 'object' && details.fields !== null) {
-            fieldErrors = {}
-            for (const [rawKey, rawValue] of Object.entries(details.fields as Record<string, unknown>)) {
-              const formKey = rawKey.startsWith('cf_') ? rawKey : `cf_${rawKey}`
-              fieldErrors[formKey] = typeof rawValue === 'string' ? rawValue : message
-            }
-          }
-        } catch {
-          // ignore parsing errors
-        }
-        const err = new Error(message) as Error & { fieldErrors?: Record<string, string> }
-        if (fieldErrors) err.fieldErrors = fieldErrors
-        throw err
+      try {
+        await apiCallOrThrow(
+          '/api/customers/companies',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              id: data.company.id,
+              customFields: customPayload,
+            }),
+          },
+          { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+        )
+      } catch (err) {
+        const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
+        const message = helperMessage ?? t('customers.companies.detail.inline.error', 'Unable to update company.')
+        const mappedErrors: Record<string, string> | undefined = fieldErrors
+          ? Object.entries(fieldErrors).reduce<Record<string, string>>((acc, [key, value]) => {
+              const formKey = key.startsWith('cf_') ? key : `cf_${key}`
+              acc[formKey] = value
+              return acc
+            }, {})
+          : undefined
+        const error = new Error(message) as Error & { fieldErrors?: Record<string, string> }
+        if (mappedErrors && Object.keys(mappedErrors).length) error.fieldErrors = mappedErrors
+        throw error
       }
       setData((prev) => {
         if (!prev) return prev
@@ -432,16 +424,14 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     if (!confirmed) return
     setIsDeleting(true)
     try {
-      const res = await apiFetch(`/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`, {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-      })
-      if (!res.ok) {
-        const details = await res.json().catch(() => ({}))
-        const message =
-          typeof details?.error === 'string' ? details.error : t('customers.companies.list.deleteError', 'Failed to delete company.')
-        throw new Error(message)
-      }
+      await apiCallOrThrow(
+        `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
+        {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+        },
+        { errorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+      )
       flash(t('customers.companies.list.deleteSuccess', 'Company deleted.'), 'success')
       router.push('/backend/customers/companies')
     } catch (err) {

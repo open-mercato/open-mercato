@@ -175,6 +175,9 @@ describe('Cache Service', () => {
       expect(stats.expired).toBe(50)
       
       // Cleanup should remove expired entries
+      if (!cache.cleanup) {
+        throw new Error('Expected cache strategy to support cleanup in tests')
+      }
       const removed = await cache.cleanup()
       expect(removed).toBe(50)
       
@@ -184,4 +187,3 @@ describe('Cache Service', () => {
     })
   })
 })
-

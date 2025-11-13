@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Building2, Loader2, Pencil, Trash2, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@/lib/i18n/context'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { cn } from '@/lib/utils'
 import { CompanySelectField } from '../formConfig'
 import {
@@ -127,15 +127,11 @@ export function PersonHighlights({
     setCompanyLoading(true)
     setCompanyError(null)
     try {
-      const res = await apiFetch(`/api/customers/companies?id=${encodeURIComponent(companyId)}`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message =
-          typeof payload?.error === 'string'
-            ? payload.error
-            : t('customers.people.detail.company.loadError', 'Unable to load company information.')
-        throw new Error(message)
-      }
+      const payload = await readApiResultOrThrow<Record<string, unknown>>(
+        `/api/customers/companies?id=${encodeURIComponent(companyId)}`,
+        undefined,
+        { errorMessage: t('customers.people.detail.company.loadError', 'Unable to load company information.') },
+      )
       const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, unknown>>) : []
       const item = items.find((entry) => {
         if (!entry) return false

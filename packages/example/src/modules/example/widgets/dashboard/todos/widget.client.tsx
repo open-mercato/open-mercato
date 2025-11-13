@@ -5,7 +5,7 @@ import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { hydrateTodoSettings, type TodoSettings } from './config'
 
 type TodoItem = {
@@ -22,10 +22,12 @@ async function fetchTodos(settings: TodoSettings): Promise<TodoItem[]> {
     sortDir: 'desc',
   })
   if (!settings.showCompleted) params.set('isDone', 'false')
-  const res = await apiFetch(`/api/example/todos?${params.toString()}`)
-  if (!res.ok) throw new Error(`Failed with status ${res.status}`)
-  const json = await res.json().catch(() => ({}))
-  const items = Array.isArray(json.items) ? json.items : []
+  const json = await readApiResultOrThrow<{ items?: unknown[] }>(
+    `/api/example/todos?${params.toString()}`,
+    undefined,
+    { errorMessage: 'Failed to load todos', allowNullResult: true },
+  )
+  const items = Array.isArray(json?.items) ? json.items : []
   return items
     .map((candidate: unknown): TodoItem | null => {
       if (!candidate || typeof candidate !== 'object') return null
@@ -41,21 +43,19 @@ async function fetchTodos(settings: TodoSettings): Promise<TodoItem[]> {
 }
 
 async function createTodo(title: string): Promise<void> {
-  const res = await apiFetch('/api/example/todos', {
+  await apiCallOrThrow('/api/example/todos', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ title }),
-  })
-  if (!res.ok) throw new Error(`Failed with status ${res.status}`)
+  }, { errorMessage: 'Failed to create todo' })
 }
 
 async function toggleTodo(id: string, isDone: boolean): Promise<void> {
-  const res = await apiFetch('/api/example/todos', {
+  await apiCallOrThrow('/api/example/todos', {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ id, is_done: isDone }),
-  })
-  if (!res.ok) throw new Error(`Failed with status ${res.status}`)
+  }, { errorMessage: 'Failed to update todo' })
 }
 
 const TodoWidgetClient: React.FC<DashboardWidgetComponentProps<TodoSettings>> = ({

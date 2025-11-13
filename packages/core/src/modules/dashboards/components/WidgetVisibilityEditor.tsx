@@ -3,8 +3,9 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@/lib/i18n/context'
 
 type WidgetCatalogItem = {
   id: string
@@ -46,6 +47,8 @@ type WidgetVisibilityEditorProps = RoleProps | UserProps
 const EMPTY: string[] = []
 
 export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
+  const t = useT()
+  const { kind, targetId, tenantId, organizationId } = props
   const [catalog, setCatalog] = React.useState<WidgetCatalogItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
@@ -58,10 +61,12 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
   const [effective, setEffective] = React.useState<string[]>(EMPTY)
 
   const loadCatalog = React.useCallback(async () => {
-    const res = await apiFetch('/api/dashboards/widgets/catalog')
-    if (!res.ok) throw new Error(`Failed with status ${res.status}`)
-    const data = await res.json()
-    const items = Array.isArray(data.items) ? data.items : []
+    const data = await readApiResultOrThrow<{ items?: unknown[] }>(
+      '/api/dashboards/widgets/catalog',
+      undefined,
+      { errorMessage: t('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
+    )
+    const items = Array.isArray(data?.items) ? data.items : []
     const mapped = items
       .map((item: unknown): WidgetCatalogItem | null => {
         if (!item || typeof item !== 'object') return null
@@ -76,37 +81,41 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
       })
       .filter((item: WidgetCatalogItem | null): item is WidgetCatalogItem => item !== null)
     setCatalog(mapped)
-  }, [])
+  }, [t])
 
   const loadRoleData = React.useCallback(async () => {
-    const params = new URLSearchParams({ roleId: props.targetId })
-    if (props.tenantId) params.set('tenantId', props.tenantId)
-    if (props.organizationId) params.set('organizationId', props.organizationId)
-    const res = await apiFetch(`/api/dashboards/roles/widgets?${params.toString()}`)
-    if (!res.ok) throw new Error(`Failed with status ${res.status}`)
-    const data: RoleResponse = await res.json()
+    const params = new URLSearchParams({ roleId: targetId })
+    if (tenantId) params.set('tenantId', tenantId)
+    if (organizationId) params.set('organizationId', organizationId)
+    const data = await readApiResultOrThrow<RoleResponse>(
+      `/api/dashboards/roles/widgets?${params.toString()}`,
+      undefined,
+      { errorMessage: t('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
+    )
     const ids = Array.isArray(data.widgetIds) ? data.widgetIds : []
     setSelected(ids)
     setOriginal(ids)
     setMode('override')
     setOriginalMode('override')
     setEffective(ids)
-  }, [props])
+  }, [organizationId, targetId, tenantId, t])
 
   const loadUserData = React.useCallback(async () => {
-    const params = new URLSearchParams({ userId: props.targetId })
-    if (props.tenantId) params.set('tenantId', props.tenantId)
-    if (props.organizationId) params.set('organizationId', props.organizationId)
-    const res = await apiFetch(`/api/dashboards/users/widgets?${params.toString()}`)
-    if (!res.ok) throw new Error(`Failed with status ${res.status}`)
-    const data: UserResponse = await res.json()
+    const params = new URLSearchParams({ userId: targetId })
+    if (tenantId) params.set('tenantId', tenantId)
+    if (organizationId) params.set('organizationId', organizationId)
+    const data = await readApiResultOrThrow<UserResponse>(
+      `/api/dashboards/users/widgets?${params.toString()}`,
+      undefined,
+      { errorMessage: t('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
+    )
     const ids = Array.isArray(data.widgetIds) ? data.widgetIds : []
     setSelected(ids)
     setOriginal(ids)
     setMode(data.mode || 'inherit')
     setOriginalMode(data.mode || 'inherit')
     setEffective(Array.isArray(data.effectiveWidgetIds) ? data.effectiveWidgetIds : [])
-  }, [props])
+  }, [organizationId, targetId, tenantId, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -115,18 +124,20 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
       setError(null)
       try {
         await loadCatalog()
-        if (props.kind === 'role') await loadRoleData()
+        if (kind === 'role') await loadRoleData()
         else await loadUserData()
       } catch (err) {
         console.error('Failed to load widget visibility data', err)
-        if (!cancelled) setError('Unable to load widget configuration.')
+        if (!cancelled) {
+          setError(t('dashboards.widgets.error.load', 'Unable to load widget configuration.'))
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
     load()
     return () => { cancelled = true }
-  }, [loadCatalog, loadRoleData, loadUserData, props.kind])
+  }, [kind, loadCatalog, loadRoleData, loadUserData, t])
 
   const toggle = React.useCallback((id: string) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]))
@@ -141,71 +152,71 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
     setSaving(true)
     setError(null)
     try {
-      if (props.kind === 'role') {
+      const saveError = t('dashboards.widgets.error.save', 'Unable to save dashboard widget preferences.')
+      if (kind === 'role') {
         const payload = {
-          roleId: props.targetId,
-          tenantId: props.tenantId ?? null,
-          organizationId: props.organizationId ?? null,
+          roleId: targetId,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
           widgetIds: selected,
         }
-        const res = await apiFetch('/api/dashboards/roles/widgets', {
+        await apiCallOrThrow('/api/dashboards/roles/widgets', {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
-        })
-        if (!res.ok) throw new Error(`Failed with status ${res.status}`)
+        }, { errorMessage: saveError })
         setOriginal(selected)
         setOriginalMode('override')
         setEffective(selected)
       } else {
         const payload = {
-          userId: props.targetId,
-          tenantId: props.tenantId ?? null,
-          organizationId: props.organizationId ?? null,
+          userId: targetId,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
           mode,
           widgetIds: selected,
         }
-        const res = await apiFetch('/api/dashboards/users/widgets', {
+        await apiCallOrThrow('/api/dashboards/users/widgets', {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
-        })
-        if (!res.ok) throw new Error(`Failed with status ${res.status}`)
+        }, { errorMessage: saveError })
         setOriginal(selected)
         if (mode === 'inherit') {
-          const refreshed = await apiFetch(`/api/dashboards/users/widgets?userId=${encodeURIComponent(props.targetId)}`)
-          if (refreshed.ok) {
-            const data: UserResponse = await refreshed.json()
-            setEffective(Array.isArray(data.effectiveWidgetIds) ? data.effectiveWidgetIds : [])
-          }
+          const refreshed = await readApiResultOrThrow<UserResponse>(
+            `/api/dashboards/users/widgets?userId=${encodeURIComponent(targetId)}`,
+            undefined,
+            { errorMessage: saveError },
+          )
+          setEffective(Array.isArray(refreshed.effectiveWidgetIds) ? refreshed.effectiveWidgetIds : [])
         } else {
           setEffective(selected)
         }
         setOriginal(selected)
         setOriginalMode(mode)
       }
-      try { flash('Dashboard widgets updated', 'success') } catch {}
+      try { flash(t('dashboards.widgets.flash.saved', 'Dashboard widgets updated'), 'success') } catch {}
     } catch (err) {
       console.error('Failed to save widget visibility', err)
-      setError('Unable to save dashboard widget preferences.')
+      setError(t('dashboards.widgets.error.save', 'Unable to save dashboard widget preferences.'))
     } finally {
       setSaving(false)
     }
-  }, [mode, props, selected])
+  }, [kind, mode, organizationId, selected, t, targetId, tenantId])
 
   const dirty = React.useMemo(() => {
-    if (props.kind === 'user') {
+    if (kind === 'user') {
       if (mode !== originalMode) return true
       if (mode === 'override') return selected.join('|') !== original.join('|')
       return false
     }
     return selected.join('|') !== original.join('|')
-  }, [mode, original, originalMode, props.kind, selected])
+  }, [kind, mode, original, originalMode, selected])
 
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Spinner size="sm" /> Loading widget options…
+        <Spinner size="sm" /> {t('dashboards.widgets.loading', 'Loading widget options…')}
       </div>
     )
   }
@@ -220,7 +231,7 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
       )}
 
-      {props.kind === 'user' && (
+      {kind === 'user' && (
         <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3 py-2">
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -230,7 +241,7 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
               checked={mode === 'inherit'}
               onChange={() => setMode('inherit')}
             />
-            Inherit from roles
+            {t('dashboards.widgets.mode.inherit', 'Inherit from roles')}
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -240,18 +251,18 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
               checked={mode === 'override'}
               onChange={() => setMode('override')}
             />
-            Override for this user
+            {t('dashboards.widgets.mode.override', 'Override for this user')}
           </label>
         </div>
       )}
 
-      {props.kind === 'user' && mode === 'inherit' && (
+      {kind === 'user' && mode === 'inherit' && (
         <div className="rounded-md border border-muted bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-          This user currently inherits widgets from their assigned roles. Switch to override to customize.
+          {t('dashboards.widgets.mode.hint', 'This user currently inherits widgets from their assigned roles. Switch to override to customize.')}
         </div>
       )}
 
-      {(props.kind === 'role' || mode === 'override') && (
+      {(kind === 'role' || mode === 'override') && (
         <div className="space-y-3">
           {catalog.map((widget) => (
             <label key={widget.id} className="flex items-start gap-3 rounded-md border px-3 py-2 hover:border-primary/40">
@@ -270,7 +281,7 @@ export function WidgetVisibilityEditor(props: WidgetVisibilityEditorProps) {
         </div>
       )}
 
-      {props.kind === 'user' && effective.length > 0 && (
+      {kind === 'user' && effective.length > 0 && (
         <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           Effective widgets: {effective.map((id) => catalog.find((meta) => meta.id === id)?.title || id).join(', ')}
         </div>

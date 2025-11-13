@@ -66,7 +66,7 @@ const mockDataEngine = {
   setCustomFields: jest.fn(async (args: any) => {
     await (setRecordCustomFields as any)(em, args)
   }),
-  emitOrmEntityEvent: jest.fn(async () => {}),
+  emitOrmEntityEvent: jest.fn(async (_entry: any) => {}),
   markOrmEntityChange: jest.fn(function (this: any, entry: any) {
     if (!entry || !entry.entity) return
     this.__pendingSideEffects.push(entry)
@@ -95,9 +95,13 @@ jest.mock('@/lib/di/container', () => ({
   })
 }))
 
-jest.mock('@/lib/auth/server', () => ({
-  getAuthFromCookies: async () => ({ sub: 'u1', orgId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tenantId: '123e4567-e89b-12d3-a456-426614174000', roles: ['admin'] })
-}))
+jest.mock('@/lib/auth/server', () => {
+  const auth = { sub: 'u1', orgId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tenantId: '123e4567-e89b-12d3-a456-426614174000', roles: ['admin'] }
+  return {
+    getAuthFromCookies: async () => auth,
+    getAuthFromRequest: async () => auth,
+  }
+})
 
 const setRecordCustomFields = jest.fn(async () => {})
 jest.mock('@open-mercato/core/modules/entities/lib/helpers', () => ({
@@ -243,7 +247,9 @@ describe('CRUD Factory', () => {
     expect(setRecordCustomFields).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entityId: 'example.todo', values: { priority: 3 } }))
     // Event + indexer delegated to data engine
     expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
-    const createdArgs = mockDataEngine.emitOrmEntityEvent.mock.calls[0][0]
+    const createdCall = mockDataEngine.emitOrmEntityEvent.mock.calls.at(0)
+    expect(createdCall).toBeDefined()
+    const [createdArgs] = createdCall!
     expect(createdArgs.action).toBe('created')
     expect(createdArgs.identifiers.id).toBe(data.id)
     expect(createdArgs.events?.module).toBe('example')
@@ -266,7 +272,9 @@ describe('CRUD Factory', () => {
     expect(res.status).toBe(200)
     expect(setRecordCustomFields).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ values: { priority: 5 } }))
     expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
-    const updatedArgs = mockDataEngine.emitOrmEntityEvent.mock.calls[0][0]
+    const updatedCall = mockDataEngine.emitOrmEntityEvent.mock.calls.at(0)
+    expect(updatedCall).toBeDefined()
+    const [updatedArgs] = updatedCall!
     expect(updatedArgs.action).toBe('updated')
     expect(updatedArgs.identifiers.id).toBe(created.id)
     expect(updatedArgs.indexer?.entityType).toBe('example.todo')
@@ -280,7 +288,9 @@ describe('CRUD Factory', () => {
     const res = await route.DELETE(new Request(`http://x/api/example/todos?id=${created.id}`, { method: 'DELETE' }))
     expect(res.status).toBe(200)
     expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
-    const deletedArgs = mockDataEngine.emitOrmEntityEvent.mock.calls[0][0]
+    const deletedCall = mockDataEngine.emitOrmEntityEvent.mock.calls.at(0)
+    expect(deletedCall).toBeDefined()
+    const [deletedArgs] = deletedCall!
     expect(deletedArgs.action).toBe('deleted')
     expect(deletedArgs.identifiers.id).toBe(created.id)
     expect(deletedArgs.indexer?.entityType).toBe('example.todo')

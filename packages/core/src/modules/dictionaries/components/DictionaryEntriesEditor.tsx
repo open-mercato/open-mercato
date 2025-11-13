@@ -13,7 +13,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -128,25 +128,33 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         icon: appearance.icon,
       }
       if (formState.id) {
-        const res = await apiFetch(`/api/dictionaries/${dictionaryId}/entries/${formState.id}`, {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        const json = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to save dictionary entry')
+        const call = await apiCall<Record<string, unknown>>(
+          `/api/dictionaries/${dictionaryId}/entries/${formState.id}`,
+          {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+        )
+        if (!call.ok) {
+          throw new Error(
+            typeof call.result?.error === 'string' ? call.result.error : 'Failed to save dictionary entry',
+          )
         }
         flash(t('dictionaries.config.entries.success.update', 'Dictionary entry updated.'), 'success')
       } else {
-        const res = await apiFetch(`/api/dictionaries/${dictionaryId}/entries`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        const json = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to create dictionary entry')
+        const call = await apiCall<Record<string, unknown>>(
+          `/api/dictionaries/${dictionaryId}/entries`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+        )
+        if (!call.ok) {
+          throw new Error(
+            typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary entry',
+          )
         }
         flash(t('dictionaries.config.entries.success.create', 'Dictionary entry created.'), 'success')
       }
@@ -177,10 +185,14 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
       if (!confirmDelete) return
       setIsDeleting(true)
       try {
-        const res = await apiFetch(`/api/dictionaries/${dictionaryId}/entries/${entry.id}`, { method: 'DELETE' })
-        if (!res.ok) {
-          const json = await res.json().catch(() => ({}))
-          throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to delete dictionary entry')
+        const call = await apiCall<Record<string, unknown>>(
+          `/api/dictionaries/${dictionaryId}/entries/${entry.id}`,
+          { method: 'DELETE' },
+        )
+        if (!call.ok) {
+          throw new Error(
+            typeof call.result?.error === 'string' ? call.result.error : 'Failed to delete dictionary entry',
+          )
         }
         await invalidateDictionaryEntries(queryClient, dictionaryId)
         flash(t('dictionaries.config.entries.success.delete', 'Dictionary entry deleted.'), 'success')

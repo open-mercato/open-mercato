@@ -64,6 +64,37 @@ const roleTag = (roleId: string, tableId?: string, tenantId?: string | null) => 
   return tableId ? `perspectives:role:${roleId}:${tenant}:${tableId}` : `perspectives:role:${roleId}:${tenant}`
 }
 
+function isResolvedPerspective(value: unknown): value is ResolvedPerspective {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Partial<ResolvedPerspective>
+  return typeof record.id === 'string'
+    && typeof record.name === 'string'
+    && typeof record.tableId === 'string'
+    && typeof record.isDefault === 'boolean'
+    && typeof record.createdAt === 'string'
+}
+
+function isResolvedRolePerspective(value: unknown): value is ResolvedRolePerspective {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Partial<ResolvedRolePerspective>
+  return typeof record.id === 'string'
+    && typeof record.roleId === 'string'
+    && typeof record.tableId === 'string'
+    && typeof record.name === 'string'
+    && typeof record.isDefault === 'boolean'
+    && typeof record.createdAt === 'string'
+}
+
+function isPerspectivesState(value: unknown): value is PerspectivesState {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Partial<PerspectivesState>
+  if (typeof record.tableId !== 'string') return false
+  if (!Array.isArray(record.personal) || record.personal.some((item) => !isResolvedPerspective(item))) return false
+  if (record.personalDefaultId !== null && typeof record.personalDefaultId !== 'string') return false
+  if (!Array.isArray(record.rolePerspectives) || record.rolePerspectives.some((item) => !isResolvedRolePerspective(item))) return false
+  return true
+}
+
 function toResolvedPerspective(entity: Perspective): ResolvedPerspective {
   return {
     id: entity.id,
@@ -103,7 +134,7 @@ export async function loadPerspectivesState(
 
   if (cache && cacheKey) {
     const cached = await cache.get(cacheKey)
-    if (cached) return cached
+    if (cached && isPerspectivesState(cached)) return cached
   }
 
   const tenantId = scope.tenantId ?? null

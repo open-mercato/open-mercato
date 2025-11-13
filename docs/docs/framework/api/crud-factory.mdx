@@ -120,10 +120,11 @@ This exports `metadata` and HTTP handlers, which the modules registry auto-disco
 - Opt-in per environment with `ENABLE_CRUD_API_CACHE=true`. When disabled (default), the factory behaves as before.
 - Only `GET` list handlers are cached. Keys incorporate the request path, tenant + selected organization scope, and a canonical serialization of the query string so each filter/sort/page combination is isolated.
 - Cached payloads are tagged with both the record ids that appear on the page and broader collection tags (`crud/<module.entity>/tenant/<id>/org/<id>/collection`) so follow-up mutations can evict the exact variations that might be stale.
-- Any mutation that flows through the CRUD factory or the command bus (including CLI calls, admin APIs, and the audit-log undo/redo flows) invalidates the relevant tags automatically. Command metadata (`resourceKind`, `resourceId`, tenant/org ids) drives the tag selection so undoing a change clears the same cached pages that the original write touched.
-- Any mutation that flows through the CRUD factory or the command bus (including CLI calls, admin APIs, and the audit-log undo/redo flows) invalidates the relevant tags automatically. Command metadata (`resourceKind`, `resourceId`, tenant/org ids, plus `context.cacheAliases`) drives the tag selection so undoing a change clears the same cached pages that the original write touched. If you override command metadata, merge the provided context to keep cache invalidation intact.
+- Any mutation that flows through the CRUD factory or the command bus (including CLI calls, admin APIs, and the audit-log undo/redo flows) invalidates the relevant tags automatically. Command metadata (`resourceKind`, `resourceId`, tenant/org ids, plus `context.cacheAliases`) carries the canonical `<module>.<entity>` tag, so undo/redo hit the exact same cache keys as the original write. If you override command metadata, merge the provided context before executing to keep cache eviction intact.
 - When caching is active, list responses include an `x-om-cache` header set to either `hit` or `miss`. Backoffice tables read this header to surface the green/amber footer indicator, and you can log or trace the value in custom clients to understand whether a page came from cache.
 - When `QUERY_ENGINE_DEBUG_SQL=true`, extra debug logs surface cache hits/misses with timings, cache stores with tag lists, and invalidation events with tag counts. This mirrors the hybrid query engine’s SQL debug mode for easier troubleshooting.
+
+> Cache tags are now canonicalized to a single `<module>.<entity>` identifier. Flush any shared cache stores when upgrading from an older build so legacy alias-based entries don’t linger.
 
 ## Event Naming
 

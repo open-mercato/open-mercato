@@ -3,7 +3,7 @@
 import * as React from 'react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { FieldRegistry } from '@open-mercato/ui/backend/fields/registry'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import { DictionarySelectControl } from '../components/DictionarySelectControl'
 
@@ -35,12 +35,15 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
       setLoading(true)
       setError(null)
       try {
-        const res = await apiFetch('/api/dictionaries?includeInactive=true')
-        const json = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to load dictionaries')
+        const call = await apiCall<{ items?: unknown[]; error?: string }>(
+          '/api/dictionaries?includeInactive=true',
+        )
+        if (!call.ok) {
+          const message =
+            typeof call.result?.error === 'string' ? call.result.error : 'Failed to load dictionaries'
+          throw new Error(message)
         }
-        const entries = Array.isArray(json?.items) ? json.items : []
+        const entries = Array.isArray(call.result?.items) ? call.result!.items : []
         if (!cancelled) {
           setItems(
             entries.map((entry: any) => ({

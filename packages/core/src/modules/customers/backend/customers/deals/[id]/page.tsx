@@ -8,7 +8,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { NotesSection } from '../../../../components/detail/NotesSection'
@@ -181,15 +181,11 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
       setIsLoading(true)
       setError(null)
       try {
-        const res = await apiFetch(`/api/customers/deals/${encodeURIComponent(id)}`)
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof payload?.error === 'string'
-              ? payload.error
-              : t('customers.deals.detail.loadError', 'Failed to load deal.')
-          throw new Error(message)
-        }
+        const payload = await readApiResultOrThrow<DealDetailPayload>(
+          `/api/customers/deals/${encodeURIComponent(id)}`,
+          undefined,
+          { errorMessage: t('customers.deals.detail.loadError', 'Failed to load deal.') },
+        )
         if (cancelled) return
         setData(payload as DealDetailPayload)
       } catch (err) {
@@ -230,19 +226,15 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         }
         if (Object.keys(custom).length) payload.customFields = custom
 
-        const res = await apiFetch('/api/customers/deals', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        const body = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message =
-            typeof body?.error === 'string'
-              ? body.error
-              : t('customers.deals.detail.saveError', 'Failed to update deal.')
-          throw new Error(message)
-        }
+        await apiCallOrThrow(
+          '/api/customers/deals',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('customers.deals.detail.saveError', 'Failed to update deal.') },
+        )
         flash(t('customers.deals.detail.saveSuccess', 'Deal updated.'), 'success')
         setReloadToken((token) => token + 1)
       } catch (err) {
@@ -274,19 +266,15 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
     setIsDeleting(true)
     try {
-      const res = await apiFetch('/api/customers/deals', {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: data.deal.id }),
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message =
-          typeof body?.error === 'string'
-            ? body.error
-            : t('customers.deals.detail.deleteError', 'Failed to delete deal.')
-        throw new Error(message)
-      }
+      await apiCallOrThrow(
+        '/api/customers/deals',
+        {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: data.deal.id }),
+        },
+        { errorMessage: t('customers.deals.detail.deleteError', 'Failed to delete deal.') },
+      )
       flash(t('customers.deals.detail.deleteSuccess', 'Deal deleted.'), 'success')
       router.push('/backend/customers/deals')
     } catch (err) {

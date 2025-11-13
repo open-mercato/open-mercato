@@ -1,4 +1,5 @@
 import { BasicQueryEngine } from '../engine'
+import { SortDir } from '../types'
 
 // Mock modules with one entity extension
 jest.mock('@/generated/modules.generated', () => ({
@@ -139,9 +140,9 @@ describe('BasicQueryEngine', () => {
     const res = await engine.query('auth:user', {
       includeCustomFields: true,
       fields: ['id','email','cf:vip'],
-      sort: [{ field: 'cf:vip', dir: 'asc' }],
+      sort: [{ field: 'cf:vip', dir: SortDir.Asc }],
       includeExtensions: true,
-      organizationId: 1,
+      organizationId: '1',
       tenantId: 't1',
       page: { page: 1, pageSize: 10 },
     })

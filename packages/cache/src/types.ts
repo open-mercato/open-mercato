@@ -1,4 +1,4 @@
-export type CacheValue = any
+export type CacheValue = unknown
 
 export type CacheEntry = {
   key: string

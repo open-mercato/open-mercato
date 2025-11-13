@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { invalidateCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { upsertCustomEntitySchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
@@ -19,6 +19,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 
 type Def = { key: string; kind: string; configJson?: any; isActive?: boolean }
+type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
+type DefinitionsManageResponse = { items?: any[]; deletedKeys?: string[] }
 
 const KIND_OPTIONS = CUSTOM_FIELD_KINDS.map((k) => ({ value: k, label: k.charAt(0).toUpperCase() + k.slice(1) }))
 
@@ -471,23 +473,38 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     async function load() {
       setLoading(true)
       try {
-        const entRes = await apiFetch('/api/entities/entities')
-        const entJson = await entRes.json().catch(() => ({ items: [] }))
+        const entJson = await readApiResultOrThrow<EntitiesListResponse>(
+          '/api/entities/entities',
+          undefined,
+          { errorMessage: 'Failed to load entity metadata', fallback: { items: [] } },
+        )
         const ent = (entJson.items || []).find((x: any) => x.entityId === entityId)
         if (mounted) {
-          setLabel(ent?.label || entityId)
-          if (ent?.source === 'code' || ent?.source === 'custom') setEntitySource(ent.source)
+          const record = ent as Record<string, unknown> | undefined
+          const labelValue =
+            typeof record?.label === 'string' && record.label.trim().length > 0 ? record.label : entityId
+          const descriptionValue = typeof record?.description === 'string' ? record.description : ''
+          const labelFieldValue =
+            typeof record?.labelField === 'string' && record.labelField.length > 0 ? record.labelField : 'name'
+          const defaultEditorValue =
+            typeof record?.defaultEditor === 'string' ? record.defaultEditor : ''
+          const showInSidebarValue = record?.showInSidebar === true
+          setLabel(labelValue)
+          if (record?.source === 'code' || record?.source === 'custom') setEntitySource(record.source)
           setEntityInitial({
-            label: ent?.label || entityId,
-            description: ent?.description || '',
-            labelField: (ent as any)?.labelField || 'name',
-            defaultEditor: (ent as any)?.defaultEditor || '',
-            showInSidebar: (ent as any)?.showInSidebar || false,
+            label: labelValue,
+            description: descriptionValue,
+            labelField: labelFieldValue,
+            defaultEditor: defaultEditorValue,
+            showInSidebar: showInSidebarValue,
           })
           setEntityFormLoading(false)
         }
-        const res = await apiFetch(`/api/entities/definitions.manage?entityId=${encodeURIComponent(entityId)}`)
-        const json = await res.json().catch(() => ({ items: [] }))
+        const json = await readApiResultOrThrow<DefinitionsManageResponse>(
+          `/api/entities/definitions.manage?entityId=${encodeURIComponent(entityId)}`,
+          undefined,
+          { errorMessage: 'Failed to load entity definitions', fallback: { items: [], deletedKeys: [] } },
+        )
         if (mounted) {
           const loaded: Def[] = (json.items || []).map((d: any) => ({ key: d.key, kind: d.kind, configJson: d.configJson || {}, isActive: d.isActive !== false }))
           loaded.sort((a, b) => (a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0))
@@ -511,18 +528,20 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
 
   async function restoreField(key: string) {
     try {
-      const res = await apiFetch('/api/entities/definitions.restore', {
+      const call = await apiCall('/api/entities/definitions.restore', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ entityId, key }),
       })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        throw new Error(j?.error || 'Failed to restore field')
+      if (!call.ok) {
+        await raiseCrudError(call.response, 'Failed to restore field')
       }
       // Reload definitions & deleted keys
-      const r2 = await apiFetch(`/api/entities/definitions.manage?entityId=${encodeURIComponent(entityId)}`)
-      const j2 = await r2.json().catch(() => ({ items: [], deletedKeys: [] }))
+      const j2 = await readApiResultOrThrow<DefinitionsManageResponse>(
+        `/api/entities/definitions.manage?entityId=${encodeURIComponent(entityId)}`,
+        undefined,
+        { errorMessage: 'Failed to reload field definitions', fallback: { items: [], deletedKeys: [] } },
+      )
       const loaded: Def[] = (j2.items || []).map((d: any) => ({ key: d.key, kind: d.kind, configJson: d.configJson || {}, isActive: d.isActive !== false }))
       loaded.sort((a, b) => (a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0))
       setDefs(loaded)
@@ -551,14 +570,13 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           isActive: d.isActive !== false,
         })),
       }
-      const res = await apiFetch('/api/entities/definitions.batch', {
+      const call = await apiCall('/api/entities/definitions.batch', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        throw new Error(j?.error || 'Failed to save definitions')
+      if (!call.ok) {
+        await raiseCrudError(call.response, 'Failed to save definitions')
       }
       await invalidateCustomFieldDefs(queryClient, entityId)
       router.push(`/backend/entities/user?flash=Definitions%20saved&type=success`)
@@ -574,14 +592,13 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     if (!def) return
     if (def.key) {
       try {
-        const res = await apiFetch('/api/entities/definitions', {
+        const call = await apiCall('/api/entities/definitions', {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ entityId, key: def.key }),
         })
-        if (!res.ok) {
-          const payload = await res.json().catch(() => ({}))
-          throw new Error((payload as any)?.error || 'Failed to delete field')
+        if (!call.ok) {
+          await raiseCrudError(call.response, 'Failed to delete field')
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to delete field'
@@ -611,12 +628,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           isActive: d.isActive !== false,
         })),
       }
-      const res = await apiFetch('/api/entities/definitions.batch', {
+      const call = await apiCall('/api/entities/definitions.batch', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
       })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        throw new Error(j?.error || 'Failed to save order')
+      if (!call.ok) {
+        await raiseCrudError(call.response, 'Failed to save order')
       }
       setOrderDirty(false)
       flash('Order saved', 'success')
@@ -649,7 +665,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       defaultEditor: z.union([z.enum(['markdown','simpleMarkdown','htmlRichText']).optional(), z.literal('')]).optional(),
       // Include showInSidebar so CrudForm doesn't strip it on submit
       showInSidebar: z.boolean().optional(),
-    }) as unknown as z.ZodTypeAny
+    }) as z.ZodType<Record<string, unknown>>
 
   const fields: CrudField[] = [
     { id: 'label', label: 'Label', type: 'text', required: true },
@@ -801,11 +817,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
               }
               const parsed = partial.safeParse(normalized)
               if (!parsed.success) throw createCrudFormError('Validation failed')
-              const res1 = await apiFetch('/api/entities/entities', {
+              const callEntity = await apiCall('/api/entities/entities', {
                 method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, ...(parsed.data as any) })
               })
-              if (!res1.ok) {
-                await raiseCrudError(res1, 'Failed to save entity')
+              if (!callEntity.ok) {
+                await raiseCrudError(callEntity.response, 'Failed to save entity')
               }
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
             }
@@ -819,11 +835,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
                 isActive: d.isActive !== false,
               })),
             }
-            const res2 = await apiFetch('/api/entities/definitions.batch', {
+            const callDefs = await apiCall('/api/entities/definitions.batch', {
               method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(defsPayload)
             })
-            if (!res2.ok) {
-              await raiseCrudError(res2, 'Failed to save definitions')
+            if (!callDefs.ok) {
+              await raiseCrudError(callDefs.response, 'Failed to save definitions')
             }
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
             // Invalidate all custom field definition caches so DataTables refresh with new labels
@@ -831,9 +847,9 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             flash('Definitions saved', 'success')
           }}
         onDelete={entitySource === 'custom' ? async () => {
-          const res = await apiFetch('/api/entities/entities', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId }) })
-          if (!res.ok) {
-            await raiseCrudError(res, 'Failed to delete entity')
+          const callDelete = await apiCall('/api/entities/entities', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId }) })
+          if (!callDelete.ok) {
+            await raiseCrudError(callDelete.response, 'Failed to delete entity')
           }
           flash('Entity deleted', 'success')
           try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}

@@ -6,9 +6,11 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@/lib/i18n/context'
 
 type Row = {
   id: string
@@ -30,6 +32,7 @@ export default function RolesListPage() {
   const [reloadToken, setReloadToken] = React.useState(0)
   const [isSuperAdmin, setIsSuperAdmin] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
+  const t = useT()
 
   React.useEffect(() => {
     let cancelled = false
@@ -40,8 +43,17 @@ export default function RolesListPage() {
         params.set('page', String(page))
         params.set('pageSize', '50')
         if (search) params.set('search', search)
-        const res = await apiFetch(`/api/auth/roles?${params.toString()}`)
-        const j = await res.json()
+        const fallback = { items: [], total: 0, totalPages: 1, isSuperAdmin: false }
+        const j = await readApiResultOrThrow<{
+          items?: Row[]
+          total?: number
+          totalPages?: number
+          isSuperAdmin?: boolean
+        }>(
+          `/api/auth/roles?${params.toString()}`,
+          undefined,
+          { errorMessage: t('auth.roles.list.error.load', 'Failed to load roles'), fallback },
+        )
         if (!cancelled) {
           setRows(j.items || [])
           setTotal(j.total || 0)
@@ -54,28 +66,25 @@ export default function RolesListPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, search, reloadToken, scopeVersion])
+  }, [page, search, reloadToken, scopeVersion, t])
 
   const handleDelete = React.useCallback(async (row: Row) => {
-    if (!window.confirm(`Delete role "${row.name}"?`)) return
+    if (!window.confirm(t('auth.roles.list.confirmDelete', 'Delete role "{{name}}"?').replace('{{name}}', row.name))) return
     try {
-      const res = await apiFetch(`/api/auth/roles?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
-      if (!res.ok) {
-        let message = 'Failed to delete role'
-        try {
-          const data = await res.json()
-          if (data?.error && typeof data.error === 'string') message = data.error
-        } catch {}
-        flash(message, 'error')
-        return
+      const call = await apiCall(
+        `/api/auth/roles?id=${encodeURIComponent(row.id)}`,
+        { method: 'DELETE' },
+      )
+      if (!call.ok) {
+        await raiseCrudError(call.response, t('auth.roles.list.error.delete', 'Failed to delete role'))
       }
-      flash('Role deleted', 'success')
+      flash(t('auth.roles.list.success.delete', 'Role deleted'), 'success')
       setReloadToken((token) => token + 1)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete role'
+      const message = error instanceof Error ? error.message : t('auth.roles.list.error.delete', 'Failed to delete role')
       flash(message, 'error')
     }
-  }, [])
+  }, [t])
 
   const showTenantColumn = React.useMemo(
     () => isSuperAdmin && rows.some((row) => row.tenantName),
@@ -83,23 +92,23 @@ export default function RolesListPage() {
   )
   const columns = React.useMemo<ColumnDef<Row>[]>(() => {
     const base: ColumnDef<Row>[] = [
-      { accessorKey: 'name', header: 'Role' },
-      { accessorKey: 'usersCount', header: 'Users' },
+      { accessorKey: 'name', header: t('auth.roles.list.columns.role', 'Role') },
+      { accessorKey: 'usersCount', header: t('auth.roles.list.columns.users', 'Users') },
     ]
     if (showTenantColumn) {
-      base.splice(1, 0, { accessorKey: 'tenantName', header: 'Tenant' })
+      base.splice(1, 0, { accessorKey: 'tenantName', header: t('auth.roles.list.columns.tenant', 'Tenant') })
     }
     return base
-  }, [showTenantColumn])
+  }, [showTenantColumn, t])
 
   return (
     <Page>
       <PageBody>
         <DataTable
-          title="Roles"
+          title={t('auth.roles.list.title', 'Roles')}
           actions={(
             <Button asChild>
-              <Link href="/backend/roles/create">Create</Link>
+              <Link href="/backend/roles/create">{t('auth.roles.list.actions.create', 'Create')}</Link>
             </Button>
           )}
           columns={columns}
@@ -108,9 +117,9 @@ export default function RolesListPage() {
           onSearchChange={(v) => { setSearch(v); setPage(1) }}
           rowActions={(row) => (
             <RowActions items={[
-              { label: 'Edit', href: `/backend/roles/${row.id}/edit` },
-              { label: 'Show users', href: `/backend/users?roleId=${encodeURIComponent(row.id)}` },
-              { label: 'Delete', destructive: true, onSelect: () => { void handleDelete(row) } },
+              { label: t('common.edit', 'Edit'), href: `/backend/roles/${row.id}/edit` },
+              { label: t('auth.roles.list.actions.showUsers', 'Show users'), href: `/backend/users?roleId=${encodeURIComponent(row.id)}` },
+              { label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
           sortable

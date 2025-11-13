@@ -5,7 +5,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
 type EntityRow = {
@@ -45,9 +45,9 @@ export default function SystemEntitiesTable() {
   const { data, isLoading } = useQuery<EntitiesResponse>({
     queryKey: ['custom-entities', scopeVersion],
     queryFn: async () => {
-      const res = await apiFetch('/api/entities/entities')
-      if (!res.ok) throw new Error('Failed to load entities')
-      return res.json()
+      return readApiResultOrThrow<EntitiesResponse>('/api/entities/entities', undefined, {
+        errorMessage: 'Failed to load entities',
+      })
     },
   })
 

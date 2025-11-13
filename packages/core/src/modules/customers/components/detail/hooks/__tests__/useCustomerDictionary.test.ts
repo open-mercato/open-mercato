@@ -4,25 +4,22 @@ import {
   invalidateCustomerDictionary,
 } from '../useCustomerDictionary'
 
-jest.mock('@open-mercato/ui/backend/utils/api', () => ({
-  apiFetch: jest.fn(),
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  readApiResultOrThrow: jest.fn(),
 }))
 
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
-const mockApiFetch = apiFetch as jest.Mock
+const mockReadApiResultOrThrow = readApiResultOrThrow as jest.Mock
 
-const createApiResponse = (items: unknown[]) => ({
-  ok: true,
-  json: async () => ({ items }),
-})
+const createApiResponse = (items: unknown[]) => ({ items })
 
 describe('ensureCustomerDictionary', () => {
   let queryClient: QueryClient
 
   beforeEach(() => {
     queryClient = new QueryClient()
-    mockApiFetch.mockReset()
+    mockReadApiResultOrThrow.mockReset()
   })
 
   afterEach(() => {
@@ -30,7 +27,7 @@ describe('ensureCustomerDictionary', () => {
   })
 
   it('normalizes API payload into dictionary data', async () => {
-    mockApiFetch.mockResolvedValueOnce(
+    mockReadApiResultOrThrow.mockResolvedValueOnce(
       createApiResponse([
         {
           id: 'status-1',
@@ -46,7 +43,11 @@ describe('ensureCustomerDictionary', () => {
 
     const result = await ensureCustomerDictionary(queryClient, 'statuses', 0)
 
-    expect(mockApiFetch).toHaveBeenCalledWith('/api/customers/dictionaries/statuses')
+    expect(mockReadApiResultOrThrow).toHaveBeenCalledWith(
+      '/api/customers/dictionaries/statuses',
+      undefined,
+      { errorMessage: 'Failed to load dictionary entries.' },
+    )
     expect(result.entries).toEqual([
       { value: 'new', label: 'New', color: '#aabbcc', icon: '⭐' },
     ])
@@ -63,23 +64,23 @@ describe('ensureCustomerDictionary', () => {
   })
 
   it('refetches freshly after invalidation and returns updated entries', async () => {
-    mockApiFetch
+    mockReadApiResultOrThrow
       .mockResolvedValueOnce(createApiResponse([{ id: 'status-1', value: 'alpha', label: 'Alpha' }]))
       .mockResolvedValueOnce(createApiResponse([{ id: 'status-2', value: 'beta', label: 'Beta' }]))
 
     const first = await ensureCustomerDictionary(queryClient, 'statuses', 0)
     expect(first.entries.map((entry) => entry.value)).toEqual(['alpha'])
-    expect(mockApiFetch).toHaveBeenCalledTimes(1)
+    expect(mockReadApiResultOrThrow).toHaveBeenCalledTimes(1)
 
     await invalidateCustomerDictionary(queryClient, 'statuses')
 
     const second = await ensureCustomerDictionary(queryClient, 'statuses', 0)
-    expect(mockApiFetch).toHaveBeenCalledTimes(2)
+    expect(mockReadApiResultOrThrow).toHaveBeenCalledTimes(2)
     expect(second.entries.map((entry) => entry.value)).toEqual(['beta'])
   })
 
   it('isolates cached data per scope version', async () => {
-    mockApiFetch
+    mockReadApiResultOrThrow
       .mockResolvedValueOnce(createApiResponse([{ id: 'source-1', value: 'scope-0', label: 'Scope Zero' }]))
       .mockResolvedValueOnce(createApiResponse([{ id: 'source-2', value: 'scope-1', label: 'Scope One' }]))
 

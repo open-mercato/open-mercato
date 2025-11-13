@@ -2,6 +2,7 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+  watchman: false,
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@/generated/(.*)$': '<rootDir>/generated/$1',
@@ -28,5 +29,6 @@ module.exports = {
   },
   testMatch: ['**/__tests__/**/*.test.(ts|tsx)'],
   setupFiles: ['<rootDir>/jest.setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/jest.dom.setup.ts'],
   collectCoverageFrom: ['src/**/*.(ts|tsx)', '!src/modules/**/migrations/**'],
 }

@@ -1,10 +1,11 @@
-import type { CacheStrategy, CacheServiceOptions, CacheGetOptions, CacheSetOptions } from './types'
+import type { CacheStrategy, CacheServiceOptions, CacheGetOptions, CacheSetOptions, CacheValue } from './types'
 import { createMemoryStrategy } from './strategies/memory'
 import { createRedisStrategy } from './strategies/redis'
 import { createSqliteStrategy } from './strategies/sqlite'
 import { createJsonFileStrategy } from './strategies/jsonfile'
 import { getCurrentCacheTenant } from './tenantContext'
 import { createHash } from 'node:crypto'
+import { CacheDependencyUnavailableError } from './errors'
 
 function normalizeTenantKey(raw: string | null | undefined): string {
   const value = typeof raw === 'string' ? raw.trim() : ''
@@ -16,6 +17,33 @@ type TenantPrefixes = {
   keyPrefix: string
   tagPrefix: string
   scopeTag: string
+}
+
+type CacheMetadata = {
+  key: string
+  expiresAt: number | null
+}
+
+function isCacheMetadata(value: CacheValue | null): value is CacheMetadata {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const record = value as Record<string, unknown>
+  const hasValidKey = typeof record.key === 'string'
+  const hasValidExpiresAt =
+    !('expiresAt' in record)
+    || record.expiresAt === null
+    || typeof record.expiresAt === 'number'
+
+  return hasValidKey && hasValidExpiresAt
+}
+
+type CacheStrategyName = NonNullable<CacheServiceOptions['strategy']>
+const KNOWN_STRATEGIES: CacheStrategyName[] = ['memory', 'redis', 'sqlite', 'jsonfile']
+
+function isCacheStrategyName(value: string | undefined): value is CacheStrategyName {
+  if (!value) return false
+  return KNOWN_STRATEGIES.includes(value as CacheStrategyName)
 }
 
 function resolveTenantPrefixes(): TenantPrefixes {
@@ -76,7 +104,7 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
     return base.get(storageKey(key, prefixes), options)
   }
 
-  const set = async (key: string, value: any, options?: CacheSetOptions) => {
+  const set = async (key: string, value: CacheValue, options?: CacheSetOptions) => {
     const prefixes = resolveTenantPrefixes()
     const hashedTags = buildTagSet(options?.tags, prefixes, true)
     const ttl = options?.ttl ?? undefined
@@ -84,7 +112,7 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
       ? { ...options, tags: hashedTags }
       : { tags: hashedTags }
     await base.set(storageKey(key, prefixes), value, nextOptions)
-    const metaPayload = { key, expiresAt: ttl ? Date.now() + ttl : null }
+    const metaPayload: CacheMetadata = { key, expiresAt: ttl ? Date.now() + ttl : null }
     await base.set(metaKey(key, prefixes), metaPayload, {
       ttl,
       tags: hashedTags,
@@ -123,13 +151,10 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
     const metaKeys = await base.keys(metaPattern)
     const originals: string[] = []
     for (const metaKey of metaKeys) {
-      const meta = await base.get(metaKey, { returnExpired: true })
-      if (!meta) continue
-      const original = typeof meta === 'string'
-        ? meta
-        : (typeof meta === 'object' && meta !== null && typeof (meta as any).key === 'string'
-          ? (meta as any).key
-          : null)
+      const metaValue = await base.get(metaKey, { returnExpired: true })
+      if (!metaValue) continue
+      const metadata = typeof metaValue === 'string' ? null : (isCacheMetadata(metaValue) ? metaValue : null)
+      const original = typeof metaValue === 'string' ? metaValue : metadata?.key
       if (!original) continue
       if (pattern && !matchPattern(original, pattern)) continue
       originals.push(original)
@@ -144,18 +169,13 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
     let expired = 0
     const now = Date.now()
     for (const metaKey of metaKeys) {
-      const meta = await base.get(metaKey, { returnExpired: true })
-      if (!meta) continue
-      const original = typeof meta === 'string'
-        ? meta
-        : (typeof meta === 'object' && meta !== null && typeof (meta as any).key === 'string'
-          ? (meta as any).key
-          : null)
+      const metaValue = await base.get(metaKey, { returnExpired: true })
+      if (!metaValue) continue
+      const metadata = typeof metaValue === 'string' ? null : (isCacheMetadata(metaValue) ? metaValue : null)
+      const original = typeof metaValue === 'string' ? metaValue : metadata?.key
       if (!original) continue
       size++
-      const expiresAt = typeof meta === 'object' && meta !== null && typeof (meta as any).expiresAt === 'number'
-        ? (meta as any).expiresAt as number
-        : null
+      const expiresAt = metadata?.expiresAt ?? null
       if (expiresAt !== null && expiresAt <= now) expired++
     }
     return { size, expired }
@@ -200,35 +220,19 @@ function createTenantAwareWrapper(base: CacheStrategy): CacheStrategy {
  * await cache.deleteByTags(['users']) // Invalidate all user-related cache
  */
 export function createCacheService(options?: CacheServiceOptions): CacheStrategy {
-  const strategyType = options?.strategy 
-    || (process.env.CACHE_STRATEGY as any) 
-    || 'memory'
+  const envStrategy = isCacheStrategyName(process.env.CACHE_STRATEGY)
+    ? process.env.CACHE_STRATEGY
+    : undefined
+  const strategyType: CacheStrategyName = options?.strategy ?? envStrategy ?? 'memory'
 
-  const defaultTtl = options?.defaultTtl 
-    || (process.env.CACHE_TTL ? parseInt(process.env.CACHE_TTL, 10) : undefined)
+  const envTtl = process.env.CACHE_TTL
+  const parsedEnvTtl = envTtl ? Number.parseInt(envTtl, 10) : undefined
+  const defaultTtl = options?.defaultTtl ?? (typeof parsedEnvTtl === 'number' && Number.isFinite(parsedEnvTtl) ? parsedEnvTtl : undefined)
 
-  let strategy: CacheStrategy
+  const baseStrategy = createStrategyForType(strategyType, options, defaultTtl)
+  const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl)
 
-  switch (strategyType) {
-    case 'redis':
-      strategy = createRedisStrategy(options?.redisUrl, { defaultTtl })
-      break
-
-    case 'sqlite':
-      strategy = createSqliteStrategy(options?.sqlitePath, { defaultTtl })
-      break
-
-    case 'jsonfile':
-      strategy = createJsonFileStrategy(options?.jsonFilePath, { defaultTtl })
-      break
-
-    case 'memory':
-    default:
-      strategy = createMemoryStrategy({ defaultTtl })
-      break
-  }
-
-  return createTenantAwareWrapper(strategy)
+  return createTenantAwareWrapper(resilientStrategy)
 }
 
 /**
@@ -242,11 +246,11 @@ export class CacheService implements CacheStrategy {
     this.strategy = createCacheService(options)
   }
 
-  async get(key: string, options?: CacheGetOptions): Promise<any | null> {
+  async get(key: string, options?: CacheGetOptions): Promise<CacheValue | null> {
     return this.strategy.get(key, options)
   }
 
-  async set(key: string, value: any, options?: CacheSetOptions): Promise<void> {
+  async set(key: string, value: CacheValue, options?: CacheSetOptions): Promise<void> {
     return this.strategy.set(key, value, options)
   }
 
@@ -285,5 +289,79 @@ export class CacheService implements CacheStrategy {
     if (this.strategy.close) {
       return this.strategy.close()
     }
+  }
+}
+
+function createStrategyForType(strategyType: CacheStrategyName, options?: CacheServiceOptions, defaultTtl?: number): CacheStrategy {
+  switch (strategyType) {
+    case 'redis':
+      return createRedisStrategy(options?.redisUrl, { defaultTtl })
+    case 'sqlite':
+      return createSqliteStrategy(options?.sqlitePath, { defaultTtl })
+    case 'jsonfile':
+      return createJsonFileStrategy(options?.jsonFilePath, { defaultTtl })
+    case 'memory':
+    default:
+      return createMemoryStrategy({ defaultTtl })
+  }
+}
+
+function withDependencyFallback(strategy: CacheStrategy, strategyType: CacheStrategyName, defaultTtl?: number): CacheStrategy {
+  if (strategyType === 'memory') return strategy
+
+  let activeStrategy = strategy
+  let fallbackStrategy: CacheStrategy | null = null
+  let warned = false
+
+  const ensureFallback = (error: CacheDependencyUnavailableError) => {
+    if (!fallbackStrategy) {
+      fallbackStrategy = createMemoryStrategy({ defaultTtl })
+    }
+    if (!warned) {
+      const dependencyMessage = error.dependency
+        ? ` (missing dependency: ${error.dependency})`
+        : ''
+      console.warn(`[cache] ${error.strategy} strategy unavailable${dependencyMessage}. Falling back to memory strategy.`)
+      warned = true
+    }
+    activeStrategy = fallbackStrategy
+  }
+
+  const wrapMethod = <K extends keyof CacheStrategy>(method: K): CacheStrategy[K] => {
+    const handler = async (...args: Parameters<NonNullable<CacheStrategy[K]>>) => {
+      const fn = activeStrategy[method] as ((...methodArgs: Parameters<NonNullable<CacheStrategy[K]>>) => ReturnType<NonNullable<CacheStrategy[K]>>) | undefined
+      if (!fn) {
+        return undefined as Awaited<ReturnType<NonNullable<CacheStrategy[K]>>>
+      }
+
+      try {
+        return await fn(...args)
+      } catch (error) {
+        if (error instanceof CacheDependencyUnavailableError) {
+          ensureFallback(error)
+          const fallbackFn = activeStrategy[method] as ((...methodArgs: Parameters<NonNullable<CacheStrategy[K]>>) => ReturnType<NonNullable<CacheStrategy[K]>>) | undefined
+          if (!fallbackFn) {
+            return undefined as Awaited<ReturnType<NonNullable<CacheStrategy[K]>>>
+          }
+          return fallbackFn(...args)
+        }
+        throw error
+      }
+    }
+
+    return handler as CacheStrategy[K]
+  }
+
+  return {
+    get: wrapMethod('get'),
+    set: wrapMethod('set'),
+    has: wrapMethod('has'),
+    delete: wrapMethod('delete'),
+    deleteByTags: wrapMethod('deleteByTags'),
+    clear: wrapMethod('clear'),
+    keys: wrapMethod('keys'),
+    stats: wrapMethod('stats'),
+    cleanup: typeof strategy.cleanup === 'function' ? wrapMethod('cleanup') : undefined,
+    close: typeof strategy.close === 'function' ? wrapMethod('close') : undefined,
   }
 }

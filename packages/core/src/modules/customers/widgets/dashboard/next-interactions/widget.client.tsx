@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -34,12 +34,16 @@ async function loadNextInteractions(settings: CustomerNextInteractionsSettings):
     limit: String(settings.pageSize),
     includePast: settings.includePast ? 'true' : 'false',
   })
-  const response = await apiFetch(`/api/customers/dashboard/widgets/next-interactions?${params.toString()}`)
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`)
+  const call = await apiCall<ApiResponse>(`/api/customers/dashboard/widgets/next-interactions?${params.toString()}`)
+  if (!call.ok) {
+    const rawError = (call.result as Record<string, unknown> | null)?.error
+    const message =
+      typeof rawError === 'string'
+        ? rawError
+        : `Request failed with status ${call.status}`
+    throw new Error(message)
   }
-  const payload = await response.json().catch(() => ({}))
-  const payloadData = payload as Record<string, unknown>
+  const payloadData = (call.result ?? {}) as Record<string, unknown>
   const now = typeof payloadData.now === 'string' ? payloadData.now : undefined
   const rawItems = Array.isArray(payloadData.items) ? payloadData.items : []
   const items = rawItems

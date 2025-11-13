@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 export type EmailDuplicateMatch = {
   id: string
@@ -49,21 +49,23 @@ export function useEmailDuplicateCheck(
           matchMode === 'prefix'
             ? `emailStartsWith=${encodeURIComponent(normalized)}`
             : `email=${encodeURIComponent(normalized)}`
-        const res = await apiFetch(`/api/customers/people?${queryParam}&pageSize=5&page=1`, {
+        const call = await apiCall<{ items?: unknown[] }>(`/api/customers/people?${queryParam}&pageSize=5&page=1`, {
           signal: controller.signal,
         })
-        if (!res.ok) {
+        if (!call.ok) {
           if (!cancelled) setDuplicate(null)
           return
         }
-        const payload = await res.json().catch(() => ({}))
+        const payload = call.result ?? {}
         const items = Array.isArray(payload?.items) ? payload.items : []
         const match =
           items
-            .map((item: Record<string, unknown>) => {
-              const id = typeof item?.id === 'string' ? item.id : null
-              const displayName = typeof item?.display_name === 'string' ? item.display_name : null
-              const emailValue = typeof item?.primary_email === 'string' ? item.primary_email.toLowerCase() : null
+            .map((raw) => {
+              if (!raw || typeof raw !== 'object') return null
+              const item = raw as Record<string, unknown>
+              const id = typeof item.id === 'string' ? item.id : null
+              const displayName = typeof item.display_name === 'string' ? item.display_name : null
+              const emailValue = typeof item.primary_email === 'string' ? item.primary_email.toLowerCase() : null
               return id && displayName && emailValue
                 ? { id, displayName, email: emailValue }
                 : null

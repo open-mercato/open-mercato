@@ -8,7 +8,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -66,6 +66,28 @@ type CompanyLookupRecord = {
   name: string | null
   domain: string | null
   email: string | null
+}
+
+function parsePersonLookupRecord(item: unknown): PersonLookupRecord | null {
+  if (typeof item !== 'object' || item === null) return null
+  const record = item as Record<string, unknown>
+  const id = typeof record.id === 'string' ? record.id : null
+  if (!id || !isUuid(id)) return null
+  const name = typeof record.display_name === 'string' ? record.display_name : null
+  const email = typeof record.primary_email === 'string' ? record.primary_email : null
+  const phone = typeof record.primary_phone === 'string' ? record.primary_phone : null
+  return { id, name, email, phone }
+}
+
+function parseCompanyLookupRecord(item: unknown): CompanyLookupRecord | null {
+  if (typeof item !== 'object' || item === null) return null
+  const record = item as Record<string, unknown>
+  const id = typeof record.id === 'string' ? record.id : null
+  if (!id || !isUuid(id)) return null
+  const name = typeof record.display_name === 'string' ? record.display_name : null
+  const domain = typeof record.primary_domain === 'string' ? record.primary_domain : null
+  const email = typeof record.primary_email === 'string' ? record.primary_email : null
+  return { id, name, domain, email }
 }
 
 type OptionsState = {
@@ -130,20 +152,12 @@ async function fetchPeopleLookup(query?: string): Promise<PersonLookupRecord[]> 
   search.set('pageSize', '20')
   if (query && query.trim().length) search.set('search', query.trim())
   try {
-    const res = await apiFetch(`/api/customers/people?${search.toString()}`)
-    if (!res.ok) return []
-    const data = await res.json().catch(() => ({}))
-    const items = Array.isArray(data?.items) ? data.items : []
+    const call = await apiCall<{ items?: unknown[] }>(`/api/customers/people?${search.toString()}`)
+    if (!call.ok) return []
+    const items = Array.isArray(call.result?.items) ? call.result.items : []
     return items
-      .map((item: any) => {
-        const id = typeof item?.id === 'string' ? item.id : null
-        if (!id || !isUuid(id)) return null
-        const name = typeof item?.display_name === 'string' ? item.display_name : null
-        const email = typeof item?.primary_email === 'string' ? item.primary_email : null
-        const phone = typeof item?.primary_phone === 'string' ? item.primary_phone : null
-        return { id, name, email, phone }
-      })
-      .filter((record: PersonLookupRecord | null): record is PersonLookupRecord => record !== null)
+      .map((item) => parsePersonLookupRecord(item))
+      .filter((record): record is PersonLookupRecord => record !== null)
   } catch {
     return []
   }
@@ -159,16 +173,13 @@ async function fetchPeopleLookupByIds(ids: string[]): Promise<PersonLookupRecord
       search.set('page', '1')
       search.set('pageSize', '1')
       try {
-        const res = await apiFetch(`/api/customers/people?${search.toString()}`)
-        if (!res.ok) return null
-        const data = await res.json().catch(() => ({}))
-        const items = Array.isArray(data?.items) ? data.items : []
-        const match = items.find((item: any) => typeof item?.id === 'string' && item.id === id)
-        if (!match) return null
-        const name = typeof match?.display_name === 'string' ? match.display_name : null
-        const email = typeof match?.primary_email === 'string' ? match.primary_email : null
-        const phone = typeof match?.primary_phone === 'string' ? match.primary_phone : null
-        return { id, name, email, phone }
+        const call = await apiCall<{ items?: unknown[] }>(`/api/customers/people?${search.toString()}`)
+        if (!call.ok) return null
+        const items = Array.isArray(call.result?.items) ? call.result.items : []
+        const match = items
+          .map((item) => parsePersonLookupRecord(item))
+          .find((record) => record?.id === id)
+        return match ?? null
       } catch {
         return null
       }
@@ -183,20 +194,12 @@ async function fetchCompaniesLookup(query?: string): Promise<CompanyLookupRecord
   search.set('pageSize', '20')
   if (query && query.trim().length) search.set('search', query.trim())
   try {
-    const res = await apiFetch(`/api/customers/companies?${search.toString()}`)
-    if (!res.ok) return []
-    const data = await res.json().catch(() => ({}))
-    const items = Array.isArray(data?.items) ? data.items : []
+    const call = await apiCall<{ items?: unknown[] }>(`/api/customers/companies?${search.toString()}`)
+    if (!call.ok) return []
+    const items = Array.isArray(call.result?.items) ? call.result.items : []
     return items
-      .map((item: any) => {
-        const id = typeof item?.id === 'string' ? item.id : null
-        if (!id || !isUuid(id)) return null
-        const name = typeof item?.display_name === 'string' ? item.display_name : null
-        const domain = typeof item?.primary_domain === 'string' ? item.primary_domain : null
-        const email = typeof item?.primary_email === 'string' ? item.primary_email : null
-        return { id, name, domain, email }
-      })
-      .filter((record: CompanyLookupRecord | null): record is CompanyLookupRecord => record !== null)
+      .map((item) => parseCompanyLookupRecord(item))
+      .filter((record): record is CompanyLookupRecord => record !== null)
   } catch {
     return []
   }
@@ -212,16 +215,13 @@ async function fetchCompaniesLookupByIds(ids: string[]): Promise<CompanyLookupRe
       search.set('page', '1')
       search.set('pageSize', '1')
       try {
-        const res = await apiFetch(`/api/customers/companies?${search.toString()}`)
-        if (!res.ok) return null
-        const data = await res.json().catch(() => ({}))
-        const items = Array.isArray(data?.items) ? data.items : []
-        const match = items.find((item: any) => typeof item?.id === 'string' && item.id === id)
-        if (!match) return null
-        const name = typeof match?.display_name === 'string' ? match.display_name : null
-        const domain = typeof match?.primary_domain === 'string' ? match.primary_domain : null
-        const email = typeof match?.primary_email === 'string' ? match.primary_email : null
-        return { id, name, domain, email }
+        const call = await apiCall<{ items?: unknown[] }>(`/api/customers/companies?${search.toString()}`)
+        if (!call.ok) return null
+        const items = Array.isArray(call.result?.items) ? call.result.items : []
+        const match = items
+          .map((item) => parseCompanyLookupRecord(item))
+          .find((record) => record?.id === id)
+        return match ?? null
       } catch {
         return null
       }
@@ -610,20 +610,20 @@ export default function CustomersDealsPage() {
       setIsLoading(true)
       setCacheStatus(null)
       try {
-        const res = await apiFetch(`/api/customers/deals?${queryParams}`)
-        const rawCacheStatus = res.headers.get('x-om-cache')
+        const fallback: DealsResponse = { items: [], total: 0, totalPages: 1 }
+        const call = await apiCall<DealsResponse>(`/api/customers/deals?${queryParams}`, undefined, { fallback })
+        const rawCacheStatus = call.response.headers?.get?.('x-om-cache')
         const normalizedCacheStatus = rawCacheStatus === 'hit' || rawCacheStatus === 'miss' ? rawCacheStatus : null
-        if (!res.ok) {
-          const details = await res.json().catch(() => ({}))
+        if (!call.ok) {
           const message =
-            typeof details?.error === 'string'
-              ? details.error
+            typeof (call.result as { error?: string } | undefined)?.error === 'string'
+              ? (call.result as { error?: string }).error!
               : t('customers.deals.list.error.load')
           flash(message, 'error')
           if (!cancelled) setCacheStatus(null)
           return
         }
-        const payload: DealsResponse = await res.json().catch(() => ({}))
+        const payload = call.result ?? fallback
         if (cancelled) return
         setCacheStatus(normalizedCacheStatus)
         const items = Array.isArray(payload.items) ? payload.items : []

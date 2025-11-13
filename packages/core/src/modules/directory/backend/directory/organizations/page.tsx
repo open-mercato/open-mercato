@@ -9,9 +9,10 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@/lib/i18n/context'
 
 type OrganizationRow = {
   id: string
@@ -61,20 +62,20 @@ export default function DirectoryOrganizationsPage() {
   const [search, setSearch] = React.useState('')
   const [canManage, setCanManage] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
+  const t = useT()
 
   React.useEffect(() => {
     let cancelled = false
     async function load() {
       try {
-        const res = await apiFetch('/api/auth/feature-check', {
+        const call = await apiCall<{ granted?: string[]; ok?: boolean }>('/api/auth/feature-check', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ features: ['directory.organizations.manage'] }),
         })
-        const json = await res.json().catch(() => ({}))
         if (!cancelled) {
-          const granted = Array.isArray(json?.granted) ? json.granted : []
-          setCanManage(json?.ok === true || granted.includes('directory.organizations.manage'))
+          const granted = Array.isArray(call.result?.granted) ? call.result?.granted : []
+          setCanManage(call.result?.ok === true || granted.includes('directory.organizations.manage'))
         }
       } catch {
         if (!cancelled) setCanManage(false)
@@ -98,9 +99,11 @@ export default function DirectoryOrganizationsPage() {
   const { data, isLoading } = useQuery<OrganizationsResponse>({
     queryKey: ['directory-organizations', queryParams, scopeVersion],
     queryFn: async () => {
-      const res = await apiFetch(`/api/directory/organizations?${queryParams}`)
-      if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to load organizations'))
-      return res.json()
+      return readApiResultOrThrow<OrganizationsResponse>(
+        `/api/directory/organizations?${queryParams}`,
+        undefined,
+        { errorMessage: t('directory.organizations.list.error.load', 'Failed to load organizations') },
+      )
     },
   })
 
@@ -110,7 +113,7 @@ export default function DirectoryOrganizationsPage() {
     const base: ColumnDef<OrganizationRow>[] = [
       {
         accessorKey: 'name',
-        header: 'Organization',
+        header: t('directory.organizations.list.columns.organization', 'Organization'),
         cell: ({ row }) => {
           const depth = row.original.depth ?? 0
           return (
@@ -127,7 +130,7 @@ export default function DirectoryOrganizationsPage() {
       },
       {
         accessorKey: 'pathLabel',
-        header: 'Path',
+        header: t('directory.organizations.list.columns.path', 'Path'),
         meta: { priority: 3 },
         cell: ({ getValue }) => {
           const value = getValue<string>()
@@ -136,18 +139,18 @@ export default function DirectoryOrganizationsPage() {
       },
       {
         accessorKey: 'parentName',
-        header: 'Parent',
+        header: t('directory.organizations.list.columns.parent', 'Parent'),
         meta: { priority: 4 },
-        cell: ({ getValue }) => getValue<string>() || '—',
+        cell: ({ getValue }) => getValue<string>() || t('directory.organizations.common.none', '—'),
       },
       {
         accessorKey: 'childrenCount',
-        header: 'Children',
+        header: t('directory.organizations.list.columns.children', 'Children'),
         meta: { priority: 5 },
       },
       {
         accessorKey: 'isActive',
-        header: 'Active',
+        header: t('directory.organizations.list.columns.active', 'Active'),
         enableSorting: false,
         meta: { priority: 2 },
         cell: ({ getValue }) => <BooleanIcon value={Boolean(getValue())} />, 
@@ -156,7 +159,7 @@ export default function DirectoryOrganizationsPage() {
     if (isSuperAdmin) {
       base.splice(1, 0, {
         accessorKey: 'tenantName',
-        header: 'Tenant',
+        header: t('directory.organizations.list.columns.tenant', 'Tenant'),
         meta: { priority: 2 },
         cell: ({ row }) => {
           const value = row.original.tenantName ?? row.original.tenantId
@@ -165,46 +168,54 @@ export default function DirectoryOrganizationsPage() {
       })
     }
     return base
-  }, [isSuperAdmin])
+  }, [isSuperAdmin, t])
   const total = data?.total ?? 0
   const totalPages = data?.totalPages ?? 1
 
   const handleDelete = React.useCallback(async (org: OrganizationRow) => {
-    if (!window.confirm(`Archive organization "${org.name}"?`)) return
+    const confirmLabel = t('directory.organizations.list.confirmDelete', 'Archive organization "{{name}}"?', { name: org.name })
+    if (!window.confirm(confirmLabel)) return
     try {
-      const res = await apiFetch(`/api/directory/organizations?id=${encodeURIComponent(org.id)}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error(await res.text().catch(() => 'Failed to delete organization'))
+      await apiCallOrThrow(
+        `/api/directory/organizations?id=${encodeURIComponent(org.id)}`,
+        { method: 'DELETE' },
+        { errorMessage: t('directory.organizations.list.error.delete', 'Failed to delete organization') },
+      )
       await queryClient.invalidateQueries({ queryKey: ['directory-organizations'] })
-      flash('Organization deleted', 'success')
+      flash(t('directory.organizations.flash.deleted', 'Organization deleted'), 'success')
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to delete organization'
+      const fallback = t('directory.organizations.list.error.delete', 'Failed to delete organization')
+      const message = err instanceof Error ? err.message : fallback
       flash(message, 'error')
     }
-  }, [queryClient])
+  }, [queryClient, t])
 
   return (
     <Page>
       <PageBody>
         <DataTable
-          title="Organizations"
+          title={t('directory.organizations.list.title', 'Organizations')}
           actions={canManage ? (
             <Button asChild>
-              <Link href="/backend/directory/organizations/create">Create</Link>
+              <Link href="/backend/directory/organizations/create">
+                {t('directory.organizations.list.actions.create', 'Create')}
+              </Link>
             </Button>
           ) : undefined}
           columns={columns}
           data={rows}
           searchValue={search}
+          searchPlaceholder={t('directory.organizations.list.searchPlaceholder', 'Search organizations')}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           filters={[
             {
               id: 'status',
-              label: 'Status',
+              label: t('directory.organizations.list.filters.status', 'Status'),
               type: 'select',
               options: [
-                { value: 'all', label: 'All' },
-                { value: 'active', label: 'Active' },
-                { value: 'inactive', label: 'Inactive' },
+                { value: 'all', label: t('directory.organizations.list.filters.all', 'All') },
+                { value: 'active', label: t('directory.organizations.list.filters.active', 'Active') },
+                { value: 'inactive', label: t('directory.organizations.list.filters.inactive', 'Inactive') },
               ],
             },
           ]}
@@ -224,8 +235,8 @@ export default function DirectoryOrganizationsPage() {
             canManage ? (
               <RowActions
                 items={[
-                  { label: 'Edit', href: `/backend/directory/organizations/${row.id}/edit` },
-                  { label: 'Delete', destructive: true, onSelect: () => handleDelete(row) },
+                  { label: t('directory.organizations.list.actions.edit', 'Edit'), href: `/backend/directory/organizations/${row.id}/edit` },
+                  { label: t('directory.organizations.list.actions.delete', 'Delete'), destructive: true, onSelect: () => handleDelete(row) },
                 ]}
               />
             ) : null

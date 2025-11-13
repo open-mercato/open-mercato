@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { useT } from '@/lib/i18n/context'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { DictionarySelectField } from '../formConfig'
 import { createDictionarySelectLabels } from './utils'
@@ -496,11 +496,11 @@ export function DealForm({
       sortDir: 'asc',
     })
     if (query.trim().length) params.set('search', query.trim())
-    const res = await apiFetch(`/api/customers/people?${params.toString()}`)
-    const payload = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to search people')
+    const call = await apiCall<Record<string, unknown>>(`/api/customers/people?${params.toString()}`)
+    if (!call.ok) {
+      throw new Error(typeof call.result?.error === 'string' ? String(call.result?.error) : 'Failed to search people')
     }
+    const payload = call.result ?? {}
     const items = Array.isArray(payload.items) ? payload.items : []
     return items
       .map((item: unknown) => (item && typeof item === 'object' ? extractPersonOption(item as Record<string, unknown>) : null))
@@ -512,9 +512,9 @@ export function DealForm({
     if (!unique.length) return []
     const results = await Promise.all(unique.map(async (id) => {
       try {
-        const res = await apiFetch(`/api/customers/people?id=${encodeURIComponent(id)}&pageSize=1`)
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error()
+        const call = await apiCall<Record<string, unknown>>(`/api/customers/people?id=${encodeURIComponent(id)}&pageSize=1`)
+        if (!call.ok) throw new Error()
+        const payload = call.result ?? {}
         const items = Array.isArray(payload.items) ? payload.items : []
         const option = items
           .map((item: unknown) => (item && typeof item === 'object' ? extractPersonOption(item as Record<string, unknown>) : null))
@@ -534,11 +534,11 @@ export function DealForm({
       sortDir: 'asc',
     })
     if (query.trim().length) params.set('search', query.trim())
-    const res = await apiFetch(`/api/customers/companies?${params.toString()}`)
-    const payload = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to search companies')
+    const call = await apiCall<Record<string, unknown>>(`/api/customers/companies?${params.toString()}`)
+    if (!call.ok) {
+      throw new Error(typeof call.result?.error === 'string' ? String(call.result?.error) : 'Failed to search companies')
     }
+    const payload = call.result ?? {}
     const items = Array.isArray(payload.items) ? payload.items : []
     return items
       .map((item: unknown) => (item && typeof item === 'object' ? extractCompanyOption(item as Record<string, unknown>) : null))
@@ -550,9 +550,9 @@ export function DealForm({
     if (!unique.length) return []
     const results = await Promise.all(unique.map(async (id) => {
       try {
-        const res = await apiFetch(`/api/customers/companies?id=${encodeURIComponent(id)}&pageSize=1`)
-        const payload = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error()
+        const call = await apiCall<Record<string, unknown>>(`/api/customers/companies?id=${encodeURIComponent(id)}&pageSize=1`)
+        if (!call.ok) throw new Error()
+        const payload = call.result ?? {}
         const items = Array.isArray(payload.items) ? payload.items : []
       const option = items
         .map((item: unknown) => (item && typeof item === 'object' ? extractCompanyOption(item as Record<string, unknown>) : null))

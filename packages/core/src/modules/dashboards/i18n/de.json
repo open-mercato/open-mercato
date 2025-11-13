@@ -1,0 +1,9 @@
+{
+  "dashboards.widgets.loading": "Widget-Optionen werden geladen…",
+  "dashboards.widgets.error.load": "Widget-Konfiguration konnte nicht geladen werden.",
+  "dashboards.widgets.error.save": "Dashboard-Widget-Einstellungen konnten nicht gespeichert werden.",
+  "dashboards.widgets.flash.saved": "Dashboard-Widgets aktualisiert",
+  "dashboards.widgets.mode.inherit": "Von Rollen übernehmen",
+  "dashboards.widgets.mode.override": "Für diesen Benutzer überschreiben",
+  "dashboards.widgets.mode.hint": "Dieser Benutzer erbt derzeit Widgets von seinen Rollen. Wechseln Sie zu \"Überschreiben\", um anzupassen."
+}

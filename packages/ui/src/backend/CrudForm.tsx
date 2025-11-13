@@ -14,6 +14,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
+import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -46,6 +47,7 @@ export type CrudBuiltinField = CrudFieldBase & {
   placeholder?: string
   options?: CrudFieldOption[]
   multiple?: boolean
+  listbox?: boolean
   // for relation/select style fields; if provided, options are loaded on mount
   loadOptions?: (query?: string) => Promise<CrudFieldOption[]>
   // when type === 'richtext', choose editor implementation
@@ -1177,13 +1179,10 @@ function TextAreaInput({
 
 // Markdown editor using @uiw/react-md-editor (client-only)
 type MDProps = { value?: string; onChange: (md: string) => void }
-type MDEditorProps = {
-  value?: string
-  height?: number
-  onChange?: (value?: string) => void
-  previewOptions?: { remarkPlugins?: unknown[] }
-}
-const MDEditor = dynamic<MDEditorProps>(() => import('@uiw/react-md-editor'), { ssr: false })
+const MDEditor = dynamic(async () => {
+  const mod = await import('@uiw/react-md-editor')
+  return mod.default
+}, { ssr: false }) as React.ComponentType<UiWMDEditorProps>
 const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange }: MDProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const [local, setLocal] = React.useState<string>(value)
@@ -1497,7 +1496,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'number' && (
         <NumberInput
-          value={value}
+          value={typeof value === 'number' || typeof value === 'string' ? value : null}
           placeholder={placeholder}
           onChange={fieldSetValue}
           autoFocus={autoFocusField}

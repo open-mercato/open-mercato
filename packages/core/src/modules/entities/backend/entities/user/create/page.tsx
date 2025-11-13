@@ -3,13 +3,12 @@ import * as React from 'react'
 import { z } from 'zod'
 import { useT } from '@/lib/i18n/context'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
-import { createCrudFormError, readJsonSafe, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/data/validators'
 import { useRouter } from 'next/navigation'
 import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
 const schema = upsertCustomEntitySchema
 
@@ -82,12 +81,12 @@ type EntityListEntry = {
 type FetchCustomEntities = (errorMessage?: string) => Promise<EntityListEntry[]>
 
 async function defaultFetchCustomEntities(errorMessage?: string): Promise<EntityListEntry[]> {
-  const res = await apiFetch('/api/entities/entities')
-  if (!res.ok) {
-    await raiseCrudError(res, errorMessage ?? 'Failed to load entities')
-  }
-  const data = await readJsonSafe<{ items?: EntityListEntry[] }>(res)
-  return Array.isArray(data?.items) ? data!.items! : []
+  const data = await readApiResultOrThrow<{ items?: EntityListEntry[] }>(
+    '/api/entities/entities',
+    undefined,
+    { errorMessage: errorMessage ?? 'Failed to load entities', fallback: { items: [] } },
+  )
+  return Array.isArray(data?.items) ? data.items! : []
 }
 
 type CreateEntityRequest = (payload: Record<string, unknown>) => Promise<void>

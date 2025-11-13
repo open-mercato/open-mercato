@@ -1,6 +1,25 @@
-import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions } from '../types'
+import type { CacheStrategy, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import fs from 'node:fs'
 import path from 'node:path'
+import { CacheDependencyUnavailableError } from '../errors'
+
+type SqliteStatement<TResult = unknown> = {
+  get(...args: unknown[]): TResult | undefined
+  all(...args: unknown[]): TResult[]
+  run(...args: unknown[]): { changes: number }
+}
+
+type SqliteTransaction<TResult = unknown> = () => TResult
+
+type SqliteDatabase = {
+  prepare<TResult = unknown>(sql: string): SqliteStatement<TResult>
+  exec(sql: string): unknown
+  transaction<TResult>(fn: () => TResult): SqliteTransaction<TResult>
+  close(): void
+}
+
+type SqliteConstructor = new (file: string) => SqliteDatabase
+type SqliteModule = SqliteConstructor | { default: SqliteConstructor }
 
 /**
  * SQLite cache strategy with tag support
@@ -11,16 +30,16 @@ import path from 'node:path'
  * - cache_tags: stores tag associations (many-to-many)
  */
 export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: number }): CacheStrategy {
-  let db: any = null
+  let db: SqliteDatabase | null = null
   const defaultTtl = options?.defaultTtl
   const filePath = dbPath || process.env.CACHE_SQLITE_PATH || '.cache.db'
 
-  function getDb() {
+  async function getDb(): Promise<SqliteDatabase> {
     if (db) return db
 
     try {
-      // Try to require better-sqlite3
-      const Database = require('better-sqlite3')
+      const imported = await import('better-sqlite3') as SqliteModule
+      const Database = typeof imported === 'function' ? imported : imported.default
       
       // Ensure directory exists
       const dir = path.dirname(filePath)
@@ -52,7 +71,7 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
 
       return db
     } catch (error) {
-      throw new Error('SQLite client (better-sqlite3) is required for SQLite cache strategy. Install it with: yarn add better-sqlite3')
+      throw new CacheDependencyUnavailableError('sqlite', 'better-sqlite3', error)
     }
   }
 
@@ -70,16 +89,21 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
     return regex.test(key)
   }
 
-  const get = async (key: string, options?: CacheGetOptions): Promise<any | null> => {
-    const database = getDb()
+  type EntryRow = { value: string; expires_at: number | null }
+  type ExpiresRow = { expires_at: number | null }
+  type CountRow = { count: number }
+  type KeyRow = { key: string }
+
+  const get = async (key: string, options?: CacheGetOptions): Promise<CacheValue | null> => {
+    const database = await getDb()
     
     const stmt = database.prepare('SELECT value, expires_at FROM cache_entries WHERE key = ?')
-    const row = stmt.get(key)
+    const row = stmt.get(key) as EntryRow | undefined
 
     if (!row) return null
 
     try {
-      const value = JSON.parse(row.value)
+      const value = JSON.parse(row.value) as CacheValue
       const expiresAt = row.expires_at
 
       if (isExpired(expiresAt)) {
@@ -92,15 +116,15 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
       }
 
       return value
-    } catch (error) {
+    } catch {
       // Invalid JSON, remove it
       await deleteKey(key)
       return null
     }
   }
 
-  const set = async (key: string, value: any, options?: CacheSetOptions): Promise<void> => {
-    const database = getDb()
+  const set = async (key: string, value: CacheValue, options?: CacheSetOptions): Promise<void> => {
+    const database = await getDb()
     const ttl = options?.ttl ?? defaultTtl
     const tags = options?.tags || []
     const expiresAt = ttl ? Date.now() + ttl : null
@@ -129,10 +153,10 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
   }
 
   const has = async (key: string): Promise<boolean> => {
-    const database = getDb()
+    const database = await getDb()
     
     const stmt = database.prepare('SELECT expires_at FROM cache_entries WHERE key = ?')
-    const row = stmt.get(key)
+    const row = stmt.get(key) as ExpiresRow | undefined
 
     if (!row) return false
 
@@ -145,7 +169,7 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
   }
 
   const deleteKey = async (key: string): Promise<boolean> => {
-    const database = getDb()
+    const database = await getDb()
     
     const result = database.transaction(() => {
       database.prepare('DELETE FROM cache_tags WHERE key = ?').run(key)
@@ -157,14 +181,14 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
   }
 
   const deleteByTags = async (tags: string[]): Promise<number> => {
-    const database = getDb()
+    const database = await getDb()
     
     // Get all unique keys that have any of the specified tags
     const placeholders = tags.map(() => '?').join(',')
     const stmt = database.prepare(`
       SELECT DISTINCT key FROM cache_tags WHERE tag IN (${placeholders})
     `)
-    const rows = stmt.all(...tags)
+    const rows = stmt.all(...tags) as KeyRow[]
 
     let deleted = 0
     for (const row of rows) {
@@ -176,11 +200,11 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
   }
 
   const clear = async (): Promise<number> => {
-    const database = getDb()
+    const database = await getDb()
     
     const result = database.transaction(() => {
       const countStmt = database.prepare('SELECT COUNT(*) as count FROM cache_entries')
-      const count = countStmt.get().count
+      const count = (countStmt.get() as CountRow).count
 
       database.prepare('DELETE FROM cache_tags').run()
       database.prepare('DELETE FROM cache_entries').run()
@@ -192,12 +216,12 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
   }
 
   const keys = async (pattern?: string): Promise<string[]> => {
-    const database = getDb()
+    const database = await getDb()
     
     const stmt = database.prepare('SELECT key FROM cache_entries')
-    const rows = stmt.all()
+    const rows = stmt.all() as KeyRow[]
     
-    const allKeys = rows.map((row: any) => row.key)
+    const allKeys = rows.map((row) => row.key)
     
     if (!pattern) return allKeys
     
@@ -205,26 +229,26 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
   }
 
   const stats = async (): Promise<{ size: number; expired: number }> => {
-    const database = getDb()
+    const database = await getDb()
     
     const sizeStmt = database.prepare('SELECT COUNT(*) as count FROM cache_entries')
-    const size = sizeStmt.get().count
+    const size = (sizeStmt.get() as CountRow).count
 
     const now = Date.now()
     const expiredStmt = database.prepare('SELECT COUNT(*) as count FROM cache_entries WHERE expires_at IS NOT NULL AND expires_at < ?')
-    const expired = expiredStmt.get(now).count
+    const expired = (expiredStmt.get(now) as CountRow).count
 
     return { size, expired }
   }
 
   const cleanup = async (): Promise<number> => {
-    const database = getDb()
+    const database = await getDb()
     const now = Date.now()
     
     const result = database.transaction(() => {
       // Get keys to delete
       const stmt = database.prepare('SELECT key FROM cache_entries WHERE expires_at IS NOT NULL AND expires_at < ?')
-      const rows = stmt.all(now)
+      const rows = stmt.all(now) as KeyRow[]
 
       // Delete tags for expired keys
       for (const row of rows) {
@@ -259,4 +283,3 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
     close,
   }
 }
-

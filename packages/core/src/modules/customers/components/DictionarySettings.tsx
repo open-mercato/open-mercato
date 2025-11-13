@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import type { CustomerDictionaryKind } from '../lib/dictionaries'
@@ -129,11 +129,12 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
   const loadEntries = React.useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiFetch(`/api/customers/dictionaries/${kind}`)
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok || !Array.isArray(data?.items)) {
-        throw new Error(errorLoad)
-      }
+      const data = await readApiResultOrThrow<{ items?: unknown[] }>(
+        `/api/customers/dictionaries/${kind}`,
+        undefined,
+        { errorMessage: errorLoad },
+      )
+      if (!Array.isArray(data?.items)) throw new Error(errorLoad)
       const mapped: DictionaryTableEntry[] = data.items.map((item: any) => ({
         id: String(item.id),
         value: String(item.value ?? ''),
@@ -183,20 +184,17 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
     const message = deleteConfirmTemplate.replace('{{value}}', entry.label || entry.value)
     if (!window.confirm(message)) return
     try {
-      const res = await apiFetch(`/api/customers/dictionaries/${kind}/${encodeURIComponent(entry.id)}`, {
-        method: 'DELETE',
-      })
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}))
-        const messageValue = typeof payload?.error === 'string' ? payload.error : errorDelete
-        flash(messageValue, 'error')
-        return
-      }
+      await apiCallOrThrow(
+        `/api/customers/dictionaries/${kind}/${encodeURIComponent(entry.id)}`,
+        { method: 'DELETE' },
+        { errorMessage: errorDelete },
+      )
       flash(successDelete, 'success')
       await loadEntries()
     } catch (err) {
       console.error('customers.dictionaries.delete failed', err)
-      flash(errorDelete, 'error')
+      const messageValue = err instanceof Error ? err.message : errorDelete
+      flash(messageValue, 'error')
     }
   }, [deleteConfirmTemplate, errorDelete, inheritedActionBlocked, kind, loadEntries, successDelete])
 
@@ -210,16 +208,15 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
     setSubmitting(true)
     try {
       if (!dialog || dialog.mode === 'create') {
-        const res = await apiFetch(`/api/customers/dictionaries/${kind}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message = typeof data?.error === 'string' ? data.error : errorSave
-          throw new Error(message)
-        }
+        await apiCallOrThrow(
+          `/api/customers/dictionaries/${kind}`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: errorSave },
+        )
         flash(successSave, 'success')
       } else if (dialog.mode === 'edit') {
         const target = dialog.entry
@@ -238,16 +235,15 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
           closeDialog()
           return
         }
-        const res = await apiFetch(`/api/customers/dictionaries/${kind}/${encodeURIComponent(target.id)}`, {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message = typeof data?.error === 'string' ? data.error : errorSave
-          throw new Error(message)
-        }
+        await apiCallOrThrow(
+          `/api/customers/dictionaries/${kind}/${encodeURIComponent(target.id)}`,
+          {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          },
+          { errorMessage: errorSave },
+        )
         flash(successSave, 'success')
       }
       closeDialog()

@@ -8,7 +8,7 @@ import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -169,14 +169,11 @@ export default function CustomersPeoplePage() {
       const params = new URLSearchParams({ pageSize: '100' })
       const trimmedQuery = typeof query === 'string' ? query.trim() : ''
       if (trimmedQuery) params.set('search', trimmedQuery)
-      const res = await apiFetch(`/api/customers/tags?${params.toString()}`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const message = typeof payload?.error === 'string'
-          ? payload.error
-          : t('customers.people.detail.tags.loadError', 'Failed to load tags.')
-        throw new Error(message)
-      }
+      const payload = await readApiResultOrThrow<{ items?: unknown[] }>(
+        `/api/customers/tags?${params.toString()}`,
+        undefined,
+        { errorMessage: t('customers.people.detail.tags.loadError', 'Failed to load tags.') },
+      )
       const items = Array.isArray(payload?.items) ? payload.items : []
       const options: FilterOption[] = []
       for (const item of items) {
@@ -386,17 +383,18 @@ export default function CustomersPeoplePage() {
       setIsLoading(true)
       setCacheStatus(null)
       try {
-        const res = await apiFetch(`/api/customers/people?${queryParams}`)
-        const rawCacheStatus = res.headers.get('x-om-cache')
+        const fallback: PeopleResponse = { items: [], total: 0, totalPages: 1 }
+        const call = await apiCall<PeopleResponse>(`/api/customers/people?${queryParams}`, undefined, { fallback })
+        const rawCacheStatus = call.response.headers?.get?.('x-om-cache')
         const normalizedCacheStatus = rawCacheStatus === 'hit' || rawCacheStatus === 'miss' ? rawCacheStatus : null
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          const message = typeof data?.error === 'string' ? data.error : t('customers.people.list.error.load')
+        if (!call.ok) {
+          const errorPayload = call.result as { error?: string } | undefined
+          const message = typeof errorPayload?.error === 'string' ? errorPayload.error : t('customers.people.list.error.load')
           flash(message, 'error')
           if (!cancelled) setCacheStatus(null)
           return
         }
-        const payload: PeopleResponse = await res.json().catch(() => ({}))
+        const payload = call.result ?? fallback
         if (cancelled) return
         setCacheStatus(normalizedCacheStatus)
         const items = Array.isArray(payload.items) ? payload.items : []
@@ -427,15 +425,14 @@ export default function CustomersPeoplePage() {
     const confirmed = window.confirm(t('customers.people.list.deleteConfirm', undefined, { name }))
     if (!confirmed) return
     try {
-      const res = await apiFetch(`/api/customers/people?id=${encodeURIComponent(person.id)}`, {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-      })
-      if (!res.ok) {
-        const details = await res.json().catch(() => ({}))
-        const message = typeof details?.error === 'string' ? details.error : t('customers.people.list.deleteError')
-        throw new Error(message)
-      }
+      await apiCallOrThrow(
+        `/api/customers/people?id=${encodeURIComponent(person.id)}`,
+        {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+        },
+        { errorMessage: t('customers.people.list.deleteError') },
+      )
       setRows((prev) => prev.filter((row) => row.id !== person.id))
       setTotal((prev) => Math.max(prev - 1, 0))
       handleRefresh()

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import { createRequestContainer } from '@/lib/di/container'
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
-import { getAuthFromCookies, type AuthContext } from '@/lib/auth/server'
+import { getAuthFromCookies, getAuthFromRequest, type AuthContext } from '@/lib/auth/server'
 import type { QueryEngine, Where, Sort, Page, QueryCustomFieldSource, QueryJoinEdge } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -28,6 +28,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   buildCollectionTags,
   buildRecordTag,
+  canonicalizeResourceTag,
   debugCrudCache,
   deriveResourceFromCommandId,
   expandResourceAliases,
@@ -345,20 +346,12 @@ function resolveResourceAliasesList(
   opts: CrudFactoryOptions<any, any, any>,
   ormEntityName: string | undefined
 ): { primary: string; aliases: string[] } {
-  const aliases: string[] = []
-  const eventsResource = opts.events?.module && opts.events?.entity
-    ? `${opts.events.module}.${opts.events.entity}`
-    : null
-  if (eventsResource) aliases.push(eventsResource)
-
+  const eventsResource =
+    opts.events?.module && opts.events?.entity ? `${opts.events.module}.${opts.events.entity}` : null
   const commandResource = deriveResourceFromActions(opts.actions)
-  if (commandResource && !aliases.includes(commandResource)) aliases.push(commandResource)
-
-  if (ormEntityName && !aliases.includes(ormEntityName)) aliases.push(ormEntityName)
-
-  if (!aliases.length) aliases.push('resource')
-
-  return { primary: aliases[0], aliases }
+  const rawCandidate = eventsResource ?? commandResource ?? ormEntityName ?? 'resource'
+  const primary = canonicalizeResourceTag(rawCandidate) ?? 'resource'
+  return { primary, aliases: [] }
 }
 
 function mergeCommandMetadata(base: CommandLogMetadata, override: CommandLogMetadata | null | undefined): CommandLogMetadata {
@@ -508,7 +501,7 @@ export async function logCrudAccess(options: LogCrudAccessOptions) {
   const idField = options.idField || 'id'
   const tenantId = options.tenantId ?? auth.tenantId ?? null
   const organizationId = options.organizationId ?? auth.orgId ?? null
-  const actorUserId = auth.sub ?? null
+  const actorUserId = (auth.keyId ?? auth.sub) ?? null
   const fields = options.fields && options.fields.length ? options.fields : collectFieldNames(items)
   const accessType = options.accessType ?? determineAccessType(options.query, items.length, idField)
 
@@ -748,8 +741,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     }
   }
 
-  async function ensureAuth() {
-    const auth = await getAuthFromCookies()
+  async function ensureAuth(request?: Request | null) {
+    const auth = request ? await getAuthFromRequest(request) : await getAuthFromCookies()
     if (!auth) return null
     if (auth.tenantId && !isUuid(auth.tenantId)) return null
     return auth
@@ -757,7 +750,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   async function withCtx(request: Request): Promise<CrudCtx> {
     const container = await createRequestContainer()
-    const rawAuth = await ensureAuth()
+    const rawAuth = await ensureAuth(request)
     let scope: OrganizationScope | null = null
     let selectedOrganizationId: string | null = null
     let organizationIds: string[] | null = null
