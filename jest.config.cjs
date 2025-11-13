@@ -14,6 +14,8 @@ module.exports = {
     '^@open-mercato/content/(.*)$': '<rootDir>/packages/content/src/$1',
     '^@open-mercato/cli/(.*)$': '<rootDir>/packages/cli/src/$1',
     '^@open-mercato/events/(.*)$': '<rootDir>/packages/events/src/$1',
+    '^@open-mercato/cache/(.*)$': '<rootDir>/packages/cache/src/$1',
+    '^@open-mercato/cache$': '<rootDir>/packages/cache/src/index.ts',
     '^@open-mercato/shared/(.*)$': '<rootDir>/packages/shared/src/$1',
     '^@/(.*)$': '<rootDir>/src/$1',
   },
