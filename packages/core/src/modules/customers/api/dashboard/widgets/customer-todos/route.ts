@@ -51,9 +51,10 @@ type TodoSummary = {
   title: string | null
 }
 
+const TODO_TITLE_FIELDS = ['title', 'subject', 'name', 'summary', 'text', 'description'] as const
+
 function extractTodoTitle(record: Record<string, unknown>): string | null {
-  const candidates = ['title', 'subject', 'name', 'summary', 'text', 'description']
-  for (const key of candidates) {
+  for (const key of TODO_TITLE_FIELDS) {
     const value = record[key]
     if (typeof value === 'string' && value.trim().length > 0) {
       return value.trim()
@@ -88,10 +89,12 @@ async function resolveTodoSummaries(
     const ids = Array.from(idSet)
     if (ids.length === 0 || source === 'unknown') continue
     try {
+      const requestedFields = Array.from(new Set(['id', ...TODO_TITLE_FIELDS]))
       const queryResult = await queryEngine.query<Record<string, unknown>>(source as EntityId, {
         tenantId,
         organizationIds: scopedOrgIds && scopedOrgIds.length > 0 ? scopedOrgIds : undefined,
         filters: { id: { $in: ids } },
+        fields: requestedFields,
         includeCustomFields: false,
         page: { page: 1, pageSize: Math.max(ids.length, 1) },
       })
