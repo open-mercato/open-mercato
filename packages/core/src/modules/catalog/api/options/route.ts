@@ -39,18 +39,18 @@ const metadata = {
 export const routeMetadata = metadata
 export { metadata }
 
-function sanitizeSearch(value?: string): string {
+export function sanitizeSearch(value?: string): string {
   if (!value) return ''
   return value.trim().replace(/[%_]/g, '')
 }
 
-function parseBoolean(raw?: string): boolean | undefined {
+export function parseBoolean(raw?: string): boolean | undefined {
   if (raw === 'true') return true
   if (raw === 'false') return false
   return undefined
 }
 
-async function buildOptionFilters(
+export async function buildOptionFilters(
   query: OptionQuery
 ): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}

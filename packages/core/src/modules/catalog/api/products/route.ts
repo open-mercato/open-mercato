@@ -64,12 +64,12 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-function sanitizeSearchTerm(value?: string): string {
+export function sanitizeSearchTerm(value?: string): string {
   if (!value) return ''
   return value.trim().replace(/[%_]/g, '')
 }
 
-function parseIdList(raw?: string): string[] {
+export function parseIdList(raw?: string): string[] {
   if (!raw) return []
   return raw
     .split(',')
@@ -77,13 +77,13 @@ function parseIdList(raw?: string): string[] {
     .filter((value) => UUID_REGEX.test(value))
 }
 
-function parseBooleanFlag(raw?: string): boolean | undefined {
+export function parseBooleanFlag(raw?: string): boolean | undefined {
   if (raw === 'true') return true
   if (raw === 'false') return false
   return undefined
 }
 
-async function buildProductFilters(
+export async function buildProductFilters(
   query: ProductsQuery,
   ctx: CrudCtx
 ): Promise<Record<string, unknown>> {
@@ -150,7 +150,7 @@ async function buildProductFilters(
   return filters
 }
 
-function buildPricingContext(query: ProductsQuery, channelFallback: string | null): PricingContext {
+export function buildPricingContext(query: ProductsQuery, channelFallback: string | null): PricingContext {
   const quantity = Number.isFinite(Number(query.quantity)) ? Number(query.quantity) : 1
   const parsedDate = query.priceDate ? new Date(query.priceDate) : new Date()
   const channelId = query.channelId ?? channelFallback ?? null

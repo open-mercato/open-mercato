@@ -34,18 +34,18 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-function sanitizeSearchTerm(value?: string): string {
+export function sanitizeSearchTerm(value?: string): string {
   if (!value) return ''
   return value.trim().replace(/[%_]/g, '')
 }
 
-function parseBooleanFlag(raw?: string): boolean | undefined {
+export function parseBooleanFlag(raw?: string): boolean | undefined {
   if (raw === 'true') return true
   if (raw === 'false') return false
   return undefined
 }
 
-async function buildFilters(query: SchemaQuery): Promise<Record<string, unknown>> {
+export async function buildFilters(query: SchemaQuery): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
   const term = sanitizeSearchTerm(query.search)
   if (term) {

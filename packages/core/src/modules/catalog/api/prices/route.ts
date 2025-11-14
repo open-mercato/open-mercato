@@ -44,7 +44,7 @@ const metadata = {
 export const routeMetadata = metadata
 export { metadata }
 
-async function buildPriceFilters(
+export async function buildPriceFilters(
   query: PriceQuery
 ): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
