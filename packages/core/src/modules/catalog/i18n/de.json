@@ -16,12 +16,22 @@
         "status": "Status",
         "active": "Aktiv",
         "configurable": "Konfigurierbar",
+        "productType": "Produkttyp",
         "channels": "Vertriebskanäle",
         "channelsLoadError": "Kanäle konnten nicht geladen werden"
+      },
+      "types": {
+        "simple": "Einfach",
+        "configurable": "Konfigurierbar",
+        "virtual": "Virtuell",
+        "downloadable": "Download",
+        "bundle": "Bundle",
+        "grouped": "Gruppiert"
       },
       "table": {
         "name": "Name",
         "code": "Code",
+        "type": "Typ",
         "configurable": "Konfigurierbar",
         "active": "Aktiv",
         "price": "Preis",
@@ -41,13 +51,107 @@
         "deleteConfirm": "Dieses Produkt löschen?"
       },
       "flash": {
-        "deleted": "Produkt gelöscht"
+        "deleted": "Produkt gelöscht",
+        "created": "Produkt erstellt"
       },
       "form": {
         "general": "Allgemein",
         "pricing": "Preise",
         "options": "Optionen",
         "variants": "Varianten"
+      },
+      "create": {
+        "title": "Produkt erstellen",
+        "tabs": {
+          "attributes": "Attribute",
+          "subproducts": "Unterprodukte",
+          "customOptions": "Optionen"
+        },
+        "errors": {
+          "scope": "Wähle zuerst eine Organisation aus, bevor du Produkte erstellst.",
+          "missingId": "Produkt-ID nach dem Erstellen nicht vorhanden."
+        },
+        "pricing": {
+          "net": "Nettopreis",
+          "gross": "Bruttopreis",
+          "taxRate": "Steuersatz",
+          "currencyRequired": "Bitte eine Währung angeben, um Preise zu speichern."
+        },
+        "attributeSchema": {
+          "loadError": "Attributschemata konnten nicht geladen werden",
+          "custom": "Benutzerdefiniertes Schema",
+          "new": "Neues Schema",
+          "label": "Attributschema",
+          "select": "Schema auswählen",
+          "customize": "Anpassen",
+          "newButton": "Neues Schema",
+          "reset": "Zurücksetzen",
+          "dialogDescription": "Definiere die Attributfelder, die für dieses Produkt erfasst werden sollen.",
+          "empty": "Noch keine Felder. Füge dein erstes Attribut hinzu.",
+          "fieldKey": "Schlüssel",
+          "fieldLabel": "Bezeichnung",
+          "kind": "Typ",
+          "scope": "Gültigkeitsbereich",
+          "scope.product": "Produkt",
+          "scope.variant": "Variante",
+          "scope.shared": "Geteilt",
+          "required": "Pflichtfeld",
+          "removeField": "Entfernen",
+          "addField": "Feld hinzufügen",
+          "options": "Optionen",
+          "noOptions": "Noch keine Optionen.",
+          "optionValue": "Wert",
+          "optionLabel": "Label",
+          "remove": "Entfernen",
+          "addOption": "Option hinzufügen"
+        },
+        "attributeValues": {
+          "title": "Attributwerte",
+          "empty": "Wähle oder definiere ein Schema, um Attribute zu erfassen."
+        },
+        "variants": {
+          "add": "Variante hinzufügen",
+          "generate": "Aus Attributen erzeugen",
+          "noAttributes": "Füge auswählbare Attribute hinzu, um Kombinationen zu erzeugen.",
+          "disabled": "Varianten sind nur für konfigurierbare Produkte verfügbar.",
+          "empty": "Noch keine Varianten. Füge eine hinzu, um zu starten.",
+          "name": "Name",
+          "namePlaceholder": "z. B. Blau / L",
+          "default": "Standardvariante"
+        },
+        "subproducts": {
+          "loadError": "Produkte konnten nicht geladen werden",
+          "searchLabel": "Produkte suchen",
+          "searchPlaceholder": "Tippe, um Produkte zu suchen",
+          "loading": "Wird geladen…",
+          "results": "Suchergebnisse",
+          "noResults": "Keine Produkte gefunden",
+          "add": "Hinzufügen",
+          "selected": "Ausgewählte Unterprodukte",
+          "empty": "Noch keine Unterprodukte verknüpft.",
+          "relation": "Beziehung",
+          "required": "Pflicht",
+          "requiredLabel": "Kunde muss dieses Element wählen",
+          "minQty": "Min. Menge",
+          "maxQty": "Max. Menge"
+        },
+        "options": {
+          "add": "Benutzerdefinierte Option hinzufügen",
+          "empty": "Noch keine benutzerdefinierten Optionen.",
+          "label": "Label",
+          "type": "Typ",
+          "required": "Pflicht",
+          "multiple": "Mehrfachauswahl erlauben",
+          "description": "Beschreibung",
+          "choices": "Auswahlmöglichkeiten",
+          "noChoices": "Noch keine Auswahlmöglichkeiten.",
+          "choiceValue": "Wert",
+          "choiceLabel": "Bezeichnung",
+          "removeChoice": "Entfernen",
+          "addChoice": "Auswahl hinzufügen"
+        },
+        "remove": "Entfernen",
+        "selectPlaceholder": "Wert auswählen"
       }
     },
     "options": {

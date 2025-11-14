@@ -1,5 +1,20 @@
 import type { CustomFieldDefinition } from '@open-mercato/shared/modules/entities'
 
+export const CATALOG_PRODUCT_TYPES = [
+  'simple',
+  'configurable',
+  'virtual',
+  'downloadable',
+  'bundle',
+  'grouped',
+] as const
+
+export type CatalogProductType = (typeof CATALOG_PRODUCT_TYPES)[number]
+
+export const CATALOG_PRODUCT_RELATION_TYPES = ['bundle', 'grouped'] as const
+
+export type CatalogProductRelationType = (typeof CATALOG_PRODUCT_RELATION_TYPES)[number]
+
 export type CatalogAttributeDefinition = CustomFieldDefinition & {
   scope?: 'product' | 'variant' | 'shared'
   required?: boolean

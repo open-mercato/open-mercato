@@ -92,7 +92,7 @@ const createAttributeSchemaCommand: CommandHandler<
       name: parsed.name,
       code: parsed.code,
       description: parsed.description ?? null,
-      schema: cloneJson(parsed.schema),
+      schema: cloneJson(parsed.schema) as CatalogAttributeSchema,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       isActive: parsed.isActive ?? true,
       createdAt: now,
@@ -172,7 +172,9 @@ const updateAttributeSchemaCommand: CommandHandler<
     if (parsed.name !== undefined) record.name = parsed.name
     if (parsed.code !== undefined) record.code = parsed.code
     if (parsed.description !== undefined) record.description = parsed.description ?? null
-    if (parsed.schema !== undefined) record.schema = cloneJson(parsed.schema)
+    if (parsed.schema !== undefined) {
+      record.schema = cloneJson(parsed.schema) as CatalogAttributeSchema
+    }
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }

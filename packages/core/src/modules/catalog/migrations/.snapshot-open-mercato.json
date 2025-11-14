@@ -218,6 +218,16 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "product_type": {
+          "name": "product_type",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'simple'",
+          "mappedType": "text"
+        },
         "status_entry_id": {
           "name": "status_entry_id",
           "type": "uuid",
@@ -564,6 +574,7 @@
           ],
           "referencedTableName": "public.catalog_products",
           "createForeignKeyConstraint": true,
+          "deleteRule": "cascade",
           "updateRule": "cascade"
         }
       },
@@ -916,6 +927,215 @@
           ],
           "referencedTableName": "public.catalog_product_options",
           "createForeignKeyConstraint": true,
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "parent_product_id": {
+          "name": "parent_product_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "child_product_id": {
+          "name": "child_product_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "relation_type": {
+          "name": "relation_type",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'grouped'",
+          "mappedType": "text"
+        },
+        "is_required": {
+          "name": "is_required",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "boolean"
+        },
+        "min_quantity": {
+          "name": "min_quantity",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "integer"
+        },
+        "max_quantity": {
+          "name": "max_quantity",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "integer"
+        },
+        "position": {
+          "name": "position",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "0",
+          "mappedType": "integer"
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "catalog_product_relations",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "catalog_product_relations_child_idx",
+          "columnNames": [
+            "child_product_id",
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_product_relations_parent_idx",
+          "columnNames": [
+            "parent_product_id",
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_product_relations_unique",
+          "columnNames": [
+            "parent_product_id",
+            "child_product_id",
+            "relation_type"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "catalog_product_relations_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "catalog_product_relations_parent_product_id_foreign": {
+          "constraintName": "catalog_product_relations_parent_product_id_foreign",
+          "columnNames": [
+            "parent_product_id"
+          ],
+          "localTableName": "public.catalog_product_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.catalog_products",
+          "createForeignKeyConstraint": true,
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "catalog_product_relations_child_product_id_foreign": {
+          "constraintName": "catalog_product_relations_child_product_id_foreign",
+          "columnNames": [
+            "child_product_id"
+          ],
+          "localTableName": "public.catalog_product_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.catalog_products",
+          "createForeignKeyConstraint": true,
+          "deleteRule": "cascade",
           "updateRule": "cascade"
         }
       },

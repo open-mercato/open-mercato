@@ -16,12 +16,22 @@
         "status": "Status",
         "active": "Active",
         "configurable": "Configurable",
+        "productType": "Product type",
         "channels": "Sales channels",
         "channelsLoadError": "Failed to load channels"
+      },
+      "types": {
+        "simple": "Simple",
+        "configurable": "Configurable",
+        "virtual": "Virtual",
+        "downloadable": "Downloadable",
+        "bundle": "Bundle",
+        "grouped": "Grouped"
       },
       "table": {
         "name": "Name",
         "code": "Code",
+        "type": "Type",
         "configurable": "Configurable",
         "active": "Active",
         "price": "Price",
@@ -41,13 +51,107 @@
         "deleteConfirm": "Delete this product?"
       },
       "flash": {
-        "deleted": "Product deleted"
+        "deleted": "Product deleted",
+        "created": "Product created"
       },
       "form": {
         "general": "General",
         "pricing": "Pricing",
         "options": "Options",
         "variants": "Variants"
+      },
+      "create": {
+        "title": "Create product",
+        "tabs": {
+          "attributes": "Attributes",
+          "subproducts": "Subproducts",
+          "customOptions": "Options"
+        },
+        "errors": {
+          "scope": "Select an organization before creating products.",
+          "missingId": "Product identifier missing after create."
+        },
+        "pricing": {
+          "net": "Net price",
+          "gross": "Gross price",
+          "taxRate": "Tax rate",
+          "currencyRequired": "Provide a currency to save pricing."
+        },
+        "attributeSchema": {
+          "loadError": "Unable to load attribute schemas",
+          "custom": "Custom schema",
+          "new": "New schema",
+          "label": "Attribute schema",
+          "select": "Select schema",
+          "customize": "Customize",
+          "newButton": "New schema",
+          "reset": "Reset",
+          "dialogDescription": "Define the attribute fields that should be captured for this product.",
+          "empty": "No fields yet. Add your first attribute.",
+          "fieldKey": "Key",
+          "fieldLabel": "Label",
+          "kind": "Kind",
+          "scope": "Scope",
+          "scope.product": "Product",
+          "scope.variant": "Variant",
+          "scope.shared": "Shared",
+          "required": "Required",
+          "removeField": "Remove",
+          "addField": "Add field",
+          "options": "Options",
+          "noOptions": "No options yet.",
+          "optionValue": "Value",
+          "optionLabel": "Label",
+          "remove": "Remove",
+          "addOption": "Add option"
+        },
+        "attributeValues": {
+          "title": "Attribute values",
+          "empty": "Select or define a schema to capture attributes."
+        },
+        "variants": {
+          "add": "Add variant",
+          "generate": "Generate from attributes",
+          "noAttributes": "Add selectable attributes to auto-generate combinations.",
+          "disabled": "Variants are only available for configurable products.",
+          "empty": "No variants yet. Add one to start.",
+          "name": "Name",
+          "namePlaceholder": "e.g., Blue / L",
+          "default": "Default variant"
+        },
+        "subproducts": {
+          "loadError": "Unable to load products",
+          "searchLabel": "Search products",
+          "searchPlaceholder": "Type to search catalog products",
+          "loading": "Loading…",
+          "results": "Search results",
+          "noResults": "No products found",
+          "add": "Add",
+          "selected": "Selected subproducts",
+          "empty": "No subproducts attached yet.",
+          "relation": "Relation",
+          "required": "Required",
+          "requiredLabel": "Customer must pick this item",
+          "minQty": "Min qty",
+          "maxQty": "Max qty"
+        },
+        "options": {
+          "add": "Add custom option",
+          "empty": "No custom options yet.",
+          "label": "Label",
+          "type": "Type",
+          "required": "Required",
+          "multiple": "Allow multiple",
+          "description": "Description",
+          "choices": "Choices",
+          "noChoices": "No choices yet.",
+          "choiceValue": "Value",
+          "choiceLabel": "Label",
+          "removeChoice": "Remove",
+          "addChoice": "Add choice"
+        },
+        "remove": "Remove",
+        "selectPlaceholder": "Select value"
       }
     },
     "options": {

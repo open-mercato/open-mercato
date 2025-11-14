@@ -31,6 +31,8 @@ import {
   requireProduct,
 } from './shared'
 
+type OptionInputType = CatalogProductOption['inputType']
+
 type OptionSnapshot = {
   id: string
   productId: string
@@ -42,7 +44,7 @@ type OptionSnapshot = {
   position: number
   isRequired: boolean
   isMultiple: boolean
-  inputType: string
+  inputType: OptionInputType
   inputConfig: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
   createdAt: string

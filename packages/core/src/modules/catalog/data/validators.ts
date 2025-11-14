@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
+import { CATALOG_PRODUCT_RELATION_TYPES, CATALOG_PRODUCT_TYPES } from './types'
 
 const uuid = () => z.string().uuid()
 
@@ -77,10 +78,25 @@ const offerInputSchema = z.object({
   isActive: z.boolean().optional(),
 })
 
+const productTypeSchema = z.enum(CATALOG_PRODUCT_TYPES)
+
+const relationTypeSchema = z.enum(CATALOG_PRODUCT_RELATION_TYPES)
+
+const subproductAssignmentSchema = z.object({
+  childProductId: uuid(),
+  relationType: relationTypeSchema.optional(),
+  isRequired: z.boolean().optional(),
+  minQuantity: z.coerce.number().int().min(0).optional(),
+  maxQuantity: z.coerce.number().int().min(0).optional(),
+  position: z.coerce.number().int().min(0).max(10000).optional(),
+  metadata: metadataSchema,
+})
+
 export const productCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   description: z.string().trim().max(4000).optional(),
   code: slugSchema.optional(),
+  productType: productTypeSchema.default('simple'),
   statusEntryId: uuid().optional(),
   primaryCurrencyCode: currencyCodeSchema.optional(),
   defaultUnit: z.string().trim().max(50).optional(),
@@ -91,6 +107,7 @@ export const productCreateSchema = scoped.extend({
   attributeSchema: attributeSchema.optional(),
   attributeValues: attributeValuesSchema.optional(),
   offers: z.array(offerInputSchema.omit({ id: true })).optional(),
+  subproducts: z.array(subproductAssignmentSchema).optional(),
 })
 
 export const productUpdateSchema = z
@@ -98,6 +115,9 @@ export const productUpdateSchema = z
     id: uuid(),
   })
   .merge(productCreateSchema.partial())
+  .extend({
+    productType: productTypeSchema.optional(),
+  })
 
 export const variantCreateSchema = scoped.extend({
   productId: uuid(),

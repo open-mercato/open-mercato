@@ -18,14 +18,32 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { AwilixContainer } from 'awilix'
 
 describe('catalog command shared helpers', () => {
-  const createCtx = (overrides: Partial<CommandRuntimeContext> = {}): CommandRuntimeContext => ({
-    container: { resolve: jest.fn() } as unknown as AwilixContainer,
-    auth: { tenantId: 'tenant-1', orgId: 'org-1' } as any,
-    organizationScope: null,
-    selectedOrganizationId: null,
-    organizationIds: null,
-    ...overrides,
-  })
+  type AuthOverride = Partial<NonNullable<CommandRuntimeContext['auth']>> | null
+  const createCtx = (
+    overrides: Partial<Omit<CommandRuntimeContext, 'auth'>> & { auth?: AuthOverride } = {}
+  ): CommandRuntimeContext => {
+    const baseAuth: NonNullable<CommandRuntimeContext['auth']> = {
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    }
+    const { auth: authOverride, ...rest } = overrides
+    const auth =
+      authOverride === null
+        ? null
+        : ({
+            ...baseAuth,
+            ...(authOverride ?? {}),
+          } as NonNullable<CommandRuntimeContext['auth']>)
+    return {
+      container: { resolve: jest.fn() } as unknown as AwilixContainer,
+      auth,
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+      ...rest,
+    }
+  }
 
   it('enforces tenant scope when conflicting tenant id is provided', () => {
     expect(() => ensureTenantScope(createCtx(), 'tenant-1')).not.toThrow()

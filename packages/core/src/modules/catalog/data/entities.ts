@@ -13,6 +13,8 @@ import type {
   CatalogAttributeSchema,
   CatalogAttributeValues,
   CatalogOfferLocalizedContent,
+  CatalogProductRelationType,
+  CatalogProductType,
 } from './types'
 
 @Entity({ tableName: 'catalog_attribute_schemas' })
@@ -88,6 +90,9 @@ export class CatalogProduct {
   @Property({ type: 'text', nullable: true })
   code?: string | null
 
+  @Property({ name: 'product_type', type: 'text', default: 'simple' })
+  productType: CatalogProductType = 'simple'
+
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
 
@@ -136,6 +141,68 @@ export class CatalogProduct {
 
   @OneToMany(() => CatalogOffer, (offer) => offer.product)
   offers = new Collection<CatalogOffer>(this)
+
+  @OneToMany(() => CatalogProductRelation, (relation) => relation.parent)
+  subproductRelations = new Collection<CatalogProductRelation>(this)
+
+  @OneToMany(() => CatalogProductRelation, (relation) => relation.child)
+  parentRelations = new Collection<CatalogProductRelation>(this)
+}
+
+@Entity({ tableName: 'catalog_product_relations' })
+@Index({
+  name: 'catalog_product_relations_parent_idx',
+  properties: ['parent', 'organizationId', 'tenantId'],
+})
+@Index({
+  name: 'catalog_product_relations_child_idx',
+  properties: ['child', 'organizationId', 'tenantId'],
+})
+@Unique({
+  name: 'catalog_product_relations_unique',
+  properties: ['parent', 'child', 'relationType'],
+})
+export class CatalogProductRelation {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'parent_product_id', deleteRule: 'cascade' })
+  parent!: CatalogProduct
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'child_product_id', deleteRule: 'cascade' })
+  child!: CatalogProduct
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'relation_type', type: 'text' })
+  relationType: CatalogProductRelationType = 'grouped'
+
+  @Property({ name: 'is_required', type: 'boolean', default: false })
+  isRequired: boolean = false
+
+  @Property({ name: 'min_quantity', type: 'integer', nullable: true })
+  minQuantity?: number | null
+
+  @Property({ name: 'max_quantity', type: 'integer', nullable: true })
+  maxQuantity?: number | null
+
+  @Property({ type: 'integer', default: 0 })
+  position: number = 0
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
 
 @Entity({ tableName: 'catalog_offers' })

@@ -11,7 +11,8 @@ import {
   CatalogProductVariant,
   CatalogAttributeSchemaTemplate,
 } from '../../data/entities'
-import type { CatalogAttributeSchema } from '../../data/types'
+import { CATALOG_PRODUCT_TYPES } from '../../data/types'
+import type { CatalogAttributeSchema, CatalogProductType } from '../../data/types'
 import { productCreateSchema, productUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -39,6 +40,7 @@ const listSchema = z
     status: z.string().optional(),
     isActive: z.string().optional(),
     configurable: z.string().optional(),
+    productType: z.enum(CATALOG_PRODUCT_TYPES).optional(),
     channelIds: z.string().optional(),
     channelId: z.string().uuid().optional(),
     offerId: z.string().uuid().optional(),
@@ -97,6 +99,9 @@ export async function buildProductFilters(
   const configurable = parseBooleanFlag(query.configurable)
   if (configurable !== undefined) {
     filters.is_configurable = configurable
+  }
+  if (query.productType) {
+    filters.product_type = { $eq: query.productType }
   }
   const channelFilterIds = parseIdList(query.channelIds)
   if (channelFilterIds.length) {
@@ -159,6 +164,7 @@ export function buildPricingContext(query: ProductsQuery, channelFallback: strin
 
 type ProductListItem = Record<string, unknown> & {
   id?: string
+  product_type?: CatalogProductType | null
   attribute_schema?: CatalogAttributeSchema | null
   attribute_schema_override?: CatalogAttributeSchema | null
   attribute_schema_source?: {
@@ -350,6 +356,7 @@ const crud = makeCrudRoute({
       F.name,
       F.description,
       F.code,
+      F.product_type,
       F.status_entry_id,
       F.primary_currency_code,
       F.default_unit,

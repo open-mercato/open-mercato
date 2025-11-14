@@ -53,6 +53,7 @@ export type ProductRow = {
   name: string
   description?: string | null
   code?: string | null
+  product_type?: string | null
   status_entry_id?: string | null
   primary_currency_code?: string | null
   default_unit?: string | null
@@ -169,12 +170,28 @@ export default function ProductsDataTable() {
     [t],
   )
 
+  const productTypeOptions = React.useMemo<FilterOption[]>(() => [
+    { value: 'simple', label: t('catalog.products.types.simple', 'Simple') },
+    { value: 'configurable', label: t('catalog.products.types.configurable', 'Configurable') },
+    { value: 'virtual', label: t('catalog.products.types.virtual', 'Virtual') },
+    { value: 'downloadable', label: t('catalog.products.types.downloadable', 'Downloadable') },
+    { value: 'bundle', label: t('catalog.products.types.bundle', 'Bundle') },
+    { value: 'grouped', label: t('catalog.products.types.grouped', 'Grouped') },
+  ], [t])
+
+  const productTypeLabelMap = React.useMemo(() => {
+    const map = new Map<string, string>()
+    productTypeOptions.forEach((opt) => map.set(opt.value, opt.label))
+    return map
+  }, [productTypeOptions])
+
   const filters = React.useMemo<FilterDef[]>(() => [
     { id: 'status', label: t('catalog.products.filters.status'), type: 'text' },
     { id: 'isActive', label: t('catalog.products.filters.active'), type: 'checkbox' },
     { id: 'configurable', label: t('catalog.products.filters.configurable'), type: 'checkbox' },
+    { id: 'productType', label: t('catalog.products.filters.productType', 'Type'), type: 'select', options: productTypeOptions },
     { id: 'channelIds', label: t('catalog.products.filters.channels'), type: 'tags', loadOptions: loadChannelOptions },
-  ], [loadChannelOptions, t])
+  ], [loadChannelOptions, productTypeOptions, t])
 
   const columns = React.useMemo<ColumnDef<ProductRow>[]>(() => {
     const base: ColumnDef<ProductRow>[] = [
@@ -197,6 +214,15 @@ export default function ProductsDataTable() {
         cell: ({ getValue }) => {
           const value = getValue()
           return value ? <span className="font-mono text-xs">{String(value)}</span> : <span className="text-xs text-muted-foreground">—</span>
+        },
+      },
+      {
+        accessorKey: 'product_type',
+        header: t('catalog.products.table.type'),
+        cell: ({ row }) => {
+          const type = typeof row.original.product_type === 'string' ? row.original.product_type : 'simple'
+          const label = productTypeLabelMap.get(type) ?? type
+          return <span className="text-xs text-muted-foreground">{label}</span>
         },
       },
       {
@@ -226,7 +252,7 @@ export default function ProductsDataTable() {
       },
     ]
     return applyCustomFieldVisibility(base, customFieldDefs)
-  }, [customFieldDefs, t])
+  }, [customFieldDefs, productTypeLabelMap, t])
 
   const handleSearchChange = React.useCallback((value: string) => {
     setSearch(value)
@@ -265,6 +291,9 @@ export default function ProductsDataTable() {
     if (filterValues.isActive === false) params.set('isActive', 'false')
     if (filterValues.configurable === true) params.set('configurable', 'true')
     if (filterValues.configurable === false) params.set('configurable', 'false')
+    if (typeof filterValues.productType === 'string' && filterValues.productType.trim()) {
+      params.set('productType', filterValues.productType.trim())
+    }
     if (Array.isArray(filterValues.channelIds) && filterValues.channelIds.length) {
       const values = filterValues.channelIds
         .map((value) => (typeof value === 'string' ? value : null))
