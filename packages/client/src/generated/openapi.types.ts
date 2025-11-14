@@ -2228,7 +2228,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST /onboarding/onboarding */
+        /** Self-service onboarding submission */
         post: operations["onboarding_post_onboarding_onboarding"];
         delete?: never;
         options?: never;

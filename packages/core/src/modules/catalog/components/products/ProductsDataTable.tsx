@@ -16,7 +16,6 @@ import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
-import { Plus, RefreshCw } from 'lucide-react'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 type PricingScope = {
@@ -388,19 +387,17 @@ export default function ProductsDataTable() {
   return (
     <DataTable<ProductRow>
       title={t('catalog.products.page.title', 'Products & services')}
+      refreshButton={{
+        label: t('catalog.products.actions.refresh', 'Refresh'),
+        onRefresh: handleRefresh,
+        isRefreshing: isLoading,
+      }}
       actions={(
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleRefresh}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            {t('catalog.products.actions.refresh', 'Refresh')}
-          </Button>
-          <Button size="sm" asChild>
-            <Link href="/backend/catalog/products/create">
-              <Plus className="mr-2 h-4 w-4" />
-              {t('catalog.products.actions.create', 'Create')}
-            </Link>
-          </Button>
-        </div>
+        <Button size="sm" asChild>
+          <Link href="/backend/catalog/products/create">
+            {t('catalog.products.actions.create', 'Create')}
+          </Link>
+        </Button>
       )}
       columns={columns}
       data={rows}

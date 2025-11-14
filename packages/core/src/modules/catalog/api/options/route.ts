@@ -113,14 +113,6 @@ const crud = makeCrudRoute({
       }
       return filters
     },
-    customFieldSources: [
-      {
-        entityId: E.catalog.catalog_product_option,
-        table: 'catalog_product_options',
-        alias: 'catalog_product_options',
-        recordIdColumn: 'id',
-      },
-    ],
     transformItem: (item: any) => {
       if (!item) return item
       const normalized = { ...item }

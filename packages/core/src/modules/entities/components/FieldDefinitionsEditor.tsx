@@ -373,19 +373,6 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           </>
         )}
 
-        {local.kind === 'dictionary' && (
-          <div className="md:col-span-2">
-            <label className="text-xs">Dictionary ID</label>
-            <input
-              className="border rounded w-full px-2 py-1 text-sm font-mono"
-              placeholder="module:dictionary"
-              value={local.configJson?.dictionaryId || ''}
-              onChange={(event) => apply({ configJson: { ...(local.configJson || {}), dictionaryId: event.target.value } })}
-              onBlur={commit}
-            />
-          </div>
-        )}
-
         {(local.kind === 'integer' || local.kind === 'float') && (
           <div className="md:col-span-2">
             <label className="text-xs">Units (optional)</label>

@@ -107,6 +107,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   customEntity?: boolean
   // Embedded mode hides outer chrome; useful for inline sections
   embedded?: boolean
+  // Optional custom content injected between the header actions and the form body
+  contentHeader?: React.ReactNode
 }
 
 // Group-level custom component context
@@ -152,6 +154,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   customEntity = false,
   embedded = false,
   extraActions,
+  contentHeader,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
@@ -756,6 +759,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           </div>
         </div>
         ) : null}
+        {contentHeader}
         <DataLoader
           isLoading={isLoading}
           loadingMessage={resolvedLoadingMessage}
@@ -880,6 +884,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         </div>
       </div>
       ) : null}
+      {contentHeader}
       <DataLoader
         isLoading={isLoading}
         loadingMessage={resolvedLoadingMessage}

@@ -13,7 +13,6 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -240,14 +239,18 @@ export default function CreateCatalogProductPage() {
   return (
     <Page>
       <PageBody>
-        <div className="mb-4">
-          <ProductFormTabs tabs={tabs} activeTab={activeTab} onTabChange={(id) => setActiveTab(id)} />
-        </div>
         <CrudForm<CreateProductFormValues>
           title={t('catalog.products.actions.create', 'Create')}
           backHref="/backend/catalog/products"
           fields={fields}
           groups={groups}
+          contentHeader={(
+            <ProductFormTabs
+              tabs={tabs}
+              activeTab={activeTab}
+              onTabChange={(id) => setActiveTab(id)}
+            />
+          )}
           initialValues={initialValues}
           entityId={E.catalog.catalog_product}
           submitLabel={t('catalog.products.actions.create', 'Create')}
@@ -414,22 +417,31 @@ type TabsProps = {
 }
 
 function ProductFormTabs({ tabs, activeTab, onTabChange }: TabsProps) {
+  const t = useT()
   return (
-    <div className="flex flex-wrap gap-2 border-b border-border pb-2">
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          className={`rounded px-3 py-1 text-sm font-medium ${
-            tab.id === activeTab
-              ? 'bg-primary text-primary-foreground'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-          onClick={() => onTabChange(tab.id)}
-        >
-          {tab.label}
-        </button>
-      ))}
+    <div className="border-b border-border">
+      <nav
+        className="flex items-center gap-6 text-sm"
+        role="tablist"
+        aria-label={t('catalog.products.create.tabs.label', 'Product sections')}
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={tab.id === activeTab}
+            className={`relative -mb-px border-b-2 px-0 pb-3 pt-2 font-medium transition-colors ${
+              tab.id === activeTab
+                ? 'border-foreground text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => onTabChange(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
     </div>
   )
 }

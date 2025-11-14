@@ -88,7 +88,6 @@ jest.mock('@/lib/i18n/context', () => ({
 }))
 
 jest.mock('lucide-react', () => ({
-  Plus: () => null,
   RefreshCw: () => null,
 }))
 

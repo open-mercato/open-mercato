@@ -63,6 +63,7 @@
       "create": {
         "title": "Produkt erstellen",
         "tabs": {
+          "label": "Produktabschnitte",
           "attributes": "Attribute",
           "subproducts": "Unterprodukte",
           "customOptions": "Optionen"
