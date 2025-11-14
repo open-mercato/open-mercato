@@ -18,15 +18,6 @@ import {
   type PricingContext,
   type PriceRow,
 } from '../../lib/pricing'
-import {
-  selectBestPrice,
-  resolvePriceVariantId,
-  resolvePriceOfferId,
-  resolvePriceChannelId,
-  type PriceRow,
-  type PricingContext,
-} from '../../lib/pricing'
-
 const rawBodySchema = z.object({}).passthrough()
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -323,7 +314,7 @@ const crud = makeCrudRoute({
         recordIdColumn: 'id',
       },
     ],
-    transformItem: (item: any) => {
+    transformItem: (item: ProductListItem | null | undefined) => {
       if (!item) return item
       const normalized = { ...item }
       const cfEntries = extractAllCustomFieldEntries(item)
