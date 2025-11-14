@@ -1,4 +1,11 @@
-import { sanitizeSearchTerm, parseBooleanFlag, buildFilters } from '../attribute-schemas/route'
+import { buildFilters } from '../attribute-schemas/route'
+import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
 
 describe('catalog attribute schema route helpers', () => {
   it('sanitizes search terms by trimming and stripping wildcards', () => {

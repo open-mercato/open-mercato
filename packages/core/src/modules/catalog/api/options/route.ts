@@ -9,6 +9,7 @@ import { optionCreateSchema, optionUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as FO from '@open-mercato/core/generated/entities/catalog_product_option'
+import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -39,22 +40,11 @@ const metadata = {
 export const routeMetadata = metadata
 export { metadata }
 
-export function sanitizeSearch(value?: string): string {
-  if (!value) return ''
-  return value.trim().replace(/[%_]/g, '')
-}
-
-export function parseBoolean(raw?: string): boolean | undefined {
-  if (raw === 'true') return true
-  if (raw === 'false') return false
-  return undefined
-}
-
 export async function buildOptionFilters(
   query: OptionQuery
 ): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
-  const term = sanitizeSearch(query.search)
+  const term = sanitizeSearchTerm(query.search)
   if (term) {
     const like = `%${term}%`
     filters.$or = [
@@ -65,9 +55,9 @@ export async function buildOptionFilters(
   }
   if (query.productId) filters.product_id = { $eq: query.productId }
   if (query.code && query.code.trim()) filters.code = { $eq: query.code.trim().toLowerCase() }
-  const isRequired = parseBoolean(query.isRequired)
+  const isRequired = parseBooleanFlag(query.isRequired)
   if (isRequired !== undefined) filters.is_required = isRequired
-  const isMultiple = parseBoolean(query.isMultiple)
+  const isMultiple = parseBooleanFlag(query.isMultiple)
   if (isMultiple !== undefined) filters.is_multiple = isMultiple
   return filters
 }
@@ -86,7 +76,7 @@ const crud = makeCrudRoute({
     entityId: E.catalog.catalog_product_option,
     fields: [
       FO.id,
-      FO.product_id,
+      'product_id',
       FO.code,
       FO.label,
       FO.description,

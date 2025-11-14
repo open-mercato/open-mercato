@@ -1,7 +1,8 @@
-import type { EventBus } from '@open-mercato/events'
 import {
   type SalesAdjustmentDraft,
   type SalesCalculationContext,
+  type CalculateDocumentOptions,
+  type CalculateLineOptions,
   type SalesDocumentCalculationResult,
   type SalesDocumentKind,
   type SalesLineCalculationHook,
@@ -9,21 +10,6 @@ import {
   type SalesLineSnapshot,
   type SalesTotalsCalculationHook,
 } from './types'
-
-export type CalculateLineOptions = {
-  documentKind: SalesDocumentKind
-  line: SalesLineSnapshot
-  context: SalesCalculationContext
-  eventBus?: EventBus | null
-}
-
-export type CalculateDocumentOptions = {
-  documentKind: SalesDocumentKind
-  lines: SalesLineSnapshot[]
-  adjustments?: SalesAdjustmentDraft[]
-  context: SalesCalculationContext
-  eventBus?: EventBus | null
-}
 
 function toNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value

@@ -87,9 +87,9 @@ const crud = makeCrudRoute({
     entityId: E.catalog.catalog_product_price,
     fields: [
       FP.id,
-      FP.product_id,
-      FP.variant_id,
-      FP.offer_id,
+      'product_id',
+      'variant_id',
+      'offer_id',
       FP.currency_code,
       FP.kind,
       FP.min_quantity,

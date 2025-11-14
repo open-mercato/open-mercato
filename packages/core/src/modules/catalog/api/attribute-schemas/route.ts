@@ -10,6 +10,7 @@ import {
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_attribute_schema_template'
+import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -33,17 +34,6 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
-
-export function sanitizeSearchTerm(value?: string): string {
-  if (!value) return ''
-  return value.trim().replace(/[%_]/g, '')
-}
-
-export function parseBooleanFlag(raw?: string): boolean | undefined {
-  if (raw === 'true') return true
-  if (raw === 'false') return false
-  return undefined
-}
 
 export async function buildFilters(query: SchemaQuery): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}

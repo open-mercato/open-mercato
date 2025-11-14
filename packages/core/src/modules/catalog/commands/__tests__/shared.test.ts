@@ -14,11 +14,16 @@ import {
   requireAttributeSchemaTemplate,
 } from '../shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { AwilixContainer } from 'awilix'
 
 describe('catalog command shared helpers', () => {
-  const createCtx = (overrides: Record<string, unknown> = {}) => ({
-    auth: { tenantId: 'tenant-1', orgId: 'org-1' },
+  const createCtx = (overrides: Partial<CommandRuntimeContext> = {}): CommandRuntimeContext => ({
+    container: { resolve: jest.fn() } as unknown as AwilixContainer,
+    auth: { tenantId: 'tenant-1', orgId: 'org-1' } as any,
+    organizationScope: null,
     selectedOrganizationId: null,
+    organizationIds: null,
     ...overrides,
   })
 

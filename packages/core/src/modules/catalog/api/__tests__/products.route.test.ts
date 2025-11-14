@@ -1,15 +1,16 @@
-import {
-  sanitizeSearchTerm,
-  parseIdList,
-  parseBooleanFlag,
-  buildProductFilters,
-  buildPricingContext,
-} from '../products/route'
+import { parseIdList, buildProductFilters, buildPricingContext } from '../products/route'
+import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 import { buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
 
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   buildCustomFieldFiltersFromQuery: jest.fn(),
   extractAllCustomFieldEntries: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
 }))
 
 describe('catalog products route helpers', () => {

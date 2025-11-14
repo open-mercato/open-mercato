@@ -1,14 +1,21 @@
-import { sanitizeSearch, parseBoolean, buildOptionFilters } from '../options/route'
+import { buildOptionFilters } from '../options/route'
+import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
 
 describe('catalog options route helpers', () => {
   it('sanitizes search input', () => {
-    expect(sanitizeSearch('  code_% ')).toBe('code')
+    expect(sanitizeSearchTerm('  code_% ')).toBe('code')
   })
 
   it('parses boolean switches', () => {
-    expect(parseBoolean('true')).toBe(true)
-    expect(parseBoolean('false')).toBe(false)
-    expect(parseBoolean('maybe')).toBeUndefined()
+    expect(parseBooleanFlag('true')).toBe(true)
+    expect(parseBooleanFlag('false')).toBe(false)
+    expect(parseBooleanFlag('maybe')).toBeUndefined()
   })
 
   it('builds option filters for multiple criteria', async () => {

@@ -121,7 +121,7 @@ export class CatalogProduct {
   @ManyToOne(() => CatalogAttributeSchemaTemplate, {
     fieldName: 'attribute_schema_id',
     nullable: true,
-    onDelete: 'set null',
+    deleteRule: 'set null',
   })
   attributeSchemaTemplate?: CatalogAttributeSchemaTemplate | null
 
@@ -150,7 +150,7 @@ export class CatalogOffer {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', onDelete: 'cascade' })
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', deleteRule: 'cascade' })
   product!: CatalogProduct
 
   @Property({ name: 'organization_id', type: 'uuid' })

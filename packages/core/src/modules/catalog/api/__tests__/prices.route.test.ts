@@ -1,5 +1,11 @@
 import { buildPriceFilters } from '../prices/route'
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
+
 describe('catalog prices route helpers', () => {
   it('builds filters for all supported fields', async () => {
     const filters = await buildPriceFilters({

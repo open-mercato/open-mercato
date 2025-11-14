@@ -357,7 +357,7 @@ export default function ProductsDataTable() {
   }), [currentParams])
 
   return (
-    <DataTable
+    <DataTable<ProductRow>
       title={t('catalog.products.page.title', 'Products & services')}
       actions={(
         <div className="flex gap-2">
@@ -390,7 +390,7 @@ export default function ProductsDataTable() {
         totalPages,
         onPageChange: setPage,
       }}
-      exportConfig={exportConfig}
+      exporter={exportConfig}
       isLoading={isLoading}
       perspective={{ tableId: 'catalog.products.list' }}
       rowActions={(row) => (
@@ -404,7 +404,7 @@ export default function ProductsDataTable() {
               label: t('catalog.products.table.actions.delete', 'Delete'),
               destructive: true,
               onSelect: () => {
-                void handleDelete(row.original)
+                void handleDelete(row)
               },
             },
           ]}

@@ -16,6 +16,7 @@ import { productCreateSchema, productUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_product'
+import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import {
   resolvePriceChannelId,
@@ -64,23 +65,12 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-export function sanitizeSearchTerm(value?: string): string {
-  if (!value) return ''
-  return value.trim().replace(/[%_]/g, '')
-}
-
 export function parseIdList(raw?: string): string[] {
   if (!raw) return []
   return raw
     .split(',')
     .map((value) => value.trim())
     .filter((value) => UUID_REGEX.test(value))
-}
-
-export function parseBooleanFlag(raw?: string): boolean | undefined {
-  if (raw === 'true') return true
-  if (raw === 'false') return false
-  return undefined
 }
 
 export async function buildProductFilters(
@@ -171,7 +161,12 @@ type ProductListItem = Record<string, unknown> & {
   id?: string
   attribute_schema?: CatalogAttributeSchema | null
   attribute_schema_override?: CatalogAttributeSchema | null
-  attribute_schema_source?: { id: string; name: string | null; code: string | null } | null
+  attribute_schema_source?: {
+    id: string
+    name: string | null
+    code: string | null
+    description: string | null
+  } | null
   attribute_schema_id?: string | null
 }
 
@@ -204,15 +199,16 @@ async function decorateProductsAfterList(
     const schemas = await em.find(
       CatalogAttributeSchemaTemplate,
       { id: { $in: schemaIds } },
-      { fields: ['id', 'name', 'code', 'schema'] }
+      { fields: ['id', 'name', 'code', 'description', 'schema'] }
     )
     for (const schema of schemas) {
+      const normalizedSchema = normalizeAttributeSchema(schema.schema) ?? schema.schema
       schemaMap.set(schema.id, {
         id: schema.id,
         name: schema.name,
         code: schema.code,
         description: schema.description ?? null,
-        schema: normalizeAttributeSchema(schema.schema),
+        schema: normalizedSchema,
       })
     }
   }
@@ -360,7 +356,7 @@ const crud = makeCrudRoute({
       F.is_configurable,
       F.is_active,
       F.metadata,
-      F.attribute_schema_id,
+      'attribute_schema_id',
       F.attribute_schema,
       F.attribute_values,
       F.created_at,

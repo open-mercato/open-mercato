@@ -2,19 +2,19 @@ import { normalizeAttributeSchema, resolveAttributeSchema } from '../attributeSc
 
 describe('catalog attribute schema helpers', () => {
   it('normalizes schema by deep cloning input', () => {
-    const schema = { definitions: [{ id: 'color', type: 'text' as const }] }
+    const schema = { definitions: [{ key: 'color', kind: 'text' as const }] }
     const normalized = normalizeAttributeSchema(schema)
 
     expect(normalized).toEqual(schema)
     expect(normalized).not.toBe(schema)
 
-    normalized!.definitions![0].id = 'size'
-    expect(schema.definitions![0].id).toBe('color')
+    normalized!.definitions![0].key = 'size'
+    expect(schema.definitions![0].key).toBe('color')
   })
 
   it('prefers override definitions over base schema', () => {
-    const base = { definitions: [{ id: 'color', label: 'Color' }] }
-    const override = { definitions: [{ id: 'material', label: 'Material' }] }
+    const base = { definitions: [{ key: 'color', label: 'Color', kind: 'text' }] }
+    const override = { definitions: [{ key: 'material', label: 'Material', kind: 'text' }] }
 
     const resolved = resolveAttributeSchema(base as any, override as any)
 
@@ -23,7 +23,7 @@ describe('catalog attribute schema helpers', () => {
   })
 
   it('falls back to base schema when override missing', () => {
-    const base = { definitions: [{ id: 'size', label: 'Size' }] }
+    const base = { definitions: [{ key: 'size', label: 'Size', kind: 'text' }] }
 
     const resolved = resolveAttributeSchema(base as any, null)
 

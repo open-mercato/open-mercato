@@ -1,8 +1,15 @@
-import { sanitizeSearch, buildVariantFilters } from '../variants/route'
+import { buildVariantFilters } from '../variants/route'
+import { sanitizeSearchTerm } from '../helpers'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
 
 describe('catalog variants route helpers', () => {
   it('sanitizes search terms consistently', () => {
-    expect(sanitizeSearch('  bag_% ')).toBe('bag')
+    expect(sanitizeSearchTerm('  bag_% ')).toBe('bag')
   })
 
   it('builds filters for combinations of query params', async () => {

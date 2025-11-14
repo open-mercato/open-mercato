@@ -9,6 +9,7 @@ import { variantCreateSchema, variantUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as FV from '@open-mercato/core/generated/entities/catalog_product_variant'
+import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -39,16 +40,11 @@ const metadata = {
 export const routeMetadata = metadata
 export { metadata }
 
-export function sanitizeSearch(value?: string): string {
-  if (!value) return ''
-  return value.trim().replace(/[%_]/g, '')
-}
-
 export async function buildVariantFilters(
   query: VariantQuery
 ): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
-  const term = sanitizeSearch(query.search)
+  const term = sanitizeSearchTerm(query.search)
   if (term) {
     const like = `%${term}%`
     filters.$or = [
@@ -63,10 +59,10 @@ export async function buildVariantFilters(
   if (query.sku && query.sku.trim()) {
     filters.sku = { $eq: query.sku.trim() }
   }
-  if (query.isActive === 'true') filters.is_active = true
-  if (query.isActive === 'false') filters.is_active = false
-  if (query.isDefault === 'true') filters.is_default = true
-  if (query.isDefault === 'false') filters.is_default = false
+  const isActive = parseBooleanFlag(query.isActive)
+  if (isActive !== undefined) filters.is_active = isActive
+  const isDefault = parseBooleanFlag(query.isDefault)
+  if (isDefault !== undefined) filters.is_default = isDefault
   return filters
 }
 
@@ -84,7 +80,7 @@ const crud = makeCrudRoute({
     entityId: E.catalog.catalog_product_variant,
     fields: [
       FV.id,
-      FV.product_id,
+      'product_id',
       FV.name,
       FV.sku,
       FV.barcode,

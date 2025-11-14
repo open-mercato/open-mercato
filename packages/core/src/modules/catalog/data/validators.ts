@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 
 const uuid = () => z.string().uuid()
 
@@ -37,7 +38,7 @@ const attributeDefinitionSchema = z.object({
     .regex(/^[a-zA-Z0-9\-_]+$/, 'attribute key must be alphanumeric with dashes or underscores')
     .max(120),
   label: z.string().trim().min(1).max(255),
-  kind: z.string().trim().min(1).max(120),
+  kind: z.enum(CUSTOM_FIELD_KINDS),
   scope: z.enum(['product', 'variant', 'shared']).optional(),
   required: z.boolean().optional(),
   defaultValue: z.unknown().optional(),

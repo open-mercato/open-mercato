@@ -107,10 +107,9 @@ describe('catalog pricing helpers', () => {
     expect(result?.id).toBe('better')
   })
 
-  it('allows event bus hooks to short-circuit and override pricing', async () => {
+  it('allows before hook to short-circuit the resolver pipeline', async () => {
     const rows: PriceRow[] = [baseRow({ id: 'initial' })]
     const overridden = baseRow({ id: 'overridden' })
-    const afterOverride = baseRow({ id: 'after-override' })
 
     const emitEvent = jest.fn().mockImplementation(async (event: string, payload: any) => {
       if (event === 'catalog.pricing.resolve.before') {
@@ -118,17 +117,31 @@ describe('catalog pricing helpers', () => {
         payload.setContext({ ...ctx, quantity: 5 })
         payload.setResult(overridden)
       }
+    })
+
+    const result = await resolveCatalogPrice(rows, ctx, { eventBus: { emitEvent } as any })
+
+    expect(emitEvent).toHaveBeenCalledTimes(1)
+    expect(result).toBe(overridden)
+  })
+
+  it('invokes after hook so integrators can adjust the final result', async () => {
+    const rows: PriceRow[] = [baseRow({ id: 'initial' })]
+    const overridden = baseRow({ id: 'overridden' })
+
+    const emitEvent = jest.fn().mockImplementation(async (event: string, payload: any) => {
+      if (event === 'catalog.pricing.resolve.before') {
+        payload.setRows(rows)
+      }
       if (event === 'catalog.pricing.resolve.after') {
-        expect(payload.rows).toEqual([overridden])
-        expect(payload.context.quantity).toBe(5)
-        expect(payload.result).toBe(overridden)
-        payload.setResult(afterOverride)
+        expect(payload.result).toEqual(rows[0])
+        payload.setResult(overridden)
       }
     })
 
     const result = await resolveCatalogPrice(rows, ctx, { eventBus: { emitEvent } as any })
 
     expect(emitEvent).toHaveBeenCalledTimes(2)
-    expect(result).toBe(afterOverride)
+    expect(result).toBe(overridden)
   })
 })

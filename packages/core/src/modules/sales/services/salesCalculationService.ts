@@ -1,12 +1,10 @@
 import type { EventBus } from '@open-mercato/events'
-import {
-  salesCalculations,
-  type SalesLineCalculationResult,
-  type SalesDocumentCalculationResult,
-} from '../lib/calculations'
+import { salesCalculations } from '../lib/calculations'
 import type {
   CalculateLineOptions,
   CalculateDocumentOptions,
+  SalesLineCalculationResult,
+  SalesDocumentCalculationResult,
 } from '../lib/types'
 
 export type { CalculateLineOptions, CalculateDocumentOptions }
