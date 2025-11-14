@@ -29,8 +29,8 @@
         "grouped": "Gruppiert"
       },
       "table": {
-        "name": "Name",
-        "code": "Code",
+        "title": "Title",
+        "sku": "SKU",
         "type": "Typ",
         "configurable": "Konfigurierbar",
         "active": "Aktiv",
@@ -58,7 +58,19 @@
         "general": "Allgemein",
         "pricing": "Preise",
         "options": "Optionen",
-        "variants": "Varianten"
+        "variants": "Varianten",
+        "title": "Title",
+        "subtitle": "Subtitle",
+        "description": "Description",
+        "sku": "SKU",
+        "handle": "Handle",
+        "handlePlaceholder": "e.g., summer-sneaker",
+        "handlePreview": "Handle: ",
+        "handlePreviewPlaceholder": "your-handle",
+        "productType": "Product type",
+        "currency": "Primary currency",
+        "unit": "Default unit",
+        "isActive": "Active"
       },
       "create": {
         "title": "Produkt erstellen",
@@ -70,13 +82,34 @@
         },
         "errors": {
           "scope": "Wähle zuerst eine Organisation aus, bevor du Produkte erstellst.",
-          "missingId": "Produkt-ID nach dem Erstellen nicht vorhanden."
+          "missingId": "Produkt-ID nach dem Erstellen nicht vorhanden.",
+          "titleRequired": "Provide a product title."
         },
         "pricing": {
           "net": "Nettopreis",
           "gross": "Bruttopreis",
           "taxRate": "Steuersatz",
-          "currencyRequired": "Bitte eine Währung angeben, um Preise zu speichern."
+          "currencyRequired": "Bitte eine Währung angeben, um Preise zu speichern.",
+          "entriesTitle": "Price entries",
+          "addPrice": "Add price",
+          "empty": "No prices yet.",
+          "currencyPlaceholder": "Select currency",
+          "unitPlaceholder": "Select unit",
+          "currencyLabel": "Currency",
+          "usePrimaryCurrency": "Use primary currency",
+          "kindLabel": "Kind",
+          "kind": {
+            "list": "List",
+            "sale": "Sale",
+            "tier": "Tier",
+            "custom": "Custom"
+          },
+          "minQty": "Min qty",
+          "maxQty": "Max qty",
+          "startsAt": "Starts at",
+          "endsAt": "Ends at",
+          "currencyLoadError": "Unable to load currencies.",
+          "unitLoadError": "Unable to load units."
         },
         "attributeSchema": {
           "loadError": "Attributschemata konnten nicht geladen werden",
@@ -86,16 +119,19 @@
           "select": "Schema auswählen",
           "customize": "Anpassen",
           "newButton": "Neues Schema",
-        "reset": "Zurücksetzen",
-        "errors": {
-          "key": "Schlüssel ist erforderlich",
-          "kind": "Typ ist erforderlich"
-        },
-        "dialogDescription": "Definiere die Attributfelder, die für dieses Produkt erfasst werden sollen.",
+          "reset": "Zurücksetzen",
+          "nameLabel": "Schema name",
+          "namePlaceholder": "e.g., Fashion base attributes",
+          "dialogTitle": "Customize attribute schema",
+          "errors": {
+            "key": "Schlüssel ist erforderlich",
+            "kind": "Typ ist erforderlich"
+          },
+          "dialogDescription": "Definiere die Attributfelder, die für dieses Produkt erfasst werden sollen.",
           "empty": "Noch keine Felder. Füge dein erstes Attribut hinzu.",
           "fieldKey": "Schlüssel",
           "fieldLabel": "Bezeichnung",
-          "kind": "Typ",
+          "kind": "Kind",
           "scope": "Gültigkeitsbereich",
           "scope.product": "Produkt",
           "scope.variant": "Variante",
@@ -117,7 +153,7 @@
         "variants": {
           "add": "Variante hinzufügen",
           "generate": "Aus Attributen erzeugen",
-          "noAttributes": "Füge auswählbare Attribute hinzu, um Kombinationen zu erzeugen.",
+          "noOptions": "Define select-type custom options to auto-generate combinations.",
           "disabled": "Varianten sind nur für konfigurierbare Produkte verfügbar.",
           "empty": "Noch keine Varianten. Füge eine hinzu, um zu starten.",
           "name": "Name",
@@ -153,7 +189,26 @@
           "choiceValue": "Wert",
           "choiceLabel": "Bezeichnung",
           "removeChoice": "Entfernen",
-          "addChoice": "Auswahl hinzufügen"
+          "addChoice": "Auswahl hinzufügen",
+          "schemaLabel": "Option schema",
+          "schemaPlaceholder": "Select schema",
+          "schemaLoadError": "Unable to load option schemas.",
+          "schemaApplied": "Using {{name}}",
+          "schemaHint": "Start from a template or build your own option set.",
+          "saveTemplate": "Save as template",
+          "clearSchema": "Clear",
+          "schemaNameField": "Name",
+          "schemaCodeField": "Code",
+          "schemaCodePlaceholder": "Used internally, e.g. fashion-defaults",
+          "schemaNameRequired": "Provide a template name.",
+          "schemaCodeRequired": "Provide a valid template code.",
+          "schemaEmpty": "Add at least one option before saving.",
+          "scopeRequired": "Select an organization before saving schemas.",
+          "schemaSaved": "Option schema saved.",
+          "schemaSaveError": "Unable to save option schema.",
+          "schemaLoadPlaceholder": "Loading…",
+          "saveTemplateTitle": "Save option schema",
+          "saveTemplateDescription": "Reuse this option set across future products."
         },
         "remove": "Entfernen",
         "selectPlaceholder": "Wert auswählen"

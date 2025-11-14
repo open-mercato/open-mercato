@@ -75,6 +75,28 @@ const attributeSchema = z.object({
 
 const attributeValuesSchema = z.record(z.string(), z.unknown())
 
+const optionChoiceSchema = z.object({
+  code: slugSchema,
+  label: z.string().trim().max(255).optional(),
+})
+
+const optionDefinitionSchema = z.object({
+  code: slugSchema,
+  label: z.string().trim().min(1).max(255),
+  description: z.string().trim().max(2000).optional(),
+  inputType: z.enum(['select', 'text', 'textarea', 'number']),
+  isRequired: z.boolean().optional(),
+  isMultiple: z.boolean().optional(),
+  choices: z.array(optionChoiceSchema).max(200).optional(),
+})
+
+const optionSchema = z.object({
+  version: z.number().int().min(1).optional(),
+  name: z.string().trim().max(255).optional(),
+  description: z.string().trim().max(4000).optional(),
+  options: z.array(optionDefinitionSchema).max(64),
+})
+
 const offerContentSchema = z.object({
   title: z.string().trim().max(255).optional(),
   description: z.string().trim().max(4000).optional(),
@@ -115,6 +137,7 @@ export const productCreateSchema = scoped.extend({
   statusEntryId: uuid().optional(),
   primaryCurrencyCode: currencyCodeSchema.optional(),
   defaultUnit: z.string().trim().max(50).optional(),
+  optionSchemaId: uuid().nullable().optional(),
   isConfigurable: z.boolean().optional(),
   isActive: z.boolean().optional(),
   metadata: metadataSchema,
@@ -228,6 +251,21 @@ export const attributeSchemaTemplateUpdateSchema = z
   })
   .merge(attributeSchemaTemplateCreateSchema.partial())
 
+export const optionSchemaTemplateCreateSchema = scoped.extend({
+  name: z.string().trim().min(1).max(255),
+  code: slugSchema,
+  description: z.string().trim().max(4000).optional(),
+  schema: optionSchema,
+  metadata: metadataSchema,
+  isActive: z.boolean().optional(),
+})
+
+export const optionSchemaTemplateUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(optionSchemaTemplateCreateSchema.partial())
+
 export const priceCreateSchema = scoped.extend({
   variantId: uuid().optional(),
   productId: uuid().optional(),
@@ -265,6 +303,8 @@ export type OptionValueCreateInput = z.infer<typeof optionValueCreateSchema>
 export type OptionValueUpdateInput = z.infer<typeof optionValueUpdateSchema>
 export type AttributeSchemaTemplateCreateInput = z.infer<typeof attributeSchemaTemplateCreateSchema>
 export type AttributeSchemaTemplateUpdateInput = z.infer<typeof attributeSchemaTemplateUpdateSchema>
+export type OptionSchemaTemplateCreateInput = z.infer<typeof optionSchemaTemplateCreateSchema>
+export type OptionSchemaTemplateUpdateInput = z.infer<typeof optionSchemaTemplateUpdateSchema>
 export type PriceCreateInput = z.infer<typeof priceCreateSchema>
 export type PriceUpdateInput = z.infer<typeof priceUpdateSchema>
 export type OfferInput = z.infer<typeof offerInputSchema>

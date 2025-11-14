@@ -29,8 +29,8 @@
         "grouped": "Grouped"
       },
       "table": {
-        "name": "Name",
-        "code": "Code",
+        "title": "Title",
+        "sku": "SKU",
         "type": "Type",
         "configurable": "Configurable",
         "active": "Active",
@@ -58,7 +58,19 @@
         "general": "General",
         "pricing": "Pricing",
         "options": "Options",
-        "variants": "Variants"
+        "variants": "Variants",
+        "title": "Title",
+        "subtitle": "Subtitle",
+        "description": "Description",
+        "sku": "SKU",
+        "handle": "Handle",
+        "handlePlaceholder": "e.g., summer-sneaker",
+        "handlePreview": "Handle: ",
+        "handlePreviewPlaceholder": "your-handle",
+        "productType": "Product type",
+        "currency": "Primary currency",
+        "unit": "Default unit",
+        "isActive": "Active"
       },
       "create": {
         "title": "Create product",
@@ -70,13 +82,34 @@
         },
         "errors": {
           "scope": "Select an organization before creating products.",
-          "missingId": "Product identifier missing after create."
+          "missingId": "Product identifier missing after create.",
+          "titleRequired": "Provide a product title."
         },
         "pricing": {
           "net": "Net price",
           "gross": "Gross price",
           "taxRate": "Tax rate",
-          "currencyRequired": "Provide a currency to save pricing."
+          "currencyRequired": "Provide a currency to save pricing.",
+          "entriesTitle": "Price entries",
+          "addPrice": "Add price",
+          "empty": "No prices yet.",
+          "currencyPlaceholder": "Select currency",
+          "unitPlaceholder": "Select unit",
+          "currencyLabel": "Currency",
+          "usePrimaryCurrency": "Use primary currency",
+          "kindLabel": "Kind",
+          "kind": {
+            "list": "List",
+            "sale": "Sale",
+            "tier": "Tier",
+            "custom": "Custom"
+          },
+          "minQty": "Min qty",
+          "maxQty": "Max qty",
+          "startsAt": "Starts at",
+          "endsAt": "Ends at",
+          "currencyLoadError": "Unable to load currencies.",
+          "unitLoadError": "Unable to load units."
         },
         "attributeSchema": {
           "loadError": "Unable to load attribute schemas",
@@ -86,12 +119,15 @@
           "select": "Select schema",
           "customize": "Customize",
           "newButton": "New schema",
-        "reset": "Reset",
-        "errors": {
-          "key": "Key is required",
-          "kind": "Kind is required"
-        },
-        "dialogDescription": "Define the attribute fields that should be captured for this product.",
+          "reset": "Reset",
+          "nameLabel": "Schema name",
+          "namePlaceholder": "e.g., Fashion base attributes",
+          "dialogTitle": "Customize attribute schema",
+          "errors": {
+            "key": "Key is required",
+            "kind": "Kind is required"
+          },
+          "dialogDescription": "Define the attribute fields that should be captured for this product.",
           "empty": "No fields yet. Add your first attribute.",
           "fieldKey": "Key",
           "fieldLabel": "Label",
@@ -116,9 +152,9 @@
         },
         "variants": {
           "add": "Add variant",
-          "generate": "Generate from attributes",
-          "noAttributes": "Add selectable attributes to auto-generate combinations.",
-          "disabled": "Variants are only available for configurable products.",
+          "generate": "Generate from options",
+          "noOptions": "Define select-type custom options to auto-generate combinations.",
+          "disabled": "Variants are available for configurable, virtual, or downloadable products.",
           "empty": "No variants yet. Add one to start.",
           "name": "Name",
           "namePlaceholder": "e.g., Blue / L",
@@ -153,7 +189,26 @@
           "choiceValue": "Value",
           "choiceLabel": "Label",
           "removeChoice": "Remove",
-          "addChoice": "Add choice"
+          "addChoice": "Add choice",
+          "schemaLabel": "Option schema",
+          "schemaPlaceholder": "Select schema",
+          "schemaLoadError": "Unable to load option schemas.",
+          "schemaApplied": "Using {{name}}",
+          "schemaHint": "Start from a template or build your own option set.",
+          "saveTemplate": "Save as template",
+          "clearSchema": "Clear",
+          "schemaNameField": "Name",
+          "schemaCodeField": "Code",
+          "schemaCodePlaceholder": "Used internally, e.g. fashion-defaults",
+          "schemaNameRequired": "Provide a template name.",
+          "schemaCodeRequired": "Provide a valid template code.",
+          "schemaEmpty": "Add at least one option before saving.",
+          "scopeRequired": "Select an organization before saving schemas.",
+          "schemaSaved": "Option schema saved.",
+          "schemaSaveError": "Unable to save option schema.",
+          "schemaLoadPlaceholder": "Loading…",
+          "saveTemplateTitle": "Save option schema",
+          "saveTemplateDescription": "Reuse this option set across future products."
         },
         "remove": "Remove",
         "selectPlaceholder": "Select value"

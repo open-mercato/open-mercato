@@ -12,6 +12,7 @@ import {
   requireOptionValue,
   requireOffer,
   requireAttributeSchemaTemplate,
+  requireOptionSchemaTemplate,
 } from '../shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -105,6 +106,11 @@ describe('catalog command shared helpers', () => {
     {
       label: 'requireAttributeSchemaTemplate',
       fn: (em) => requireAttributeSchemaTemplate(em, 'schema'),
+      expectedArgs: [{ id: 'schema', deletedAt: null }],
+    },
+    {
+      label: 'requireOptionSchemaTemplate',
+      fn: (em) => requireOptionSchemaTemplate(em, 'schema'),
       expectedArgs: [{ id: 'schema', deletedAt: null }],
     },
   ]

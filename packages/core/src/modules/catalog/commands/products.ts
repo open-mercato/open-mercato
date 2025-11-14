@@ -13,6 +13,7 @@ import {
   CatalogProductVariant,
   CatalogProductRelation,
   CatalogAttributeSchemaTemplate,
+  CatalogOptionSchemaTemplate,
 } from '../data/entities'
 import {
   productCreateSchema,
@@ -34,6 +35,7 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   requireAttributeSchemaTemplate,
+  requireOptionSchemaTemplate,
   requireProduct,
 } from './shared'
 import { resolveAttributeSchema } from '../lib/attributeSchemas'
@@ -51,6 +53,7 @@ type ProductSnapshot = {
   statusEntryId: string | null
   primaryCurrencyCode: string | null
   defaultUnit: string | null
+  optionSchemaId: string | null
   metadata: Record<string, unknown> | null
   attributeSchemaId: string | null
   attributeSchemaOverride: CatalogAttributeSchema | null
@@ -104,6 +107,7 @@ const PRODUCT_CHANGE_KEYS = [
   'statusEntryId',
   'primaryCurrencyCode',
   'defaultUnit',
+  'optionSchemaId',
   'attributeSchemaId',
   'attributeSchema',
   'attributeValues',
@@ -398,7 +402,7 @@ async function loadProductSnapshot(
   const record = await em.findOne(
     CatalogProduct,
     { id, deletedAt: null },
-    { populate: ['attributeSchemaTemplate'] }
+    { populate: ['attributeSchemaTemplate', 'optionSchemaTemplate'] }
   )
   if (!record) return null
   const offers = await loadOfferSnapshots(em, record.id)
@@ -414,6 +418,11 @@ async function loadProductSnapshot(
     typeof schemaTemplate === 'string'
       ? schemaTemplate
       : schemaTemplate?.id ?? null
+  const optionSchemaTemplate = record.optionSchemaTemplate
+  const optionTemplateId =
+    typeof optionSchemaTemplate === 'string'
+      ? optionSchemaTemplate
+      : optionSchemaTemplate?.id ?? null
   const templateSource =
     schemaTemplate && typeof schemaTemplate !== 'string'
       ? {
@@ -447,6 +456,7 @@ async function loadProductSnapshot(
     attributeValues: record.attributeValues ? cloneJson(record.attributeValues) : null,
     isConfigurable: record.isConfigurable,
     isActive: record.isActive,
+    optionSchemaId: optionTemplateId,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     offers,
@@ -477,6 +487,9 @@ function applyProductSnapshot(
   record.attributeSchemaTemplate = snapshot.attributeSchemaId
     ? em.getReference(CatalogAttributeSchemaTemplate, snapshot.attributeSchemaId)
     : null
+  record.optionSchemaTemplate = snapshot.optionSchemaId
+    ? em.getReference(CatalogOptionSchemaTemplate, snapshot.optionSchemaId)
+    : null
   record.attributeValues = snapshot.attributeValues ? cloneJson(snapshot.attributeValues) : null
   record.isConfigurable = snapshot.isConfigurable
   record.isActive = snapshot.isActive
@@ -501,6 +514,15 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       )
       ensureSameScope(schemaTemplate, parsed.organizationId, parsed.tenantId)
     }
+    let optionSchemaTemplate: CatalogOptionSchemaTemplate | null = null
+    if (parsed.optionSchemaId) {
+      optionSchemaTemplate = await requireOptionSchemaTemplate(
+        em,
+        parsed.optionSchemaId,
+        'Option schema not found'
+      )
+      ensureSameScope(optionSchemaTemplate, parsed.organizationId, parsed.tenantId)
+    }
     const record = em.create(CatalogProduct, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -518,6 +540,7 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
         ? (cloneJson(parsed.attributeSchema) as CatalogAttributeSchema)
         : null,
       attributeSchemaTemplate: schemaTemplate,
+      optionSchemaTemplate,
       attributeValues: parsed.attributeValues ? cloneJson(parsed.attributeValues) : null,
       isConfigurable: parsed.isConfigurable ?? false,
       isActive: parsed.isActive ?? true,
@@ -637,6 +660,19 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         )
         ensureSameScope(template, organizationId, tenantId)
         record.attributeSchemaTemplate = template
+      }
+    }
+    if (parsed.optionSchemaId !== undefined) {
+      if (!parsed.optionSchemaId) {
+        record.optionSchemaTemplate = null
+      } else {
+        const optionTemplate = await requireOptionSchemaTemplate(
+          em,
+          parsed.optionSchemaId,
+          'Option schema not found'
+        )
+        ensureSameScope(optionTemplate, organizationId, tenantId)
+        record.optionSchemaTemplate = optionTemplate
       }
     }
     if (parsed.attributeSchema !== undefined) {

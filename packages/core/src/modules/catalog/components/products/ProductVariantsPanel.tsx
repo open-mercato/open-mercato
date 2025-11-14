@@ -5,6 +5,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Trash2, Sparkles } from 'lucide-react'
 import type { CatalogAttributeDefinition, CatalogAttributeSchema } from '../../data/types'
+import type { CustomOptionDraft } from './ProductCustomOptionsPanel'
 import { useT } from '@/lib/i18n/context'
 
 type CrudValues = Record<string, unknown>
@@ -18,6 +19,7 @@ export type VariantDraft = {
   taxRate?: string
   isDefault?: boolean
   attributeValues?: Record<string, unknown>
+  optionSelections?: Record<string, string>
 }
 
 type Props = {
@@ -55,6 +57,36 @@ export function ProductVariantsPanel({
     )
   }, [attributeSchema])
 
+  const selectableOptions = React.useMemo<SelectableOption[]>(() => {
+    const drafts = Array.isArray(values.customOptions)
+      ? (values.customOptions as CustomOptionDraft[])
+      : []
+    return drafts
+      .filter((option) => option.inputType === 'select' && Array.isArray(option.choices))
+      .map((option) => {
+        const codeSource = option.code?.trim().length ? option.code : option.label ?? ''
+        const normalizedCode = normalizeOptionCode(codeSource)
+        if (!normalizedCode) return null
+        const choices = (option.choices ?? [])
+          .map((choice) => {
+            const choiceCode = normalizeOptionCode(choice.value)
+            if (!choiceCode) return null
+            const label = choice.label?.trim().length
+              ? choice.label.trim()
+              : choice.value.trim()
+            return { code: choiceCode, label }
+          })
+          .filter((entry): entry is { code: string; label: string } => Boolean(entry))
+        if (!choices.length) return null
+        return {
+          code: normalizedCode,
+          label: option.label?.trim().length ? option.label.trim() : normalizedCode,
+          choices,
+        }
+      })
+      .filter((entry): entry is SelectableOption => Boolean(entry))
+  }, [values.customOptions])
+
   const updateDrafts = (next: VariantDraft[]) => {
     setValue('variantDrafts', next)
   }
@@ -65,6 +97,7 @@ export function ProductVariantsPanel({
       {
         id: createLocalId(),
         attributeValues: {},
+        optionSelections: {},
         isDefault: drafts.length === 0,
       },
     ])
@@ -90,12 +123,13 @@ export function ProductVariantsPanel({
   }
 
   const handleGenerate = () => {
-    const combos = buildVariantCombinations(selectableDefinitions)
+    const combos = buildOptionCombinations(selectableOptions)
     if (!combos.length) return
     const generated = combos.map((combo, index) => ({
       id: createLocalId(),
       name: combo.label,
-      attributeValues: combo.values,
+      optionSelections: combo.selections,
+      attributeValues: {},
       sku: '',
       priceNet: '',
       priceGross: '',
@@ -112,6 +146,20 @@ export function ProductVariantsPanel({
     updateVariant(variantId, { attributeValues: nextValues })
   }
 
+  const handleOptionSelectionChange = (
+    variantId: string,
+    optionCode: string,
+    value: string,
+  ) => {
+    const draft = drafts.find((entry) => entry.id === variantId)
+    if (!draft) return
+    const sanitized = sanitizeOptionSelections(draft.optionSelections, selectableOptions)
+    const next = { ...sanitized }
+    if (!value.length) delete next[optionCode]
+    else next[optionCode] = value
+    updateVariant(variantId, { optionSelections: next })
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -122,20 +170,26 @@ export function ProductVariantsPanel({
           type="button"
           variant="outline"
           onClick={handleGenerate}
-          disabled={disabled || selectableDefinitions.length === 0}
+          disabled={disabled || selectableOptions.length === 0}
         >
           <Sparkles className="mr-2 h-4 w-4" />
-          {t('catalog.products.create.variants.generate', 'Generate from attributes')}
+          {t('catalog.products.create.variants.generate', 'Generate from options')}
         </Button>
-        {selectableDefinitions.length === 0 ? (
+        {selectableOptions.length === 0 ? (
           <span className="text-sm text-muted-foreground">
-            {t('catalog.products.create.variants.noAttributes', 'Add selectable attributes to auto-generate combinations.')}
+            {t(
+              'catalog.products.create.variants.noOptions',
+              'Define select-type custom options to auto-generate combinations.',
+            )}
           </span>
         ) : null}
       </div>
       {disabled ? (
         <p className="text-sm text-muted-foreground">
-          {t('catalog.products.create.variants.disabled', 'Variants are only available for configurable products.')}
+          {t(
+            'catalog.products.create.variants.disabled',
+            'Variants are available for configurable, virtual, or downloadable products.',
+          )}
         </p>
       ) : null}
       {drafts.length === 0 ? (
@@ -150,10 +204,12 @@ export function ProductVariantsPanel({
               draft={draft}
               currencyCode={currencyCode}
               selectableDefinitions={selectableDefinitions}
+              selectableOptions={selectableOptions}
               onChange={updateVariant}
               onRemove={removeVariant}
               onToggleDefault={setDefaultVariant}
               onAttributeChange={handleAttributeValueChange}
+              onOptionChange={handleOptionSelectionChange}
               radioGroupName={radioGroupName}
             />
           ))}
@@ -167,10 +223,12 @@ type VariantCardProps = {
   draft: VariantDraft
   currencyCode?: string | null
   selectableDefinitions: CatalogAttributeDefinition[]
+  selectableOptions: SelectableOption[]
   onChange: (id: string, patch: Partial<VariantDraft>) => void
   onRemove: (id: string) => void
   onToggleDefault: (id: string) => void
   onAttributeChange: (variantId: string, key: string, value: unknown) => void
+  onOptionChange: (variantId: string, optionCode: string, value: string) => void
   radioGroupName: string
 }
 
@@ -178,13 +236,19 @@ function VariantCard({
   draft,
   currencyCode,
   selectableDefinitions,
+  selectableOptions,
   onChange,
   onRemove,
   onToggleDefault,
   onAttributeChange,
+  onOptionChange,
   radioGroupName,
 }: VariantCardProps) {
   const t = useT()
+  const optionSelections = React.useMemo(
+    () => sanitizeOptionSelections(draft.optionSelections, selectableOptions),
+    [draft.optionSelections, selectableOptions],
+  )
   return (
     <div className="space-y-3 rounded-lg border bg-card p-4">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
@@ -252,6 +316,31 @@ function VariantCard({
           {t('catalog.products.create.remove', 'Remove')}
         </Button>
       </div>
+      {selectableOptions.length ? (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {selectableOptions.map((option) => (
+            <div key={option.code}>
+              <label className="text-xs font-medium uppercase tracking-wide">
+                {option.label}
+              </label>
+              <select
+                className="w-full rounded border px-3 py-2 text-sm"
+                value={optionSelections[option.code] ?? ''}
+                onChange={(event) => onOptionChange(draft.id, option.code, event.target.value)}
+              >
+                <option value="">
+                  {t('catalog.products.create.selectPlaceholder', 'Select value')}
+                </option>
+                {option.choices.map((choice) => (
+                  <option key={choice.code} value={choice.code}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {selectableDefinitions.length ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {selectableDefinitions.map((definition) => (
@@ -287,37 +376,65 @@ function VariantCard({
   )
 }
 
-type Combination = {
-  values: Record<string, unknown>
+type SelectableOption = {
+  code: string
+  label: string
+  choices: Array<{ code: string; label: string }>
+}
+
+type OptionCombination = {
+  selections: Record<string, string>
   label: string
 }
 
-function buildVariantCombinations(definitions: CatalogAttributeDefinition[]): Combination[] {
-  if (!definitions.length) return []
-  const build = (index: number, acc: Combination[]): Combination[] => {
-    if (index >= definitions.length) return acc
-    const definition = definitions[index]
-    const options = definition.options ?? []
-    if (!options.length) return build(index + 1, acc)
+function buildOptionCombinations(options: SelectableOption[]): OptionCombination[] {
+  if (!options.length) return []
+  const build = (index: number, acc: OptionCombination[]): OptionCombination[] => {
+    if (index >= options.length) return acc
+    const option = options[index]
+    if (!option.choices.length) return build(index + 1, acc)
     if (acc.length === 0) {
-      const base = options.map((option) => ({
-        values: { [definition.key]: option.value },
-        label: String(option.label ?? option.value ?? ''),
+      const base = option.choices.map((choice) => ({
+        selections: { [option.code]: choice.code },
+        label: `${option.label}: ${choice.label}`,
       }))
       return build(index + 1, base)
     }
-    const next: Combination[] = []
+    const next: OptionCombination[] = []
     for (const combo of acc) {
-      for (const option of options) {
+      for (const choice of option.choices) {
         next.push({
-          values: { ...combo.values, [definition.key]: option.value },
-          label: `${combo.label} / ${option.label ?? option.value}`,
+          selections: { ...combo.selections, [option.code]: choice.code },
+          label: `${combo.label} / ${option.label}: ${choice.label}`,
         })
       }
     }
     return build(index + 1, next)
   }
   return build(0, [])
+}
+
+function sanitizeOptionSelections(
+  selections: Record<string, string> | undefined,
+  options: SelectableOption[],
+): Record<string, string> {
+  if (!selections) return {}
+  const allowed = new Set(options.map((option) => option.code))
+  const next: Record<string, string> = {}
+  for (const [key, value] of Object.entries(selections)) {
+    if (!value || !allowed.has(key)) continue
+    next[key] = value
+  }
+  return next
+}
+
+function normalizeOptionCode(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\-_]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
 }
 
 function createLocalId(): string {

@@ -13,6 +13,7 @@ import type {
   CatalogAttributeSchema,
   CatalogAttributeValues,
   CatalogOfferLocalizedContent,
+  CatalogProductOptionSchema,
   CatalogProductRelationType,
   CatalogProductType,
 } from './types'
@@ -49,6 +50,55 @@ export class CatalogAttributeSchemaTemplate {
 
   @Property({ name: 'schema', type: 'jsonb' })
   schema!: CatalogAttributeSchema
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'catalog_option_schema_templates' })
+@Index({
+  name: 'catalog_option_schema_templates_scope_idx',
+  properties: ['organizationId', 'tenantId'],
+})
+@Unique({
+  name: 'catalog_option_schema_templates_code_unique',
+  properties: ['organizationId', 'tenantId', 'code'],
+})
+export class CatalogOptionSchemaTemplate {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text' })
+  code!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'schema', type: 'jsonb' })
+  schema!: CatalogProductOptionSchema
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
@@ -136,6 +186,13 @@ export class CatalogProduct {
     deleteRule: 'set null',
   })
   attributeSchemaTemplate?: CatalogAttributeSchemaTemplate | null
+
+  @ManyToOne(() => CatalogOptionSchemaTemplate, {
+    fieldName: 'option_schema_id',
+    nullable: true,
+    deleteRule: 'set null',
+  })
+  optionSchemaTemplate?: CatalogOptionSchemaTemplate | null
 
   @Property({ name: 'attribute_values', type: 'jsonb', nullable: true })
   attributeValues?: CatalogAttributeValues | null

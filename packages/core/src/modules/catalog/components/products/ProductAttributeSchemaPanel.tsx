@@ -145,8 +145,8 @@ export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
     setDefinitionErrors(rebuildDefinitionErrors(drafts))
     setSchemaLabel(
       mode === 'customize'
-        ? selectedTemplate?.name ?? t('catalog.products.create.attributeSchema.custom', 'Custom schema')
-        : t('catalog.products.create.attributeSchema.new', 'New schema'),
+        ? selectedTemplate?.name ?? schemaOverride?.name ?? ''
+        : '',
     )
     setEditorOpen(true)
   }
@@ -160,7 +160,12 @@ export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
       .map(fieldDefinitionToCatalogDefinition)
       .filter((def): def is CatalogAttributeDefinition => !!def)
       .slice(0, 64)
-    const override = { version: Date.now(), definitions: overrideDefinitions }
+    const name = schemaLabel.trim()
+    const override = {
+      version: Date.now(),
+      name: name.length ? name : undefined,
+      definitions: overrideDefinitions,
+    }
     setValue('attributeSchema', override)
     setValue('attributeSchemaResolved', override)
     setValue('attributeSchemaId', null)
@@ -273,12 +278,26 @@ export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>{schemaLabel}</DialogTitle>
+            <DialogTitle>
+              {schemaLabel?.trim().length
+                ? schemaLabel
+                : t('catalog.products.create.attributeSchema.dialogTitle', 'Customize attribute schema')}
+            </DialogTitle>
             <DialogDescription>
               {t('catalog.products.create.attributeSchema.dialogDescription', 'Define the attribute fields that should be captured for this product.')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">
+                {t('catalog.products.create.attributeSchema.nameLabel', 'Schema name')}
+              </label>
+              <Input
+                value={schemaLabel}
+                onChange={(event) => setSchemaLabel(event.target.value)}
+                placeholder={t('catalog.products.create.attributeSchema.namePlaceholder', 'e.g., Fashion base attributes')}
+              />
+            </div>
             <FieldDefinitionsEditor
               definitions={definitionDrafts}
               errors={definitionErrors}

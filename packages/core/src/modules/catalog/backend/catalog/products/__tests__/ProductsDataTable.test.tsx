@@ -29,6 +29,11 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
       <div data-testid="row-actions-wrapper">
         {props.rowActions?.({ id: 'prod-1', original: { id: 'prod-1', title: 'Mock product' } })}
       </div>
+      {props.refreshButton ? (
+        <button data-testid="refresh-button" onClick={() => props.refreshButton.onRefresh?.()}>
+          {props.refreshButton.label}
+        </button>
+      ) : null}
       {props.actions}
     </div>
   ),

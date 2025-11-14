@@ -181,6 +181,7 @@ type ProductListItem = Record<string, unknown> & {
     description: string | null
   } | null
   attribute_schema_id?: string | null
+  option_schema_id?: string | null
 }
 
 async function decorateProductsAfterList(
@@ -373,6 +374,7 @@ const crud = makeCrudRoute({
       F.is_active,
       F.metadata,
       'attribute_schema_id',
+      'option_schema_id',
       F.attribute_schema,
       F.attribute_values,
       F.created_at,

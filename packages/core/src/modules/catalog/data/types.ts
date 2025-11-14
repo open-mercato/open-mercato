@@ -11,6 +11,12 @@ export const CATALOG_PRODUCT_TYPES = [
 
 export type CatalogProductType = (typeof CATALOG_PRODUCT_TYPES)[number]
 
+export const CATALOG_CONFIGURABLE_PRODUCT_TYPES = ['configurable', 'virtual', 'downloadable'] as const
+
+export const CATALOG_SUBPRODUCT_PRODUCT_TYPES = ['bundle', 'grouped'] as const
+
+export type CatalogConfigurableProductType = (typeof CATALOG_CONFIGURABLE_PRODUCT_TYPES)[number]
+
 export const CATALOG_PRODUCT_RELATION_TYPES = ['bundle', 'grouped'] as const
 
 export type CatalogProductRelationType = (typeof CATALOG_PRODUCT_RELATION_TYPES)[number]
@@ -23,6 +29,7 @@ export type CatalogAttributeDefinition = Omit<CustomFieldDefinition, 'defaultVal
 
 export type CatalogAttributeSchema = {
   version?: number
+  name?: string | null
   definitions: CatalogAttributeDefinition[]
 }
 
@@ -35,6 +42,28 @@ export type CatalogAttributeSchemaSource = {
 }
 
 export type CatalogAttributeValues = Record<string, unknown>
+
+export type CatalogProductOptionChoice = {
+  code: string
+  label?: string | null
+}
+
+export type CatalogProductOptionDefinition = {
+  code: string
+  label: string
+  description?: string | null
+  inputType: 'select' | 'text' | 'textarea' | 'number'
+  isRequired?: boolean
+  isMultiple?: boolean
+  choices?: CatalogProductOptionChoice[]
+}
+
+export type CatalogProductOptionSchema = {
+  version?: number
+  name?: string | null
+  description?: string | null
+  options: CatalogProductOptionDefinition[]
+}
 
 export type CatalogOfferContent = {
   title?: string | null

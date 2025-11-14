@@ -43,6 +43,8 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
     ? (values.subproducts as SubproductDraft[])
     : []
 
+  const isFeatureEnabled = productType === 'bundle' || productType === 'grouped'
+
   const allowedRelationTypes = React.useMemo(() => {
     if (productType === 'bundle') return ['bundle']
     if (productType === 'grouped') return ['grouped']
@@ -51,6 +53,12 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
 
   React.useEffect(() => {
     let canceled = false
+    if (!isFeatureEnabled) {
+      setResults([])
+      return () => {
+        canceled = true
+      }
+    }
     if (!query.trim()) {
       setResults([])
       return () => {
@@ -87,7 +95,7 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
       canceled = true
       window.clearTimeout(handle)
     }
-  }, [query, t])
+  }, [isFeatureEnabled, query, t])
 
   const updateDrafts = (next: SubproductDraft[]) => {
     setValue('subproducts', next)
@@ -129,6 +137,14 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
 
   return (
     <div className="space-y-4">
+      {!isFeatureEnabled ? (
+        <p className="text-sm text-muted-foreground">
+          {t(
+            'catalog.products.create.subproducts.disabled',
+            'Subproducts are only available for bundle or grouped products.',
+          )}
+        </p>
+      ) : null}
       <div>
         <label className="text-sm font-medium">
           {t('catalog.products.create.subproducts.searchLabel', 'Search products')}
@@ -137,10 +153,11 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
           placeholder={t('catalog.products.create.subproducts.searchPlaceholder', 'Type to search catalog products')}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          disabled={!isFeatureEnabled}
         />
         {error ? <p className="text-xs text-red-600">{error}</p> : null}
       </div>
-      {query.trim() && (
+      {isFeatureEnabled && query.trim() && (
         <div className="rounded-lg border bg-card p-3">
           <div className="mb-2 text-sm font-medium">
             {loading
@@ -178,7 +195,10 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
                     type="button"
                     variant="outline"
                     onClick={() => addSubproduct(product)}
-                    disabled={drafts.some((draft) => draft.childProductId === product.id)}
+                    disabled={
+                      !isFeatureEnabled ||
+                      drafts.some((draft) => draft.childProductId === product.id)
+                    }
                   >
                     {t('catalog.products.create.subproducts.add', 'Add')}
                   </Button>
@@ -222,6 +242,7 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
                           relationType: event.target.value as SubproductDraft['relationType'],
                         })
                       }
+                      disabled={!isFeatureEnabled}
                     >
                       {allowedRelationTypes.map((type) => (
                         <option key={type} value={type}>
@@ -239,6 +260,7 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
                         type="checkbox"
                         checked={draft.isRequired ?? false}
                         onChange={(event) => updateDraft(draft.id, { isRequired: event.target.checked })}
+                        disabled={!isFeatureEnabled}
                       />
                       <span className="text-sm text-muted-foreground">
                         {t('catalog.products.create.subproducts.requiredLabel', 'Customer must pick this item')}
@@ -257,6 +279,7 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
                           minQuantity: event.target.value ? Number(event.target.value) : null,
                         })
                       }
+                      disabled={!isFeatureEnabled}
                     />
                   </div>
                   <div>
@@ -271,6 +294,7 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
                           maxQuantity: event.target.value ? Number(event.target.value) : null,
                         })
                       }
+                      disabled={!isFeatureEnabled}
                     />
                   </div>
                 </div>
