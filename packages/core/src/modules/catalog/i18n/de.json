@@ -85,8 +85,12 @@
           "select": "Schema auswählen",
           "customize": "Anpassen",
           "newButton": "Neues Schema",
-          "reset": "Zurücksetzen",
-          "dialogDescription": "Definiere die Attributfelder, die für dieses Produkt erfasst werden sollen.",
+        "reset": "Zurücksetzen",
+        "errors": {
+          "key": "Schlüssel ist erforderlich",
+          "kind": "Typ ist erforderlich"
+        },
+        "dialogDescription": "Definiere die Attributfelder, die für dieses Produkt erfasst werden sollen.",
           "empty": "Noch keine Felder. Füge dein erstes Attribut hinzu.",
           "fieldKey": "Schlüssel",
           "fieldLabel": "Bezeichnung",

@@ -15,7 +15,7 @@ export const CATALOG_PRODUCT_RELATION_TYPES = ['bundle', 'grouped'] as const
 
 export type CatalogProductRelationType = (typeof CATALOG_PRODUCT_RELATION_TYPES)[number]
 
-export type CatalogAttributeDefinition = CustomFieldDefinition & {
+export type CatalogAttributeDefinition = Omit<CustomFieldDefinition, 'defaultValue'> & {
   scope?: 'product' | 'variant' | 'shared'
   required?: boolean
   defaultValue?: unknown

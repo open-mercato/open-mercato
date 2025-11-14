@@ -85,8 +85,12 @@
           "select": "Wybierz schemat",
           "customize": "Dostosuj",
           "newButton": "Nowy schemat",
-          "reset": "Resetuj",
-          "dialogDescription": "Zdefiniuj pola atrybutów, które mają być zbierane dla tego produktu.",
+        "reset": "Resetuj",
+        "errors": {
+          "key": "Klucz jest wymagany",
+          "kind": "Typ jest wymagany"
+        },
+        "dialogDescription": "Zdefiniuj pola atrybutów, które mają być zbierane dla tego produktu.",
           "empty": "Brak pól. Dodaj pierwszy atrybut.",
           "fieldKey": "Klucz",
           "fieldLabel": "Etykieta",

@@ -1,7 +1,7 @@
 "use client"
 
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import ProductsDataTable from './ProductsDataTable'
+import ProductsDataTable from '../../../components/products/ProductsDataTable'
 
 export default function CatalogProductsPage() {
   return (

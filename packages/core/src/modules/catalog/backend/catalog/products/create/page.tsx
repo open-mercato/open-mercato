@@ -475,7 +475,16 @@ function BasePricingSection({ values, setValue }: BasePricingSectionProps) {
   )
 }
 
-function sanitizeSubproducts(entries: SubproductDraft[] | undefined): SubproductDraft[] {
+type SubproductPayload = {
+  childProductId: string
+  relationType: 'bundle' | 'grouped'
+  isRequired: boolean
+  minQuantity: number | null
+  maxQuantity: number | null
+  position: number
+}
+
+function sanitizeSubproducts(entries: SubproductDraft[] | undefined): SubproductPayload[] {
   if (!Array.isArray(entries)) return []
   return entries
     .filter((entry) => entry && entry.childProductId)

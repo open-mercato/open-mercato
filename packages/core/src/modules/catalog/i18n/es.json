@@ -85,8 +85,12 @@
           "select": "Selecciona un esquema",
           "customize": "Personalizar",
           "newButton": "Nuevo esquema",
-          "reset": "Restablecer",
-          "dialogDescription": "Define los campos de atributo que deben capturarse para este producto.",
+        "reset": "Restablecer",
+        "errors": {
+          "key": "La clave es obligatoria",
+          "kind": "El tipo es obligatorio"
+        },
+        "dialogDescription": "Define los campos de atributo que deben capturarse para este producto.",
           "empty": "Aún no hay campos. Agrega tu primer atributo.",
           "fieldKey": "Clave",
           "fieldLabel": "Etiqueta",

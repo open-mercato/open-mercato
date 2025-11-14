@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Trash2, Sparkles } from 'lucide-react'
-import type { CatalogAttributeDefinition, CatalogAttributeSchema } from '../../../data/types'
+import type { CatalogAttributeDefinition, CatalogAttributeSchema } from '../../data/types'
 import { useT } from '@/lib/i18n/context'
 
 type CrudValues = Record<string, unknown>

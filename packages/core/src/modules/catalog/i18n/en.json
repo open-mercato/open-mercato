@@ -85,8 +85,12 @@
           "select": "Select schema",
           "customize": "Customize",
           "newButton": "New schema",
-          "reset": "Reset",
-          "dialogDescription": "Define the attribute fields that should be captured for this product.",
+        "reset": "Reset",
+        "errors": {
+          "key": "Key is required",
+          "kind": "Kind is required"
+        },
+        "dialogDescription": "Define the attribute fields that should be captured for this product.",
           "empty": "No fields yet. Add your first attribute.",
           "fieldKey": "Key",
           "fieldLabel": "Label",

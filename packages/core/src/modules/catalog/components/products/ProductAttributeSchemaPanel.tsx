@@ -13,10 +13,16 @@ import {
   DialogClose,
 } from '@open-mercato/ui/primitives/dialog'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields/registry'
 import type {
   CatalogAttributeDefinition,
   CatalogAttributeSchema,
-} from '../../../data/types'
+} from '../../data/types'
+import {
+  FieldDefinitionsEditor,
+  type FieldDefinition,
+  type FieldDefinitionError,
+} from '../../../entities/components/FieldDefinitionsEditor'
 import { useT } from '@/lib/i18n/context'
 
 type CrudValues = Record<string, unknown>
@@ -33,9 +39,6 @@ type AttributeSchemaTemplate = {
   schema: CatalogAttributeSchema | null
 }
 
-type DefinitionDraft = CatalogAttributeDefinition & { tempId?: string }
-
-const SUPPORTED_KINDS = ['text', 'multiline', 'integer', 'float', 'boolean', 'select'] as const
 
 export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
   const t = useT()
@@ -53,7 +56,27 @@ export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [editorOpen, setEditorOpen] = React.useState(false)
-  const [definitionDrafts, setDefinitionDrafts] = React.useState<DefinitionDraft[]>([])
+  const [definitionDrafts, setDefinitionDrafts] = React.useState<FieldDefinition[]>([])
+  const [definitionErrors, setDefinitionErrors] = React.useState<Record<number, FieldDefinitionError>>({})
+  const validateDefinition = React.useCallback((def: FieldDefinition): FieldDefinitionError => {
+    const errors: FieldDefinitionError = {}
+    if (!def.key?.trim()) {
+      errors.key = t('catalog.products.create.attributeSchema.errors.key', 'Key is required')
+    }
+    if (!def.kind?.trim()) {
+      errors.kind = t('catalog.products.create.attributeSchema.errors.kind', 'Kind is required')
+    }
+    return errors
+  }, [t])
+  const rebuildDefinitionErrors = React.useCallback((defs: FieldDefinition[]): Record<number, FieldDefinitionError> => {
+    const next: Record<number, FieldDefinitionError> = {}
+    defs.forEach((definition, index) => {
+      const err = validateDefinition(definition)
+      if (err.key || err.kind) next[index] = err
+    })
+    return next
+  }, [validateDefinition])
+  React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
   const [schemaLabel, setSchemaLabel] = React.useState('')
 
   React.useEffect(() => {
@@ -114,15 +137,12 @@ export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
   }
 
   const openEditor = (mode: 'customize' | 'new') => {
-    const baseDefinitions =
-      mode === 'customize'
-        ? (effectiveSchema?.definitions ?? [])
-        : []
-    const drafts = baseDefinitions.map((definition) => ({
-      ...definition,
-      tempId: createLocalId(),
-    }))
+    const baseDefinitions = mode === 'customize' ? (effectiveSchema?.definitions ?? []) : []
+    const drafts = baseDefinitions.length
+      ? baseDefinitions.map(catalogDefinitionToFieldDefinition)
+      : [createEmptyFieldDefinition()]
     setDefinitionDrafts(drafts)
+    setDefinitionErrors(rebuildDefinitionErrors(drafts))
     setSchemaLabel(
       mode === 'customize'
         ? selectedTemplate?.name ?? t('catalog.products.create.attributeSchema.custom', 'Custom schema')
@@ -131,20 +151,16 @@ export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
     setEditorOpen(true)
   }
 
-  const handleSaveOverride = (defs: DefinitionDraft[]) => {
-    const sanitized = defs
-      .map((draft) => ({
-        key: draft.key.trim(),
-        label: draft.label.trim(),
-        kind: SUPPORTED_KINDS.includes(draft.kind as any) ? draft.kind : 'text',
-        required: draft.required ?? false,
-        defaultValue: draft.defaultValue,
-        options: sanitizeOptions(draft.options),
-        scope: draft.scope,
-      }))
-      .filter((draft) => draft.key.length > 0 && draft.label.length > 0)
+  const handleSaveOverride = () => {
+    const validationMap = rebuildDefinitionErrors(definitionDrafts)
+    setDefinitionErrors(validationMap)
+    const hasErrors = Object.values(validationMap).some((error) => error.key || error.kind)
+    if (hasErrors) return
+    const overrideDefinitions = definitionDrafts
+      .map(fieldDefinitionToCatalogDefinition)
+      .filter((def): def is CatalogAttributeDefinition => !!def)
       .slice(0, 64)
-    const override = { version: Date.now(), definitions: sanitized }
+    const override = { version: Date.now(), definitions: overrideDefinitions }
     setValue('attributeSchema', override)
     setValue('attributeSchemaResolved', override)
     setValue('attributeSchemaId', null)
@@ -165,6 +181,37 @@ export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
   const handleValueChange = (key: string, nextValue: unknown) => {
     setValue('attributeValues', { ...attributeValues, [key]: nextValue })
   }
+
+  const handleDefinitionChange = React.useCallback((index: number, nextDef: FieldDefinition) => {
+    setDefinitionDrafts((list) => list.map((def, idx) => (idx === index ? nextDef : def)))
+    setDefinitionErrors((prev) => ({ ...prev, [index]: validateDefinition(nextDef) }))
+  }, [validateDefinition])
+
+  const handleAddDefinition = React.useCallback(() => {
+    setDefinitionDrafts((list) => {
+      const next = [...list, createEmptyFieldDefinition()]
+      setDefinitionErrors(rebuildDefinitionErrors(next))
+      return next
+    })
+  }, [rebuildDefinitionErrors])
+
+  const handleRemoveDefinition = React.useCallback((index: number) => {
+    setDefinitionDrafts((list) => {
+      const next = list.filter((_, idx) => idx !== index)
+      setDefinitionErrors(rebuildDefinitionErrors(next))
+      return next
+    })
+  }, [rebuildDefinitionErrors])
+
+  const handleReorderDefinitions = React.useCallback((from: number, to: number) => {
+    setDefinitionDrafts((list) => {
+      const next = [...list]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      setDefinitionErrors(rebuildDefinitionErrors(next))
+      return next
+    })
+  }, [rebuildDefinitionErrors])
 
   return (
     <div className="space-y-4">
@@ -223,14 +270,37 @@ export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
           </p>
         )}
       </div>
-      <AttributeSchemaEditorDialog
-        open={editorOpen}
-        onOpenChange={setEditorOpen}
-        drafts={definitionDrafts}
-        setDrafts={setDefinitionDrafts}
-        title={schemaLabel}
-        onSave={handleSaveOverride}
-      />
+      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{schemaLabel}</DialogTitle>
+            <DialogDescription>
+              {t('catalog.products.create.attributeSchema.dialogDescription', 'Define the attribute fields that should be captured for this product.')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <FieldDefinitionsEditor
+              definitions={definitionDrafts}
+              errors={definitionErrors}
+              onAddField={handleAddDefinition}
+              onRemoveField={handleRemoveDefinition}
+              onDefinitionChange={handleDefinitionChange}
+              onReorder={handleReorderDefinitions}
+              addButtonLabel={t('catalog.products.create.attributeSchema.addField', 'Add field')}
+            />
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                {t('common.cancel', 'Cancel')}
+              </Button>
+            </DialogClose>
+            <Button type="button" onClick={handleSaveOverride}>
+              {t('common.save', 'Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -265,6 +335,79 @@ function AttributeValuesEditor({ definitions, values, onChange }: AttributeValue
       ))}
     </div>
   )
+}
+
+function catalogDefinitionToFieldDefinition(definition: CatalogAttributeDefinition): FieldDefinition {
+  const config: Record<string, unknown> = {
+    label: definition.label,
+    description: definition.description,
+    options: definition.options,
+    optionsUrl: (definition as any).optionsUrl,
+    dictionaryId: (definition as any).dictionaryId,
+    relatedEntityId: (definition as any).relatedEntityId,
+    multi: (definition as any).multi,
+    editor: (definition as any).editor,
+    unit: (definition as any).unit,
+    validation: (definition as any).validation,
+    listVisible: (definition as any).listVisible,
+    filterable: (definition as any).filterable,
+    formEditable: (definition as any).formEditable,
+    scope: definition.scope,
+    defaultValue: (definition as any).defaultValue,
+    required: (definition as any).required,
+  }
+  return {
+    key: definition.key,
+    kind: definition.kind,
+    configJson: config,
+    isActive: true,
+  }
+}
+
+function fieldDefinitionToCatalogDefinition(definition: FieldDefinition): CatalogAttributeDefinition | null {
+  const key = definition.key?.trim()
+  if (!key) return null
+  const config = definition.configJson || {}
+  const label =
+    typeof config.label === 'string' && config.label.trim().length
+      ? config.label.trim()
+      : key
+  const result: CatalogAttributeDefinition = {
+    key,
+    kind: definition.kind,
+    label,
+    description:
+      typeof config.description === 'string' && config.description.trim().length
+        ? config.description.trim()
+        : undefined,
+    options: Array.isArray(config.options) ? config.options : undefined,
+    optionsUrl:
+      typeof config.optionsUrl === 'string' && config.optionsUrl.trim().length
+        ? config.optionsUrl.trim()
+        : undefined,
+    scope: typeof config.scope === 'string' ? config.scope : undefined,
+    defaultValue: config.defaultValue,
+  }
+  if (config.dictionaryId) (result as any).dictionaryId = config.dictionaryId
+  if (config.relatedEntityId) (result as any).relatedEntityId = config.relatedEntityId
+  if (config.multi !== undefined) (result as any).multi = config.multi
+  if (config.editor) (result as any).editor = config.editor
+  if (config.unit) (result as any).unit = config.unit
+  if (Array.isArray(config.validation) && config.validation.length) {
+    (result as any).validation = config.validation
+  }
+  if (config.listVisible !== undefined) (result as any).listVisible = config.listVisible
+  if (config.filterable !== undefined) (result as any).filterable = config.filterable
+  if (config.formEditable !== undefined) (result as any).formEditable = config.formEditable
+  if (config.required !== undefined) (result as any).required = config.required
+  else if (Array.isArray(config.validation)) {
+    (result as any).required = config.validation.some((rule: any) => rule?.rule === 'required')
+  }
+  return result
+}
+
+function createEmptyFieldDefinition(): FieldDefinition {
+  return { key: '', kind: 'text', configJson: {}, isActive: true }
 }
 
 function renderAttributeInput(
@@ -331,235 +474,4 @@ function renderAttributeInput(
         />
       )
   }
-}
-
-type AttributeSchemaEditorDialogProps = {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  drafts: DefinitionDraft[]
-  setDrafts: React.Dispatch<React.SetStateAction<DefinitionDraft[]>>
-  title: string
-  onSave: (defs: DefinitionDraft[]) => void
-}
-
-function AttributeSchemaEditorDialog({
-  open,
-  onOpenChange,
-  drafts,
-  setDrafts,
-  title,
-  onSave,
-}: AttributeSchemaEditorDialogProps) {
-  const t = useT()
-  const addDefinition = () => {
-    setDrafts((list) => [
-      ...list,
-      {
-        key: '',
-        label: '',
-        kind: 'text',
-        scope: 'product',
-        required: false,
-        tempId: createLocalId(),
-      },
-    ])
-  }
-
-  const updateDraft = (tempId: string, patch: Partial<DefinitionDraft>) => {
-    setDrafts((list) =>
-      list.map((item) => (item.tempId === tempId ? { ...item, ...patch } : item)),
-    )
-  }
-
-  const removeDraft = (tempId: string) => {
-    setDrafts((list) => list.filter((item) => item.tempId !== tempId))
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            {t('catalog.products.create.attributeSchema.dialogDescription', 'Define the attribute fields that should be captured for this product.')}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          {drafts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {t('catalog.products.create.attributeSchema.empty', 'No fields yet. Add your first attribute.')}
-            </p>
-          ) : (
-            drafts.map((draft) => (
-              <div key={draft.tempId} className="rounded border p-3 space-y-2">
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  <div>
-                    <label className="text-xs font-medium uppercase tracking-wide">
-                      {t('catalog.products.create.attributeSchema.fieldKey', 'Key')}
-                    </label>
-                    <Input
-                      value={draft.key}
-                      onChange={(event) => updateDraft(draft.tempId!, { key: event.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium uppercase tracking-wide">
-                      {t('catalog.products.create.attributeSchema.fieldLabel', 'Label')}
-                    </label>
-                    <Input
-                      value={draft.label}
-                      onChange={(event) => updateDraft(draft.tempId!, { label: event.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                  <div>
-                    <label className="text-xs font-medium uppercase tracking-wide">
-                      {t('catalog.products.create.attributeSchema.kind', 'Kind')}
-                    </label>
-                    <select
-                      className="w-full rounded border px-3 py-2 text-sm"
-                      value={draft.kind}
-                      onChange={(event) => updateDraft(draft.tempId!, { kind: event.target.value as DefinitionDraft['kind'] })}
-                    >
-                      {SUPPORTED_KINDS.map((kind) => (
-                        <option key={kind} value={kind}>
-                          {kind}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium uppercase tracking-wide">
-                      {t('catalog.products.create.attributeSchema.scope', 'Scope')}
-                    </label>
-                    <select
-                      className="w-full rounded border px-3 py-2 text-sm"
-                      value={draft.scope ?? 'product'}
-                      onChange={(event) => updateDraft(draft.tempId!, { scope: event.target.value as DefinitionDraft['scope'] })}
-                    >
-                      <option value="product">{t('catalog.products.create.attributeSchema.scope.product', 'Product')}</option>
-                      <option value="variant">{t('catalog.products.create.attributeSchema.scope.variant', 'Variant')}</option>
-                      <option value="shared">{t('catalog.products.create.attributeSchema.scope.shared', 'Shared')}</option>
-                    </select>
-                  </div>
-                  <div className="flex items-end">
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={draft.required ?? false}
-                        onChange={(event) => updateDraft(draft.tempId!, { required: event.target.checked })}
-                      />
-                      {t('catalog.products.create.attributeSchema.required', 'Required')}
-                    </label>
-                  </div>
-                </div>
-                {draft.kind === 'select' ? (
-                  <OptionListEditor
-                    options={draft.options ?? []}
-                    onChange={(options) => updateDraft(draft.tempId!, { options })}
-                  />
-                ) : null}
-                <div className="flex justify-end">
-                  <Button type="button" variant="ghost" onClick={() => removeDraft(draft.tempId!)}>
-                    {t('catalog.products.create.attributeSchema.removeField', 'Remove')}
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
-          <Button type="button" variant="outline" onClick={addDefinition}>
-            {t('catalog.products.create.attributeSchema.addField', 'Add field')}
-          </Button>
-        </div>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button type="button" variant="outline">
-              {t('common.cancel', 'Cancel')}
-            </Button>
-          </DialogClose>
-          <Button type="button" onClick={() => onSave(drafts)}>
-            {t('common.save', 'Save')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-type OptionListEditorProps = {
-  options: { value: unknown; label?: string }[]
-  onChange: (options: { value: unknown; label?: string }[]) => void
-}
-
-function OptionListEditor({ options, onChange }: OptionListEditorProps) {
-  const t = useT()
-  const updateOption = (index: number, patch: Partial<{ value: unknown; label?: string }>) => {
-    onChange(options.map((current, idx) => (idx === index ? { ...current, ...patch } : current)))
-  }
-  const removeOption = (index: number) => {
-    onChange(options.filter((_, idx) => idx !== index))
-  }
-  return (
-    <div className="space-y-2">
-      <div className="text-xs font-semibold uppercase tracking-wide">
-        {t('catalog.products.create.attributeSchema.options', 'Options')}
-      </div>
-      {options.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          {t('catalog.products.create.attributeSchema.noOptions', 'No options yet.')}
-        </p>
-      ) : (
-        options.map((option, index) => (
-          <div
-            key={index}
-            className="grid grid-cols-1 gap-2 md:grid-cols-[2fr_2fr_auto]"
-          >
-            <Input
-              placeholder={t('catalog.products.create.attributeSchema.optionValue', 'Value')}
-              value={option.value == null ? '' : String(option.value)}
-              onChange={(event) => updateOption(index, { value: event.target.value })}
-            />
-            <Input
-              placeholder={t('catalog.products.create.attributeSchema.optionLabel', 'Label')}
-              value={option.label ?? ''}
-              onChange={(event) => updateOption(index, { label: event.target.value })}
-            />
-            <Button type="button" variant="ghost" onClick={() => removeOption(index)}>
-              {t('catalog.products.create.attributeSchema.remove', 'Remove')}
-            </Button>
-          </div>
-        ))
-      )}
-      <Button
-        type="button"
-        variant="secondary"
-        onClick={() => onChange([...options, { value: '', label: '' }])}
-      >
-        {t('catalog.products.create.attributeSchema.addOption', 'Add option')}
-      </Button>
-    </div>
-  )
-}
-
-function sanitizeOptions(options?: { value: unknown; label?: string }[] | null) {
-  if (!Array.isArray(options)) return undefined
-  return options
-    .map((option) => {
-      const value =
-        typeof option.value === 'number' || typeof option.value === 'boolean'
-          ? option.value
-          : String(option.value ?? '').trim()
-      if (value === '') return null
-      const label = typeof option.label === 'string' ? option.label : undefined
-      return { value, label }
-    })
-    .filter((option): option is { value: unknown; label?: string } => option !== null)
-}
-
-function createLocalId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `tmp_${Math.random().toString(36).slice(2, 10)}`
 }

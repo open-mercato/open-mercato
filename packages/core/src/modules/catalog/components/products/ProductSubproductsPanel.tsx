@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import type { CatalogProductType } from '../../../data/types'
+import type { CatalogProductType } from '../../data/types'
 import { useT } from '@/lib/i18n/context'
 
 type CrudValues = Record<string, unknown>

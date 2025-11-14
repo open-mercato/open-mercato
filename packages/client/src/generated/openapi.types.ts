@@ -529,6 +529,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/catalog/helpers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/catalog/options": {
         parameters: {
             query?: never;
@@ -2212,7 +2228,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Self-service onboarding submission */
+        /** POST /onboarding/onboarding */
         post: operations["onboarding_post_onboarding_onboarding"];
         delete?: never;
         options?: never;

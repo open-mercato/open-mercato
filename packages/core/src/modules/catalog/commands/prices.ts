@@ -16,6 +16,7 @@ import {
 import {
   cloneJson,
   ensureOrganizationScope,
+  ensureSameScope,
   ensureTenantScope,
   extractUndoPayload,
   requireVariant,

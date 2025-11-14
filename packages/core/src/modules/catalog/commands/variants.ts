@@ -14,6 +14,7 @@ import {
   CatalogVariantOptionValue,
   CatalogProductPrice,
 } from '../data/entities'
+import type { CatalogAttributeSchema } from '../data/types'
 import {
   variantCreateSchema,
   variantUpdateSchema,
@@ -47,7 +48,7 @@ type VariantSnapshot = {
   weightUnit: string | null
   dimensions: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
-  attributeSchema: Record<string, unknown> | null
+  attributeSchema: CatalogAttributeSchema | null
   attributeValues: Record<string, unknown> | null
   optionValueIds: string[]
   createdAt: string
@@ -119,7 +120,9 @@ async function loadVariantSnapshot(
     weightUnit: record.weightUnit ?? null,
     dimensions: record.dimensions ? cloneJson(record.dimensions) : null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
-    attributeSchema: record.attributeSchema ? cloneJson(record.attributeSchema) : null,
+    attributeSchema: record.attributeSchema
+      ? (cloneJson(record.attributeSchema) as CatalogAttributeSchema)
+      : null,
     attributeValues: record.attributeValues ? cloneJson(record.attributeValues) : null,
     optionValueIds,
     createdAt: record.createdAt.toISOString(),
@@ -261,7 +264,9 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       weightUnit: parsed.weightUnit ?? null,
       dimensions: parsed.dimensions ? cloneJson(parsed.dimensions) : null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
-      attributeSchema: parsed.attributeSchema ? cloneJson(parsed.attributeSchema) : null,
+      attributeSchema: parsed.attributeSchema
+        ? (cloneJson(parsed.attributeSchema) as CatalogAttributeSchema)
+        : null,
       attributeValues: parsed.attributeValues ? cloneJson(parsed.attributeValues) : null,
       createdAt: now,
       updatedAt: now,
@@ -369,7 +374,9 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }
     if (parsed.attributeSchema !== undefined) {
-      record.attributeSchema = parsed.attributeSchema ? cloneJson(parsed.attributeSchema) : null
+      record.attributeSchema = parsed.attributeSchema
+        ? (cloneJson(parsed.attributeSchema) as CatalogAttributeSchema)
+        : null
     }
     if (parsed.attributeValues !== undefined) {
       record.attributeValues = parsed.attributeValues ? cloneJson(parsed.attributeValues) : null

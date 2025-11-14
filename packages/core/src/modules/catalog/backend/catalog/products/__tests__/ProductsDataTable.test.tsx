@@ -3,7 +3,7 @@
  */
 import type React from 'react'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import ProductsDataTable from '../ProductsDataTable'
+import ProductsDataTable from '../../../../components/products/ProductsDataTable'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'

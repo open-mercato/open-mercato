@@ -158,6 +158,7 @@ async function restoreOffersFromSnapshot(
         tenantId: product.tenantId,
         channelId: snap.channelId,
         title: snap.title,
+        isActive: snap.isActive,
       })
       em.persist(target)
     }
@@ -224,6 +225,10 @@ async function restoreRelationsFromSnapshot(
         organizationId: product.organizationId,
         tenantId: product.tenantId,
         relationType: entry.relationType,
+        isRequired: entry.isRequired ?? false,
+        minQuantity: entry.minQuantity ?? null,
+        maxQuantity: entry.maxQuantity ?? null,
+        position: entry.position ?? 0,
       })
       em.persist(relation)
       existing.push(relation)
@@ -276,6 +281,19 @@ async function syncProductRelations(
         organizationId: product.organizationId,
         tenantId: product.tenantId,
         relationType,
+        isRequired: input.isRequired ?? false,
+        minQuantity:
+          input.minQuantity !== undefined && input.minQuantity !== null
+            ? Number(input.minQuantity)
+            : null,
+        maxQuantity:
+          input.maxQuantity !== undefined && input.maxQuantity !== null
+            ? Number(input.maxQuantity)
+            : null,
+        position:
+          input.position !== undefined && input.position !== null
+            ? Number(input.position)
+            : index,
       })
       em.persist(relation)
       existing.push(relation)
@@ -341,14 +359,15 @@ async function syncOffers(
         target = existingByChannel
       }
     }
-    if (!target) {
-      target = em.create(CatalogOffer, {
-        product,
-        organizationId: product.organizationId,
-        tenantId: product.tenantId,
-        channelId: input.channelId,
-        title: input.title || product.name,
-      })
+      if (!target) {
+        target = em.create(CatalogOffer, {
+          product,
+          organizationId: product.organizationId,
+          tenantId: product.tenantId,
+          channelId: input.channelId,
+          title: input.title || product.name,
+          isActive: input.isActive !== false,
+        })
       em.persist(target)
       existing.push(target)
       channelMap.set(input.channelId, target)
@@ -485,7 +504,9 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       primaryCurrencyCode: parsed.primaryCurrencyCode ?? null,
       defaultUnit: parsed.defaultUnit ?? null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
-      attributeSchema: parsed.attributeSchema ? cloneJson(parsed.attributeSchema) : null,
+      attributeSchema: parsed.attributeSchema
+        ? (cloneJson(parsed.attributeSchema) as CatalogAttributeSchema)
+        : null,
       attributeSchemaTemplate: schemaTemplate,
       attributeValues: parsed.attributeValues ? cloneJson(parsed.attributeValues) : null,
       isConfigurable: parsed.isConfigurable ?? false,
@@ -495,7 +516,6 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     })
     em.persist(record)
     await em.flush()
-    await syncProductRelations(em, record, parsed.subproducts)
     await syncProductRelations(em, record, parsed.subproducts)
     await syncOffers(em, record, parsed.offers)
     await em.flush()
@@ -608,7 +628,9 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
       }
     }
     if (parsed.attributeSchema !== undefined) {
-      record.attributeSchema = parsed.attributeSchema ? cloneJson(parsed.attributeSchema) : null
+      record.attributeSchema = parsed.attributeSchema
+        ? (cloneJson(parsed.attributeSchema) as CatalogAttributeSchema)
+        : null
     }
     if (parsed.attributeValues !== undefined) {
       record.attributeValues = parsed.attributeValues ? cloneJson(parsed.attributeValues) : null
@@ -685,6 +707,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
           ? em.getReference(CatalogAttributeSchemaTemplate, before.attributeSchemaId)
           : null,
         attributeValues: before.attributeValues ? cloneJson(before.attributeValues) : null,
+        productType: before.productType ?? 'simple',
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,
         createdAt: new Date(before.createdAt),
@@ -804,6 +827,7 @@ const deleteProductCommand: CommandHandler<
           ? em.getReference(CatalogAttributeSchemaTemplate, before.attributeSchemaId)
           : null,
         attributeValues: before.attributeValues ? cloneJson(before.attributeValues) : null,
+        productType: before.productType ?? 'simple',
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,
         createdAt: new Date(before.createdAt),
