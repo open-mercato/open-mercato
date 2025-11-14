@@ -4,20 +4,28 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CatalogOffer, CatalogProduct, CatalogProductPrice, CatalogProductVariant } from '../../data/entities'
+import {
+  CatalogOffer,
+  CatalogProduct,
+  CatalogProductPrice,
+  CatalogProductVariant,
+  CatalogAttributeSchemaTemplate,
+} from '../../data/entities'
+import type { CatalogAttributeSchema } from '../../data/types'
 import { productCreateSchema, productUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_product'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import {
-  resolveCatalogPrice,
   resolvePriceChannelId,
   resolvePriceOfferId,
   resolvePriceVariantId,
   type PricingContext,
   type PriceRow,
 } from '../../lib/pricing'
+import type { CatalogPricingService } from '../../services/catalogPricingService'
+import { normalizeAttributeSchema, resolveAttributeSchema } from '../../lib/attributeSchemas'
 const rawBodySchema = z.object({}).passthrough()
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -159,7 +167,13 @@ function buildPricingContext(query: ProductsQuery, channelFallback: string | nul
 }
 
 
-type ProductListItem = Record<string, unknown> & { id?: string }
+type ProductListItem = Record<string, unknown> & {
+  id?: string
+  attribute_schema?: CatalogAttributeSchema | null
+  attribute_schema_override?: CatalogAttributeSchema | null
+  attribute_schema_source?: { id: string; name: string | null; code: string | null } | null
+  attribute_schema_id?: string | null
+}
 
 async function decorateProductsAfterList(
   payload: { items?: ProductListItem[] },
@@ -172,6 +186,36 @@ async function decorateProductsAfterList(
     .filter((id): id is string => !!id)
   if (!productIds.length) return
   const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const schemaIds = Array.from(
+    new Set(
+      items
+        .map((item) =>
+          typeof item.attribute_schema_id === 'string' ? item.attribute_schema_id : null
+        )
+        .filter((id): id is string => !!id)
+    )
+  )
+
+  const schemaMap = new Map<
+    string,
+    Pick<CatalogAttributeSchemaTemplate, 'id' | 'name' | 'code' | 'description' | 'schema'>
+  >()
+  if (schemaIds.length) {
+    const schemas = await em.find(
+      CatalogAttributeSchemaTemplate,
+      { id: { $in: schemaIds } },
+      { fields: ['id', 'name', 'code', 'schema'] }
+    )
+    for (const schema of schemas) {
+      schemaMap.set(schema.id, {
+        id: schema.id,
+        name: schema.name,
+        code: schema.code,
+        description: schema.description ?? null,
+        schema: normalizeAttributeSchema(schema.schema),
+      })
+    }
+  }
 
   const offers = await em.find(
     CatalogOffer,
@@ -193,6 +237,27 @@ async function decorateProductsAfterList(
       localizedContent: offer.localizedContent ?? null,
     })
     offersByProduct.set(productId, entry)
+  }
+
+  for (const item of items) {
+    const override =
+      item.attribute_schema && typeof item.attribute_schema === 'object'
+        ? (item.attribute_schema as CatalogAttributeSchema)
+        : null
+    const schemaId =
+      typeof item.attribute_schema_id === 'string' ? item.attribute_schema_id : null
+    const baseSchema = schemaId ? schemaMap.get(schemaId) : null
+    const resolved = resolveAttributeSchema(baseSchema?.schema ?? null, override)
+    item.attribute_schema_override = override
+    item.attribute_schema = resolved
+    item.attribute_schema_source = baseSchema
+      ? {
+          id: baseSchema.id,
+          name: baseSchema.name,
+          code: baseSchema.code,
+          description: baseSchema.description ?? null,
+        }
+      : null
   }
 
   const variants = await em.find(
@@ -239,13 +304,14 @@ async function decorateProductsAfterList(
   const channelContext =
     ctx.query.channelId ?? (channelFilterIds.length === 1 ? channelFilterIds[0] : null)
   const pricingContext = buildPricingContext(ctx.query, channelContext)
+  const pricingService = ctx.container.resolve<CatalogPricingService>('catalogPricingService')
 
   for (const item of items) {
     const id = typeof item.id === 'string' ? item.id : null
     if (!id) continue
     item.offers = offersByProduct.get(id) ?? []
     const priceCandidates = pricesByProduct.get(id) ?? []
-    const best = await resolveCatalogPrice(priceCandidates, pricingContext)
+    const best = await pricingService.resolvePrice(priceCandidates, pricingContext)
     if (best) {
       item.pricing = {
         kind: best.kind,
@@ -294,6 +360,7 @@ const crud = makeCrudRoute({
       F.is_configurable,
       F.is_active,
       F.metadata,
+      F.attribute_schema_id,
       F.attribute_schema,
       F.attribute_values,
       F.created_at,

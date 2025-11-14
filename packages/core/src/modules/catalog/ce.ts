@@ -50,6 +50,14 @@ const systemEntities: CustomEntitySpec[] = [
     showInSidebar: false,
     fields: [],
   },
+  {
+    id: E.catalog.catalog_attribute_schema_template,
+    label: 'Attribute Schema',
+    description: 'Reusable attribute schema definition assignable to multiple catalog products.',
+    labelField: 'name',
+    showInSidebar: false,
+    fields: [],
+  },
 ]
 
 export const entities = systemEntities

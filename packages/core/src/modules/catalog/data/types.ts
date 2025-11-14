@@ -11,6 +11,14 @@ export type CatalogAttributeSchema = {
   definitions: CatalogAttributeDefinition[]
 }
 
+export type CatalogAttributeSchemaSource = {
+  id: string
+  name: string
+  code?: string | null
+  description?: string | null
+  schema: CatalogAttributeSchema | null
+}
+
 export type CatalogAttributeValues = Record<string, unknown>
 
 export type CatalogOfferContent = {

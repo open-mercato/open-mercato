@@ -14,6 +14,13 @@ const currencyCodeSchema = z
 
 const metadataSchema = z.record(z.string(), z.unknown()).optional()
 
+const slugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9\-_]+$/, 'code must contain lowercase letters, digits, hyphen, or underscore')
+  .max(150)
+
 const optionConfigurationSchema = z
   .array(
     z.object({
@@ -72,19 +79,14 @@ const offerInputSchema = z.object({
 export const productCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   description: z.string().trim().max(4000).optional(),
-  code: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .regex(/^[a-z0-9\-_]+$/, 'code must contain lowercase letters, digits, hyphen, or underscore')
-    .max(150)
-    .optional(),
+  code: slugSchema.optional(),
   statusEntryId: uuid().optional(),
   primaryCurrencyCode: currencyCodeSchema.optional(),
   defaultUnit: z.string().trim().max(50).optional(),
   isConfigurable: z.boolean().optional(),
   isActive: z.boolean().optional(),
   metadata: metadataSchema,
+  attributeSchemaId: uuid().nullable().optional(),
   attributeSchema: attributeSchema.optional(),
   attributeValues: attributeValuesSchema.optional(),
   offers: z.array(offerInputSchema.omit({ id: true })).optional(),
@@ -175,6 +177,21 @@ export const optionValueUpdateSchema = z
   })
   .merge(optionValueCreateSchema.partial())
 
+export const attributeSchemaTemplateCreateSchema = scoped.extend({
+  name: z.string().trim().min(1).max(255),
+  code: slugSchema,
+  description: z.string().trim().max(4000).optional(),
+  schema: attributeSchema,
+  metadata: metadataSchema,
+  isActive: z.boolean().optional(),
+})
+
+export const attributeSchemaTemplateUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(attributeSchemaTemplateCreateSchema.partial())
+
 export const priceCreateSchema = scoped.extend({
   variantId: uuid().optional(),
   productId: uuid().optional(),
@@ -210,6 +227,8 @@ export type OptionCreateInput = z.infer<typeof optionCreateSchema>
 export type OptionUpdateInput = z.infer<typeof optionUpdateSchema>
 export type OptionValueCreateInput = z.infer<typeof optionValueCreateSchema>
 export type OptionValueUpdateInput = z.infer<typeof optionValueUpdateSchema>
+export type AttributeSchemaTemplateCreateInput = z.infer<typeof attributeSchemaTemplateCreateSchema>
+export type AttributeSchemaTemplateUpdateInput = z.infer<typeof attributeSchemaTemplateUpdateSchema>
 export type PriceCreateInput = z.infer<typeof priceCreateSchema>
 export type PriceUpdateInput = z.infer<typeof priceUpdateSchema>
 export type OfferInput = z.infer<typeof offerInputSchema>

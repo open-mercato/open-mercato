@@ -11,6 +11,7 @@ import {
   CatalogProduct,
   CatalogProductOption,
   CatalogProductVariant,
+  CatalogAttributeSchemaTemplate,
 } from '../data/entities'
 import {
   productCreateSchema,
@@ -19,14 +20,20 @@ import {
   type ProductCreateInput,
   type ProductUpdateInput,
 } from '../data/validators'
-import type { CatalogOfferLocalizedContent } from '../data/types'
+import type {
+  CatalogAttributeSchema,
+  CatalogAttributeSchemaSource,
+  CatalogOfferLocalizedContent,
+} from '../data/types'
 import {
   cloneJson,
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
   extractUndoPayload,
+  requireAttributeSchemaTemplate,
 } from './shared'
+import { resolveAttributeSchema } from '../lib/attributeSchemas'
 
 type ProductSnapshot = {
   id: string
@@ -39,7 +46,10 @@ type ProductSnapshot = {
   primaryCurrencyCode: string | null
   defaultUnit: string | null
   metadata: Record<string, unknown> | null
-  attributeSchema: Record<string, unknown> | null
+  attributeSchemaId: string | null
+  attributeSchemaOverride: CatalogAttributeSchema | null
+  attributeSchemaSource: CatalogAttributeSchemaSource | null
+  attributeSchema: CatalogAttributeSchema | null
   attributeValues: Record<string, unknown> | null
   isConfigurable: boolean
   isActive: boolean
@@ -71,6 +81,7 @@ const PRODUCT_CHANGE_KEYS = [
   'statusEntryId',
   'primaryCurrencyCode',
   'defaultUnit',
+  'attributeSchemaId',
   'attributeSchema',
   'attributeValues',
   'metadata',
@@ -215,7 +226,11 @@ async function loadProductSnapshot(
   em: EntityManager,
   id: string
 ): Promise<ProductSnapshot | null> {
-  const record = await em.findOne(CatalogProduct, { id, deletedAt: null })
+  const record = await em.findOne(
+    CatalogProduct,
+    { id, deletedAt: null },
+    { populate: ['attributeSchemaTemplate'] }
+  )
   if (!record) return null
   const offers = await loadOfferSnapshots(em, record.id)
   const custom = await loadCustomFieldSnapshot(em, {
@@ -224,6 +239,23 @@ async function loadProductSnapshot(
     tenantId: record.tenantId,
     organizationId: record.organizationId,
   })
+  const schemaTemplate = record.attributeSchemaTemplate
+  const templateId =
+    typeof schemaTemplate === 'string'
+      ? schemaTemplate
+      : schemaTemplate?.id ?? null
+  const templateSource =
+    schemaTemplate && typeof schemaTemplate !== 'string'
+      ? {
+          id: schemaTemplate.id,
+          name: schemaTemplate.name,
+          code: schemaTemplate.code,
+          description: schemaTemplate.description ?? null,
+          schema: schemaTemplate.schema ? cloneJson(schemaTemplate.schema) : null,
+        }
+      : null
+  const override = record.attributeSchema ? cloneJson(record.attributeSchema) : null
+  const resolvedSchema = resolveAttributeSchema(templateSource?.schema ?? null, override)
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -235,7 +267,10 @@ async function loadProductSnapshot(
     primaryCurrencyCode: record.primaryCurrencyCode ?? null,
     defaultUnit: record.defaultUnit ?? null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
-    attributeSchema: record.attributeSchema ? cloneJson(record.attributeSchema) : null,
+    attributeSchemaId: templateId,
+    attributeSchemaOverride: override,
+    attributeSchemaSource: templateSource,
+    attributeSchema: resolvedSchema,
     attributeValues: record.attributeValues ? cloneJson(record.attributeValues) : null,
     isConfigurable: record.isConfigurable,
     isActive: record.isActive,
@@ -246,7 +281,11 @@ async function loadProductSnapshot(
   }
 }
 
-function applyProductSnapshot(record: CatalogProduct, snapshot: ProductSnapshot): void {
+function applyProductSnapshot(
+  em: EntityManager,
+  record: CatalogProduct,
+  snapshot: ProductSnapshot
+): void {
   record.organizationId = snapshot.organizationId
   record.tenantId = snapshot.tenantId
   record.name = snapshot.name
@@ -256,7 +295,11 @@ function applyProductSnapshot(record: CatalogProduct, snapshot: ProductSnapshot)
   record.primaryCurrencyCode = snapshot.primaryCurrencyCode ?? null
   record.defaultUnit = snapshot.defaultUnit ?? null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
-  record.attributeSchema = snapshot.attributeSchema ? cloneJson(snapshot.attributeSchema) : null
+  record.attributeSchema =
+    snapshot.attributeSchemaOverride ? cloneJson(snapshot.attributeSchemaOverride) : null
+  record.attributeSchemaTemplate = snapshot.attributeSchemaId
+    ? em.getReference(CatalogAttributeSchemaTemplate, snapshot.attributeSchemaId)
+    : null
   record.attributeValues = snapshot.attributeValues ? cloneJson(snapshot.attributeValues) : null
   record.isConfigurable = snapshot.isConfigurable
   record.isActive = snapshot.isActive
@@ -272,6 +315,15 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
+    let schemaTemplate: CatalogAttributeSchemaTemplate | null = null
+    if (parsed.attributeSchemaId) {
+      schemaTemplate = await requireAttributeSchemaTemplate(
+        em,
+        parsed.attributeSchemaId,
+        'Attribute schema not found'
+      )
+      ensureSameScope(schemaTemplate, parsed.organizationId, parsed.tenantId)
+    }
     const record = em.create(CatalogProduct, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -283,6 +335,7 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       defaultUnit: parsed.defaultUnit ?? null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       attributeSchema: parsed.attributeSchema ? cloneJson(parsed.attributeSchema) : null,
+      attributeSchemaTemplate: schemaTemplate,
       attributeValues: parsed.attributeValues ? cloneJson(parsed.attributeValues) : null,
       isConfigurable: parsed.isConfigurable ?? false,
       isActive: parsed.isActive ?? true,
@@ -387,6 +440,19 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }
+    if (parsed.attributeSchemaId !== undefined) {
+      if (!parsed.attributeSchemaId) {
+        record.attributeSchemaTemplate = null
+      } else {
+        const template = await requireAttributeSchemaTemplate(
+          em,
+          parsed.attributeSchemaId,
+          'Attribute schema not found'
+        )
+        ensureSameScope(template, organizationId, tenantId)
+        record.attributeSchemaTemplate = template
+      }
+    }
     if (parsed.attributeSchema !== undefined) {
       record.attributeSchema = parsed.attributeSchema ? cloneJson(parsed.attributeSchema) : null
     }
@@ -458,7 +524,12 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
-        attributeSchema: before.attributeSchema ? cloneJson(before.attributeSchema) : null,
+        attributeSchema: before.attributeSchemaOverride
+          ? cloneJson(before.attributeSchemaOverride)
+          : null,
+        attributeSchemaTemplate: before.attributeSchemaId
+          ? em.getReference(CatalogAttributeSchemaTemplate, before.attributeSchemaId)
+          : null,
         attributeValues: before.attributeValues ? cloneJson(before.attributeValues) : null,
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,
@@ -469,7 +540,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    applyProductSnapshot(record, before)
+    applyProductSnapshot(em, record, before)
     await restoreOffersFromSnapshot(em, record, before.offers)
     await em.flush()
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
@@ -571,7 +642,12 @@ const deleteProductCommand: CommandHandler<
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
-        attributeSchema: before.attributeSchema ? cloneJson(before.attributeSchema) : null,
+        attributeSchema: before.attributeSchemaOverride
+          ? cloneJson(before.attributeSchemaOverride)
+          : null,
+        attributeSchemaTemplate: before.attributeSchemaId
+          ? em.getReference(CatalogAttributeSchemaTemplate, before.attributeSchemaId)
+          : null,
         attributeValues: before.attributeValues ? cloneJson(before.attributeValues) : null,
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,
@@ -582,7 +658,7 @@ const deleteProductCommand: CommandHandler<
     }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    applyProductSnapshot(record, before)
+    applyProductSnapshot(em, record, before)
     await restoreOffersFromSnapshot(em, record, before.offers)
     await em.flush()
     if (before.custom && Object.keys(before.custom).length) {

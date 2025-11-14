@@ -1,3 +1,4 @@
+import type { EventBus } from '@open-mercato/events'
 import type {
   CatalogOffer,
   CatalogProduct,
@@ -118,11 +119,53 @@ export function resetCatalogPricingResolvers(): void {
 
 export async function resolveCatalogPrice(
   rows: PriceRow[],
-  ctx: PricingContext
+  ctx: PricingContext,
+  options?: { eventBus?: EventBus | null }
 ): Promise<PriceRow | null> {
-  for (const { resolver } of pricingResolvers) {
-    const result = await resolver(rows, ctx)
-    if (result !== undefined) return result
+  let workingRows = rows
+  let workingContext = ctx
+  const eventBus = options?.eventBus ?? null
+  let resolved: PriceRow | null | undefined
+
+  if (eventBus) {
+    await eventBus.emitEvent('catalog.pricing.resolve.before', {
+      rows: workingRows,
+      context: workingContext,
+      setRows(next: PriceRow[]) {
+        if (Array.isArray(next)) workingRows = next
+      },
+      setContext(next: PricingContext) {
+        if (next) workingContext = next
+      },
+      setResult(next: PriceRow | null) {
+        resolved = next
+      },
+    })
+    if (resolved !== undefined) return resolved
   }
-  return selectBestPrice(rows, ctx)
+
+  for (const { resolver } of pricingResolvers) {
+    const result = await resolver(workingRows, workingContext)
+    if (result !== undefined) {
+      resolved = result ?? null
+      break
+    }
+  }
+
+  if (resolved === undefined) {
+    resolved = selectBestPrice(workingRows, workingContext)
+  }
+
+  if (eventBus) {
+    await eventBus.emitEvent('catalog.pricing.resolve.after', {
+      rows: workingRows,
+      context: workingContext,
+      result: resolved ?? null,
+      setResult(next: PriceRow | null) {
+        resolved = next
+      },
+    })
+  }
+
+  return resolved ?? null
 }

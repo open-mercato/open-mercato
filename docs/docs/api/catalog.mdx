@@ -7,7 +7,7 @@ import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
 
 <OpenApiExplorerBanner />
 
-The catalog module exposes both command handlers and REST endpoints (see `/api/catalog/products`, `/api/catalog/variants`, `/api/catalog/options`, and `/api/catalog/prices`). The commands documented below remain the source of truth for validations and undo metadata, so you can safely script imports, seed data, or build bespoke HTTP wrappers even as new HTTP routes come online.
+The catalog module exposes both command handlers and REST endpoints (see `/api/catalog/products`, `/api/catalog/attribute-schemas`, `/api/catalog/variants`, `/api/catalog/options`, and `/api/catalog/prices`). The commands documented below remain the source of truth for validations and undo metadata, so you can safely script imports, seed data, or build bespoke HTTP wrappers even as new HTTP routes come online.
 
 ## Running catalog commands
 
@@ -50,7 +50,7 @@ Key fields from `productCreateSchema`:
 
 - `organizationId`, `tenantId` — required scope identifiers.
 - `name` (string, ≤255), optional `description`.
-- Optional catalog metadata: `code` (lowercase slug), `statusEntryId`, `primaryCurrencyCode`, `defaultUnit`, `attributeSchema` JSON definition, `attributeValues` map, and `offers` (array of `{ channelId, title, description }`) that bind products to sales channels.
+- Optional catalog metadata: `code` (lowercase slug), `statusEntryId`, `primaryCurrencyCode`, `defaultUnit`, `attributeSchemaId` reference, `attributeSchema` JSON override, `attributeValues` map, and `offers` (array of `{ channelId, title, description }`) that bind products to sales channels. When `attributeSchemaId` is provided, the product inherits a shared schema template; providing `attributeSchema` in the same payload overwrites individual fields for that single product without mutating the shared template.
 - Flags: `isConfigurable`, `isActive`, plus arbitrary `metadata` JSON.
 
 Example payload:
@@ -62,6 +62,7 @@ Example payload:
   "name": "Starter T-Shirt",
   "code": "tee-basic",
   "primaryCurrencyCode": "USD",
+  "attributeSchemaId": "edc95a4d-9fb9-4cbc-b8ce-1b93af2c8e83",
   "attributeSchema": {
     "definitions": [
       { "key": "material", "label": "Material", "kind": "text" }
@@ -126,9 +127,25 @@ Key fields:
 - Price components: `unitPriceNet`, `unitPriceGross`, `taxRate`.
 - Effective dates: `startsAt`, `endsAt` (coerced to `Date` by Zod).
 
+## Attribute schema commands — `catalog.attributeSchemas.*`
+
+Reusable attribute schema templates live in `packages/core/src/modules/catalog/commands/attributeSchemas.ts` and back the `/api/catalog/attribute-schemas` REST endpoint.
+
+| Command id | Purpose | Schema |
+| --- | --- | --- |
+| `catalog.attributeSchemas.create` | Persist a reusable schema template scoped to an organization/tenant | `attributeSchemaTemplateCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:146`) |
+| `catalog.attributeSchemas.update` | Patch template metadata or definitions | `attributeSchemaTemplateUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:154`) |
+| `catalog.attributeSchemas.delete` | Soft delete a template (requires products to detach first) | n/a |
+
+Highlights:
+
+- Templates store the same `attributeSchema` payload you would normally attach to a product, but as JSON on `catalog_attribute_schemas`.
+- Products reference templates via `attributeSchemaId`. If no per-product override is present, the shared definition is used verbatim; otherwise `attributeSchema` overrides only that product.
+- Deleting a template is blocked while products still point at it, so detach or migrate those products before cleanup. Undo logs capture before/after snapshots for safe rollbacks.
+
 ## Customising price selection
 
-All API surfaces that need “best price” calculations rely on `resolveCatalogPrice()` from `packages/core/src/modules/catalog/lib/pricing.ts`. The resolver walks a prioritized hook registry and falls back to the built-in layered selection (`selectBestPrice`) when no hook handles the request.
+All API surfaces that need “best price” calculations resolve the DI token `catalogPricingService`, which wraps `resolveCatalogPrice()` from `packages/core/src/modules/catalog/lib/pricing.ts`. The helper emits `catalog.pricing.resolve.before` and `catalog.pricing.resolve.after` events and walks a prioritized hook registry, falling back to the built-in layered selection (`selectBestPrice`) when no hook handles the request.
 
 You can plug in custom logic (e.g., loyalty tiers, partner overrides) by registering a resolver from any module initialization file:
 
@@ -150,6 +167,8 @@ registerCatalogPricingResolver(
 - Resolvers run in descending priority order (default is `0`); return `undefined` to defer to the next handler.
 - Returning `null` stops the pipeline and instructs callers that no price applies.
 - The default resolver (`selectBestPrice`) still runs last so existing behaviour remains unless you override it.
+- The DI service automatically injects the app’s event bus; listeners can override prices by handling `catalog.pricing.resolve.before|after` (each payload exposes `rows`, `context`, `result`, and `setResult`, mirroring the sales calculation hooks).
+- Swap the pricing implementation entirely by registering your own `catalogPricingService` via DI if you need to replace the pipeline wholesale.
 
 ## Feature flags
 

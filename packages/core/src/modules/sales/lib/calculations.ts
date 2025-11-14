@@ -10,14 +10,14 @@ import {
   type SalesTotalsCalculationHook,
 } from './types'
 
-type CalculateLineOptions = {
+export type CalculateLineOptions = {
   documentKind: SalesDocumentKind
   line: SalesLineSnapshot
   context: SalesCalculationContext
   eventBus?: EventBus | null
 }
 
-type CalculateDocumentOptions = {
+export type CalculateDocumentOptions = {
   documentKind: SalesDocumentKind
   lines: SalesLineSnapshot[]
   adjustments?: SalesAdjustmentDraft[]
@@ -44,11 +44,6 @@ function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResul
     line.unitPriceNet ??
     (line.unitPriceGross !== null && line.unitPriceGross !== undefined
       ? toNumber(line.unitPriceGross) / (1 + taxRate)
-      : 0)
-  const unitGross =
-    line.unitPriceGross ??
-    (line.unitPriceNet !== null && line.unitPriceNet !== undefined
-      ? toNumber(line.unitPriceNet) * (1 + taxRate)
       : 0)
   const discountPerUnit =
     line.discountAmount ??

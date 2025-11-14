@@ -5,6 +5,7 @@ import {
   CatalogProductOption,
   CatalogProductOptionValue,
   CatalogProductVariant,
+  CatalogAttributeSchemaTemplate,
 } from '../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -121,4 +122,14 @@ export async function requireOffer(
   const offer = await em.findOne(CatalogOffer, { id })
   if (!offer) throw new CrudHttpError(404, { error: message })
   return offer
+}
+
+export async function requireAttributeSchemaTemplate(
+  em: EntityManager,
+  id: string,
+  message = 'Attribute schema not found'
+): Promise<CatalogAttributeSchemaTemplate> {
+  const schema = await em.findOne(CatalogAttributeSchemaTemplate, { id, deletedAt: null })
+  if (!schema) throw new CrudHttpError(404, { error: message })
+  return schema
 }
