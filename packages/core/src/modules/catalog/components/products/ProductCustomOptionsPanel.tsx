@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { Layers, Plus } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
@@ -69,6 +70,8 @@ export function ProductCustomOptionsPanel({ values, setValue }: Props) {
   const [templateCode, setTemplateCode] = React.useState('')
   const [templateFormError, setTemplateFormError] = React.useState<string | null>(null)
   const [savingTemplate, setSavingTemplate] = React.useState(false)
+  const [templateMenuOpen, setTemplateMenuOpen] = React.useState(false)
+  const menuRef = React.useRef<HTMLDivElement | null>(null)
 
   const loadTemplates = React.useCallback(async () => {
     setTemplatesLoading(true)
@@ -110,6 +113,19 @@ export function ProductCustomOptionsPanel({ values, setValue }: Props) {
     loadTemplates().catch(() => {})
   }, [loadTemplates])
 
+  React.useEffect(() => {
+    if (!templateMenuOpen) return
+    const handle = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setTemplateMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handle)
+    return () => {
+      document.removeEventListener('mousedown', handle)
+    }
+  }, [templateMenuOpen])
+
   const selectedTemplateId =
     typeof values.optionSchemaId === 'string' ? values.optionSchemaId : null
 
@@ -133,6 +149,13 @@ export function ProductCustomOptionsPanel({ values, setValue }: Props) {
       updateOptions(schemaToDrafts(template.schema), true)
     }
   }
+
+  const openSaveDialog = React.useCallback(() => {
+    setTemplateFormError(null)
+    setTemplateName(selectedTemplate?.name ?? '')
+    setTemplateCode(selectedTemplate?.code ?? '')
+    setSaveDialogOpen(true)
+  }, [selectedTemplate])
 
   const addOption = () => {
     updateOptions([
@@ -215,69 +238,110 @@ export function ProductCustomOptionsPanel({ values, setValue }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="space-y-2 rounded border bg-card p-3">
-        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div className="flex-1 space-y-1">
-            <label className="text-sm font-medium">
-              {t('catalog.products.create.options.schemaLabel', 'Option schema')}
-            </label>
-            <select
-              className="w-full rounded border px-3 py-2 text-sm"
-              value={selectedTemplateId ?? ''}
-              onChange={(event) => {
-                const nextId = event.target.value
-                handleTemplateSelect(nextId.length ? nextId : null)
-              }}
-              disabled={templatesLoading}
-            >
-              <option value="">
-                {t('catalog.products.create.options.schemaPlaceholder', 'Select schema')}
-              </option>
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
-            {templatesError ? <p className="text-xs text-red-600">{templatesError}</p> : null}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => {
-              setTemplateFormError(null)
-              setTemplateName(selectedTemplate?.name ?? '')
-              setTemplateCode(selectedTemplate?.code ?? '')
-              setSaveDialogOpen(true)
-            }}>
-              {t('catalog.products.create.options.saveTemplate', 'Save as template')}
-            </Button>
-            {selectedTemplateId ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setValue('optionSchemaId', null)
-                }}
-              >
-                {t('catalog.products.create.options.clearSchema', 'Clear')}
-              </Button>
-            ) : null}
-          </div>
-        </div>
-        {selectedTemplate ? (
-          <p className="text-xs text-muted-foreground">
-            {t('catalog.products.create.options.schemaApplied', 'Using {{name}}', {
-              name: selectedTemplate.name,
-            })}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded border bg-card p-3">
+        <div>
+          <p className="text-sm font-medium">
+            {t('catalog.products.create.options.schemaLabel', 'Option schema')}
           </p>
-        ) : (
           <p className="text-xs text-muted-foreground">
             {t('catalog.products.create.options.schemaHint', 'Start from a template or build your own option set.')}
           </p>
-        )}
+          {selectedTemplate ? (
+            <p className="mt-1 text-xs text-primary">
+              {t('catalog.products.create.options.schemaApplied', 'Using {{name}}', {
+                name: selectedTemplate.name,
+              })}
+            </p>
+          ) : null}
+          {templatesError ? <p className="mt-1 text-xs text-red-600">{templatesError}</p> : null}
+        </div>
+        <div className="flex items-center gap-2" ref={menuRef}>
+          <div className="relative">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9"
+              onClick={() => setTemplateMenuOpen((prev) => !prev)}
+            >
+              <Layers className="h-4 w-4" />
+              <span className="sr-only">
+                {t('catalog.products.create.options.schemaMenu', 'Templates menu')}
+              </span>
+            </Button>
+            {templateMenuOpen ? (
+              <div className="absolute right-0 z-20 mt-2 w-64 space-y-2 rounded-md border bg-card p-3 text-sm shadow-lg">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {t('catalog.products.create.options.templates', 'Templates')}
+                  </p>
+                  {templatesLoading ? (
+                    <span className="text-xs text-muted-foreground">
+                      {t('common.loading', 'Loading…')}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="max-h-56 overflow-y-auto">
+                  {templates.length === 0 && !templatesLoading ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t('catalog.products.create.options.noTemplates', 'No templates yet.')}
+                    </p>
+                  ) : (
+                    templates.map((template) => (
+                      <button
+                        key={template.id}
+                        type="button"
+                        className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-muted"
+                        onClick={() => {
+                          handleTemplateSelect(template.id)
+                          setTemplateMenuOpen(false)
+                        }}
+                      >
+                        <span>{template.name}</span>
+                        {selectedTemplateId === template.id ? (
+                          <span className="text-xs text-primary">
+                            {t('common.selected', 'Selected')}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))
+                  )}
+                </div>
+                <div className="border-t pt-2 text-xs">
+                  <button
+                    type="button"
+                    className="w-full rounded px-2 py-1 text-left hover:bg-muted"
+                    onClick={() => {
+                      openSaveDialog()
+                      setTemplateMenuOpen(false)
+                    }}
+                  >
+                    {t('catalog.products.create.options.saveTemplate', 'Save current as template')}
+                  </button>
+                  {selectedTemplateId ? (
+                    <button
+                      type="button"
+                      className="mt-1 w-full rounded px-2 py-1 text-left text-red-600 hover:bg-muted"
+                      onClick={() => {
+                        setValue('optionSchemaId', null)
+                        setTemplateMenuOpen(false)
+                      }}
+                    >
+                      {t('catalog.products.create.options.clearSchema', 'Clear selection')}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <Button type="button" variant="outline" size="icon" className="h-9 w-9" onClick={addOption}>
+            <Plus className="h-4 w-4" />
+            <span className="sr-only">
+              {t('catalog.products.create.options.add', 'Add custom option')}
+            </span>
+          </Button>
+        </div>
       </div>
-      <Button type="button" onClick={addOption}>
-        {t('catalog.products.create.options.add', 'Add custom option')}
-      </Button>
       {options.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {t('catalog.products.create.options.empty', 'No custom options yet.')}

@@ -401,7 +401,7 @@ export default function ProductsDataTable() {
         isRefreshing: isLoading,
       }}
       actions={(
-        <Button size="sm" asChild>
+        <Button asChild>
           <Link href="/backend/catalog/products/create">
             {t('catalog.products.actions.create', 'Create')}
           </Link>
