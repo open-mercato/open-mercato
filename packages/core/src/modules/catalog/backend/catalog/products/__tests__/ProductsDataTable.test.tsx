@@ -27,7 +27,7 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
         trigger-search
       </button>
       <div data-testid="row-actions-wrapper">
-        {props.rowActions?.({ id: 'prod-1', original: { id: 'prod-1', name: 'Mock product' } })}
+        {props.rowActions?.({ id: 'prod-1', original: { id: 'prod-1', title: 'Mock product' } })}
       </div>
       {props.actions}
     </div>
@@ -97,7 +97,7 @@ describe('ProductsDataTable', () => {
     ;(apiCall as jest.Mock).mockResolvedValue({
       ok: true,
       result: {
-        items: [{ id: 'prod-1', name: 'Mock product' }],
+        items: [{ id: 'prod-1', title: 'Mock product', sku: 'SKU-001' }],
         total: 1,
         totalPages: 1,
       },

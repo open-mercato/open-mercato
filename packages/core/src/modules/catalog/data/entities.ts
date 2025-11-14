@@ -68,7 +68,8 @@ export class CatalogAttributeSchemaTemplate {
 
 @Entity({ tableName: 'catalog_products' })
 @Index({ name: 'catalog_products_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
-@Unique({ name: 'catalog_products_code_scope_unique', properties: ['organizationId', 'tenantId', 'code'] })
+@Unique({ name: 'catalog_products_sku_scope_unique', properties: ['organizationId', 'tenantId', 'sku'] })
+@Unique({ name: 'catalog_products_handle_scope_unique', properties: ['organizationId', 'tenantId', 'handle'] })
 export class CatalogProduct {
   [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -82,13 +83,19 @@ export class CatalogProduct {
   tenantId!: string
 
   @Property({ type: 'text' })
-  name!: string
+  title!: string
+
+  @Property({ type: 'text', nullable: true })
+  subtitle?: string | null
 
   @Property({ type: 'text', nullable: true })
   description?: string | null
 
   @Property({ type: 'text', nullable: true })
-  code?: string | null
+  sku?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  handle?: string | null
 
   @Property({ name: 'product_type', type: 'text', default: 'simple' })
   productType: CatalogProductType = 'simple'

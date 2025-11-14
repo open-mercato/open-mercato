@@ -23,6 +23,19 @@ const slugSchema = z
   .regex(/^[a-z0-9\-_]+$/, 'code must contain lowercase letters, digits, hyphen, or underscore')
   .max(150)
 
+const handleSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9\-_]+$/, 'handle must contain lowercase letters, digits, hyphen, or underscore')
+  .max(150)
+
+const skuSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9\-_\.]+$/, 'SKU may include letters, numbers, hyphen, underscore, or period')
+  .max(191)
+
 const optionConfigurationSchema = z
   .array(
     z.object({
@@ -93,9 +106,11 @@ const subproductAssignmentSchema = z.object({
 })
 
 export const productCreateSchema = scoped.extend({
-  name: z.string().trim().min(1).max(255),
+  title: z.string().trim().min(1).max(255),
+  subtitle: z.string().trim().max(255).optional(),
   description: z.string().trim().max(4000).optional(),
-  code: slugSchema.optional(),
+  sku: skuSchema.optional(),
+  handle: handleSchema.optional(),
   productType: productTypeSchema.default('simple'),
   statusEntryId: uuid().optional(),
   primaryCurrencyCode: currencyCodeSchema.optional(),

@@ -42,9 +42,11 @@ type ProductSnapshot = {
   id: string
   organizationId: string
   tenantId: string
-  name: string
+  title: string
+  subtitle: string | null
   description: string | null
-  code: string | null
+  sku: string | null
+  handle: string | null
   productType: CatalogProductType
   statusEntryId: string | null
   primaryCurrencyCode: string | null
@@ -93,9 +95,11 @@ type ProductRelationSnapshot = {
 type ProductRelationInput = NonNullable<ProductCreateInput['subproducts']>[number]
 
 const PRODUCT_CHANGE_KEYS = [
-  'name',
+  'title',
+  'subtitle',
   'description',
-  'code',
+  'sku',
+  'handle',
   'productType',
   'statusEntryId',
   'primaryCurrencyCode',
@@ -331,7 +335,7 @@ async function syncOffers(
   const normalized = inputs
     .map((input) => ({
       ...input,
-      title: input.title?.trim().length ? input.title.trim() : product.name,
+      title: input.title?.trim().length ? input.title.trim() : product.title,
       description:
         input.description != null && input.description.trim().length
           ? input.description.trim()
@@ -365,7 +369,7 @@ async function syncOffers(
           organizationId: product.organizationId,
           tenantId: product.tenantId,
           channelId: input.channelId,
-          title: input.title || product.name,
+          title: input.title || product.title,
           isActive: input.isActive !== false,
         })
       em.persist(target)
@@ -373,7 +377,7 @@ async function syncOffers(
       channelMap.set(input.channelId, target)
     }
     target.channelId = input.channelId
-    target.title = input.title || product.name
+    target.title = input.title || product.title
     target.description = input.description ?? null
     target.localizedContent = cloneOfferContent(input.localizedContent)
     target.metadata = input.metadata ? cloneJson(input.metadata) : null
@@ -426,9 +430,11 @@ async function loadProductSnapshot(
     id: record.id,
     organizationId: record.organizationId,
     tenantId: record.tenantId,
-    name: record.name,
+    title: record.title,
+    subtitle: record.subtitle ?? null,
     description: record.description ?? null,
-    code: record.code ?? null,
+    sku: record.sku ?? null,
+    handle: record.handle ?? null,
     productType: record.productType,
     statusEntryId: record.statusEntryId ?? null,
     primaryCurrencyCode: record.primaryCurrencyCode ?? null,
@@ -456,9 +462,11 @@ function applyProductSnapshot(
 ): void {
   record.organizationId = snapshot.organizationId
   record.tenantId = snapshot.tenantId
-  record.name = snapshot.name
+  record.title = snapshot.title
+  record.subtitle = snapshot.subtitle ?? null
   record.description = snapshot.description ?? null
-  record.code = snapshot.code ?? null
+  record.sku = snapshot.sku ?? null
+  record.handle = snapshot.handle ?? null
   record.productType = snapshot.productType
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.primaryCurrencyCode = snapshot.primaryCurrencyCode ?? null
@@ -496,9 +504,11 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     const record = em.create(CatalogProduct, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
-      name: parsed.name,
+      title: parsed.title,
+      subtitle: parsed.subtitle ?? null,
       description: parsed.description ?? null,
-      code: parsed.code ?? null,
+      sku: parsed.sku ?? null,
+      handle: parsed.handle ?? null,
       productType: parsed.productType ?? 'simple',
       statusEntryId: parsed.statusEntryId ?? null,
       primaryCurrencyCode: parsed.primaryCurrencyCode ?? null,
@@ -602,9 +612,11 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     record.organizationId = organizationId
     record.tenantId = tenantId
 
-    if (parsed.name !== undefined) record.name = parsed.name
+    if (parsed.title !== undefined) record.title = parsed.title
+    if (parsed.subtitle !== undefined) record.subtitle = parsed.subtitle ?? null
     if (parsed.description !== undefined) record.description = parsed.description ?? null
-    if (parsed.code !== undefined) record.code = parsed.code ?? null
+    if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
+    if (parsed.handle !== undefined) record.handle = parsed.handle ?? null
     if (parsed.productType !== undefined) record.productType = parsed.productType
     if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
     if (parsed.primaryCurrencyCode !== undefined) {
@@ -693,9 +705,11 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         id: before.id,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
-        name: before.name,
+        title: before.title,
+        subtitle: before.subtitle ?? null,
         description: before.description ?? null,
-        code: before.code ?? null,
+        sku: before.sku ?? null,
+        handle: before.handle ?? null,
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
@@ -813,9 +827,9 @@ const deleteProductCommand: CommandHandler<
         id: before.id,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
-        name: before.name,
+        name: before.title,
         description: before.description ?? null,
-        code: before.code ?? null,
+        code: before.sku ?? null,
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,

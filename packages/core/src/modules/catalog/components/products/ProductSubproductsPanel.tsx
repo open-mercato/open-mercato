@@ -21,8 +21,10 @@ export type SubproductDraft = {
 
 type ProductResult = {
   id: string
-  name?: string | null
-  code?: string | null
+  title?: string | null
+  subtitle?: string | null
+  sku?: string | null
+  handle?: string | null
 }
 
 type Props = {
@@ -93,12 +95,22 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
 
   const addSubproduct = (product: ProductResult) => {
     if (!product.id || drafts.some((draft) => draft.childProductId === product.id)) return
+    const resolvedName =
+      product.title?.trim()
+        ? product.title.trim()
+        : product.subtitle?.trim()
+            ? product.subtitle.trim()
+            : product.sku?.trim()
+                ? product.sku.trim()
+                : product.handle?.trim()
+                    ? product.handle.trim()
+                    : product.id
     updateDrafts([
       ...drafts,
       {
         id: createLocalId(),
         childProductId: product.id,
-        childName: product.name ?? product.code ?? product.id,
+        childName: resolvedName,
         relationType: allowedRelationTypes[0] as SubproductDraft['relationType'],
         isRequired: false,
         minQuantity: null,
@@ -149,9 +161,17 @@ export function ProductSubproductsPanel({ values, setValue, productType }: Props
                   className="flex items-center justify-between rounded border px-3 py-2"
                 >
                   <div>
-                    <div className="text-sm font-medium">{product.name ?? product.code ?? product.id}</div>
-                    {product.code ? (
-                      <div className="text-xs text-muted-foreground">{product.code}</div>
+                    <div className="text-sm font-medium">
+                      {product.title ?? product.subtitle ?? product.sku ?? product.handle ?? product.id}
+                    </div>
+                    {product.subtitle ? (
+                      <div className="text-xs text-muted-foreground">{product.subtitle}</div>
+                    ) : null}
+                    {product.sku ? (
+                      <div className="text-xs text-muted-foreground">SKU: {product.sku}</div>
+                    ) : null}
+                    {product.handle ? (
+                      <div className="text-xs text-muted-foreground">/{product.handle}</div>
                     ) : null}
                   </div>
                   <Button

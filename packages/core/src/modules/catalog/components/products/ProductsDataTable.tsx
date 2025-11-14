@@ -49,9 +49,11 @@ type OfferInfo = {
 
 export type ProductRow = {
   id: string
-  name: string
+  title: string
+  subtitle?: string | null
   description?: string | null
-  code?: string | null
+  sku?: string | null
+  handle?: string | null
   product_type?: string | null
   status_entry_id?: string | null
   primary_currency_code?: string | null
@@ -129,7 +131,7 @@ export default function ProductsDataTable() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
-  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(false)
@@ -195,11 +197,17 @@ export default function ProductsDataTable() {
   const columns = React.useMemo<ColumnDef<ProductRow>[]>(() => {
     const base: ColumnDef<ProductRow>[] = [
       {
-        accessorKey: 'name',
-        header: t('catalog.products.table.name'),
+        accessorKey: 'title',
+        header: t('catalog.products.table.title', 'Title'),
         cell: ({ row }) => (
           <div className="flex flex-col">
-            <span className="font-medium">{row.original.name || '—'}</span>
+            <span className="font-medium">{row.original.title || '—'}</span>
+            {row.original.subtitle ? (
+              <span className="text-xs text-muted-foreground">{row.original.subtitle}</span>
+            ) : null}
+            {row.original.handle ? (
+              <span className="text-xs text-muted-foreground">/{row.original.handle}</span>
+            ) : null}
             {row.original.description ? (
               <span className="text-xs text-muted-foreground">{row.original.description}</span>
             ) : null}
@@ -208,8 +216,8 @@ export default function ProductsDataTable() {
         meta: { sticky: true },
       },
       {
-        accessorKey: 'code',
-        header: t('catalog.products.table.code'),
+        accessorKey: 'sku',
+        header: t('catalog.products.table.sku', 'SKU'),
         cell: ({ getValue }) => {
           const value = getValue()
           return value ? <span className="font-mono text-xs">{String(value)}</span> : <span className="text-xs text-muted-foreground">—</span>

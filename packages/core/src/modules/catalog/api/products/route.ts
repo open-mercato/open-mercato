@@ -84,8 +84,10 @@ export async function buildProductFilters(
   if (term) {
     const like = `%${term}%`
     filters.$or = [
-      { name: { $ilike: like } },
-      { code: { $ilike: like } },
+      { title: { $ilike: like } },
+      { subtitle: { $ilike: like } },
+      { sku: { $ilike: like } },
+      { handle: { $ilike: like } },
       { description: { $ilike: like } },
     ]
   }
@@ -164,6 +166,11 @@ export function buildPricingContext(query: ProductsQuery, channelFallback: strin
 
 type ProductListItem = Record<string, unknown> & {
   id?: string
+  title?: string | null
+  subtitle?: string | null
+  description?: string | null
+  sku?: string | null
+  handle?: string | null
   product_type?: CatalogProductType | null
   attribute_schema?: CatalogAttributeSchema | null
   attribute_schema_override?: CatalogAttributeSchema | null
@@ -353,9 +360,11 @@ const crud = makeCrudRoute({
     entityId: E.catalog.catalog_product,
     fields: [
       F.id,
-      F.name,
+      F.title,
+      F.subtitle,
       F.description,
-      F.code,
+      F.sku,
+      F.handle,
       F.product_type,
       F.status_entry_id,
       F.primary_currency_code,
@@ -370,8 +379,8 @@ const crud = makeCrudRoute({
       F.updated_at,
     ],
     sortFieldMap: {
-      name: F.name,
-      code: F.code,
+      title: F.title,
+      sku: F.sku,
       createdAt: F.created_at,
       updatedAt: F.updated_at,
     },
