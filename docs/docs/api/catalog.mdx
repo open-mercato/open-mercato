@@ -7,7 +7,7 @@ import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
 
 <OpenApiExplorerBanner />
 
-The catalog module currently exposes command handlers but no REST endpoints (its `apis` array is empty in `generated/modules.generated.ts`, so `/api/catalog/...` routes are not yet published). Integration points such as the back-office UI and future CRUD routes call the command bus described below. This page documents the available command ids and the Zod schemas they validate against so you can safely script imports, seed data, or build bespoke HTTP wrappers.
+The catalog module exposes both command handlers and REST endpoints (see `/api/catalog/products`, `/api/catalog/variants`, `/api/catalog/options`, and `/api/catalog/prices`). The commands documented below remain the source of truth for validations and undo metadata, so you can safely script imports, seed data, or build bespoke HTTP wrappers even as new HTTP routes come online.
 
 ## Running catalog commands
 
@@ -50,7 +50,7 @@ Key fields from `productCreateSchema`:
 
 - `organizationId`, `tenantId` — required scope identifiers.
 - `name` (string, ≤255), optional `description`.
-- Optional catalog metadata: `code` (lowercase slug), `statusEntryId`, `primaryCurrencyCode`, `defaultUnit`, `channelIds` array.
+- Optional catalog metadata: `code` (lowercase slug), `statusEntryId`, `primaryCurrencyCode`, `defaultUnit`, `attributeSchema` JSON definition, `attributeValues` map, and `offers` (array of `{ channelId, title, description }`) that bind products to sales channels.
 - Flags: `isConfigurable`, `isActive`, plus arbitrary `metadata` JSON.
 
 Example payload:
@@ -62,7 +62,14 @@ Example payload:
   "name": "Starter T-Shirt",
   "code": "tee-basic",
   "primaryCurrencyCode": "USD",
-  "channelIds": ["bf5efc35-c493-44e4-9307-5f50331a7405"],
+  "attributeSchema": {
+    "definitions": [
+      { "key": "material", "label": "Material", "kind": "text" }
+    ]
+  },
+  "offers": [
+    { "channelId": "bf5efc35-c493-44e4-9307-5f50331a7405", "title": "Online store" }
+  ],
   "isConfigurable": true,
   "metadata": { "category": "apparel" },
   "customFields": { "material": "cotton" }
@@ -119,9 +126,34 @@ Key fields:
 - Price components: `unitPriceNet`, `unitPriceGross`, `taxRate`.
 - Effective dates: `startsAt`, `endsAt` (coerced to `Date` by Zod).
 
+## Customising price selection
+
+All API surfaces that need “best price” calculations rely on `resolveCatalogPrice()` from `packages/core/src/modules/catalog/lib/pricing.ts`. The resolver walks a prioritized hook registry and falls back to the built-in layered selection (`selectBestPrice`) when no hook handles the request.
+
+You can plug in custom logic (e.g., loyalty tiers, partner overrides) by registering a resolver from any module initialization file:
+
+```ts
+import { registerCatalogPricingResolver } from '@open-mercato/core/modules/catalog/lib/pricing'
+
+registerCatalogPricingResolver(
+  async (rows, ctx) => {
+    // rows: all matching CatalogProductPrice rows (with populated offer/variant/product)
+    // ctx: PricingContext (channelId, userId, quantity, date, etc.)
+    const partnerPrice = rows.find((row) => row.metadata?.partner === ctx.customerId)
+    if (partnerPrice) return partnerPrice
+    return undefined // fall back to the next resolver / default algorithm
+  },
+  { priority: 100 },
+)
+```
+
+- Resolvers run in descending priority order (default is `0`); return `undefined` to defer to the next handler.
+- Returning `null` stops the pipeline and instructs callers that no price applies.
+- The default resolver (`selectBestPrice`) still runs last so existing behaviour remains unless you override it.
+
 ## Feature flags
 
-RBAC gates for upcoming REST/UX surfaces are already declared in `packages/core/src/modules/catalog/acl.ts:1`:
+RBAC gates for REST/UX surfaces are declared in `packages/core/src/modules/catalog/acl.ts:1`:
 
 - `catalog.products.view` / `catalog.products.manage`
 - `catalog.variants.manage`
@@ -133,4 +165,4 @@ Grant these to API keys or roles you intend to use with wrapper endpoints so fut
 
 ---
 
-Until dedicated REST routes ship, call the command bus directly or wrap these commands inside your own Next.js API routes. The schemas listed here ensure imports, integrations, and tests remain aligned with the core module.
+You can call the command bus directly or go through the REST endpoints above—the schemas listed here ensure imports, integrations, and tests remain aligned with the core module.

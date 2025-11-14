@@ -23,6 +23,52 @@ const optionConfigurationSchema = z
   )
   .optional()
 
+const attributeDefinitionSchema = z.object({
+  key: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z0-9\-_]+$/, 'attribute key must be alphanumeric with dashes or underscores')
+    .max(120),
+  label: z.string().trim().min(1).max(255),
+  kind: z.string().trim().min(1).max(120),
+  scope: z.enum(['product', 'variant', 'shared']).optional(),
+  required: z.boolean().optional(),
+  defaultValue: z.unknown().optional(),
+  options: z
+    .array(
+      z.object({
+        value: z.union([z.string(), z.number(), z.boolean()]),
+        label: z.string().trim().max(255).optional(),
+      })
+    )
+    .optional(),
+  dictionaryId: uuid().optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+})
+
+const attributeSchema = z.object({
+  version: z.number().int().min(1).optional(),
+  definitions: z.array(attributeDefinitionSchema).max(64),
+})
+
+const attributeValuesSchema = z.record(z.string(), z.unknown())
+
+const offerContentSchema = z.object({
+  title: z.string().trim().max(255).optional(),
+  description: z.string().trim().max(4000).optional(),
+  attributesOverride: attributeValuesSchema.optional(),
+})
+
+const offerInputSchema = z.object({
+  id: uuid().optional(),
+  channelId: uuid(),
+  title: z.string().trim().min(1).max(255),
+  description: z.string().trim().max(4000).optional(),
+  localizedContent: z.record(z.string().trim().min(2).max(10), offerContentSchema).optional(),
+  metadata: metadataSchema,
+  isActive: z.boolean().optional(),
+})
+
 export const productCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   description: z.string().trim().max(4000).optional(),
@@ -36,10 +82,12 @@ export const productCreateSchema = scoped.extend({
   statusEntryId: uuid().optional(),
   primaryCurrencyCode: currencyCodeSchema.optional(),
   defaultUnit: z.string().trim().max(50).optional(),
-  channelIds: z.array(uuid()).optional(),
   isConfigurable: z.boolean().optional(),
   isActive: z.boolean().optional(),
   metadata: metadataSchema,
+  attributeSchema: attributeSchema.optional(),
+  attributeValues: attributeValuesSchema.optional(),
+  offers: z.array(offerInputSchema.omit({ id: true })).optional(),
 })
 
 export const productUpdateSchema = z
@@ -73,6 +121,8 @@ export const variantCreateSchema = scoped.extend({
     .optional(),
   metadata: metadataSchema,
   optionConfiguration: optionConfigurationSchema,
+  attributeSchema: attributeSchema.optional(),
+  attributeValues: attributeValuesSchema.optional(),
 })
 
 export const variantUpdateSchema = z
@@ -94,6 +144,8 @@ export const optionCreateSchema = scoped.extend({
   position: z.coerce.number().int().min(0).max(1000).optional(),
   isRequired: z.boolean().optional(),
   isMultiple: z.boolean().optional(),
+  inputType: z.enum(['select', 'text', 'textarea', 'number']).optional(),
+  inputConfig: z.record(z.string(), z.unknown()).optional(),
   metadata: metadataSchema,
 })
 
@@ -124,7 +176,9 @@ export const optionValueUpdateSchema = z
   .merge(optionValueCreateSchema.partial())
 
 export const priceCreateSchema = scoped.extend({
-  variantId: uuid(),
+  variantId: uuid().optional(),
+  productId: uuid().optional(),
+  offerId: uuid().optional(),
   currencyCode: currencyCodeSchema,
   kind: z.enum(['list', 'sale', 'tier', 'custom']).optional(),
   minQuantity: z.coerce.number().int().min(1).optional(),
@@ -132,6 +186,11 @@ export const priceCreateSchema = scoped.extend({
   unitPriceNet: z.coerce.number().min(0).optional(),
   unitPriceGross: z.coerce.number().min(0).optional(),
   taxRate: z.coerce.number().min(0).max(100).optional(),
+  channelId: uuid().optional(),
+  userId: uuid().optional(),
+  userGroupId: uuid().optional(),
+  customerId: uuid().optional(),
+  customerGroupId: uuid().optional(),
   metadata: metadataSchema,
   startsAt: z.coerce.date().optional(),
   endsAt: z.coerce.date().optional(),
@@ -153,3 +212,4 @@ export type OptionValueCreateInput = z.infer<typeof optionValueCreateSchema>
 export type OptionValueUpdateInput = z.infer<typeof optionValueUpdateSchema>
 export type PriceCreateInput = z.infer<typeof priceCreateSchema>
 export type PriceUpdateInput = z.infer<typeof priceUpdateSchema>
+export type OfferInput = z.infer<typeof offerInputSchema>

@@ -42,6 +42,8 @@ type OptionSnapshot = {
   position: number
   isRequired: boolean
   isMultiple: boolean
+  inputType: string
+  inputConfig: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
   createdAt: string
   updatedAt: string
@@ -81,6 +83,8 @@ const OPTION_CHANGE_KEYS = [
   'position',
   'isRequired',
   'isMultiple',
+  'inputType',
+  'inputConfig',
   'metadata',
 ] as const satisfies readonly string[]
 
@@ -116,6 +120,8 @@ async function loadOptionSnapshot(
     position: record.position,
     isRequired: record.isRequired,
     isMultiple: record.isMultiple,
+    inputType: record.inputType,
+    inputConfig: record.inputConfig ? cloneJson(record.inputConfig) : null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
@@ -167,6 +173,8 @@ function applyOptionSnapshot(record: CatalogProductOption, snapshot: OptionSnaps
   record.position = snapshot.position
   record.isRequired = snapshot.isRequired
   record.isMultiple = snapshot.isMultiple
+  record.inputType = snapshot.inputType as any
+  record.inputConfig = snapshot.inputConfig ? cloneJson(snapshot.inputConfig) : null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   record.createdAt = new Date(snapshot.createdAt)
   record.updatedAt = new Date(snapshot.updatedAt)
@@ -207,6 +215,8 @@ const createOptionCommand: CommandHandler<OptionCreateInput, { optionId: string 
       position: parsed.position ?? 0,
       isRequired: parsed.isRequired ?? false,
       isMultiple: parsed.isMultiple ?? false,
+      inputType: parsed.inputType ?? 'select',
+      inputConfig: parsed.inputConfig ? cloneJson(parsed.inputConfig) : null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       createdAt: now,
       updatedAt: now,
@@ -299,6 +309,10 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
     if (parsed.position !== undefined) record.position = parsed.position ?? 0
     if (parsed.isRequired !== undefined) record.isRequired = parsed.isRequired
     if (parsed.isMultiple !== undefined) record.isMultiple = parsed.isMultiple
+    if (parsed.inputType !== undefined) record.inputType = parsed.inputType
+    if (parsed.inputConfig !== undefined) {
+      record.inputConfig = parsed.inputConfig ? cloneJson(parsed.inputConfig) : null
+    }
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }
@@ -365,6 +379,8 @@ const updateOptionCommand: CommandHandler<OptionUpdateInput, { optionId: string 
         position: before.position,
         isRequired: before.isRequired,
         isMultiple: before.isMultiple,
+        inputType: before.inputType,
+        inputConfig: before.inputConfig ? cloneJson(before.inputConfig) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
@@ -488,6 +504,8 @@ const deleteOptionCommand: CommandHandler<
         position: before.position,
         isRequired: before.isRequired,
         isMultiple: before.isMultiple,
+        inputType: before.inputType,
+        inputConfig: before.inputConfig ? cloneJson(before.inputConfig) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),

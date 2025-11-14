@@ -5,8 +5,43 @@
       "description": "Verwalte wiederverwendbare Produkte, Varianten und Preise für Vertriebsdokumente."
     },
     "products": {
+      "page": {
+        "title": "Produkte & Services"
+      },
+      "actions": {
+        "refresh": "Aktualisieren",
+        "create": "Erstellen"
+      },
+      "filters": {
+        "status": "Status",
+        "active": "Aktiv",
+        "configurable": "Konfigurierbar",
+        "channels": "Vertriebskanäle",
+        "channelsLoadError": "Kanäle konnten nicht geladen werden"
+      },
+      "table": {
+        "name": "Name",
+        "code": "Code",
+        "configurable": "Konfigurierbar",
+        "active": "Aktiv",
+        "price": "Preis",
+        "channels": "Kanäle",
+        "updatedAt": "Aktualisiert",
+        "actions": {
+          "edit": "Bearbeiten",
+          "delete": "Löschen"
+        }
+      },
       "list": {
-        "title": "Produkte"
+        "title": "Produkte",
+        "error": {
+          "load": "Produkte konnten nicht geladen werden",
+          "delete": "Produkt konnte nicht gelöscht werden"
+        },
+        "deleteConfirm": "Dieses Produkt löschen?"
+      },
+      "flash": {
+        "deleted": "Produkt gelöscht"
       },
       "form": {
         "general": "Allgemein",
@@ -24,6 +59,14 @@
       "list": {
         "title": "Preislisten"
       }
+    },
+    "errors": {
+      "tenant_required": "Mandantenkontext ist erforderlich.",
+      "organization_required": "Organisationskontext ist erforderlich.",
+      "id_required": "Datensatzkennung ist erforderlich."
+    },
+    "nav": {
+      "group": "Katalog"
     }
   }
 }

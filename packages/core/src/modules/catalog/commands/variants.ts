@@ -47,6 +47,8 @@ type VariantSnapshot = {
   weightUnit: string | null
   dimensions: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
+  attributeSchema: Record<string, unknown> | null
+  attributeValues: Record<string, unknown> | null
   optionValueIds: string[]
   createdAt: string
   updatedAt: string
@@ -68,6 +70,8 @@ const VARIANT_CHANGE_KEYS = [
   'weightValue',
   'weightUnit',
   'dimensions',
+  'attributeSchema',
+  'attributeValues',
   'metadata',
 ] as const satisfies readonly string[]
 
@@ -115,6 +119,8 @@ async function loadVariantSnapshot(
     weightUnit: record.weightUnit ?? null,
     dimensions: record.dimensions ? cloneJson(record.dimensions) : null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
+    attributeSchema: record.attributeSchema ? cloneJson(record.attributeSchema) : null,
+    attributeValues: record.attributeValues ? cloneJson(record.attributeValues) : null,
     optionValueIds,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
@@ -135,6 +141,8 @@ function applyVariantSnapshot(record: CatalogProductVariant, snapshot: VariantSn
   record.weightUnit = snapshot.weightUnit ?? null
   record.dimensions = snapshot.dimensions ? cloneJson(snapshot.dimensions) : null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+  record.attributeSchema = snapshot.attributeSchema ? cloneJson(snapshot.attributeSchema) : null
+  record.attributeValues = snapshot.attributeValues ? cloneJson(snapshot.attributeValues) : null
   record.createdAt = new Date(snapshot.createdAt)
   record.updatedAt = new Date(snapshot.updatedAt)
 }
@@ -253,6 +261,8 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       weightUnit: parsed.weightUnit ?? null,
       dimensions: parsed.dimensions ? cloneJson(parsed.dimensions) : null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      attributeSchema: parsed.attributeSchema ? cloneJson(parsed.attributeSchema) : null,
+      attributeValues: parsed.attributeValues ? cloneJson(parsed.attributeValues) : null,
       createdAt: now,
       updatedAt: now,
     })
@@ -358,6 +368,12 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }
+    if (parsed.attributeSchema !== undefined) {
+      record.attributeSchema = parsed.attributeSchema ? cloneJson(parsed.attributeSchema) : null
+    }
+    if (parsed.attributeValues !== undefined) {
+      record.attributeValues = parsed.attributeValues ? cloneJson(parsed.attributeValues) : null
+    }
 
     if (parsed.optionConfiguration !== undefined) {
       await syncVariantOptionValues(em, record, parsed.optionConfiguration)
@@ -431,6 +447,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
         weightUnit: before.weightUnit ?? null,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
+        attributeSchema: before.attributeSchema ? cloneJson(before.attributeSchema) : null,
+        attributeValues: before.attributeValues ? cloneJson(before.attributeValues) : null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
       })

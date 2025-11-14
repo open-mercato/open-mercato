@@ -9,6 +9,11 @@ import {
   Property,
   Unique,
 } from '@mikro-orm/core'
+import type {
+  CatalogAttributeSchema,
+  CatalogAttributeValues,
+  CatalogOfferLocalizedContent,
+} from './types'
 
 @Entity({ tableName: 'catalog_products' })
 @Index({ name: 'catalog_products_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
@@ -43,9 +48,6 @@ export class CatalogProduct {
   @Property({ name: 'default_unit', type: 'text', nullable: true })
   defaultUnit?: string | null
 
-  @Property({ name: 'channel_ids', type: 'jsonb', nullable: true })
-  channelIds?: string[] | null
-
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 
@@ -64,11 +66,72 @@ export class CatalogProduct {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 
+  @Property({ name: 'attribute_schema', type: 'jsonb', nullable: true })
+  attributeSchema?: CatalogAttributeSchema | null
+
+  @Property({ name: 'attribute_values', type: 'jsonb', nullable: true })
+  attributeValues?: CatalogAttributeValues | null
+
   @OneToMany(() => CatalogProductVariant, (variant) => variant.product)
   variants = new Collection<CatalogProductVariant>(this)
 
   @OneToMany(() => CatalogProductOption, (option) => option.product)
   options = new Collection<CatalogProductOption>(this)
+
+  @OneToMany(() => CatalogOffer, (offer) => offer.product)
+  offers = new Collection<CatalogOffer>(this)
+}
+
+@Entity({ tableName: 'catalog_offers' })
+@Index({ name: 'catalog_offers_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({
+  name: 'catalog_offers_product_channel_unique',
+  properties: ['product', 'organizationId', 'tenantId', 'channelId'],
+})
+export class CatalogOffer {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', onDelete: 'cascade' })
+  product!: CatalogProduct
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'channel_id', type: 'uuid' })
+  channelId!: string
+
+  @Property({ type: 'text' })
+  title!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'localized_content', type: 'jsonb', nullable: true })
+  localizedContent?: CatalogOfferLocalizedContent | null
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @OneToMany(() => CatalogProductPrice, (price) => price.offer)
+  prices = new Collection<CatalogProductPrice>(this)
 }
 
 @Entity({ tableName: 'catalog_product_variants' })
@@ -127,6 +190,12 @@ export class CatalogProductVariant {
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 
+  @Property({ name: 'attribute_schema', type: 'jsonb', nullable: true })
+  attributeSchema?: CatalogAttributeSchema | null
+
+  @Property({ name: 'attribute_values', type: 'jsonb', nullable: true })
+  attributeValues?: CatalogAttributeValues | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
@@ -177,6 +246,12 @@ export class CatalogProductOption {
 
   @Property({ name: 'is_multiple', type: 'boolean', default: false })
   isMultiple: boolean = false
+
+  @Property({ name: 'input_type', type: 'text', default: 'select' })
+  inputType: 'select' | 'text' | 'textarea' | 'number' = 'select'
+
+  @Property({ name: 'input_config', type: 'jsonb', nullable: true })
+  inputConfig?: Record<string, unknown> | null
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
@@ -271,19 +346,22 @@ export class CatalogVariantOptionValue {
 }
 
 @Entity({ tableName: 'catalog_product_prices' })
-@Index({ name: 'catalog_product_prices_scope_idx', properties: ['variant', 'organizationId', 'tenantId'] })
-@Unique({
-  name: 'catalog_product_prices_unique',
-  properties: ['variant', 'organizationId', 'tenantId', 'currencyCode', 'kind', 'minQuantity'],
-})
+@Index({ name: 'catalog_product_prices_variant_scope_idx', properties: ['variant', 'organizationId', 'tenantId'] })
+@Index({ name: 'catalog_product_prices_product_scope_idx', properties: ['product', 'organizationId', 'tenantId'] })
 export class CatalogProductPrice {
   [OptionalProps]?: 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @ManyToOne(() => CatalogProductVariant, { fieldName: 'variant_id' })
-  variant!: CatalogProductVariant
+  @ManyToOne(() => CatalogProductVariant, { fieldName: 'variant_id', nullable: true })
+  variant?: CatalogProductVariant | null
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', nullable: true })
+  product?: CatalogProduct | null
+
+  @ManyToOne(() => CatalogOffer, { fieldName: 'offer_id', nullable: true })
+  offer?: CatalogOffer | null
 
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
@@ -311,6 +389,21 @@ export class CatalogProductPrice {
 
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
   taxRate?: string | null
+
+  @Property({ name: 'channel_id', type: 'uuid', nullable: true })
+  channelId?: string | null
+
+  @Property({ name: 'user_id', type: 'uuid', nullable: true })
+  userId?: string | null
+
+  @Property({ name: 'user_group_id', type: 'uuid', nullable: true })
+  userGroupId?: string | null
+
+  @Property({ name: 'customer_id', type: 'uuid', nullable: true })
+  customerId?: string | null
+
+  @Property({ name: 'customer_group_id', type: 'uuid', nullable: true })
+  customerGroupId?: string | null
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null

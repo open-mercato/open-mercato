@@ -5,8 +5,43 @@
       "description": "Zarządzaj produktami, wariantami i cennikami wykorzystywanymi w sprzedaży."
     },
     "products": {
+      "page": {
+        "title": "Produkty i usługi"
+      },
+      "actions": {
+        "refresh": "Odśwież",
+        "create": "Utwórz"
+      },
+      "filters": {
+        "status": "Status",
+        "active": "Aktywne",
+        "configurable": "Konfigurowalne",
+        "channels": "Kanały sprzedaży",
+        "channelsLoadError": "Nie udało się załadować kanałów"
+      },
+      "table": {
+        "name": "Nazwa",
+        "code": "Kod",
+        "configurable": "Konfigurowalne",
+        "active": "Aktywne",
+        "price": "Cena",
+        "channels": "Kanały",
+        "updatedAt": "Zaktualizowano",
+        "actions": {
+          "edit": "Edytuj",
+          "delete": "Usuń"
+        }
+      },
       "list": {
-        "title": "Produkty"
+        "title": "Produkty",
+        "error": {
+          "load": "Nie udało się załadować produktów",
+          "delete": "Nie udało się usunąć produktu"
+        },
+        "deleteConfirm": "Usunąć ten produkt?"
+      },
+      "flash": {
+        "deleted": "Produkt został usunięty"
       },
       "form": {
         "general": "Ogólne",
@@ -24,6 +59,14 @@
       "list": {
         "title": "Cenniki"
       }
+    },
+    "errors": {
+      "tenant_required": "Wymagany jest kontekst dzierżawy.",
+      "organization_required": "Wymagany jest kontekst organizacji.",
+      "id_required": "Wymagany jest identyfikator rekordu."
+    },
+    "nav": {
+      "group": "Katalog"
     }
   }
 }

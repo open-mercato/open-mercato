@@ -1,6 +1,7 @@
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   CatalogProduct,
+  CatalogOffer,
   CatalogProductOption,
   CatalogProductOptionValue,
   CatalogProductVariant,
@@ -110,4 +111,14 @@ export async function requireOptionValue(
   const value = await em.findOne(CatalogProductOptionValue, { id })
   if (!value) throw new CrudHttpError(404, { error: message })
   return value
+}
+
+export async function requireOffer(
+  em: EntityManager,
+  id: string,
+  message = 'Catalog offer not found'
+): Promise<CatalogOffer> {
+  const offer = await em.findOne(CatalogOffer, { id })
+  if (!offer) throw new CrudHttpError(404, { error: message })
+  return offer
 }

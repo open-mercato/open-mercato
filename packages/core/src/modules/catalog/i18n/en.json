@@ -5,8 +5,43 @@
       "description": "Manage reusable products, variants, and pricing for sales documents."
     },
     "products": {
+      "page": {
+        "title": "Products & services"
+      },
+      "actions": {
+        "refresh": "Refresh",
+        "create": "Create"
+      },
+      "filters": {
+        "status": "Status",
+        "active": "Active",
+        "configurable": "Configurable",
+        "channels": "Sales channels",
+        "channelsLoadError": "Failed to load channels"
+      },
+      "table": {
+        "name": "Name",
+        "code": "Code",
+        "configurable": "Configurable",
+        "active": "Active",
+        "price": "Price",
+        "channels": "Channels",
+        "updatedAt": "Updated",
+        "actions": {
+          "edit": "Edit",
+          "delete": "Delete"
+        }
+      },
       "list": {
-        "title": "Products"
+        "title": "Products",
+        "error": {
+          "load": "Failed to load products",
+          "delete": "Failed to delete product"
+        },
+        "deleteConfirm": "Delete this product?"
+      },
+      "flash": {
+        "deleted": "Product deleted"
       },
       "form": {
         "general": "General",
@@ -24,6 +59,14 @@
       "list": {
         "title": "Price Lists"
       }
+    },
+    "errors": {
+      "tenant_required": "Tenant context is required.",
+      "organization_required": "Organization context is required.",
+      "id_required": "Record identifier is required."
+    },
+    "nav": {
+      "group": "Catalog"
     }
   }
 }

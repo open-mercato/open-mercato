@@ -5,8 +5,43 @@
       "description": "Administra productos reutilizables, variantes y precios para los documentos de ventas."
     },
     "products": {
+      "page": {
+        "title": "Productos y servicios"
+      },
+      "actions": {
+        "refresh": "Actualizar",
+        "create": "Crear"
+      },
+      "filters": {
+        "status": "Estado",
+        "active": "Activo",
+        "configurable": "Configurable",
+        "channels": "Canales de venta",
+        "channelsLoadError": "No se pudieron cargar los canales"
+      },
+      "table": {
+        "name": "Nombre",
+        "code": "Código",
+        "configurable": "Configurable",
+        "active": "Activo",
+        "price": "Precio",
+        "channels": "Canales",
+        "updatedAt": "Actualizado",
+        "actions": {
+          "edit": "Editar",
+          "delete": "Eliminar"
+        }
+      },
       "list": {
-        "title": "Productos"
+        "title": "Productos",
+        "error": {
+          "load": "No se pudieron cargar los productos",
+          "delete": "No se pudo eliminar el producto"
+        },
+        "deleteConfirm": "¿Eliminar este producto?"
+      },
+      "flash": {
+        "deleted": "Producto eliminado"
       },
       "form": {
         "general": "General",
@@ -24,6 +59,14 @@
       "list": {
         "title": "Listas de precios"
       }
+    },
+    "errors": {
+      "tenant_required": "Se requiere el contexto del inquilino.",
+      "organization_required": "Se requiere el contexto de la organización.",
+      "id_required": "Se requiere el identificador del registro."
+    },
+    "nav": {
+      "group": "Catálogo"
     }
   }
 }
