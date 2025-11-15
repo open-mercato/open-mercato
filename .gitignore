@@ -75,3 +75,7 @@ tmp/
 public/uploads/*
 storage/attachments/*
 package-lock.json
+
+# IDE related
+.idea
+.claude
