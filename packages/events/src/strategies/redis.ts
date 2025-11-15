@@ -5,7 +5,12 @@ type RedisClient = any
 export function createRedisStrategy(url = process.env.REDIS_URL || process.env.EVENTS_REDIS_URL, deliver?: (event: string, payload: any) => Promise<void>): EventStrategy {
   if (!url) throw new Error('REDIS_URL or EVENTS_REDIS_URL must be set for redis events strategy')
   const client: RedisClient = new (Redis as any)(url)
-  const ready = (async () => { if (client.connect) await client.connect() })()
+  const ready = (async () => {
+    const shouldConnect =
+      typeof client.connect === 'function' &&
+      (client.status === 'wait' || client.status === 'end' || !client.status)
+    if (shouldConnect) await client.connect()
+  })()
 
   const keyQueue = 'events:queue'
   const keyLastId = 'events:last_id'

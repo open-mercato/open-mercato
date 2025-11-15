@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
+import { CATALOG_PRICE_DISPLAY_MODES, CATALOG_PRODUCT_TYPES } from './types'
 
 const uuid = () => z.string().uuid()
 
@@ -14,6 +16,26 @@ const currencyCodeSchema = z
 
 const metadataSchema = z.record(z.string(), z.unknown()).optional()
 
+const slugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9\-_]+$/, 'code must contain lowercase letters, digits, hyphen, or underscore')
+  .max(150)
+
+const handleSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9\-_]+$/, 'handle must contain lowercase letters, digits, hyphen, or underscore')
+  .max(150)
+
+const skuSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9\-_\.]+$/, 'SKU may include letters, numbers, hyphen, underscore, or period')
+  .max(191)
+
 const optionConfigurationSchema = z
   .array(
     z.object({
@@ -23,23 +45,94 @@ const optionConfigurationSchema = z
   )
   .optional()
 
-export const productCreateSchema = scoped.extend({
-  name: z.string().trim().min(1).max(255),
-  description: z.string().trim().max(4000).optional(),
-  code: z
+const attributeDefinitionSchema = z.object({
+  key: z
     .string()
     .trim()
-    .toLowerCase()
-    .regex(/^[a-z0-9\-_]+$/, 'code must contain lowercase letters, digits, hyphen, or underscore')
-    .max(150)
+    .regex(/^[a-zA-Z0-9\-_]+$/, 'attribute key must be alphanumeric with dashes or underscores')
+    .max(120),
+  label: z.string().trim().min(1).max(255),
+  kind: z.enum(CUSTOM_FIELD_KINDS),
+  scope: z.enum(['product', 'variant', 'shared']).optional(),
+  required: z.boolean().optional(),
+  defaultValue: z.unknown().optional(),
+  options: z
+    .array(
+      z.object({
+        value: z.union([z.string(), z.number(), z.boolean()]),
+        label: z.string().trim().max(255).optional(),
+      })
+    )
     .optional(),
+  dictionaryId: uuid().optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+})
+
+const attributeSchema = z.object({
+  version: z.number().int().min(1).optional(),
+  definitions: z.array(attributeDefinitionSchema).max(64),
+})
+
+const attributeValuesSchema = z.record(z.string(), z.unknown())
+
+const optionChoiceSchema = z.object({
+  code: slugSchema,
+  label: z.string().trim().max(255).optional(),
+})
+
+const optionDefinitionSchema = z.object({
+  code: slugSchema,
+  label: z.string().trim().min(1).max(255),
+  description: z.string().trim().max(2000).optional(),
+  inputType: z.enum(['select', 'text', 'textarea', 'number']),
+  isRequired: z.boolean().optional(),
+  isMultiple: z.boolean().optional(),
+  choices: z.array(optionChoiceSchema).max(200).optional(),
+})
+
+const optionSchema = z.object({
+  version: z.number().int().min(1).optional(),
+  name: z.string().trim().max(255).optional(),
+  description: z.string().trim().max(4000).optional(),
+  options: z.array(optionDefinitionSchema).max(64),
+})
+
+const offerContentSchema = z.object({
+  title: z.string().trim().max(255).optional(),
+  description: z.string().trim().max(4000).optional(),
+  attributesOverride: attributeValuesSchema.optional(),
+})
+
+const offerInputSchema = z.object({
+  id: uuid().optional(),
+  channelId: uuid(),
+  title: z.string().trim().min(1).max(255),
+  description: z.string().trim().max(4000).optional(),
+  localizedContent: z.record(z.string().trim().min(2).max(10), offerContentSchema).optional(),
+  metadata: metadataSchema,
+  isActive: z.boolean().optional(),
+})
+
+const productTypeSchema = z.enum(CATALOG_PRODUCT_TYPES)
+
+export const productCreateSchema = scoped.extend({
+  title: z.string().trim().min(1).max(255),
+  subtitle: z.string().trim().max(255).optional(),
+  description: z.string().trim().max(4000).optional(),
+  sku: skuSchema.optional(),
+  handle: handleSchema.optional(),
+  productType: productTypeSchema.default('simple'),
   statusEntryId: uuid().optional(),
   primaryCurrencyCode: currencyCodeSchema.optional(),
   defaultUnit: z.string().trim().max(50).optional(),
-  channelIds: z.array(uuid()).optional(),
+  optionSchemaId: uuid().nullable().optional(),
   isConfigurable: z.boolean().optional(),
   isActive: z.boolean().optional(),
   metadata: metadataSchema,
+  attributeSchemaId: uuid().nullable().optional(),
+  attributeSchema: attributeSchema.optional(),
+  attributeValues: attributeValuesSchema.optional(),
+  offers: z.array(offerInputSchema.omit({ id: true })).optional(),
 })
 
 export const productUpdateSchema = z
@@ -47,6 +140,9 @@ export const productUpdateSchema = z
     id: uuid(),
   })
   .merge(productCreateSchema.partial())
+  .extend({
+    productType: productTypeSchema.optional(),
+  })
 
 export const variantCreateSchema = scoped.extend({
   productId: uuid(),
@@ -73,6 +169,8 @@ export const variantCreateSchema = scoped.extend({
     .optional(),
   metadata: metadataSchema,
   optionConfiguration: optionConfigurationSchema,
+  attributeSchema: attributeSchema.optional(),
+  attributeValues: attributeValuesSchema.optional(),
 })
 
 export const variantUpdateSchema = z
@@ -94,6 +192,8 @@ export const optionCreateSchema = scoped.extend({
   position: z.coerce.number().int().min(0).max(1000).optional(),
   isRequired: z.boolean().optional(),
   isMultiple: z.boolean().optional(),
+  inputType: z.enum(['select', 'text', 'textarea', 'number']).optional(),
+  inputConfig: z.record(z.string(), z.unknown()).optional(),
   metadata: metadataSchema,
 })
 
@@ -123,15 +223,69 @@ export const optionValueUpdateSchema = z
   })
   .merge(optionValueCreateSchema.partial())
 
+export const attributeSchemaTemplateCreateSchema = scoped.extend({
+  name: z.string().trim().min(1).max(255),
+  code: slugSchema,
+  description: z.string().trim().max(4000).optional(),
+  schema: attributeSchema,
+  metadata: metadataSchema,
+  isActive: z.boolean().optional(),
+})
+
+export const attributeSchemaTemplateUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(attributeSchemaTemplateCreateSchema.partial())
+
+export const optionSchemaTemplateCreateSchema = scoped.extend({
+  name: z.string().trim().min(1).max(255),
+  code: slugSchema,
+  description: z.string().trim().max(4000).optional(),
+  schema: optionSchema,
+  metadata: metadataSchema,
+  isActive: z.boolean().optional(),
+})
+
+export const optionSchemaTemplateUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(optionSchemaTemplateCreateSchema.partial())
+
+const priceDisplayModeSchema = z.enum(CATALOG_PRICE_DISPLAY_MODES)
+
+export const priceKindCreateSchema = scoped.extend({
+  code: slugSchema,
+  title: z.string().trim().min(1).max(255),
+  displayMode: priceDisplayModeSchema.default('excluding-tax'),
+  currencyCode: currencyCodeSchema.optional(),
+  isPromotion: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const priceKindUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(priceKindCreateSchema.partial())
+
 export const priceCreateSchema = scoped.extend({
-  variantId: uuid(),
+  variantId: uuid().optional(),
+  productId: uuid().optional(),
+  offerId: uuid().optional(),
   currencyCode: currencyCodeSchema,
-  kind: z.enum(['list', 'sale', 'tier', 'custom']).optional(),
+  priceKindId: uuid(),
   minQuantity: z.coerce.number().int().min(1).optional(),
   maxQuantity: z.coerce.number().int().min(1).optional(),
   unitPriceNet: z.coerce.number().min(0).optional(),
   unitPriceGross: z.coerce.number().min(0).optional(),
   taxRate: z.coerce.number().min(0).max(100).optional(),
+  channelId: uuid().optional(),
+  userId: uuid().optional(),
+  userGroupId: uuid().optional(),
+  customerId: uuid().optional(),
+  customerGroupId: uuid().optional(),
   metadata: metadataSchema,
   startsAt: z.coerce.date().optional(),
   endsAt: z.coerce.date().optional(),
@@ -151,5 +305,12 @@ export type OptionCreateInput = z.infer<typeof optionCreateSchema>
 export type OptionUpdateInput = z.infer<typeof optionUpdateSchema>
 export type OptionValueCreateInput = z.infer<typeof optionValueCreateSchema>
 export type OptionValueUpdateInput = z.infer<typeof optionValueUpdateSchema>
+export type AttributeSchemaTemplateCreateInput = z.infer<typeof attributeSchemaTemplateCreateSchema>
+export type AttributeSchemaTemplateUpdateInput = z.infer<typeof attributeSchemaTemplateUpdateSchema>
+export type OptionSchemaTemplateCreateInput = z.infer<typeof optionSchemaTemplateCreateSchema>
+export type OptionSchemaTemplateUpdateInput = z.infer<typeof optionSchemaTemplateUpdateSchema>
+export type PriceKindCreateInput = z.infer<typeof priceKindCreateSchema>
+export type PriceKindUpdateInput = z.infer<typeof priceKindUpdateSchema>
 export type PriceCreateInput = z.infer<typeof priceCreateSchema>
 export type PriceUpdateInput = z.infer<typeof priceUpdateSchema>
+export type OfferInput = z.infer<typeof offerInputSchema>

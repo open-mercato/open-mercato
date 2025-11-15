@@ -7,40 +7,62 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
+  CatalogOffer,
   CatalogProduct,
   CatalogProductOption,
   CatalogProductVariant,
+  CatalogAttributeSchemaTemplate,
+  CatalogOptionSchemaTemplate,
 } from '../data/entities'
 import {
   productCreateSchema,
   productUpdateSchema,
+  type OfferInput,
   type ProductCreateInput,
   type ProductUpdateInput,
 } from '../data/validators'
+import type {
+  CatalogAttributeSchema,
+  CatalogAttributeSchemaSource,
+  CatalogOfferLocalizedContent,
+  CatalogProductType,
+} from '../data/types'
 import {
   cloneJson,
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
   extractUndoPayload,
+  requireAttributeSchemaTemplate,
+  requireOptionSchemaTemplate,
 } from './shared'
+import { resolveAttributeSchema } from '../lib/attributeSchemas'
 
 type ProductSnapshot = {
   id: string
   organizationId: string
   tenantId: string
-  name: string
+  title: string
+  subtitle: string | null
   description: string | null
-  code: string | null
+  sku: string | null
+  handle: string | null
+  productType: CatalogProductType
   statusEntryId: string | null
   primaryCurrencyCode: string | null
   defaultUnit: string | null
-  channelIds: string[] | null
+  optionSchemaId: string | null
   metadata: Record<string, unknown> | null
+  attributeSchemaId: string | null
+  attributeSchemaOverride: CatalogAttributeSchema | null
+  attributeSchemaSource: CatalogAttributeSchemaSource | null
+  attributeSchema: CatalogAttributeSchema | null
+  attributeValues: Record<string, unknown> | null
   isConfigurable: boolean
   isActive: boolean
   createdAt: string
   updatedAt: string
+  offers: OfferSnapshot[]
   custom: Record<string, unknown> | null
 }
 
@@ -49,66 +71,264 @@ type ProductUndoPayload = {
   after?: ProductSnapshot | null
 }
 
+type OfferSnapshot = {
+  id: string
+  channelId: string
+  title: string
+  description: string | null
+  localizedContent: CatalogOfferLocalizedContent | null
+  metadata: Record<string, unknown> | null
+  isActive: boolean
+}
+
 const PRODUCT_CHANGE_KEYS = [
-  'name',
+  'title',
+  'subtitle',
   'description',
-  'code',
+  'sku',
+  'handle',
+  'productType',
   'statusEntryId',
   'primaryCurrencyCode',
   'defaultUnit',
+  'optionSchemaId',
+  'attributeSchemaId',
+  'attributeSchema',
+  'attributeValues',
   'metadata',
   'isConfigurable',
   'isActive',
 ] as const satisfies readonly string[]
 
-function dedupeIds(ids: string[] | null | undefined): string[] | null {
-  if (!ids || !ids.length) return null
-  return Array.from(new Set(ids))
+function cloneOfferContent(value: CatalogOfferLocalizedContent | null | undefined): CatalogOfferLocalizedContent | null {
+  return value ? cloneJson(value) : null
+}
+
+function serializeOffer(record: CatalogOffer): OfferSnapshot {
+  return {
+    id: record.id,
+    channelId: record.channelId,
+    title: record.title,
+    description: record.description ?? null,
+    localizedContent: cloneOfferContent(record.localizedContent ?? null),
+    metadata: record.metadata ? cloneJson(record.metadata) : null,
+    isActive: record.isActive,
+  }
+}
+
+async function loadOfferSnapshots(em: EntityManager, productId: string): Promise<OfferSnapshot[]> {
+  const offerRecords = await em.find(
+    CatalogOffer,
+    { product: productId },
+    { orderBy: { createdAt: 'asc' } }
+  )
+  return offerRecords.map((offer) => serializeOffer(offer))
+}
+
+async function restoreOffersFromSnapshot(
+  em: EntityManager,
+  product: CatalogProduct,
+  snapshot: OfferSnapshot[] | null | undefined
+): Promise<void> {
+  const existing = await em.find(CatalogOffer, { product })
+  const keepIds = new Set<string>()
+  const list = Array.isArray(snapshot) ? snapshot : []
+  for (const offer of existing) {
+    if (!list.some((snap) => snap.id === offer.id)) {
+      em.remove(offer)
+    } else {
+      keepIds.add(offer.id)
+    }
+  }
+  for (const snap of list) {
+    let target = existing.find((entry) => entry.id === snap.id)
+    if (!target) {
+      target = em.create(CatalogOffer, {
+        id: snap.id,
+        product,
+        organizationId: product.organizationId,
+        tenantId: product.tenantId,
+        channelId: snap.channelId,
+        title: snap.title,
+        isActive: snap.isActive,
+      })
+      em.persist(target)
+    }
+    target.channelId = snap.channelId
+    target.title = snap.title
+    target.description = snap.description ?? null
+    target.localizedContent = cloneOfferContent(snap.localizedContent)
+    target.metadata = snap.metadata ? cloneJson(snap.metadata) : null
+    target.isActive = snap.isActive
+    keepIds.add(target.id)
+  }
+  const toRemove = existing.filter((offer) => !keepIds.has(offer.id))
+  if (toRemove.length) {
+    for (const offer of toRemove) {
+      em.remove(offer)
+    }
+  }
+}
+
+async function syncOffers(
+  em: EntityManager,
+  product: CatalogProduct,
+  inputs: OfferInput[] | undefined
+): Promise<void> {
+  if (!inputs) return
+  const normalized = inputs
+    .map((input) => ({
+      ...input,
+      title: input.title?.trim().length ? input.title.trim() : product.title,
+      description:
+        input.description != null && input.description.trim().length
+          ? input.description.trim()
+          : product.description ?? null,
+      localizedContent: cloneOfferContent(input.localizedContent ?? null),
+      metadata: input.metadata ? cloneJson(input.metadata) : null,
+      isActive: input.isActive !== false,
+    }))
+  const existing = await em.find(CatalogOffer, { product })
+  const claimed = new Set<string>()
+  const channelMap = new Map<string, CatalogOffer>()
+  for (const offer of existing) {
+    channelMap.set(offer.channelId, offer)
+  }
+  const updates: CatalogOffer[] = []
+  for (const input of normalized) {
+    if (!input.channelId) continue
+    let target: CatalogOffer | undefined
+    if (input.id) {
+      target = existing.find((item) => item.id === input.id)
+    }
+    if (!target) {
+      const existingByChannel = channelMap.get(input.channelId)
+      if (existingByChannel && !claimed.has(existingByChannel.id)) {
+        target = existingByChannel
+      }
+    }
+    if (!target) {
+      target = em.create(CatalogOffer, {
+        product,
+        organizationId: product.organizationId,
+        tenantId: product.tenantId,
+        channelId: input.channelId,
+        title: input.title || product.title,
+        isActive: input.isActive !== false,
+      })
+      em.persist(target)
+      existing.push(target)
+      channelMap.set(input.channelId, target)
+    }
+    target.channelId = input.channelId
+    target.title = input.title || product.title
+    target.description = input.description ?? null
+    target.localizedContent = cloneOfferContent(input.localizedContent)
+    target.metadata = input.metadata ? cloneJson(input.metadata) : null
+    target.isActive = input.isActive !== false
+    claimed.add(target.id)
+    updates.push(target)
+  }
+  const toRemove = existing.filter((offer) => !claimed.has(offer.id))
+  for (const offer of toRemove) {
+    em.remove(offer)
+  }
 }
 
 async function loadProductSnapshot(
   em: EntityManager,
   id: string
 ): Promise<ProductSnapshot | null> {
-  const record = await em.findOne(CatalogProduct, { id, deletedAt: null })
+  const record = await em.findOne(
+    CatalogProduct,
+    { id, deletedAt: null },
+    { populate: ['attributeSchemaTemplate', 'optionSchemaTemplate'] }
+  )
   if (!record) return null
+  const offers = await loadOfferSnapshots(em, record.id)
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: E.catalog.catalog_product,
     recordId: record.id,
     tenantId: record.tenantId,
     organizationId: record.organizationId,
   })
+  const schemaTemplate = record.attributeSchemaTemplate
+  const templateId =
+    typeof schemaTemplate === 'string'
+      ? schemaTemplate
+      : schemaTemplate?.id ?? null
+  const optionSchemaTemplate = record.optionSchemaTemplate
+  const optionTemplateId =
+    typeof optionSchemaTemplate === 'string'
+      ? optionSchemaTemplate
+      : optionSchemaTemplate?.id ?? null
+  const templateSource =
+    schemaTemplate && typeof schemaTemplate !== 'string'
+      ? {
+          id: schemaTemplate.id,
+          name: schemaTemplate.name,
+          code: schemaTemplate.code,
+          description: schemaTemplate.description ?? null,
+          schema: schemaTemplate.schema ? cloneJson(schemaTemplate.schema) : null,
+        }
+      : null
+  const override = record.attributeSchema ? cloneJson(record.attributeSchema) : null
+  const resolvedSchema = resolveAttributeSchema(templateSource?.schema ?? null, override)
   return {
     id: record.id,
     organizationId: record.organizationId,
     tenantId: record.tenantId,
-    name: record.name,
+    title: record.title,
+    subtitle: record.subtitle ?? null,
     description: record.description ?? null,
-    code: record.code ?? null,
+    sku: record.sku ?? null,
+    handle: record.handle ?? null,
+    productType: record.productType,
     statusEntryId: record.statusEntryId ?? null,
     primaryCurrencyCode: record.primaryCurrencyCode ?? null,
     defaultUnit: record.defaultUnit ?? null,
-    channelIds: record.channelIds ? [...record.channelIds] : null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
+    attributeSchemaId: templateId,
+    attributeSchemaOverride: override,
+    attributeSchemaSource: templateSource,
+    attributeSchema: resolvedSchema,
+    attributeValues: record.attributeValues ? cloneJson(record.attributeValues) : null,
     isConfigurable: record.isConfigurable,
     isActive: record.isActive,
+    optionSchemaId: optionTemplateId,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+    offers,
     custom: Object.keys(custom).length ? custom : null,
   }
 }
 
-function applyProductSnapshot(record: CatalogProduct, snapshot: ProductSnapshot): void {
+function applyProductSnapshot(
+  em: EntityManager,
+  record: CatalogProduct,
+  snapshot: ProductSnapshot
+): void {
   record.organizationId = snapshot.organizationId
   record.tenantId = snapshot.tenantId
-  record.name = snapshot.name
+  record.title = snapshot.title
+  record.subtitle = snapshot.subtitle ?? null
   record.description = snapshot.description ?? null
-  record.code = snapshot.code ?? null
+  record.sku = snapshot.sku ?? null
+  record.handle = snapshot.handle ?? null
+  record.productType = snapshot.productType
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.primaryCurrencyCode = snapshot.primaryCurrencyCode ?? null
   record.defaultUnit = snapshot.defaultUnit ?? null
-  record.channelIds = snapshot.channelIds ? [...snapshot.channelIds] : null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+  record.attributeSchema =
+    snapshot.attributeSchemaOverride ? cloneJson(snapshot.attributeSchemaOverride) : null
+  record.attributeSchemaTemplate = snapshot.attributeSchemaId
+    ? em.getReference(CatalogAttributeSchemaTemplate, snapshot.attributeSchemaId)
+    : null
+  record.optionSchemaTemplate = snapshot.optionSchemaId
+    ? em.getReference(CatalogOptionSchemaTemplate, snapshot.optionSchemaId)
+    : null
+  record.attributeValues = snapshot.attributeValues ? cloneJson(snapshot.attributeValues) : null
   record.isConfigurable = snapshot.isConfigurable
   record.isActive = snapshot.isActive
   record.createdAt = new Date(snapshot.createdAt)
@@ -123,23 +343,51 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
+    let schemaTemplate: CatalogAttributeSchemaTemplate | null = null
+    if (parsed.attributeSchemaId) {
+      schemaTemplate = await requireAttributeSchemaTemplate(
+        em,
+        parsed.attributeSchemaId,
+        'Attribute schema not found'
+      )
+      ensureSameScope(schemaTemplate, parsed.organizationId, parsed.tenantId)
+    }
+    let optionSchemaTemplate: CatalogOptionSchemaTemplate | null = null
+    if (parsed.optionSchemaId) {
+      optionSchemaTemplate = await requireOptionSchemaTemplate(
+        em,
+        parsed.optionSchemaId,
+        'Option schema not found'
+      )
+      ensureSameScope(optionSchemaTemplate, parsed.organizationId, parsed.tenantId)
+    }
     const record = em.create(CatalogProduct, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
-      name: parsed.name,
+      title: parsed.title,
+      subtitle: parsed.subtitle ?? null,
       description: parsed.description ?? null,
-      code: parsed.code ?? null,
+      sku: parsed.sku ?? null,
+      handle: parsed.handle ?? null,
+      productType: parsed.productType ?? 'simple',
       statusEntryId: parsed.statusEntryId ?? null,
       primaryCurrencyCode: parsed.primaryCurrencyCode ?? null,
       defaultUnit: parsed.defaultUnit ?? null,
-      channelIds: dedupeIds(parsed.channelIds),
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      attributeSchema: parsed.attributeSchema
+        ? (cloneJson(parsed.attributeSchema) as CatalogAttributeSchema)
+        : null,
+      attributeSchemaTemplate: schemaTemplate,
+      optionSchemaTemplate,
+      attributeValues: parsed.attributeValues ? cloneJson(parsed.attributeValues) : null,
       isConfigurable: parsed.isConfigurable ?? false,
       isActive: parsed.isActive ?? true,
       createdAt: now,
       updatedAt: now,
     })
     em.persist(record)
+    await em.flush()
+    await syncOffers(em, record, parsed.offers)
     await em.flush()
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
@@ -224,22 +472,57 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     record.organizationId = organizationId
     record.tenantId = tenantId
 
-    if (parsed.name !== undefined) record.name = parsed.name
+    if (parsed.title !== undefined) record.title = parsed.title
+    if (parsed.subtitle !== undefined) record.subtitle = parsed.subtitle ?? null
     if (parsed.description !== undefined) record.description = parsed.description ?? null
-    if (parsed.code !== undefined) record.code = parsed.code ?? null
+    if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
+    if (parsed.handle !== undefined) record.handle = parsed.handle ?? null
+    if (parsed.productType !== undefined) record.productType = parsed.productType
     if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
     if (parsed.primaryCurrencyCode !== undefined) {
       record.primaryCurrencyCode = parsed.primaryCurrencyCode ?? null
     }
     if (parsed.defaultUnit !== undefined) record.defaultUnit = parsed.defaultUnit ?? null
-    if (parsed.channelIds !== undefined) {
-      record.channelIds = dedupeIds(parsed.channelIds)
-    }
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }
+    if (parsed.attributeSchemaId !== undefined) {
+      if (!parsed.attributeSchemaId) {
+        record.attributeSchemaTemplate = null
+      } else {
+        const template = await requireAttributeSchemaTemplate(
+          em,
+          parsed.attributeSchemaId,
+          'Attribute schema not found'
+        )
+        ensureSameScope(template, organizationId, tenantId)
+        record.attributeSchemaTemplate = template
+      }
+    }
+    if (parsed.optionSchemaId !== undefined) {
+      if (!parsed.optionSchemaId) {
+        record.optionSchemaTemplate = null
+      } else {
+        const optionTemplate = await requireOptionSchemaTemplate(
+          em,
+          parsed.optionSchemaId,
+          'Option schema not found'
+        )
+        ensureSameScope(optionTemplate, organizationId, tenantId)
+        record.optionSchemaTemplate = optionTemplate
+      }
+    }
+    if (parsed.attributeSchema !== undefined) {
+      record.attributeSchema = parsed.attributeSchema
+        ? (cloneJson(parsed.attributeSchema) as CatalogAttributeSchema)
+        : null
+    }
+    if (parsed.attributeValues !== undefined) {
+      record.attributeValues = parsed.attributeValues ? cloneJson(parsed.attributeValues) : null
+    }
     if (parsed.isConfigurable !== undefined) record.isConfigurable = parsed.isConfigurable
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+    await syncOffers(em, record, parsed.offers)
     await em.flush()
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
@@ -295,14 +578,23 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         id: before.id,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
-        name: before.name,
+        title: before.title,
+        subtitle: before.subtitle ?? null,
         description: before.description ?? null,
-        code: before.code ?? null,
+        sku: before.sku ?? null,
+        handle: before.handle ?? null,
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
-        channelIds: before.channelIds ? [...before.channelIds] : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
+        attributeSchema: before.attributeSchemaOverride
+          ? cloneJson(before.attributeSchemaOverride)
+          : null,
+        attributeSchemaTemplate: before.attributeSchemaId
+          ? em.getReference(CatalogAttributeSchemaTemplate, before.attributeSchemaId)
+          : null,
+        attributeValues: before.attributeValues ? cloneJson(before.attributeValues) : null,
+        productType: before.productType ?? 'simple',
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,
         createdAt: new Date(before.createdAt),
@@ -312,7 +604,8 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    applyProductSnapshot(record, before)
+    applyProductSnapshot(em, record, before)
+    await restoreOffersFromSnapshot(em, record, before.offers)
     await em.flush()
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
     if (Object.keys(resetValues).length) {
@@ -406,14 +699,21 @@ const deleteProductCommand: CommandHandler<
         id: before.id,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
-        name: before.name,
+        name: before.title,
         description: before.description ?? null,
-        code: before.code ?? null,
+        code: before.sku ?? null,
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
-        channelIds: before.channelIds ? [...before.channelIds] : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
+        attributeSchema: before.attributeSchemaOverride
+          ? cloneJson(before.attributeSchemaOverride)
+          : null,
+        attributeSchemaTemplate: before.attributeSchemaId
+          ? em.getReference(CatalogAttributeSchemaTemplate, before.attributeSchemaId)
+          : null,
+        attributeValues: before.attributeValues ? cloneJson(before.attributeValues) : null,
+        productType: before.productType ?? 'simple',
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,
         createdAt: new Date(before.createdAt),
@@ -423,7 +723,8 @@ const deleteProductCommand: CommandHandler<
     }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    applyProductSnapshot(record, before)
+    applyProductSnapshot(em, record, before)
+    await restoreOffersFromSnapshot(em, record, before.offers)
     await em.flush()
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({

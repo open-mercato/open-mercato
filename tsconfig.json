@@ -56,7 +56,8 @@
       "@/modules/registry": ["./packages/shared/src/modules/registry.ts"],
       "@/modules/dsl": ["./packages/shared/src/modules/dsl.ts"],
       "@/modules/entities": ["./packages/shared/src/modules/entities.ts"],
-      "@/generated/*": ["./generated/*"]
+      "@/generated/*": ["./generated/*"],
+      "@tests/*": ["./tests/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

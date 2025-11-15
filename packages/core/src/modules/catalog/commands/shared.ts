@@ -1,9 +1,13 @@
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   CatalogProduct,
+  CatalogOffer,
   CatalogProductOption,
   CatalogProductOptionValue,
   CatalogProductVariant,
+  CatalogAttributeSchemaTemplate,
+  CatalogOptionSchemaTemplate,
+  CatalogPriceKind,
 } from '../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -110,4 +114,44 @@ export async function requireOptionValue(
   const value = await em.findOne(CatalogProductOptionValue, { id })
   if (!value) throw new CrudHttpError(404, { error: message })
   return value
+}
+
+export async function requireOffer(
+  em: EntityManager,
+  id: string,
+  message = 'Catalog offer not found'
+): Promise<CatalogOffer> {
+  const offer = await em.findOne(CatalogOffer, { id })
+  if (!offer) throw new CrudHttpError(404, { error: message })
+  return offer
+}
+
+export async function requirePriceKind(
+  em: EntityManager,
+  id: string,
+  message = 'Catalog price kind not found'
+): Promise<CatalogPriceKind> {
+  const priceKind = await em.findOne(CatalogPriceKind, { id, deletedAt: null })
+  if (!priceKind) throw new CrudHttpError(404, { error: message })
+  return priceKind
+}
+
+export async function requireAttributeSchemaTemplate(
+  em: EntityManager,
+  id: string,
+  message = 'Attribute schema not found'
+): Promise<CatalogAttributeSchemaTemplate> {
+  const schema = await em.findOne(CatalogAttributeSchemaTemplate, { id, deletedAt: null })
+  if (!schema) throw new CrudHttpError(404, { error: message })
+  return schema
+}
+
+export async function requireOptionSchemaTemplate(
+  em: EntityManager,
+  id: string,
+  message = 'Option schema not found'
+): Promise<CatalogOptionSchemaTemplate> {
+  const schema = await em.findOne(CatalogOptionSchemaTemplate, { id, deletedAt: null })
+  if (!schema) throw new CrudHttpError(404, { error: message })
+  return schema
 }
