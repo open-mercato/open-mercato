@@ -116,3 +116,99 @@ export const businessRuleFilterSchema = z.object({
 })
 
 export type BusinessRuleFilter = z.infer<typeof businessRuleFilterSchema>
+
+// RuleExecutionLog Create Schema
+export const createRuleExecutionLogSchema = z.object({
+  ruleId: uuid,
+  entityId: uuid,
+  entityType: z.string().min(1).max(50),
+  executionResult: executionResultSchema,
+  inputContext: z.any().optional().nullable(),
+  outputContext: z.any().optional().nullable(),
+  errorMessage: z.string().optional().nullable(),
+  executionTimeMs: z.number().int().min(0),
+  executedAt: z.date().optional(),
+  tenantId: uuid,
+  organizationId: uuid.optional().nullable(),
+  executedBy: z.string().max(50).optional().nullable(),
+})
+
+export type CreateRuleExecutionLogInput = z.infer<typeof createRuleExecutionLogSchema>
+
+// RuleExecutionLog Query/Filter Schema
+export const ruleExecutionLogFilterSchema = z.object({
+  ruleId: uuid.optional(),
+  entityId: uuid.optional(),
+  entityType: z.string().optional(),
+  executionResult: executionResultSchema.optional(),
+  tenantId: uuid.optional(),
+  organizationId: uuid.optional(),
+  executedBy: z.string().optional(),
+  executedAtFrom: z.date().optional(),
+  executedAtTo: z.date().optional(),
+})
+
+export type RuleExecutionLogFilter = z.infer<typeof ruleExecutionLogFilterSchema>
+
+// RuleSet Create Schema
+export const createRuleSetSchema = z.object({
+  setId: z.string().min(1).max(50),
+  setName: z.string().min(1).max(200),
+  description: z.string().max(5000).optional().nullable(),
+  enabled: z.boolean().optional().default(true),
+  tenantId: uuid,
+  organizationId: uuid,
+  createdBy: z.string().max(50).optional().nullable(),
+})
+
+export type CreateRuleSetInput = z.infer<typeof createRuleSetSchema>
+
+// RuleSet Update Schema
+export const updateRuleSetSchema = createRuleSetSchema.partial().extend({
+  id: uuid,
+})
+
+export type UpdateRuleSetInput = z.infer<typeof updateRuleSetSchema>
+
+// RuleSet Query/Filter Schema
+export const ruleSetFilterSchema = z.object({
+  setId: z.string().optional(),
+  setName: z.string().optional(),
+  enabled: z.boolean().optional(),
+  tenantId: uuid.optional(),
+  organizationId: uuid.optional(),
+})
+
+export type RuleSetFilter = z.infer<typeof ruleSetFilterSchema>
+
+// RuleSetMember Create Schema
+export const createRuleSetMemberSchema = z.object({
+  ruleSetId: uuid,
+  ruleId: uuid,
+  sequence: z.number().int().min(0).optional().default(0),
+  enabled: z.boolean().optional().default(true),
+  tenantId: uuid,
+  organizationId: uuid,
+})
+
+export type CreateRuleSetMemberInput = z.infer<typeof createRuleSetMemberSchema>
+
+// RuleSetMember Update Schema
+export const updateRuleSetMemberSchema = z.object({
+  id: uuid,
+  sequence: z.number().int().min(0).optional(),
+  enabled: z.boolean().optional(),
+})
+
+export type UpdateRuleSetMemberInput = z.infer<typeof updateRuleSetMemberSchema>
+
+// RuleSetMember Query/Filter Schema
+export const ruleSetMemberFilterSchema = z.object({
+  ruleSetId: uuid.optional(),
+  ruleId: uuid.optional(),
+  enabled: z.boolean().optional(),
+  tenantId: uuid.optional(),
+  organizationId: uuid.optional(),
+})
+
+export type RuleSetMemberFilter = z.infer<typeof ruleSetMemberFilterSchema>

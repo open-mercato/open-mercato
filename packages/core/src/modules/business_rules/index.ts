@@ -5,6 +5,6 @@ export const metadata: ModuleInfo = {
   title: 'Business Rules',
   version: '0.1.0',
   description: 'Business Rules Engine for defining, managing, and executing business logic and automation rules.',
-  author: 'Open Mercato Team',
+  author: 'Patryk Lewczuk',
   license: 'Proprietary',
 }
