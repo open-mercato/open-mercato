@@ -2,11 +2,9 @@
 
 import * as React from 'react'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -253,20 +251,20 @@ export function PriceKindSettings() {
   const tableEmpty = !loading && items.length === 0
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
-        <div>
-          <CardTitle>{t('catalog.priceKinds.title', 'Price kinds')}</CardTitle>
-          <CardDescription>
+    <section className="rounded-lg border bg-card text-card-foreground shadow-sm">
+      <div className="flex flex-col gap-4 border-b px-6 py-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">{t('catalog.priceKinds.title', 'Price kinds')}</h2>
+          <p className="text-sm text-muted-foreground">
             {t('catalog.priceKinds.description', 'Configure reusable price kinds that control pricing columns and tax display.')}
-          </CardDescription>
+          </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => openDialog({ mode: 'create' })}>
           <Plus className="mr-2 h-4 w-4" />
           {t('catalog.priceKinds.actions.add', 'Add price kind')}
         </Button>
-      </CardHeader>
-      <CardContent className="space-y-4">
+      </div>
+      <div className="space-y-4 p-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-center">
           <Input
             value={searchDraft}
@@ -369,7 +367,7 @@ export function PriceKindSettings() {
             </tbody>
           </table>
         </div>
-      </CardContent>
+      </div>
       <Dialog open={dialog !== null} onOpenChange={(open) => { if (!open) closeDialog(); }}>
         <DialogContent>
           <DialogHeader>
@@ -439,16 +437,20 @@ export function PriceKindSettings() {
             </div>
             <div className="flex flex-col gap-2">
               <label className="flex items-center gap-2 text-sm font-medium">
-                <Checkbox
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border"
                   checked={form.isPromotion}
-                  onCheckedChange={(checked) => setForm((prev) => ({ ...prev, isPromotion: Boolean(checked) }))}
+                  onChange={(event) => setForm((prev) => ({ ...prev, isPromotion: event.target.checked }))}
                 />
                 {t('catalog.priceKinds.form.promotionLabel', 'Mark as promotion')}
               </label>
               <label className="flex items-center gap-2 text-sm font-medium">
-                <Checkbox
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border"
                   checked={form.isActive}
-                  onCheckedChange={(checked) => setForm((prev) => ({ ...prev, isActive: Boolean(checked) }))}
+                  onChange={(event) => setForm((prev) => ({ ...prev, isActive: event.target.checked }))}
                 />
                 {t('catalog.priceKinds.form.activeLabel', 'Active')}
               </label>
@@ -467,6 +469,6 @@ export function PriceKindSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </section>
   )
 }

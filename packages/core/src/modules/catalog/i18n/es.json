@@ -231,6 +231,97 @@
     },
     "nav": {
       "group": "Catálogo"
+    },
+    "priceKinds": {
+      "title": "Price kinds",
+      "description": "Configure reusable price kinds that control pricing columns and tax display.",
+      "actions": {
+        "add": "Add price kind",
+        "search": "Search",
+        "clear": "Clear",
+        "refresh": "Refresh",
+        "cancel": "Cancel",
+        "saveChanges": "Save changes",
+        "create": "Create",
+        "edit": "Edit",
+        "delete": "Delete"
+      },
+      "search": {
+        "placeholder": "Search by code or title…"
+      },
+      "table": {
+        "code": "Code",
+        "title": "Title",
+        "displayMode": "Display mode",
+        "currency": "Currency",
+        "promotion": "Promotion",
+        "promotionYes": "Yes",
+        "promotionNo": "No",
+        "active": "Active",
+        "activeYes": "Active",
+        "activeNo": "Inactive",
+        "actions": "Actions",
+        "empty": "No price kinds yet.",
+        "loading": "Loading…"
+      },
+      "dialog": {
+        "createTitle": "Create price kind",
+        "createDescription": "Define a reusable price kind for product pricing.",
+        "editTitle": "Edit price kind",
+        "editDescription": "Update labels or tax behavior for this price kind."
+      },
+      "form": {
+        "codeLabel": "Code",
+        "codePlaceholder": "e.g. regular",
+        "titleLabel": "Title",
+        "titlePlaceholder": "e.g. Regular price",
+        "displayModeLabel": "Display mode",
+        "displayMode": {
+          "include": "Including tax",
+          "exclude": "Excluding tax"
+        },
+        "currencyLabel": "Currency (optional)",
+        "currency": {
+          "placeholder": "Select currency…",
+          "add": "Add currency",
+          "addPrompt": "Provide a currency code.",
+          "dialogTitle": "Add currency",
+          "valueLabel": "Currency code",
+          "valuePlaceholder": "e.g. USD",
+          "labelLabel": "Display label (optional)",
+          "labelPlaceholder": "e.g. US Dollar",
+          "required": "Currency code is required.",
+          "cancel": "Cancel",
+          "save": "Save",
+          "saveShortcut": "Press Enter to save",
+          "success": "Currency added.",
+          "loadError": "Unable to load currencies.",
+          "createError": "Unable to add currency.",
+          "loading": "Loading currencies…",
+          "manage": "Manage currencies"
+        },
+        "promotionLabel": "Mark as promotion",
+        "activeLabel": "Active"
+      },
+      "errors": {
+        "load": "Failed to load price kinds.",
+        "required": "Code and title are required.",
+        "save": "Failed to save price kind.",
+        "delete": "Failed to delete price kind."
+      },
+      "messages": {
+        "created": "Price kind created.",
+        "updated": "Price kind updated.",
+        "deleted": "Price kind deleted."
+      },
+      "confirm": {
+        "delete": "Delete price kind \"{{code}}\"?"
+      }
+    },
+    "config": {
+      "nav": {
+        "catalog": "Catalog"
+      }
     }
   }
 }
