@@ -30,6 +30,8 @@ type PricingScope = {
 
 type PricingInfo = {
   kind?: string | null
+  price_kind_id?: string | null
+  price_kind_code?: string | null
   currency_code?: string | null
   unit_price_net?: string | null
   unit_price_gross?: string | null

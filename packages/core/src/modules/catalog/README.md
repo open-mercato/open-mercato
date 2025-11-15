@@ -8,7 +8,8 @@ The catalog module exposes reusable product definitions that feed sales flows. I
 - **CatalogProductVariant** – SKU-level configuration with weight/dimensions metadata and variant specific pricing associations.
 - **CatalogProductOption**/**CatalogProductOptionValue** – Configurable option definitions used to construct variant matrices or runtime configuration choices.
 - **CatalogVariantOptionValue** – Junction storing the selected option values for each variant.
-- **CatalogProductPrice** – Tiered prices by currency/kind (list, sale, tier, custom) with optional validity windows and inferred tax context.
+- **CatalogPriceKind** – Organization-scoped labels describing how prices behave (tax display, promotion flag, currency hints).
+- **CatalogProductPrice** – Tiered prices linked to a `CatalogPriceKind` with optional validity windows and inferred tax context.
 
 All MikroORM relations remain intra-module; cross-module references are exposed as plain UUID strings so sales/order modules can link without foreign key constraints.
 

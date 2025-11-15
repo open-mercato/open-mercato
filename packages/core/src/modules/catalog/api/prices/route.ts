@@ -21,7 +21,8 @@ const listSchema = z
     offerId: z.string().uuid().optional(),
     channelId: z.string().uuid().optional(),
     currencyCode: z.string().optional(),
-    kind: z.enum(['list', 'sale', 'tier', 'custom']).optional(),
+    priceKindId: z.string().uuid().optional(),
+    kind: z.string().optional(),
     userId: z.string().uuid().optional(),
     userGroupId: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
@@ -63,6 +64,9 @@ export async function buildPriceFilters(
   if (query.currencyCode) {
     filters.currency_code = { $eq: query.currencyCode.trim().toUpperCase() }
   }
+  if (query.priceKindId) {
+    filters.price_kind_id = { $eq: query.priceKindId }
+  }
   if (query.kind) {
     filters.kind = { $eq: query.kind }
   }
@@ -91,6 +95,7 @@ const crud = makeCrudRoute({
       'variant_id',
       'offer_id',
       FP.currency_code,
+      FP.price_kind_id,
       FP.kind,
       FP.min_quantity,
       FP.max_quantity,
@@ -110,6 +115,7 @@ const crud = makeCrudRoute({
     ],
     sortFieldMap: {
       currencyCode: FP.currency_code,
+      priceKindId: FP.price_kind_id,
       kind: FP.kind,
       minQuantity: FP.min_quantity,
       createdAt: FP.created_at,

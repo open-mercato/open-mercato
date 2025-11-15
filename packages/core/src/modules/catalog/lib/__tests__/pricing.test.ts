@@ -16,7 +16,7 @@ describe('catalog pricing helpers', () => {
     organizationId: 'org-1',
     tenantId: 'tenant-1',
     currencyCode: 'USD',
-    kind: 'list',
+    kind: 'regular',
     minQuantity: 1,
     unitPriceNet: '10.00',
     unitPriceGross: '12.30',
@@ -56,18 +56,20 @@ describe('catalog pricing helpers', () => {
 
   it('selects the highest scoring price with deterministic tie breakers', () => {
     const rows: PriceRow[] = [
-      baseRow({ id: 'base', minQuantity: 1, kind: 'list' }),
+      baseRow({ id: 'base', minQuantity: 1, kind: 'regular' }),
       baseRow({
         id: 'variant-price',
         variant: { id: 'variant-1' } as any,
-        kind: 'sale',
+        kind: 'promotion',
+        priceKind: { id: 'pk-promo', code: 'promotion', isPromotion: true } as any,
         channelId: 'channel-1',
         startsAt: new Date('2024-01-15T00:00:00Z'),
       }),
       baseRow({
         id: 'older-variant',
         variant: { id: 'variant-1' } as any,
-        kind: 'sale',
+        kind: 'promotion',
+        priceKind: { id: 'pk-promo', code: 'promotion', isPromotion: true } as any,
         channelId: 'channel-1',
         startsAt: new Date('2024-01-01T00:00:00Z'),
         minQuantity: 5,

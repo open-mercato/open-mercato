@@ -2,19 +2,56 @@ import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { CatalogPriceKind } from './data/entities'
 
 const UNIT_DEFAULTS: Array<{ value: string; label: string; description?: string }> = [
-  { value: 'each', label: 'Each' },
-  { value: 'set', label: 'Set' },
-  { value: 'pack', label: 'Pack' },
-  { value: 'kg', label: 'Kilogram' },
-  { value: 'g', label: 'Gram' },
-  { value: 'lb', label: 'Pound' },
-  { value: 'oz', label: 'Ounce' },
-  { value: 'l', label: 'Liter' },
-  { value: 'ml', label: 'Milliliter' },
-  { value: 'm', label: 'Meter' },
+  { value: 'pc', label: 'Piece (piece)' },
+  { value: 'set', label: 'Set (piece)' },
+  { value: 'pkg', label: 'Package (piece)' },
+  { value: 'box', label: 'Box (piece)' },
+  { value: 'roll', label: 'Roll (piece)' },
+  { value: 'pair', label: 'Pair (piece)' },
+  { value: 'dozen', label: 'Dozen (piece)' },
+  { value: 'unit', label: 'Unit (piece)' },
+  { value: 'g', label: 'Gram (weight)' },
+  { value: 'kg', label: 'Kilogram (weight)' },
+  { value: 'mg', label: 'Milligram (weight)' },
+  { value: 'lb', label: 'Pound (weight)' },
+  { value: 'oz', label: 'Ounce (weight)' },
+  { value: 'ml', label: 'Milliliter (volume)' },
+  { value: 'l', label: 'Liter (volume)' },
+  { value: 'cl', label: 'Centiliter (volume)' },
+  { value: 'm3', label: 'Cubic Meter (volume)' },
+  { value: 'mm', label: 'Millimeter (length)' },
+  { value: 'cm', label: 'Centimeter (length)' },
+  { value: 'm', label: 'Meter (length)' },
+  { value: 'km', label: 'Kilometer (length)' },
+  { value: 'in', label: 'Inch (length)' },
+  { value: 'ft', label: 'Foot (length)' },
+  { value: 'm2', label: 'Square Meter (area)' },
+  { value: 'cm2', label: 'Square Centimeter (area)' },
+  { value: 'ft2', label: 'Square Foot (area)' },
+  { value: 'gb', label: 'Gigabyte (digital)' },
+  { value: 'mb', label: 'Megabyte (digital)' },
+  { value: 'tb', label: 'Terabyte (digital)' },
+  { value: 'license', label: 'License (digital)' },
+  { value: 'seat', label: 'Seat (digital)' },
+  { value: 'sec', label: 'Second (time)' },
+  { value: 'min', label: 'Minute (time)' },
+  { value: 'hour', label: 'Hour (time)' },
+  { value: 'day', label: 'Day (time)' },
+  { value: 'week', label: 'Week (time)' },
+  { value: 'month', label: 'Month (time)' },
+  { value: 'year', label: 'Year (time)' },
+  { value: 'kwh', label: 'Kilowatt Hour (energy)' },
 ]
+
+const PRICE_KIND_DEFAULTS = [
+  { code: 'regular', title: 'Regular', isPromotion: false },
+  { code: 'promotion', title: 'Promotion', isPromotion: true },
+  { code: 'tier', title: 'Tier', isPromotion: false },
+  { code: 'custom', title: 'Custom', isPromotion: false },
+] as const
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string> = {}
@@ -85,6 +122,37 @@ async function seedUnitDictionary(
   await em.flush()
 }
 
+async function seedPriceKinds(
+  em: EntityManager,
+  { tenantId, organizationId }: { tenantId: string; organizationId: string },
+) {
+  const existing = await em.find(CatalogPriceKind, {
+    tenantId,
+    organizationId,
+    deletedAt: null,
+  })
+  const existingMap = new Map(existing.map((entry) => [entry.code.toLowerCase(), entry]))
+  const now = new Date()
+  for (const def of PRICE_KIND_DEFAULTS) {
+    const key = def.code.toLowerCase()
+    if (existingMap.has(key)) continue
+    const record = em.create(CatalogPriceKind, {
+      organizationId,
+      tenantId,
+      code: def.code,
+      title: def.title,
+      displayMode: 'excluding-tax',
+      currencyCode: null,
+      isPromotion: def.isPromotion,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    em.persist(record)
+  }
+  await em.flush()
+}
+
 const seedUnitsCommand: ModuleCli = {
   command: 'seed-units',
   async run(rest) {
@@ -104,4 +172,23 @@ const seedUnitsCommand: ModuleCli = {
   },
 }
 
-export default [seedUnitsCommand]
+const seedPriceKindsCommand: ModuleCli = {
+  command: 'seed-price-kinds',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato catalog seed-price-kinds --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    await em.transactional(async (tem) => {
+      await seedPriceKinds(tem, { tenantId, organizationId })
+    })
+    console.log('Price kinds seeded for organization', organizationId)
+  },
+}
+
+export default [seedUnitsCommand, seedPriceKindsCommand]

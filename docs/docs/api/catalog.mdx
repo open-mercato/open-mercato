@@ -7,7 +7,7 @@ import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
 
 <OpenApiExplorerBanner />
 
-The catalog module exposes both command handlers and REST endpoints (see `/api/catalog/products`, `/api/catalog/attribute-schemas`, `/api/catalog/variants`, `/api/catalog/options`, and `/api/catalog/prices`). The commands documented below remain the source of truth for validations and undo metadata, so you can safely script imports, seed data, or build bespoke HTTP wrappers even as new HTTP routes come online.
+The catalog module exposes both command handlers and REST endpoints (see `/api/catalog/products`, `/api/catalog/attribute-schemas`, `/api/catalog/variants`, `/api/catalog/options`, `/api/catalog/prices`, and `/api/catalog/price-kinds`). The commands documented below remain the source of truth for validations and undo metadata, so you can safely script imports, seed data, or build bespoke HTTP wrappers even as new HTTP routes come online.
 
 ## Running catalog commands
 
@@ -115,17 +115,27 @@ Stored in `packages/core/src/modules/catalog/commands/prices.ts`.
 
 | Command id | Purpose | Schema |
 | --- | --- | --- |
-| `catalog.prices.create` | Add a price row for a variant | `priceCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:122`) |
-| `catalog.prices.update` | Update price attributes | `priceUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:140`) |
+| `catalog.prices.create` | Add a price row for a variant | `priceCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:273`) |
+| `catalog.prices.update` | Update price attributes | `priceUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:298`) |
 | `catalog.prices.delete` | Remove a price entry | n/a |
 
 Key fields:
 
-- `variantId`, `organizationId`, `tenantId`.
-- `currencyCode` (ISO-4217), optional `kind` (`list`, `sale`, `tier`, `custom`).
+- `variantId`, `organizationId`, `tenantId`, and `priceKindId`.
+- `currencyCode` (ISO-4217) with optional price kind currency override.
 - Quantity bands: `minQuantity`, `maxQuantity`.
 - Price components: `unitPriceNet`, `unitPriceGross`, `taxRate`.
 - Effective dates: `startsAt`, `endsAt` (coerced to `Date` by Zod).
+
+## Price kind commands — `catalog.priceKinds.*`
+
+Stored in `packages/core/src/modules/catalog/commands/priceKinds.ts`.
+
+| Command id | Purpose | Schema |
+| --- | --- | --- |
+| `catalog.priceKinds.create` | Register a reusable price kind | `priceKindCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:258`) |
+| `catalog.priceKinds.update` | Adjust labels, display mode, currency, or promotion flags | `priceKindUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:271`) |
+| `catalog.priceKinds.delete` | Soft delete a price kind after ensuring no prices reference it | n/a |
 
 ## Attribute schema commands — `catalog.attributeSchemas.*`
 

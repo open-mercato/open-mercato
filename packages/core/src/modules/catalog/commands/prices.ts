@@ -4,7 +4,7 @@ import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CatalogOffer, CatalogProduct, CatalogProductPrice, CatalogProductVariant } from '../data/entities'
+import { CatalogOffer, CatalogProduct, CatalogProductPrice, CatalogProductVariant, CatalogPriceKind } from '../data/entities'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
@@ -22,6 +22,7 @@ import {
   requireVariant,
   requireProduct,
   requireOffer,
+  requirePriceKind,
   toNumericString,
 } from './shared'
 
@@ -33,6 +34,8 @@ type PriceSnapshot = {
   organizationId: string
   tenantId: string
   currencyCode: string
+  priceKindId: string
+  priceKindCode: string
   kind: string
   minQuantity: number
   maxQuantity: number | null
@@ -59,6 +62,7 @@ type PriceUndoPayload = {
 
 const PRICE_CHANGE_KEYS = [
   'currencyCode',
+  'priceKindId',
   'kind',
   'minQuantity',
   'maxQuantity',
@@ -107,7 +111,11 @@ async function resolveSnapshotAssociations(
 }
 
 async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSnapshot | null> {
-  const record = await em.findOne(CatalogProductPrice, { id })
+  const record = await em.findOne(
+    CatalogProductPrice,
+    { id },
+    { populate: ['priceKind', 'product', 'variant', 'offer'] }
+  )
   if (!record) return null
   const variantId =
     typeof record.variant === 'string'
@@ -132,6 +140,18 @@ async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSn
     tenantId: record.tenantId,
     organizationId: record.organizationId,
   })
+  const priceKind = record.priceKind
+  const priceKindId =
+    typeof priceKind === 'string'
+      ? priceKind
+      : priceKind
+        ? priceKind.id
+        : null
+  if (!priceKindId) {
+    throw new CrudHttpError(400, { error: 'Price is missing price kind metadata.' })
+  }
+  const priceKindCode =
+    typeof priceKind === 'object' && priceKind ? priceKind.code : record.kind
   return {
     id: record.id,
     variantId,
@@ -140,6 +160,8 @@ async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSn
     organizationId: record.organizationId,
     tenantId: record.tenantId,
     currencyCode: record.currencyCode,
+    priceKindId,
+    priceKindCode,
     kind: record.kind,
     minQuantity: record.minQuantity,
     maxQuantity: record.maxQuantity ?? null,
@@ -160,11 +182,12 @@ async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSn
   }
 }
 
-function applyPriceSnapshot(record: CatalogProductPrice, snapshot: PriceSnapshot): void {
+function applyPriceSnapshot(em: EntityManager, record: CatalogProductPrice, snapshot: PriceSnapshot): void {
   record.organizationId = snapshot.organizationId
   record.tenantId = snapshot.tenantId
   record.currencyCode = snapshot.currencyCode
-  record.kind = snapshot.kind as 'list' | 'sale' | 'tier' | 'custom'
+  record.priceKind = em.getReference(CatalogPriceKind, snapshot.priceKindId)
+  record.kind = snapshot.priceKindCode || snapshot.kind
   record.minQuantity = snapshot.minQuantity
   record.maxQuantity = snapshot.maxQuantity ?? null
   record.unitPriceNet = snapshot.unitPriceNet ?? null
@@ -210,6 +233,9 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     ensureTenantScope(ctx, scopeSource.tenantId)
     ensureOrganizationScope(ctx, scopeSource.organizationId)
 
+    const priceKind = await requirePriceKind(em, parsed.priceKindId)
+    ensureSameScope(priceKind, scopeSource.organizationId, scopeSource.tenantId)
+
     let offer: CatalogOffer | null = null
     if (parsed.offerId) {
       offer = await requireOffer(em, parsed.offerId)
@@ -233,8 +259,9 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
       variant,
       product: productEntity ?? undefined,
       offer: offer ?? undefined,
+      priceKind,
       currencyCode: parsed.currencyCode,
-      kind: parsed.kind ?? 'list',
+      kind: priceKind.code,
       minQuantity: parsed.minQuantity ?? 1,
       maxQuantity: parsed.maxQuantity ?? null,
       unitPriceNet: toNumericString(parsed.unitPriceNet),
@@ -326,7 +353,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(priceUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProductPrice, { id: parsed.id })
+    const record = await em.findOne(CatalogProductPrice, { id: parsed.id }, { populate: ['priceKind'] })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
     const currentVariantRef = record.variant
     let targetVariant: CatalogProductVariant | null = null
@@ -413,14 +440,33 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     ensureTenantScope(ctx, targetProduct.tenantId)
     ensureOrganizationScope(ctx, targetProduct.organizationId)
 
+    let targetPriceKind: CatalogPriceKind | null = null
+    if (record.priceKind) {
+      targetPriceKind =
+        typeof record.priceKind === 'string'
+          ? await requirePriceKind(em, record.priceKind)
+          : record.priceKind
+    }
+    if (parsed.priceKindId !== undefined) {
+      if (!parsed.priceKindId) {
+        throw new CrudHttpError(400, { error: 'Price kind is required.' })
+      }
+      targetPriceKind = await requirePriceKind(em, parsed.priceKindId)
+    }
+    if (!targetPriceKind) {
+      throw new CrudHttpError(400, { error: 'Price kind is required.' })
+    }
+    ensureSameScope(targetPriceKind, targetProduct.organizationId, targetProduct.tenantId)
+
     record.variant = targetVariant
     record.product = targetProduct
     record.offer = targetOffer
     record.organizationId = targetProduct.organizationId
     record.tenantId = targetProduct.tenantId
+    record.priceKind = targetPriceKind
+    record.kind = targetPriceKind.code
 
     if (parsed.currencyCode !== undefined) record.currencyCode = parsed.currencyCode
-    if (parsed.kind !== undefined) record.kind = parsed.kind
     if (parsed.minQuantity !== undefined) record.minQuantity = parsed.minQuantity ?? 1
     if (parsed.maxQuantity !== undefined) record.maxQuantity = parsed.maxQuantity ?? null
     if (Object.prototype.hasOwnProperty.call(parsed, 'unitPriceNet')) {
@@ -511,7 +557,8 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
         organizationId: before.organizationId,
         tenantId: before.tenantId,
         currencyCode: before.currencyCode,
-        kind: before.kind as 'list' | 'sale' | 'tier' | 'custom',
+        priceKind: em.getReference(CatalogPriceKind, before.priceKindId),
+        kind: before.priceKindCode || before.kind,
         minQuantity: before.minQuantity,
         maxQuantity: before.maxQuantity ?? null,
         unitPriceNet: before.unitPriceNet ?? null,
@@ -532,7 +579,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    applyPriceSnapshot(record, before)
+    applyPriceSnapshot(em, record, before)
     await em.flush()
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
@@ -635,7 +682,8 @@ const deletePriceCommand: CommandHandler<
         organizationId: before.organizationId,
         tenantId: before.tenantId,
         currencyCode: before.currencyCode,
-        kind: before.kind as 'list' | 'sale' | 'tier' | 'custom',
+        priceKind: em.getReference(CatalogPriceKind, before.priceKindId),
+        kind: before.priceKindCode || before.kind,
         minQuantity: before.minQuantity,
         maxQuantity: before.maxQuantity ?? null,
         unitPriceNet: before.unitPriceNet ?? null,
@@ -656,7 +704,7 @@ const deletePriceCommand: CommandHandler<
     }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    applyPriceSnapshot(record, before)
+    applyPriceSnapshot(em, record, before)
     await em.flush()
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({

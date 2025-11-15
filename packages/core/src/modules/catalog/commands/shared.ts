@@ -7,6 +7,7 @@ import {
   CatalogProductVariant,
   CatalogAttributeSchemaTemplate,
   CatalogOptionSchemaTemplate,
+  CatalogPriceKind,
 } from '../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -123,6 +124,16 @@ export async function requireOffer(
   const offer = await em.findOne(CatalogOffer, { id })
   if (!offer) throw new CrudHttpError(404, { error: message })
   return offer
+}
+
+export async function requirePriceKind(
+  em: EntityManager,
+  id: string,
+  message = 'Catalog price kind not found'
+): Promise<CatalogPriceKind> {
+  const priceKind = await em.findOne(CatalogPriceKind, { id, deletedAt: null })
+  if (!priceKind) throw new CrudHttpError(404, { error: message })
+  return priceKind
 }
 
 export async function requireAttributeSchemaTemplate(

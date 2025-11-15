@@ -120,11 +120,11 @@
           "mappedType": "datetime"
         }
       },
-      "name": "catalog_attribute_schemas",
+      "name": "catalog_product_attribute_schemas",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "catalog_attribute_schemas_scope_idx",
+          "keyName": "catalog_product_attribute_schemas_scope_idx",
           "columnNames": [
             "organization_id",
             "tenant_id"
@@ -135,7 +135,7 @@
           "unique": false
         },
         {
-          "keyName": "catalog_attribute_schemas_code_unique",
+          "keyName": "catalog_product_attribute_schemas_code_unique",
           "columnNames": [
             "organization_id",
             "tenant_id",
@@ -147,7 +147,7 @@
           "unique": true
         },
         {
-          "keyName": "catalog_attribute_schemas_pkey",
+          "keyName": "catalog_product_attribute_schemas_pkey",
           "columnNames": [
             "id"
           ],
@@ -277,11 +277,11 @@
           "mappedType": "datetime"
         }
       },
-      "name": "catalog_option_schema_templates",
+      "name": "catalog_product_option_schemas",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "catalog_option_schema_templates_scope_idx",
+          "keyName": "catalog_product_option_schemas_scope_idx",
           "columnNames": [
             "organization_id",
             "tenant_id"
@@ -292,7 +292,7 @@
           "unique": false
         },
         {
-          "keyName": "catalog_option_schema_templates_code_unique",
+          "keyName": "catalog_product_option_schemas_code_unique",
           "columnNames": [
             "organization_id",
             "tenant_id",
@@ -304,7 +304,166 @@
           "unique": true
         },
         {
-          "keyName": "catalog_option_schema_templates_pkey",
+          "keyName": "catalog_product_option_schemas_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "display_mode": {
+          "name": "display_mode",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'excluding-tax'",
+          "mappedType": "text"
+        },
+        "currency_code": {
+          "name": "currency_code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "is_promotion": {
+          "name": "is_promotion",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "boolean"
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "catalog_price_kinds",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "catalog_price_kinds_scope_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_price_kinds_code_scope_unique",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "code"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "catalog_price_kinds_pkey",
           "columnNames": [
             "id"
           ],
@@ -586,7 +745,7 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.catalog_attribute_schemas",
+          "referencedTableName": "public.catalog_product_attribute_schemas",
           "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
@@ -600,7 +759,7 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.catalog_option_schema_templates",
+          "referencedTableName": "public.catalog_product_option_schemas",
           "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
@@ -733,11 +892,11 @@
           "mappedType": "datetime"
         }
       },
-      "name": "catalog_offers",
+      "name": "catalog_product_offers",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "catalog_offers_scope_idx",
+          "keyName": "catalog_product_offers_scope_idx",
           "columnNames": [
             "organization_id",
             "tenant_id"
@@ -748,7 +907,7 @@
           "unique": false
         },
         {
-          "keyName": "catalog_offers_product_channel_unique",
+          "keyName": "catalog_product_offers_product_channel_unique",
           "columnNames": [
             "product_id",
             "organization_id",
@@ -761,7 +920,7 @@
           "unique": true
         },
         {
-          "keyName": "catalog_offers_pkey",
+          "keyName": "catalog_product_offers_pkey",
           "columnNames": [
             "id"
           ],
@@ -773,12 +932,12 @@
       ],
       "checks": [],
       "foreignKeys": {
-        "catalog_offers_product_id_foreign": {
-          "constraintName": "catalog_offers_product_id_foreign",
+        "catalog_product_offers_product_id_foreign": {
+          "constraintName": "catalog_product_offers_product_id_foreign",
           "columnNames": [
             "product_id"
           ],
-          "localTableName": "public.catalog_offers",
+          "localTableName": "public.catalog_product_offers",
           "referencedColumnNames": [
             "id"
           ],
@@ -1154,215 +1313,6 @@
           "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
-        "parent_product_id": {
-          "name": "parent_product_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "child_product_id": {
-          "name": "child_product_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "relation_type": {
-          "name": "relation_type",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "'grouped'",
-          "mappedType": "text"
-        },
-        "is_required": {
-          "name": "is_required",
-          "type": "boolean",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "false",
-          "mappedType": "boolean"
-        },
-        "min_quantity": {
-          "name": "min_quantity",
-          "type": "int",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "integer"
-        },
-        "max_quantity": {
-          "name": "max_quantity",
-          "type": "int",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "integer"
-        },
-        "position": {
-          "name": "position",
-          "type": "int",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "0",
-          "mappedType": "integer"
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        }
-      },
-      "name": "catalog_product_relations",
-      "schema": "public",
-      "indexes": [
-        {
-          "keyName": "catalog_product_relations_child_idx",
-          "columnNames": [
-            "child_product_id",
-            "organization_id",
-            "tenant_id"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "catalog_product_relations_parent_idx",
-          "columnNames": [
-            "parent_product_id",
-            "organization_id",
-            "tenant_id"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "catalog_product_relations_unique",
-          "columnNames": [
-            "parent_product_id",
-            "child_product_id",
-            "relation_type"
-          ],
-          "composite": true,
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
-          "keyName": "catalog_product_relations_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {
-        "catalog_product_relations_parent_product_id_foreign": {
-          "constraintName": "catalog_product_relations_parent_product_id_foreign",
-          "columnNames": [
-            "parent_product_id"
-          ],
-          "localTableName": "public.catalog_product_relations",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
-          "deleteRule": "cascade",
-          "updateRule": "cascade"
-        },
-        "catalog_product_relations_child_product_id_foreign": {
-          "constraintName": "catalog_product_relations_child_product_id_foreign",
-          "columnNames": [
-            "child_product_id"
-          ],
-          "localTableName": "public.catalog_product_relations",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
-          "deleteRule": "cascade",
-          "updateRule": "cascade"
-        }
-      },
-      "nativeEnums": {}
-    },
-    {
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "gen_random_uuid()",
-          "mappedType": "uuid"
-        },
         "product_id": {
           "name": "product_id",
           "type": "uuid",
@@ -1628,6 +1578,15 @@
           "nullable": true,
           "mappedType": "uuid"
         },
+        "price_kind_id": {
+          "name": "price_kind_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
         "organization_id": {
           "name": "organization_id",
           "type": "uuid",
@@ -1662,7 +1621,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "'list'",
+          "default": "'regular'",
           "mappedType": "text"
         },
         "min_quantity": {
@@ -1889,9 +1848,231 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.catalog_offers",
+          "referencedTableName": "public.catalog_product_offers",
           "createForeignKeyConstraint": true,
           "deleteRule": "set null",
+          "updateRule": "cascade"
+        },
+        "catalog_product_prices_price_kind_id_foreign": {
+          "constraintName": "catalog_product_prices_price_kind_id_foreign",
+          "columnNames": [
+            "price_kind_id"
+          ],
+          "localTableName": "public.catalog_product_prices",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.catalog_price_kinds",
+          "createForeignKeyConstraint": true,
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "parent_variant_id": {
+          "name": "parent_variant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "child_variant_id": {
+          "name": "child_variant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "relation_type": {
+          "name": "relation_type",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'grouped'",
+          "mappedType": "text"
+        },
+        "is_required": {
+          "name": "is_required",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "boolean"
+        },
+        "min_quantity": {
+          "name": "min_quantity",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "integer"
+        },
+        "max_quantity": {
+          "name": "max_quantity",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "integer"
+        },
+        "position": {
+          "name": "position",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "0",
+          "mappedType": "integer"
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "catalog_product_variant_relations",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "catalog_product_variant_relations_child_idx",
+          "columnNames": [
+            "child_variant_id",
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_product_variant_relations_parent_idx",
+          "columnNames": [
+            "parent_variant_id",
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_product_variant_relations_unique",
+          "columnNames": [
+            "parent_variant_id",
+            "child_variant_id",
+            "relation_type"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "catalog_product_variant_relations_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "catalog_product_variant_relations_parent_variant_id_foreign": {
+          "constraintName": "catalog_product_variant_relations_parent_variant_id_foreign",
+          "columnNames": [
+            "parent_variant_id"
+          ],
+          "localTableName": "public.catalog_product_variant_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.catalog_product_variants",
+          "createForeignKeyConstraint": true,
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "catalog_product_variant_relations_child_variant_id_foreign": {
+          "constraintName": "catalog_product_variant_relations_child_variant_id_foreign",
+          "columnNames": [
+            "child_variant_id"
+          ],
+          "localTableName": "public.catalog_product_variant_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.catalog_product_variants",
+          "createForeignKeyConstraint": true,
+          "deleteRule": "cascade",
           "updateRule": "cascade"
         }
       },

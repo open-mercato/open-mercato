@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
-import { CATALOG_PRODUCT_RELATION_TYPES, CATALOG_PRODUCT_TYPES } from './types'
+import { CATALOG_PRICE_DISPLAY_MODES, CATALOG_PRODUCT_TYPES } from './types'
 
 const uuid = () => z.string().uuid()
 
@@ -115,18 +115,6 @@ const offerInputSchema = z.object({
 
 const productTypeSchema = z.enum(CATALOG_PRODUCT_TYPES)
 
-const relationTypeSchema = z.enum(CATALOG_PRODUCT_RELATION_TYPES)
-
-const subproductAssignmentSchema = z.object({
-  childProductId: uuid(),
-  relationType: relationTypeSchema.optional(),
-  isRequired: z.boolean().optional(),
-  minQuantity: z.coerce.number().int().min(0).optional(),
-  maxQuantity: z.coerce.number().int().min(0).optional(),
-  position: z.coerce.number().int().min(0).max(10000).optional(),
-  metadata: metadataSchema,
-})
-
 export const productCreateSchema = scoped.extend({
   title: z.string().trim().min(1).max(255),
   subtitle: z.string().trim().max(255).optional(),
@@ -145,7 +133,6 @@ export const productCreateSchema = scoped.extend({
   attributeSchema: attributeSchema.optional(),
   attributeValues: attributeValuesSchema.optional(),
   offers: z.array(offerInputSchema.omit({ id: true })).optional(),
-  subproducts: z.array(subproductAssignmentSchema).optional(),
 })
 
 export const productUpdateSchema = z
@@ -266,12 +253,29 @@ export const optionSchemaTemplateUpdateSchema = z
   })
   .merge(optionSchemaTemplateCreateSchema.partial())
 
+const priceDisplayModeSchema = z.enum(CATALOG_PRICE_DISPLAY_MODES)
+
+export const priceKindCreateSchema = scoped.extend({
+  code: slugSchema,
+  title: z.string().trim().min(1).max(255),
+  displayMode: priceDisplayModeSchema.default('excluding-tax'),
+  currencyCode: currencyCodeSchema.optional(),
+  isPromotion: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const priceKindUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(priceKindCreateSchema.partial())
+
 export const priceCreateSchema = scoped.extend({
   variantId: uuid().optional(),
   productId: uuid().optional(),
   offerId: uuid().optional(),
   currencyCode: currencyCodeSchema,
-  kind: z.enum(['list', 'sale', 'tier', 'custom']).optional(),
+  priceKindId: uuid(),
   minQuantity: z.coerce.number().int().min(1).optional(),
   maxQuantity: z.coerce.number().int().min(1).optional(),
   unitPriceNet: z.coerce.number().min(0).optional(),
@@ -305,6 +309,8 @@ export type AttributeSchemaTemplateCreateInput = z.infer<typeof attributeSchemaT
 export type AttributeSchemaTemplateUpdateInput = z.infer<typeof attributeSchemaTemplateUpdateSchema>
 export type OptionSchemaTemplateCreateInput = z.infer<typeof optionSchemaTemplateCreateSchema>
 export type OptionSchemaTemplateUpdateInput = z.infer<typeof optionSchemaTemplateUpdateSchema>
+export type PriceKindCreateInput = z.infer<typeof priceKindCreateSchema>
+export type PriceKindUpdateInput = z.infer<typeof priceKindUpdateSchema>
 export type PriceCreateInput = z.infer<typeof priceCreateSchema>
 export type PriceUpdateInput = z.infer<typeof priceUpdateSchema>
 export type OfferInput = z.infer<typeof offerInputSchema>

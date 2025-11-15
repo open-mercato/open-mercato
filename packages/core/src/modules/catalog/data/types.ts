@@ -81,3 +81,7 @@ export type CatalogPricingScope = {
   customerId?: string | null
   customerGroupId?: string | null
 }
+
+export const CATALOG_PRICE_DISPLAY_MODES = ['including-tax', 'excluding-tax'] as const
+
+export type CatalogPriceDisplayMode = (typeof CATALOG_PRICE_DISPLAY_MODES)[number]

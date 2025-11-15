@@ -23,6 +23,7 @@ import {
   resolvePriceChannelId,
   resolvePriceOfferId,
   resolvePriceVariantId,
+  resolvePriceKindCode,
   type PricingContext,
   type PriceRow,
 } from '../../lib/pricing'
@@ -292,7 +293,7 @@ async function decorateProductsAfterList(
   const priceRows = await em.find(
     CatalogProductPrice,
     priceWhere,
-    { populate: ['offer', 'variant', 'product'] }
+    { populate: ['offer', 'variant', 'product', 'priceKind'] }
   )
   const pricesByProduct = new Map<string, PriceRow[]>()
   for (const price of priceRows) {
@@ -324,7 +325,9 @@ async function decorateProductsAfterList(
     const best = await pricingService.resolvePrice(priceCandidates, pricingContext)
     if (best) {
       item.pricing = {
-        kind: best.kind,
+        kind: resolvePriceKindCode(best),
+        price_kind_id: typeof best.priceKind === 'string' ? best.priceKind : best.priceKind?.id ?? null,
+        price_kind_code: resolvePriceKindCode(best),
         currency_code: best.currencyCode,
         unit_price_net: best.unitPriceNet,
         unit_price_gross: best.unitPriceGross,

@@ -11,7 +11,6 @@ import {
   CatalogProduct,
   CatalogProductOption,
   CatalogProductVariant,
-  CatalogProductRelation,
   CatalogAttributeSchemaTemplate,
   CatalogOptionSchemaTemplate,
 } from '../data/entities'
@@ -36,7 +35,6 @@ import {
   extractUndoPayload,
   requireAttributeSchemaTemplate,
   requireOptionSchemaTemplate,
-  requireProduct,
 } from './shared'
 import { resolveAttributeSchema } from '../lib/attributeSchemas'
 
@@ -65,7 +63,6 @@ type ProductSnapshot = {
   createdAt: string
   updatedAt: string
   offers: OfferSnapshot[]
-  relations: ProductRelationSnapshot[]
   custom: Record<string, unknown> | null
 }
 
@@ -83,19 +80,6 @@ type OfferSnapshot = {
   metadata: Record<string, unknown> | null
   isActive: boolean
 }
-
-type ProductRelationSnapshot = {
-  id: string
-  childProductId: string
-  relationType: 'bundle' | 'grouped'
-  isRequired: boolean
-  minQuantity: number | null
-  maxQuantity: number | null
-  position: number
-  metadata: Record<string, unknown> | null
-}
-
-type ProductRelationInput = NonNullable<ProductCreateInput['subproducts']>[number]
 
 const PRODUCT_CHANGE_KEYS = [
   'title',
@@ -186,150 +170,6 @@ async function restoreOffersFromSnapshot(
   }
 }
 
-async function loadRelationSnapshots(
-  em: EntityManager,
-  productId: string
-): Promise<ProductRelationSnapshot[]> {
-  const records = await em.find(
-    CatalogProductRelation,
-    { parent: productId },
-    { orderBy: { position: 'asc', createdAt: 'asc' } }
-  )
-  return records.map((relation) => ({
-    id: relation.id,
-    childProductId:
-      typeof relation.child === 'string' ? relation.child : relation.child.id,
-    relationType: relation.relationType,
-    isRequired: relation.isRequired,
-    minQuantity: relation.minQuantity ?? null,
-    maxQuantity: relation.maxQuantity ?? null,
-    position: relation.position,
-    metadata: relation.metadata ? cloneJson(relation.metadata) : null,
-  }))
-}
-
-async function restoreRelationsFromSnapshot(
-  em: EntityManager,
-  product: CatalogProduct,
-  snapshot: ProductRelationSnapshot[] | null | undefined
-): Promise<void> {
-  const existing = await em.find(CatalogProductRelation, { parent: product })
-  const keepIds = new Set<string>()
-  const list = Array.isArray(snapshot) ? snapshot : []
-  for (const entry of list) {
-    if (!entry.childProductId) continue
-    const child = await em.findOne(CatalogProduct, {
-      id: entry.childProductId,
-      deletedAt: null,
-    })
-    if (!child) continue
-    ensureSameScope(child, product.organizationId, product.tenantId)
-    let relation = existing.find((item) => item.id === entry.id)
-    if (!relation) {
-      relation = em.create(CatalogProductRelation, {
-        id: entry.id,
-        parent: product,
-        child,
-        organizationId: product.organizationId,
-        tenantId: product.tenantId,
-        relationType: entry.relationType,
-        isRequired: entry.isRequired ?? false,
-        minQuantity: entry.minQuantity ?? null,
-        maxQuantity: entry.maxQuantity ?? null,
-        position: entry.position ?? 0,
-      })
-      em.persist(relation)
-      existing.push(relation)
-    } else {
-      relation.child = child
-    }
-    relation.relationType = entry.relationType
-    relation.isRequired = entry.isRequired
-    relation.minQuantity = entry.minQuantity
-    relation.maxQuantity = entry.maxQuantity
-    relation.position = entry.position
-    relation.metadata = entry.metadata ? cloneJson(entry.metadata) : null
-    keepIds.add(relation.id)
-  }
-  const toRemove = existing.filter((relation) => !keepIds.has(relation.id))
-  for (const relation of toRemove) {
-    em.remove(relation)
-  }
-}
-
-async function syncProductRelations(
-  em: EntityManager,
-  product: CatalogProduct,
-  inputs: ProductRelationInput[] | undefined
-): Promise<void> {
-  if (inputs === undefined) return
-  const normalized = Array.isArray(inputs) ? inputs : []
-  const existing = await em.find(CatalogProductRelation, { parent: product })
-  const keyed = new Map<string, CatalogProductRelation>()
-  for (const relation of existing) {
-    const childId = typeof relation.child === 'string' ? relation.child : relation.child.id
-    const key = `${childId}:${relation.relationType}`
-    keyed.set(key, relation)
-  }
-  const keepIds = new Set<string>()
-  for (let index = 0; index < normalized.length; index++) {
-    const input = normalized[index]
-    if (!input || !input.childProductId) continue
-    if (input.childProductId === product.id) continue
-    const relationType =
-      input.relationType ?? (product.productType === 'bundle' ? 'bundle' : 'grouped')
-    const key = `${input.childProductId}:${relationType}`
-    let relation = keyed.get(key)
-    if (!relation) {
-      const child = await requireProduct(em, input.childProductId, 'Subproduct not found')
-      ensureSameScope(child, product.organizationId, product.tenantId)
-      relation = em.create(CatalogProductRelation, {
-        parent: product,
-        child,
-        organizationId: product.organizationId,
-        tenantId: product.tenantId,
-        relationType,
-        isRequired: input.isRequired ?? false,
-        minQuantity:
-          input.minQuantity !== undefined && input.minQuantity !== null
-            ? Number(input.minQuantity)
-            : null,
-        maxQuantity:
-          input.maxQuantity !== undefined && input.maxQuantity !== null
-            ? Number(input.maxQuantity)
-            : null,
-        position:
-          input.position !== undefined && input.position !== null
-            ? Number(input.position)
-            : index,
-      })
-      em.persist(relation)
-      existing.push(relation)
-      keyed.set(key, relation)
-    }
-    relation.relationType = relationType
-    relation.isRequired = input.isRequired ?? false
-    relation.minQuantity =
-      input.minQuantity !== undefined && input.minQuantity !== null
-        ? Number(input.minQuantity)
-        : null
-    relation.maxQuantity =
-      input.maxQuantity !== undefined && input.maxQuantity !== null
-        ? Number(input.maxQuantity)
-        : null
-    relation.position =
-      input.position !== undefined && input.position !== null
-        ? Number(input.position)
-        : index
-    relation.metadata = input.metadata ? cloneJson(input.metadata) : null
-    keepIds.add(relation.id)
-  }
-  const toRemove = existing.filter((relation) => !keepIds.has(relation.id))
-  for (const relation of toRemove) {
-    em.remove(relation)
-  }
-}
-
 async function syncOffers(
   em: EntityManager,
   product: CatalogProduct,
@@ -367,15 +207,15 @@ async function syncOffers(
         target = existingByChannel
       }
     }
-      if (!target) {
-        target = em.create(CatalogOffer, {
-          product,
-          organizationId: product.organizationId,
-          tenantId: product.tenantId,
-          channelId: input.channelId,
-          title: input.title || product.title,
-          isActive: input.isActive !== false,
-        })
+    if (!target) {
+      target = em.create(CatalogOffer, {
+        product,
+        organizationId: product.organizationId,
+        tenantId: product.tenantId,
+        channelId: input.channelId,
+        title: input.title || product.title,
+        isActive: input.isActive !== false,
+      })
       em.persist(target)
       existing.push(target)
       channelMap.set(input.channelId, target)
@@ -406,7 +246,6 @@ async function loadProductSnapshot(
   )
   if (!record) return null
   const offers = await loadOfferSnapshots(em, record.id)
-  const relations = await loadRelationSnapshots(em, record.id)
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: E.catalog.catalog_product,
     recordId: record.id,
@@ -460,7 +299,6 @@ async function loadProductSnapshot(
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     offers,
-    relations,
     custom: Object.keys(custom).length ? custom : null,
   }
 }
@@ -549,7 +387,6 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     })
     em.persist(record)
     await em.flush()
-    await syncProductRelations(em, record, parsed.subproducts)
     await syncOffers(em, record, parsed.offers)
     await em.flush()
     await setCustomFieldsIfAny({
@@ -769,7 +606,6 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     ensureOrganizationScope(ctx, before.organizationId)
     applyProductSnapshot(em, record, before)
     await restoreOffersFromSnapshot(em, record, before.offers)
-    await restoreRelationsFromSnapshot(em, record, before.relations)
     await em.flush()
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
     if (Object.keys(resetValues).length) {
@@ -889,7 +725,6 @@ const deleteProductCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyProductSnapshot(em, record, before)
     await restoreOffersFromSnapshot(em, record, before.offers)
-    await restoreRelationsFromSnapshot(em, record, before.relations)
     await em.flush()
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({

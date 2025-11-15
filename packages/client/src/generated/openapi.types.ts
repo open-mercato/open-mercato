@@ -629,6 +629,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/catalog/price-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/price-kinds
+         * @description Requires features: catalog.settings.manage
+         */
+        get: operations["catalog_get_catalog_price_kinds"];
+        /**
+         * PUT /catalog/price-kinds
+         * @description Requires features: catalog.settings.manage
+         */
+        put: operations["catalog_put_catalog_price_kinds"];
+        /**
+         * POST /catalog/price-kinds
+         * @description Requires features: catalog.settings.manage
+         */
+        post: operations["catalog_post_catalog_price_kinds"];
+        /**
+         * DELETE /catalog/price-kinds
+         * @description Requires features: catalog.settings.manage
+         */
+        delete: operations["catalog_delete_catalog_price_kinds"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/catalog/prices": {
         parameters: {
             query?: never;
@@ -4163,6 +4195,41 @@ export interface components {
             error: components["schemas"]["DocPathsCatalogOptionsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsCatalogOptionsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogPriceKindsGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogPriceKindsPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogPriceKindsPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsCatalogPricesDeleteResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsCatalogPricesDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
@@ -14761,6 +14828,196 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsCatalogOptionsDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_price_kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_put_catalog_price_kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_post_catalog_price_kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_delete_catalog_price_kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsDeleteResponses403ContentApplicationJsonSchema"];
                 };
             };
         };

@@ -13,6 +13,7 @@ import type {
   CatalogAttributeSchema,
   CatalogAttributeValues,
   CatalogOfferLocalizedContent,
+  CatalogPriceDisplayMode,
   CatalogProductOptionSchema,
   CatalogProductRelationType,
   CatalogProductType,
@@ -206,37 +207,38 @@ export class CatalogProduct {
   @OneToMany(() => CatalogOffer, (offer) => offer.product)
   offers = new Collection<CatalogOffer>(this)
 
-  @OneToMany(() => CatalogProductRelation, (relation) => relation.parent)
-  subproductRelations = new Collection<CatalogProductRelation>(this)
-
-  @OneToMany(() => CatalogProductRelation, (relation) => relation.child)
-  parentRelations = new Collection<CatalogProductRelation>(this)
 }
 
-@Entity({ tableName: 'catalog_product_relations' })
+@Entity({ tableName: 'catalog_product_variant_relations' })
 @Index({
-  name: 'catalog_product_relations_parent_idx',
-  properties: ['parent', 'organizationId', 'tenantId'],
+  name: 'catalog_product_variant_relations_parent_idx',
+  properties: ['parentVariant', 'organizationId', 'tenantId'],
 })
 @Index({
-  name: 'catalog_product_relations_child_idx',
-  properties: ['child', 'organizationId', 'tenantId'],
+  name: 'catalog_product_variant_relations_child_idx',
+  properties: ['childVariant', 'organizationId', 'tenantId'],
 })
 @Unique({
-  name: 'catalog_product_relations_unique',
-  properties: ['parent', 'child', 'relationType'],
+  name: 'catalog_product_variant_relations_unique',
+  properties: ['parentVariant', 'childVariant', 'relationType'],
 })
-export class CatalogProductRelation {
+export class CatalogProductVariantRelation {
   [OptionalProps]?: 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @ManyToOne(() => CatalogProduct, { fieldName: 'parent_product_id', deleteRule: 'cascade' })
-  parent!: CatalogProduct
+  @ManyToOne(() => CatalogProductVariant, {
+    fieldName: 'parent_variant_id',
+    deleteRule: 'cascade',
+  })
+  parentVariant!: CatalogProductVariant
 
-  @ManyToOne(() => CatalogProduct, { fieldName: 'child_product_id', deleteRule: 'cascade' })
-  child!: CatalogProduct
+  @ManyToOne(() => CatalogProductVariant, {
+    fieldName: 'child_variant_id',
+    deleteRule: 'cascade',
+  })
+  childVariant!: CatalogProductVariant
 
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
@@ -397,6 +399,12 @@ export class CatalogProductVariant {
 
   @OneToMany(() => CatalogVariantOptionValue, (optionValue) => optionValue.variant)
   optionValues = new Collection<CatalogVariantOptionValue>(this)
+
+  @OneToMany(() => CatalogProductVariantRelation, (relation) => relation.parentVariant)
+  componentRelations = new Collection<CatalogProductVariantRelation>(this)
+
+  @OneToMany(() => CatalogProductVariantRelation, (relation) => relation.childVariant)
+  parentRelations = new Collection<CatalogProductVariantRelation>(this)
 }
 
 @Entity({ tableName: 'catalog_product_options' })
@@ -532,6 +540,58 @@ export class CatalogVariantOptionValue {
   updatedAt: Date = new Date()
 }
 
+@Entity({ tableName: 'catalog_price_kinds' })
+@Index({
+  name: 'catalog_price_kinds_scope_idx',
+  properties: ['organizationId', 'tenantId'],
+})
+@Unique({
+  name: 'catalog_price_kinds_code_scope_unique',
+  properties: ['organizationId', 'tenantId', 'code'],
+})
+export class CatalogPriceKind {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  code!: string
+
+  @Property({ type: 'text' })
+  title!: string
+
+  @Property({ name: 'display_mode', type: 'text', default: 'excluding-tax' })
+  displayMode: CatalogPriceDisplayMode = 'excluding-tax'
+
+  @Property({ name: 'currency_code', type: 'text', nullable: true })
+  currencyCode?: string | null
+
+  @Property({ name: 'is_promotion', type: 'boolean', default: false })
+  isPromotion: boolean = false
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @OneToMany(() => CatalogProductPrice, (price) => price.priceKind)
+  prices = new Collection<CatalogProductPrice>(this)
+}
+
 @Entity({ tableName: 'catalog_product_prices' })
 @Index({ name: 'catalog_product_prices_variant_scope_idx', properties: ['variant', 'organizationId', 'tenantId'] })
 @Index({ name: 'catalog_product_prices_product_scope_idx', properties: ['product', 'organizationId', 'tenantId'] })
@@ -550,6 +610,9 @@ export class CatalogProductPrice {
   @ManyToOne(() => CatalogOffer, { fieldName: 'offer_id', nullable: true })
   offer?: CatalogOffer | null
 
+  @ManyToOne(() => CatalogPriceKind, { fieldName: 'price_kind_id', onDelete: 'restrict' })
+  priceKind!: CatalogPriceKind
+
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
@@ -559,8 +622,8 @@ export class CatalogProductPrice {
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
-  @Property({ type: 'text', default: 'list' })
-  kind: 'list' | 'sale' | 'tier' | 'custom' = 'list'
+  @Property({ name: 'kind', type: 'text', default: 'regular' })
+  kind: string = 'regular'
 
   @Property({ name: 'min_quantity', type: 'integer', default: 1 })
   minQuantity: number = 1
