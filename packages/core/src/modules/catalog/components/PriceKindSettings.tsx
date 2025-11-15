@@ -7,7 +7,6 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import {
   Dialog,
   DialogContent,
@@ -306,11 +305,11 @@ export function PriceKindSettings() {
                   <td className="px-4 py-2 font-mono text-xs uppercase">{entry.code}</td>
                   <td className="px-4 py-2">{entry.title}</td>
                   <td className="px-4 py-2">
-                    <Badge variant="outline">
+                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium">
                       {entry.displayMode === 'including-tax'
                         ? t('catalog.priceKinds.form.displayMode.include', 'Including tax')
                         : t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax')}
-                    </Badge>
+                    </span>
                   </td>
                   <td className="px-4 py-2">
                     {entry.currencyCode ? (
@@ -321,16 +320,22 @@ export function PriceKindSettings() {
                   </td>
                   <td className="px-4 py-2">
                     {entry.isPromotion ? (
-                      <Badge variant="secondary">{t('catalog.priceKinds.table.promotionYes', 'Yes')}</Badge>
+                      <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-900 dark:border-purple-500/50 dark:bg-purple-500/10 dark:text-purple-100">
+                        {t('catalog.priceKinds.table.promotionYes', 'Yes')}
+                      </span>
                     ) : (
                       <span className="text-xs text-muted-foreground">{t('catalog.priceKinds.table.promotionNo', 'No')}</span>
                     )}
                   </td>
                   <td className="px-4 py-2">
                     {entry.isActive ? (
-                      <Badge variant="success">{t('catalog.priceKinds.table.activeYes', 'Active')}</Badge>
+                      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-500/10 dark:text-emerald-100">
+                        {t('catalog.priceKinds.table.activeYes', 'Active')}
+                      </span>
                     ) : (
-                      <Badge variant="outline">{t('catalog.priceKinds.table.activeNo', 'Inactive')}</Badge>
+                      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium">
+                        {t('catalog.priceKinds.table.activeNo', 'Inactive')}
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-2">
