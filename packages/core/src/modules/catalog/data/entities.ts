@@ -18,13 +18,13 @@ import type {
   CatalogProductType,
 } from './types'
 
-@Entity({ tableName: 'catalog_attribute_schemas' })
+@Entity({ tableName: 'catalog_product_attribute_schemas' })
 @Index({
-  name: 'catalog_attribute_schemas_scope_idx',
+  name: 'catalog_product_attribute_schemas_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
 @Unique({
-  name: 'catalog_attribute_schemas_code_unique',
+  name: 'catalog_product_attribute_schemas_code_unique',
   properties: ['organizationId', 'tenantId', 'code'],
 })
 export class CatalogAttributeSchemaTemplate {
@@ -67,13 +67,13 @@ export class CatalogAttributeSchemaTemplate {
   deletedAt?: Date | null
 }
 
-@Entity({ tableName: 'catalog_option_schema_templates' })
+@Entity({ tableName: 'catalog_product_option_schemas' })
 @Index({
-  name: 'catalog_option_schema_templates_scope_idx',
+  name: 'catalog_product_option_schemas_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
 @Unique({
-  name: 'catalog_option_schema_templates_code_unique',
+  name: 'catalog_product_option_schemas_code_unique',
   properties: ['organizationId', 'tenantId', 'code'],
 })
 export class CatalogOptionSchemaTemplate {
@@ -269,10 +269,10 @@ export class CatalogProductRelation {
   updatedAt: Date = new Date()
 }
 
-@Entity({ tableName: 'catalog_offers' })
-@Index({ name: 'catalog_offers_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Entity({ tableName: 'catalog_product_offers' })
+@Index({ name: 'catalog_product_offers_scope_idx', properties: ['organizationId', 'tenantId'] })
 @Unique({
-  name: 'catalog_offers_product_channel_unique',
+  name: 'catalog_product_offers_product_channel_unique',
   properties: ['product', 'organizationId', 'tenantId', 'channelId'],
 })
 export class CatalogOffer {

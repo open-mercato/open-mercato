@@ -3,11 +3,11 @@ import { Migration } from '@mikro-orm/migrations';
 export class Migration20251114080223 extends Migration {
 
   override async up(): Promise<void> {
-    this.addSql(`create table "catalog_offers" ("id" uuid not null default gen_random_uuid(), "product_id" uuid not null, "organization_id" uuid not null, "tenant_id" uuid not null, "channel_id" uuid not null, "title" text not null, "description" text null, "localized_content" jsonb null, "metadata" jsonb null, "is_active" boolean not null default true, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, constraint "catalog_offers_pkey" primary key ("id"));`);
-    this.addSql(`create index "catalog_offers_scope_idx" on "catalog_offers" ("organization_id", "tenant_id");`);
-    this.addSql(`alter table "catalog_offers" add constraint "catalog_offers_product_channel_unique" unique ("product_id", "organization_id", "tenant_id", "channel_id");`);
+    this.addSql(`create table "catalog_product_offers" ("id" uuid not null default gen_random_uuid(), "product_id" uuid not null, "organization_id" uuid not null, "tenant_id" uuid not null, "channel_id" uuid not null, "title" text not null, "description" text null, "localized_content" jsonb null, "metadata" jsonb null, "is_active" boolean not null default true, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, constraint "catalog_product_offers_pkey" primary key ("id"));`);
+    this.addSql(`create index "catalog_product_offers_scope_idx" on "catalog_product_offers" ("organization_id", "tenant_id");`);
+    this.addSql(`alter table "catalog_product_offers" add constraint "catalog_product_offers_product_channel_unique" unique ("product_id", "organization_id", "tenant_id", "channel_id");`);
 
-    this.addSql(`alter table "catalog_offers" add constraint "catalog_offers_product_id_foreign" foreign key ("product_id") references "catalog_products" ("id") on update cascade;`);
+    this.addSql(`alter table "catalog_product_offers" add constraint "catalog_product_offers_product_id_foreign" foreign key ("product_id") references "catalog_products" ("id") on update cascade;`);
 
     this.addSql(`alter table "catalog_product_prices" drop constraint "catalog_product_prices_variant_id_foreign";`);
 
@@ -25,7 +25,7 @@ export class Migration20251114080223 extends Migration {
     this.addSql(`alter table "catalog_product_prices" alter column "variant_id" type uuid using ("variant_id"::text::uuid);`);
     this.addSql(`alter table "catalog_product_prices" alter column "variant_id" drop not null;`);
     this.addSql(`alter table "catalog_product_prices" add constraint "catalog_product_prices_product_id_foreign" foreign key ("product_id") references "catalog_products" ("id") on update cascade on delete set null;`);
-    this.addSql(`alter table "catalog_product_prices" add constraint "catalog_product_prices_offer_id_foreign" foreign key ("offer_id") references "catalog_offers" ("id") on update cascade on delete set null;`);
+    this.addSql(`alter table "catalog_product_prices" add constraint "catalog_product_prices_offer_id_foreign" foreign key ("offer_id") references "catalog_product_offers" ("id") on update cascade on delete set null;`);
     this.addSql(`alter table "catalog_product_prices" add constraint "catalog_product_prices_variant_id_foreign" foreign key ("variant_id") references "catalog_product_variants" ("id") on update cascade on delete set null;`);
     this.addSql(`create index "catalog_product_prices_product_scope_idx" on "catalog_product_prices" ("product_id", "organization_id", "tenant_id");`);
     this.addSql(`alter index "catalog_product_prices_scope_idx" rename to "catalog_product_prices_variant_scope_idx";`);

@@ -26,7 +26,6 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   ProductAttributeSchemaPanel,
   ProductVariantsPanel,
-  ProductSubproductsPanel,
   ProductCustomOptionsPanel,
   type VariantDraft,
   type SubproductDraft,
@@ -56,7 +55,7 @@ type PriceDraft = {
   endsAt?: string
 }
 
-type ProductWizardStep = 'basics' | 'organize' | 'variants' | 'shipping'
+type ProductWizardStep = 'basics' | 'organize' | 'variants'
 
 type MediaDraft = {
   id: string
@@ -71,6 +70,8 @@ type OrganizerDraft = {
   tags: string[]
   salesChannels: string[]
 }
+
+const COMING_SOON_PRODUCT_TYPES = new Set<CatalogProductType>(['bundle', 'grouped'])
 
 type CatalogDictionarySelectConfig = {
   labels: DictionarySelectLabels
@@ -181,14 +182,20 @@ export default function CreateCatalogProductPage() {
             onStepChange={setActiveStep}
             currencyDictionary={currencyDictionary}
             unitDictionary={unitDictionary}
+            errors={ctx.errors as Record<string, string>}
           />
         ),
       },
       {
-        id: 'customFields',
+        id: 'attributeSchemaSidebar',
         column: 2,
-        kind: 'customFields',
-        title: t('entities.customFields.title', 'Custom fields'),
+        title: t('catalog.products.create.sections.attributeSchema.sidebarTitle', 'Attribute schema'),
+        component: (ctx) => (
+          <AttributeSchemaSidebar
+            values={ctx.values as CreateProductFormValues}
+            setValue={ctx.setValue}
+          />
+        ),
       },
     ],
     [activeStep, currencyDictionary, productTypeOptions, t, unitDictionary],
@@ -420,6 +427,7 @@ type ProductCreateWizardProps = {
   onStepChange: (step: ProductWizardStep) => void
   currencyDictionary: CatalogDictionarySelectConfig
   unitDictionary: CatalogDictionarySelectConfig
+  errors: Record<string, string>
 }
 
 function ProductCreateWizard({
@@ -430,6 +438,7 @@ function ProductCreateWizard({
   onStepChange,
   currencyDictionary,
   unitDictionary,
+  errors,
 }: ProductCreateWizardProps) {
   const t = useT()
   const steps = React.useMemo(
@@ -437,7 +446,6 @@ function ProductCreateWizard({
       { id: 'basics', label: t('catalog.products.create.steps.basics', 'Details') },
       { id: 'organize', label: t('catalog.products.create.steps.organize', 'Organize') },
       { id: 'variants', label: t('catalog.products.create.steps.variants', 'Variants') },
-      { id: 'shipping', label: t('catalog.products.create.steps.shipping', 'Shipping') },
     ] satisfies Array<{ id: ProductWizardStep; label: string }>,
     [t],
   )
@@ -452,13 +460,14 @@ function ProductCreateWizard({
           productTypeOptions={productTypeOptions}
           currencyDictionary={currencyDictionary}
           unitDictionary={unitDictionary}
+          errors={errors}
         />
       ) : activeStep === 'organize' ? (
         <ProductOrganizeStep values={values} setValue={setValue} />
       ) : activeStep === 'variants' ? (
         <ProductVariantsStep values={values} setValue={setValue} />
       ) : (
-        <ProductShippingStep />
+        null
       )}
     </div>
   )
@@ -538,6 +547,7 @@ type ProductBasicsStepProps = {
   productTypeOptions: Array<{ value: CatalogProductType; label: string }>
   currencyDictionary: CatalogDictionarySelectConfig
   unitDictionary: CatalogDictionarySelectConfig
+  errors: Record<string, string>
 }
 
 function ProductBasicsStep({
@@ -546,11 +556,29 @@ function ProductBasicsStep({
   productTypeOptions,
   currencyDictionary,
   unitDictionary,
+  errors,
 }: ProductBasicsStepProps) {
   const t = useT()
   const mediaDrafts = Array.isArray(values.mediaDrafts)
     ? (values.mediaDrafts as MediaDraft[])
     : []
+  const priceEntries = Array.isArray(values.priceEntries)
+    ? (values.priceEntries as PriceDraft[])
+    : []
+  const fieldError = (fieldId: string) =>
+    typeof errors?.[fieldId] === 'string' ? errors[fieldId] : undefined
+  const setPriceEntries = React.useCallback(
+    (next: PriceDraft[]) => setValue('priceEntries', next),
+    [setValue],
+  )
+  const handleAddPrice = React.useCallback(() => {
+    setPriceEntries([...priceEntries, createPriceDraft(values.primaryCurrencyCode)])
+  }, [priceEntries, setPriceEntries, values.primaryCurrencyCode])
+  const productTypeValue =
+    typeof values.productType === 'string' ? values.productType : 'simple'
+  const normalizedProductType = COMING_SOON_PRODUCT_TYPES.has(productTypeValue as CatalogProductType)
+    ? 'simple'
+    : productTypeValue
 
   return (
     <div className="space-y-6">
@@ -559,16 +587,18 @@ function ProductBasicsStep({
         description={t('catalog.products.create.sections.basicsHint', 'Set the essentials customers will see first.')}
       >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="space-y-1">
+          <div data-crud-field-id="title" className="space-y-1">
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('catalog.products.form.title', 'Title')}
             </label>
             <Input
               value={typeof values.title === 'string' ? values.title : ''}
               onChange={(event) => setValue('title', event.target.value)}
+              data-crud-focus-target=""
             />
+            <FieldError message={fieldError('title')} />
           </div>
-          <div className="space-y-1">
+          <div data-crud-field-id="subtitle" className="space-y-1">
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('catalog.products.form.subtitle', 'Subtitle')}
             </label>
@@ -576,17 +606,19 @@ function ProductBasicsStep({
               value={typeof values.subtitle === 'string' ? values.subtitle : ''}
               onChange={(event) => setValue('subtitle', event.target.value)}
             />
+            <FieldError message={fieldError('subtitle')} />
           </div>
-          <div className="space-y-1">
+          <div data-crud-field-id="handle" className="space-y-1">
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('catalog.products.form.handle', 'Handle')}
             </label>
             <HandleInputField
               value={typeof values.handle === 'string' ? values.handle : ''}
               onChange={(next) => setValue('handle', next)}
+              error={fieldError('handle')}
             />
           </div>
-          <div className="space-y-1">
+          <div data-crud-field-id="sku" className="space-y-1">
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('catalog.products.form.sku', 'SKU')}
             </label>
@@ -594,10 +626,11 @@ function ProductBasicsStep({
               value={typeof values.sku === 'string' ? values.sku : ''}
               onChange={(event) => setValue('sku', event.target.value)}
             />
+            <FieldError message={fieldError('sku')} />
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="space-y-1">
+          <div data-crud-field-id="description" className="space-y-1">
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('catalog.products.form.description', 'Description')}
             </label>
@@ -606,25 +639,39 @@ function ProductBasicsStep({
               value={typeof values.description === 'string' ? values.description : ''}
               onChange={(event) => setValue('description', event.target.value)}
             />
+            <FieldError message={fieldError('description')} />
           </div>
           <div className="space-y-4">
-            <div className="space-y-1">
+            <div data-crud-field-id="productType" className="space-y-1">
               <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {t('catalog.products.form.productType', 'Product type')}
               </label>
               <select
                 className="h-9 w-full rounded border px-2 text-sm"
-                value={typeof values.productType === 'string' ? values.productType : 'simple'}
-                onChange={(event) => setValue('productType', event.target.value as CatalogProductType)}
+                value={normalizedProductType}
+                onChange={(event) => {
+                  const next = event.target.value as CatalogProductType
+                  if (COMING_SOON_PRODUCT_TYPES.has(next)) return
+                  setValue('productType', next)
+                }}
               >
-                {productTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
+                {productTypeOptions.map((option) => {
+                  const comingSoon = COMING_SOON_PRODUCT_TYPES.has(option.value)
+                  const label = comingSoon
+                    ? `${option.label} (${t('common.comingSoon', 'Coming soon')})`
+                    : option.label
+                  return (
+                    <option key={option.value} value={option.value} disabled={comingSoon}>
+                      {label}
+                    </option>
+                  )
+                })}
               </select>
+              <p className="text-xs text-muted-foreground">
+                {t('catalog.products.form.productTypeComingSoon', 'Bundle and grouped products are coming soon.')}
+              </p>
             </div>
-            <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground" data-crud-field-id="isActive">
               <input
                 type="checkbox"
                 checked={values.isActive !== false}
@@ -651,7 +698,7 @@ function ProductBasicsStep({
         description={t('catalog.products.create.sections.defaultsHint', 'Currencies and units are managed through shared dictionaries.')}
       >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="space-y-2">
+          <div data-crud-field-id="primaryCurrencyCode" className="space-y-2">
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('catalog.products.create.pricing.currencyLabel', 'Default currency')}
             </label>
@@ -670,8 +717,9 @@ function ProductBasicsStep({
             {currencyDictionary.error ? (
               <p className="text-xs text-red-600">{currencyDictionary.error}</p>
             ) : null}
+            <FieldError message={fieldError('primaryCurrencyCode')} />
           </div>
-          <div className="space-y-2">
+          <div data-crud-field-id="defaultUnit" className="space-y-2">
             <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('catalog.products.create.defaults.unit', 'Default unit')}
             </label>
@@ -690,6 +738,7 @@ function ProductBasicsStep({
             {unitDictionary.error ? (
               <p className="text-xs text-red-600">{unitDictionary.error}</p>
             ) : null}
+            <FieldError message={fieldError('defaultUnit')} />
           </div>
         </div>
       </SectionCard>
@@ -697,11 +746,18 @@ function ProductBasicsStep({
       <SectionCard
         title={t('catalog.products.create.sections.pricing', 'Pricing')}
         description={t('catalog.products.create.sections.pricingHint', 'Start with a base price and layer additional entries as needed.')}
+        action={
+          <Button type="button" variant="outline" onClick={handleAddPrice}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t('catalog.products.create.pricing.addPrice', 'Add price')}
+          </Button>
+        }
       >
         <ProductPricingPanel
-          values={values}
-          setValue={setValue}
+          priceEntries={priceEntries}
+          onChange={setPriceEntries}
           currencyDictionary={currencyDictionary}
+          baseCurrency={typeof values.primaryCurrencyCode === 'string' ? values.primaryCurrencyCode : null}
         />
       </SectionCard>
 
@@ -772,20 +828,14 @@ function ProductOrganizeStep({ values, setValue }: ProductOrganizeStepProps) {
             <TagsInput
               value={organizer.salesChannels}
               onChange={(next) => updateOrganizer({ salesChannels: next })}
-              placeholder={t('catalog.products.create.organize.channelsPlaceholder', 'Draft channel codes (api coming soon)')}
+              placeholder={t('catalog.products.create.organize.channelsPlaceholder', 'Draft channel codes (API coming soon)')}
+              disabled
             />
+            <p className="text-xs text-muted-foreground">
+              {t('catalog.products.create.organize.salesChannelsDisabled', 'Sales channels will be available once the new API ships.')}
+            </p>
           </div>
         </div>
-      </SectionCard>
-
-      <SectionCard
-        title={t('catalog.products.create.sections.subproducts', 'Bundles & sub-products')}
-        description={t('catalog.products.create.sections.subproductsHint', 'Reference child products to build bundles.')}>
-        <ProductSubproductsPanel
-          values={values}
-          setValue={setValue}
-          productType={(values.productType as CatalogProductType) ?? 'simple'}
-        />
       </SectionCard>
     </div>
   )
@@ -798,17 +848,10 @@ type ProductVariantsStepProps = {
 
 function ProductVariantsStep({ values, setValue }: ProductVariantsStepProps) {
   const t = useT()
-  const attributeSchema = resolveAttributeSchemaFromValues(values)
   const currencyCode = typeof values.primaryCurrencyCode === 'string' ? values.primaryCurrencyCode : null
   const productType = (values.productType as CatalogProductType) ?? 'simple'
   return (
     <div className="space-y-6">
-      <SectionCard
-        title={t('catalog.products.create.sections.attributes', 'Attribute schema')}
-        description={t('catalog.products.create.sections.attributesHint', 'Pair variants with reusable attribute definitions to keep data normalized.')}
-      >
-        <ProductAttributeSchemaPanel values={values} setValue={setValue} />
-      </SectionCard>
       <SectionCard
         title={t('catalog.products.create.sections.variants', 'Variants')}
         description={t('catalog.products.create.sections.variantsHint', 'Generate variants from option combinations or craft them manually. Set per-variant pricing when needed.')}
@@ -816,7 +859,7 @@ function ProductVariantsStep({ values, setValue }: ProductVariantsStepProps) {
         <ProductVariantsPanel
           values={values}
           setValue={setValue}
-          attributeSchema={attributeSchema}
+          attributeSchema={resolveAttributeSchemaFromValues(values)}
           currencyCode={currencyCode}
           disabled={!isConfigurableProductType(productType)}
         />
@@ -825,17 +868,16 @@ function ProductVariantsStep({ values, setValue }: ProductVariantsStepProps) {
   )
 }
 
-function ProductShippingStep() {
-  const t = useT()
+type AttributeSchemaSidebarProps = {
+  values: CreateProductFormValues
+  setValue: CrudFormGroupComponentProps['setValue']
+}
+
+function AttributeSchemaSidebar({ values, setValue }: AttributeSchemaSidebarProps) {
   return (
-    <SectionCard
-      title={t('catalog.products.create.sections.shipping', 'Shipping profiles')}
-      description={t('catalog.products.create.sections.shippingHint', 'Shipping services are rolling out next. You will be able to associate products with reusable profiles once the API lands.')}
-    >
-      <p className="text-sm text-muted-foreground">
-        {t('catalog.products.create.sections.shippingPlaceholder', 'Hang tight—this step will light up as soon as the shipping profile APIs are available.')}
-      </p>
-    </SectionCard>
+    <div className="space-y-4">
+      <ProductAttributeSchemaPanel values={values} setValue={setValue} />
+    </div>
   )
 }
 
@@ -964,9 +1006,10 @@ function formatFileSize(bytes: number): string {
 type HandleInputFieldProps = {
   value: string
   onChange: (value: string) => void
+  error?: string
 }
 
-function HandleInputField({ value, onChange }: HandleInputFieldProps) {
+function HandleInputField({ value, onChange, error }: HandleInputFieldProps) {
   const t = useT()
   const preview = value?.trim().length ? `/${value}` : '/handle'
   return (
@@ -980,34 +1023,36 @@ function HandleInputField({ value, onChange }: HandleInputFieldProps) {
         {t('catalog.products.form.handlePreview', 'Handle: ')}
         <span className="font-mono">{preview}</span>
       </p>
+      <FieldError message={error} />
     </div>
   )
 }
 
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null
+  return <p className="text-xs text-red-600">{message}</p>
+}
+
 type ProductPricingPanelProps = {
-  values: CreateProductFormValues
-  setValue: CrudFormGroupComponentProps['setValue']
+  priceEntries: PriceDraft[]
+  onChange: (entries: PriceDraft[]) => void
   currencyDictionary: CatalogDictionarySelectConfig
+  baseCurrency?: string | null
 }
 
 function ProductPricingPanel({
-  values,
-  setValue,
+  priceEntries,
+  onChange,
   currencyDictionary,
+  baseCurrency,
 }: ProductPricingPanelProps) {
   const t = useT()
-  const priceEntries = Array.isArray(values.priceEntries)
-    ? (values.priceEntries as PriceDraft[])
-    : []
   React.useEffect(() => {
     if (!priceEntries.length) {
-      setValue('priceEntries', [createPriceDraft(values.primaryCurrencyCode)])
+      onChange([createPriceDraft(baseCurrency)])
     }
-  }, [priceEntries.length, setValue, values.primaryCurrencyCode])
-  const updateEntries = (next: PriceDraft[]) => setValue('priceEntries', next)
-  const addEntry = () => {
-    updateEntries([...priceEntries, createPriceDraft(values.primaryCurrencyCode)])
-  }
+  }, [baseCurrency, onChange, priceEntries.length])
+  const updateEntries = (next: PriceDraft[]) => onChange(next)
   const updateEntry = (id: string, patch: Partial<PriceDraft>) => {
     updateEntries(priceEntries.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)))
   }
@@ -1015,7 +1060,7 @@ function ProductPricingPanel({
     if (priceEntries.length <= 1) return
     updateEntries(priceEntries.filter((entry) => entry.id !== id))
   }
-  const primaryEntry = priceEntries[0] ?? createPriceDraft(values.primaryCurrencyCode)
+  const primaryEntry = priceEntries[0] ?? createPriceDraft(baseCurrency)
   const additionalEntries = priceEntries.slice(1)
 
   return (
@@ -1039,10 +1084,6 @@ function ProductPricingPanel({
           ))}
         </div>
       ) : null}
-      <Button type="button" variant="outline" onClick={addEntry}>
-        <Plus className="mr-2 h-4 w-4" />
-        {t('catalog.products.create.pricing.addPrice', 'Add another price')}
-      </Button>
     </div>
   )
 }

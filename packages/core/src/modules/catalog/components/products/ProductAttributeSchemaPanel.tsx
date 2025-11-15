@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Layers, Plus } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -58,6 +59,8 @@ export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
   const [editorOpen, setEditorOpen] = React.useState(false)
   const [definitionDrafts, setDefinitionDrafts] = React.useState<FieldDefinition[]>([])
   const [definitionErrors, setDefinitionErrors] = React.useState<Record<number, FieldDefinitionError>>({})
+  const [templateMenuOpen, setTemplateMenuOpen] = React.useState(false)
+  const menuRef = React.useRef<HTMLDivElement | null>(null)
   const validateDefinition = React.useCallback((def: FieldDefinition): FieldDefinitionError => {
     const errors: FieldDefinitionError = {}
     if (!def.key?.trim()) {
@@ -107,6 +110,19 @@ export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
       mounted = false
     }
   }, [t])
+
+  React.useEffect(() => {
+    if (!templateMenuOpen) return
+    const handle = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setTemplateMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handle)
+    return () => {
+      document.removeEventListener('mousedown', handle)
+    }
+  }, [templateMenuOpen])
 
   const selectedTemplate = React.useMemo(
     () => templates.find((template) => template.id === schemaId) ?? null,
@@ -220,43 +236,125 @@ export function ProductAttributeSchemaPanel({ values, setValue }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <div className="flex-1 space-y-2">
-          <label className="text-sm font-medium">
-            {t('catalog.products.create.attributeSchema.label', 'Attribute schema')}
-          </label>
-          <select
-            className="w-full rounded border px-3 py-2 text-sm"
-            value={schemaId ?? ''}
-            onChange={(event) => {
-              const next = event.target.value
-              handleSchemaSelect(next.length ? next : null)
-            }}
-            disabled={isLoading}
-          >
-            <option value="">
-              {t('catalog.products.create.attributeSchema.select', 'Select schema')}
-            </option>
-            {templates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {template.name}
-              </option>
-            ))}
-          </select>
-          {error ? <p className="text-xs text-red-600">{error}</p> : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={() => openEditor(schemaId || schemaOverride ? 'customize' : 'new')}>
-            {t('catalog.products.create.attributeSchema.customize', 'Customize')}
-          </Button>
-          <Button type="button" variant="secondary" onClick={() => openEditor('new')}>
-            {t('catalog.products.create.attributeSchema.newButton', 'New schema')}
-          </Button>
-          {(schemaOverride || schemaId) ? (
-            <Button type="button" variant="ghost" onClick={resetOverride}>
-              {t('catalog.products.create.attributeSchema.reset', 'Reset')}
+      <div className="rounded border bg-card p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">
+              {t('catalog.products.create.attributeSchema.label', 'Attribute schema')}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {schemaOverride?.name
+                ? t('catalog.products.create.attributeSchema.usingCustom', 'Using custom schema')
+                : selectedTemplate
+                  ? t('catalog.products.create.attributeSchema.usingTemplate', 'Using {{name}}', {
+                      name: selectedTemplate.name,
+                    })
+                  : t('catalog.products.create.attributeSchema.select', 'Select schema')}
+            </p>
+            {error ? <p className="text-xs text-red-600">{error}</p> : null}
+          </div>
+          <div className="flex items-center gap-2" ref={menuRef}>
+            <div className="relative">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9"
+                onClick={() => setTemplateMenuOpen((prev) => !prev)}
+              >
+                <Layers className="h-4 w-4" />
+                <span className="sr-only">
+                  {t('catalog.products.create.attributeSchema.templatesMenu', 'Templates menu')}
+                </span>
+              </Button>
+              {templateMenuOpen ? (
+                <div className="absolute right-0 z-20 mt-2 w-72 space-y-2 rounded-md border bg-card p-3 text-sm shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t('catalog.products.create.attributeSchema.templates', 'Templates')}
+                    </p>
+                    {isLoading ? (
+                      <span className="text-xs text-muted-foreground">
+                        {t('common.loading', 'Loading…')}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="max-h-56 overflow-y-auto">
+                    {templates.length === 0 && !isLoading ? (
+                      <p className="text-xs text-muted-foreground">
+                        {t('catalog.products.create.attributeSchema.empty', 'No templates yet.')}
+                      </p>
+                    ) : (
+                      templates.map((template) => (
+                        <button
+                          key={template.id}
+                          type="button"
+                          className="flex w-full items-center justify-between rounded px-2 py-1 text-left hover:bg-muted"
+                          onClick={() => {
+                            handleSchemaSelect(template.id)
+                            setTemplateMenuOpen(false)
+                          }}
+                        >
+                          <span>{template.name}</span>
+                          {schemaId === template.id ? (
+                            <span className="text-xs text-primary">
+                              {t('common.selected', 'Selected')}
+                            </span>
+                          ) : null}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <div className="space-y-1 border-t pt-2 text-xs">
+                    <button
+                      type="button"
+                      className="w-full rounded px-2 py-1 text-left hover:bg-muted"
+                      onClick={() => {
+                        openEditor(schemaId || schemaOverride ? 'customize' : 'new')
+                        setTemplateMenuOpen(false)
+                      }}
+                    >
+                      {t('catalog.products.create.attributeSchema.customize', 'Customize')}
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded px-2 py-1 text-left hover:bg-muted"
+                      onClick={() => {
+                        handleSchemaSelect(null)
+                        setTemplateMenuOpen(false)
+                      }}
+                    >
+                      {t('catalog.products.create.attributeSchema.clear', 'Clear selection')}
+                    </button>
+                    {(schemaOverride || schemaId) ? (
+                      <button
+                        type="button"
+                        className="w-full rounded px-2 py-1 text-left text-red-600 hover:bg-muted"
+                        onClick={() => {
+                          resetOverride()
+                          setTemplateMenuOpen(false)
+                        }}
+                      >
+                        {t('catalog.products.create.attributeSchema.reset', 'Reset')}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9"
+              onClick={() => openEditor('new')}
+            >
+              <Plus className="h-4 w-4" />
+              <span className="sr-only">
+                {t('catalog.products.create.attributeSchema.newButton', 'New schema')}
+              </span>
             </Button>
-          ) : null}
+          </div>
         </div>
       </div>
       <div className="rounded-lg border bg-card p-4">

@@ -176,8 +176,14 @@ export default function ProductsDataTable() {
     { value: 'configurable', label: t('catalog.products.types.configurable', 'Configurable') },
     { value: 'virtual', label: t('catalog.products.types.virtual', 'Virtual') },
     { value: 'downloadable', label: t('catalog.products.types.downloadable', 'Downloadable') },
-    { value: 'bundle', label: t('catalog.products.types.bundle', 'Bundle') },
-    { value: 'grouped', label: t('catalog.products.types.grouped', 'Grouped') },
+    {
+      value: 'bundle',
+      label: `${t('catalog.products.types.bundle', 'Bundle')} (${t('common.comingSoon', 'Coming soon')})`,
+    },
+    {
+      value: 'grouped',
+      label: `${t('catalog.products.types.grouped', 'Grouped')} (${t('common.comingSoon', 'Coming soon')})`,
+    },
   ], [t])
 
   const productTypeLabelMap = React.useMemo(() => {

@@ -139,7 +139,7 @@ Reusable attribute schema templates live in `packages/core/src/modules/catalog/c
 
 Highlights:
 
-- Templates store the same `attributeSchema` payload you would normally attach to a product, but as JSON on `catalog_attribute_schemas`.
+- Templates store the same `attributeSchema` payload you would normally attach to a product, but as JSON on `catalog_product_attribute_schemas`.
 - Products reference templates via `attributeSchemaId`. If no per-product override is present, the shared definition is used verbatim; otherwise `attributeSchema` overrides only that product.
 - Deleting a template is blocked while products still point at it, so detach or migrate those products before cleanup. Undo logs capture before/after snapshots for safe rollbacks.
 

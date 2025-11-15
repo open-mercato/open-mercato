@@ -11,19 +11,19 @@ export class Migration20251114145201 extends Migration {
     this.addSql(`alter table "catalog_product_relations" add constraint "catalog_product_relations_parent_product_id_foreign" foreign key ("parent_product_id") references "catalog_products" ("id") on update cascade on delete cascade;`);
     this.addSql(`alter table "catalog_product_relations" add constraint "catalog_product_relations_child_product_id_foreign" foreign key ("child_product_id") references "catalog_products" ("id") on update cascade on delete cascade;`);
 
-    this.addSql(`alter table "catalog_offers" drop constraint "catalog_offers_product_id_foreign";`);
+    this.addSql(`alter table "catalog_product_offers" drop constraint "catalog_product_offers_product_id_foreign";`);
 
     this.addSql(`alter table "catalog_products" add column "product_type" text not null default 'simple';`);
 
-    this.addSql(`alter table "catalog_offers" add constraint "catalog_offers_product_id_foreign" foreign key ("product_id") references "catalog_products" ("id") on update cascade on delete cascade;`);
+    this.addSql(`alter table "catalog_product_offers" add constraint "catalog_product_offers_product_id_foreign" foreign key ("product_id") references "catalog_products" ("id") on update cascade on delete cascade;`);
   }
 
   override async down(): Promise<void> {
-    this.addSql(`alter table "catalog_offers" drop constraint "catalog_offers_product_id_foreign";`);
+    this.addSql(`alter table "catalog_product_offers" drop constraint "catalog_product_offers_product_id_foreign";`);
 
     this.addSql(`alter table "catalog_products" drop column "product_type";`);
 
-    this.addSql(`alter table "catalog_offers" add constraint "catalog_offers_product_id_foreign" foreign key ("product_id") references "catalog_products" ("id") on update cascade;`);
+    this.addSql(`alter table "catalog_product_offers" add constraint "catalog_product_offers_product_id_foreign" foreign key ("product_id") references "catalog_products" ("id") on update cascade;`);
   }
 
 }

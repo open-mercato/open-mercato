@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Trash2, Sparkles } from 'lucide-react'
+import { Trash2, Sparkles, Plus } from 'lucide-react'
 import type { CatalogAttributeDefinition, CatalogAttributeSchema } from '../../data/types'
 import type { CustomOptionDraft } from './ProductCustomOptionsPanel'
 import { useT } from '@/lib/i18n/context'
@@ -162,28 +162,48 @@ export function ProductVariantsPanel({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" onClick={addVariant} disabled={disabled}>
-          {t('catalog.products.create.variants.add', 'Add variant')}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleGenerate}
-          disabled={disabled || selectableOptions.length === 0}
-        >
-          <Sparkles className="mr-2 h-4 w-4" />
-          {t('catalog.products.create.variants.generate', 'Generate from options')}
-        </Button>
-        {selectableOptions.length === 0 ? (
-          <span className="text-sm text-muted-foreground">
-            {t(
-              'catalog.products.create.variants.noOptions',
-              'Define select-type custom options to auto-generate combinations.',
-            )}
-          </span>
-        ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm text-muted-foreground">
+          {t(
+            'catalog.products.create.variants.instructions',
+            'Use quick actions to add individual variants or generate them from option sets.',
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={handleGenerate}
+            disabled={disabled || selectableOptions.length === 0}
+          >
+            <Sparkles className="h-4 w-4" />
+            <span className="sr-only">
+              {t('catalog.products.create.variants.generate', 'Generate from options')}
+            </span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={addVariant}
+            disabled={disabled}
+          >
+            <Plus className="h-4 w-4" />
+            <span className="sr-only">
+              {t('catalog.products.create.variants.add', 'Add variant')}
+            </span>
+          </Button>
+        </div>
       </div>
+      {selectableOptions.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {t(
+            'catalog.products.create.variants.noOptions',
+            'Define select-type custom options to auto-generate combinations.',
+          )}
+        </p>
+      ) : null}
       {disabled ? (
         <p className="text-sm text-muted-foreground">
           {t(
