@@ -4,7 +4,7 @@ import { z } from 'zod'
  * Business Rules Module - Zod Validators
  */
 
-const uuid = z.string().uuid()
+const uuid = z.uuid()
 
 // Rule Types
 export const ruleTypeSchema = z.enum(['GUARD', 'VALIDATION', 'CALCULATION', 'ACTION', 'ASSIGNMENT'])
@@ -212,3 +212,39 @@ export const ruleSetMemberFilterSchema = z.object({
 })
 
 export type RuleSetMemberFilter = z.infer<typeof ruleSetMemberFilterSchema>
+
+// Rule Engine Context Schema
+export const ruleEngineContextSchema = z.looseObject({
+  entityType: z.string().min(1, 'entityType is required'),
+  entityId: z.string().optional(),
+  eventType: z.string().optional(),
+  data: z.any(),
+  user: z.looseObject({
+    id: z.string().optional(),
+    email: z.string().optional(),
+    role: z.string().optional(),
+  }).optional(),
+  tenant: z.looseObject({
+    id: z.string().optional(),
+  }).optional(),
+  organization: z.looseObject({
+    id: z.string().optional(),
+  }).optional(),
+  tenantId: z.uuid('tenantId must be a valid UUID'),
+  organizationId: z.uuid('organizationId must be a valid UUID'),
+  executedBy: z.string().optional(),
+  dryRun: z.boolean().optional(),
+})
+
+export type RuleEngineContextInput = z.infer<typeof ruleEngineContextSchema>
+
+// Rule Discovery Options Schema
+export const ruleDiscoveryOptionsSchema = z.object({
+  entityType: z.string().min(1, 'entityType is required'),
+  eventType: z.string().optional(),
+  tenantId: z.uuid('tenantId must be a valid UUID'),
+  organizationId: z.uuid('organizationId must be a valid UUID'),
+  ruleType: ruleTypeSchema.optional(),
+})
+
+export type RuleDiscoveryOptionsInput = z.infer<typeof ruleDiscoveryOptionsSchema>

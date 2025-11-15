@@ -12,10 +12,11 @@ export interface RuleEvaluationContext extends EvaluationContext {
 }
 
 /**
- * Rule evaluation result
+ * Rule evaluation result (for evaluating multiple rules)
  */
 export interface RuleEvaluationResult {
-  success: boolean
+  conditionsPassed: boolean        // At least one rule matched
+  evaluationCompleted: boolean     // All rules evaluated without critical errors
   matchedRules: BusinessRule[]
   failedRules: BusinessRule[]
   evaluationTime: number
@@ -27,7 +28,8 @@ export interface RuleEvaluationResult {
  */
 export interface SingleRuleResult {
   rule: BusinessRule
-  success: boolean
+  conditionsPassed: boolean     // Logical result: did conditions evaluate to true?
+  evaluationCompleted: boolean  // Technical success: did evaluation finish without errors?
   evaluationTime: number
   error?: string
 }
@@ -44,6 +46,7 @@ export async function evaluate(
   const matchedRules: BusinessRule[] = []
   const failedRules: BusinessRule[] = []
   const errors: string[] = []
+  let anyEvaluationCompleted = false
 
   // Sort rules by priority (higher priority first)
   const sortedRules = sortRulesByPriority(rules)
@@ -53,7 +56,12 @@ export async function evaluate(
     try {
       const result = await evaluateSingleRule(rule, data, context)
 
-      if (result.success) {
+      // Track if any rule completed evaluation
+      if (result.evaluationCompleted) {
+        anyEvaluationCompleted = true
+      }
+
+      if (result.evaluationCompleted && result.conditionsPassed) {
         matchedRules.push(rule)
       } else {
         failedRules.push(rule)
@@ -71,8 +79,12 @@ export async function evaluate(
 
   const evaluationTime = Date.now() - startTime
 
+  // Determine if conditions were met (at least one rule matched)
+  const conditionsPassed = matchedRules.length > 0
+
   return {
-    success: matchedRules.length > 0,
+    conditionsPassed,
+    evaluationCompleted: anyEvaluationCompleted,
     matchedRules,
     failedRules,
     evaluationTime,
@@ -95,7 +107,8 @@ export async function evaluateSingleRule(
     if (!rule.enabled) {
       return {
         rule,
-        success: false,
+        conditionsPassed: false,
+        evaluationCompleted: false,
         evaluationTime: 0,
         error: 'Rule is disabled',
       }
@@ -105,20 +118,22 @@ export async function evaluateSingleRule(
     if (!isRuleEffective(rule)) {
       return {
         rule,
-        success: false,
+        conditionsPassed: false,
+        evaluationCompleted: false,
         evaluationTime: 0,
         error: 'Rule is not effective (outside date range)',
       }
     }
 
     // Evaluate conditions
-    const success = await evaluateConditions(rule.conditionExpression, data, context)
+    const conditionsPassed = await evaluateConditions(rule.conditionExpression, data, context)
 
     const evaluationTime = Date.now() - startTime
 
     return {
       rule,
-      success,
+      conditionsPassed,
+      evaluationCompleted: true,
       evaluationTime,
     }
   } catch (error) {
@@ -127,7 +142,8 @@ export async function evaluateSingleRule(
 
     return {
       rule,
-      success: false,
+      conditionsPassed: false,
+      evaluationCompleted: false,
       evaluationTime,
       error: errorMessage,
     }
@@ -143,12 +159,10 @@ export async function evaluateConditions(
   context: RuleEvaluationContext
 ): Promise<boolean> {
   if (!conditions) {
-    // No conditions means the rule always passes
     return true
   }
 
   try {
-    // Convert to ConditionExpression and evaluate
     const expression = conditions as ConditionExpression
     return evaluateExpression(expression, data, context)
   } catch (error) {
@@ -162,7 +176,6 @@ export async function evaluateConditions(
  */
 export function sortRulesByPriority(rules: BusinessRule[]): BusinessRule[] {
   return [...rules].sort((a, b) => {
-    // Higher priority first
     if (b.priority !== a.priority) {
       return b.priority - a.priority
     }

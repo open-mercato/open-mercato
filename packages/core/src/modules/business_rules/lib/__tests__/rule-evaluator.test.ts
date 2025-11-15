@@ -40,7 +40,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluateSingleRule(rule, { status: 'ACTIVE' }, {})
 
-      expect(result.success).toBe(true)
+      expect(result.conditionsPassed).toBe(true)
+      expect(result.evaluationCompleted).toBe(true)
       expect(result.rule).toBe(rule)
       expect(result.evaluationTime).toBeGreaterThanOrEqual(0)
       expect(result.error).toBeUndefined()
@@ -53,7 +54,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluateSingleRule(rule, { status: 'INACTIVE' }, {})
 
-      expect(result.success).toBe(false)
+      expect(result.conditionsPassed).toBe(false)
+      expect(result.evaluationCompleted).toBe(true)  // Evaluation completed, conditions just didn't pass
       expect(result.error).toBeUndefined()
     })
 
@@ -64,7 +66,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluateSingleRule(rule, { status: 'ACTIVE' }, {})
 
-      expect(result.success).toBe(false)
+      expect(result.conditionsPassed).toBe(false)
+      expect(result.evaluationCompleted).toBe(false)
       expect(result.error).toBe('Rule is disabled')
     })
 
@@ -76,7 +79,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluateSingleRule(rule, { status: 'ACTIVE' }, {})
 
-      expect(result.success).toBe(false)
+      expect(result.conditionsPassed).toBe(false)
+      expect(result.evaluationCompleted).toBe(false)
       expect(result.error).toBe('Rule is not effective (outside date range)')
     })
 
@@ -88,7 +92,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluateSingleRule(rule, { status: 'ACTIVE' }, {})
 
-      expect(result.success).toBe(false)
+      expect(result.conditionsPassed).toBe(false)
+      expect(result.evaluationCompleted).toBe(false)
       expect(result.error).toBe('Rule is not effective (outside date range)')
     })
 
@@ -103,7 +108,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluateSingleRule(rule, { status: 'ACTIVE' }, {})
 
-      expect(result.success).toBe(true)
+      expect(result.conditionsPassed).toBe(true)
+      expect(result.evaluationCompleted).toBe(true)
     })
 
     test('should handle complex AND conditions', async () => {
@@ -119,7 +125,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluateSingleRule(rule, { quantity: 10, status: 'ACTIVE' }, {})
 
-      expect(result.success).toBe(true)
+      expect(result.conditionsPassed).toBe(true)
+      expect(result.evaluationCompleted).toBe(true)
     })
 
     test('should handle complex OR conditions', async () => {
@@ -135,7 +142,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluateSingleRule(rule, { priority: 'LOW', urgent: true }, {})
 
-      expect(result.success).toBe(true)
+      expect(result.conditionsPassed).toBe(true)
+      expect(result.evaluationCompleted).toBe(true)
     })
 
     test('should pass when conditions are null (always true)', async () => {
@@ -145,7 +153,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluateSingleRule(rule, {}, {})
 
-      expect(result.success).toBe(true)
+      expect(result.conditionsPassed).toBe(true)
+      expect(result.evaluationCompleted).toBe(true)
     })
 
     test('should handle evaluation errors gracefully', async () => {
@@ -155,7 +164,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluateSingleRule(rule, { value: 10 }, {})
 
-      expect(result.success).toBe(false)
+      expect(result.conditionsPassed).toBe(false)
+      expect(result.evaluationCompleted).toBe(false)
       expect(result.error).toContain('Unknown operator')
     })
   })
@@ -209,7 +219,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluate(rules, { quantity: 10, status: 'ACTIVE' }, {})
 
-      expect(result.success).toBe(true)
+      expect(result.conditionsPassed).toBe(true)
+      expect(result.evaluationCompleted).toBe(true)
       expect(result.matchedRules).toHaveLength(2)
       expect(result.failedRules).toHaveLength(0)
       expect(result.evaluationTime).toBeGreaterThanOrEqual(0)
@@ -229,7 +240,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluate(rules, { quantity: 10, status: 'ACTIVE' }, {})
 
-      expect(result.success).toBe(true)
+      expect(result.conditionsPassed).toBe(true)
+      expect(result.evaluationCompleted).toBe(true)
       expect(result.matchedRules).toHaveLength(1)
       expect(result.matchedRules[0].ruleId).toBe('RULE-001')
       expect(result.failedRules).toHaveLength(1)
@@ -250,7 +262,8 @@ describe('RuleEvaluatorService', () => {
 
       const result = await evaluate(rules, { value: 10 }, {})
 
-      expect(result.success).toBe(false)
+      expect(result.conditionsPassed).toBe(false)
+      expect(result.evaluationCompleted).toBe(false)
       expect(result.errors).toBeDefined()
       expect(result.errors?.length).toBe(2)
       expect(result.errors?.[0]).toContain('RULE-001')
