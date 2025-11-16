@@ -315,7 +315,21 @@ export function FieldDefinitionsEditor({
             ) : null}
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground flex flex-col gap-3">
+          <div>No fieldsets defined yet. Fieldsets let you group custom fields for different variants of the same entity (e.g., Fashion vs. Sport products).</div>
+          <div>
+            <button
+              type="button"
+              onClick={handleAddFieldset}
+              className="px-3 py-1.5 border rounded bg-white text-sm font-medium inline-flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Add first fieldset
+            </button>
+          </div>
+        </div>
+      )}
       {orderNotice?.dirty && (
         <div className="sticky top-0 z-10 -mt-1 -mb-1">
           <div className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded border bg-amber-50 text-amber-800 shadow-sm">

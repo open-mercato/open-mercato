@@ -1025,23 +1025,39 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     )
   }
 
-  const renderCustomFieldsContent = React.useCallback(() => {
-    if (!customFieldLayout.length) return customFieldsEmptyState
+  const renderCustomFieldsContent = React.useCallback((): React.ReactNode[] => {
+    if (!customFieldLayout.length) {
+      return [
+        <div key="custom-fields-empty" className="rounded-lg border bg-card p-4">
+          {customFieldsEmptyState}
+        </div>,
+      ]
+    }
+
+    const nodes: React.ReactNode[] = []
     const multipleEntities = customFieldLayout.length > 1
-    return customFieldLayout.map((entityLayout) => {
+
+    customFieldLayout.forEach((entityLayout) => {
       const manageHref = buildCustomFieldsManageHref(entityLayout.entityId)
       const showSelector =
         entityLayout.hasFieldsets &&
         entityLayout.singleFieldsetPerRecord &&
         entityLayout.availableFieldsets.length > 0
-      return (
-        <div key={entityLayout.entityId} className="space-y-4">
-          {multipleEntities ? (
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {entityLayout.entityId}
-            </div>
-          ) : null}
-          {showSelector ? (
+
+      if (multipleEntities) {
+        nodes.push(
+          <div
+            key={`custom-fields-entity-${entityLayout.entityId}`}
+            className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            {entityLayout.entityId}
+          </div>,
+        )
+      }
+
+      if (showSelector) {
+        nodes.push(
+          <div key={`custom-fields-selector-${entityLayout.entityId}`} className="rounded-lg border bg-card p-4">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <label className="text-xs uppercase tracking-wide text-muted-foreground">
                 {fieldsetSelectorLabel}
@@ -1074,68 +1090,77 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 <span className="sr-only">{manageFieldsetLabel}</span>
               </button>
             </div>
-          ) : null}
-          {entityLayout.sections.length
-            ? entityLayout.sections.map((section) => {
-                const FieldsetIcon = section.fieldset?.icon
-                  ? FIELDSET_ICON_COMPONENTS[section.fieldset.icon]
-                  : null
-                const sectionKey = `${entityLayout.entityId}:${section.fieldsetCode ?? 'default'}`
-                const manageDisabled = !manageHref
-                return (
-                  <div key={sectionKey} className="rounded-md border p-4 space-y-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-2">
-                        {FieldsetIcon ? (
-                          <FieldsetIcon className="size-5 text-muted-foreground" />
-                        ) : null}
-                        <div>
-                          <div className="text-sm font-medium">{section.title}</div>
-                          {section.description ? (
-                            <div className="text-xs text-muted-foreground">
-                              {section.description}
-                            </div>
-                          ) : null}
-                        </div>
+          </div>,
+        )
+      }
+
+      if (entityLayout.sections.length) {
+        entityLayout.sections.forEach((section) => {
+          const FieldsetIcon = section.fieldset?.icon
+            ? FIELDSET_ICON_COMPONENTS[section.fieldset.icon]
+            : null
+          const sectionKey = `${entityLayout.entityId}:${section.fieldsetCode ?? 'default'}`
+          const manageDisabled = !manageHref
+          nodes.push(
+            <div key={sectionKey} className="rounded-lg border bg-card p-4 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2">
+                  {FieldsetIcon ? (
+                    <FieldsetIcon className="size-5 text-muted-foreground" />
+                  ) : null}
+                  <div>
+                    <div className="text-sm font-medium">{section.title}</div>
+                    {section.description ? (
+                      <div className="text-xs text-muted-foreground">
+                        {section.description}
                       </div>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-                        onClick={() => handleOpenFieldsetEditor(entityLayout.entityId, section.fieldsetCode)}
-                        disabled={manageDisabled}
-                      >
-                        <Settings className="size-4" />
-                        {manageFieldsetLabel}
-                      </button>
-                    </div>
-                    {section.groups.map((group) => {
-                      const groupKey = `${section.fieldsetCode ?? 'default'}:${group.code ?? 'default'}`
-                      return (
-                        <div key={groupKey} className="space-y-2">
-                          {group.label ? (
-                            <div>
-                              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                {group.label}
-                              </div>
-                              {group.hint ? (
-                                <div className="text-xs text-muted-foreground">{group.hint}</div>
-                              ) : null}
-                            </div>
-                          ) : null}
-                          {renderFields(group.fields)}
-                        </div>
-                      )
-                    })}
-                    {!section.groups.length ? (
-                      <div className="text-xs text-muted-foreground">{emptyFieldsetMessage}</div>
                     ) : null}
                   </div>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  onClick={() => handleOpenFieldsetEditor(entityLayout.entityId, section.fieldsetCode)}
+                  disabled={manageDisabled}
+                >
+                  <Settings className="size-4" />
+                  {manageFieldsetLabel}
+                </button>
+              </div>
+              {section.groups.map((group) => {
+                const groupKey = `${section.fieldsetCode ?? 'default'}:${group.code ?? 'default'}`
+                return (
+                  <div key={groupKey} className="space-y-2">
+                    {group.label ? (
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {group.label}
+                        </div>
+                        {group.hint ? (
+                          <div className="text-xs text-muted-foreground">{group.hint}</div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {renderFields(group.fields)}
+                  </div>
                 )
-              })
-            : customFieldsEmptyState}
-        </div>
-      )
+              })}
+              {!section.groups.length ? (
+                <div className="text-xs text-muted-foreground">{emptyFieldsetMessage}</div>
+              ) : null}
+            </div>,
+          )
+        })
+      } else {
+        nodes.push(
+          <div key={`custom-fields-empty-${entityLayout.entityId}`} className="rounded-lg border bg-card p-4">
+            {customFieldsEmptyState}
+          </div>,
+        )
+      }
     })
+
+    return nodes
   }, [
     buildCustomFieldsManageHref,
     customFieldLayout,
