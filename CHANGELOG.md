@@ -1,4 +1,10 @@
-# 0.3.0 (2025-11-31)
+# 0.3.3 (2025-11-16)
+
+## Improvements 
+- Catalog UI pages - create products page, product price kind settings
+- Shifted catalog product attributes onto custom-field fieldsets so vertical-specific definitions travel through CRUD forms, filters, and APIs without bespoke schema code.
+
+# 0.3.0 (2025-10-31)
 
 ## Highlights
 - Consolidated modular architecture across auth, customers, sales, dictionaries, query index, and vector search modules.
@@ -12,7 +18,7 @@
 - Expanded documentation for the framework API, query index, and module guides.
 - Introduced profiling flags, coverage metrics, and engine optimizations for faster indexing.
 - Enhanced validation, custom field handling, and locale support across UI surfaces.
-- Shifted catalog product attributes onto custom-field fieldsets so vertical-specific definitions travel through CRUD forms, filters, and APIs without bespoke schema code.
+
 
 ## Fixes
 - Resolved dictionary filtering, customer coverage, ACL feature flags, and access log retention issues.
