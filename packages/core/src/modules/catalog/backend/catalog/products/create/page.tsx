@@ -259,8 +259,6 @@ export default function CreateCatalogProductPage() {
                   variantId,
                   currencyCode,
                   priceKindId: priceKind.id,
-                  priceKindCode: priceKind.code,
-                  priceKindTitle: priceKind.title,
                 }
                 if (priceKind.displayMode === 'including-tax') {
                   pricePayload.unitPriceGross = numeric
@@ -319,22 +317,20 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
     }
     const combos = buildVariantCombinations(optionDefinitions)
     const existing = Array.isArray(values.variants) ? values.variants : []
+    let hasDefault = existing.some((variant) => variant.isDefault)
     const nextVariants: VariantDraft[] = combos.map((combo) => {
-      const existingMatch = existing.find(
-        (entry) =>
-          Object.keys(combo).every((key) => entry.optionValues?.[key] === combo[key]),
+      const existingMatch = existing.find((entry) =>
+        Object.keys(combo).every((key) => entry.optionValues?.[key] === combo[key]),
       )
       if (existingMatch) {
-      return {
-        ...existingMatch,
-        optionValues: combo,
-      }
+        if (existingMatch.isDefault) hasDefault = true
+        return { ...existingMatch, optionValues: combo }
       }
       return {
         id: createLocalId(),
         title: Object.values(combo).join(' / '),
         sku: '',
-        isDefault: existing.length === 0 && nextVariants.length === 0,
+        isDefault: false,
         manageInventory: false,
         allowBackorder: false,
         hasInventoryKit: false,
@@ -343,7 +339,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
       }
     })
     if (nextVariants.length) {
-      if (!nextVariants.some((variant) => variant.isDefault)) {
+      if (!hasDefault) {
         nextVariants[0].isDefault = true
       }
       setValue('variants', nextVariants)
@@ -630,16 +626,16 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
               checked={values.hasVariants}
               onChange={(event) => setValue('hasVariants', event.target.checked)}
             />
-            {t('catalog.products.create.variants.toggle', 'Yes, this is a product with variants')}
+            {t('catalog.products.create.variantsBuilder.toggle', 'Yes, this is a product with variants')}
           </label>
 
           {values.hasVariants ? (
             <div className="space-y-4 rounded-lg border p-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">{t('catalog.products.create.options.title', 'Product options')}</h3>
+                <h3 className="text-sm font-semibold">{t('catalog.products.create.optionsBuilder.title', 'Product options')}</h3>
                 <Button type="button" variant="outline" size="sm" onClick={addOption}>
                   <Plus className="mr-2 h-4 w-4" />
-                  {t('catalog.products.create.options.add', 'Add option')}
+                  {t('catalog.products.create.optionsBuilder.add', 'Add option')}
                 </Button>
               </div>
               {(Array.isArray(values.options) ? values.options : []).map((option) => (
@@ -648,7 +644,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
                     <Input
                       value={option.title}
                       onChange={(event) => handleOptionTitleChange(option.id, event.target.value)}
-                      placeholder={t('catalog.products.create.options.placeholder', 'e.g., Color')}
+                      placeholder={t('catalog.products.create.optionsBuilder.placeholder', 'e.g., Color')}
                       className="flex-1"
                     />
                     <Button variant="ghost" size="icon" type="button" onClick={() => removeOption(option.id)}>
@@ -657,7 +653,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
                   </div>
                   <div className="mt-3 space-y-2">
                     <Label className="text-xs uppercase text-muted-foreground">
-                      {t('catalog.products.create.options.values', 'Values')}
+                      {t('catalog.products.create.optionsBuilder.values', 'Values')}
                     </Label>
                     <div className="flex flex-wrap gap-2">
                       {option.values.map((value) => (
@@ -673,7 +669,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
               ))}
               {!values.options?.length ? (
                 <p className="text-sm text-muted-foreground">
-                  {t('catalog.products.create.options.empty', 'No options yet. Add your first option to generate variants.')}
+                  {t('catalog.products.create.optionsBuilder.empty', 'No options yet. Add your first option to generate variants.')}
                 </p>
               ) : null}
             </div>
@@ -683,18 +679,16 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
             <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
               <thead className="bg-muted/40">
                 <tr>
-                  <th className="px-3 py-2 text-left">{t('catalog.products.create.variants.defaultOption', 'Default option')}</th>
+                  <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.defaultOption', 'Default option')}</th>
                   <th className="px-3 py-2 text-left">{t('catalog.products.form.variants', 'Variant title')}</th>
-                  <th className="px-3 py-2 text-left">{t('catalog.products.create.variants.sku', 'SKU')}</th>
-                  <th className="px-3 py-2 text-center">{t('catalog.products.create.variants.manageInventory', 'Managed inventory')}</th>
-                  <th className="px-3 py-2 text-center">{t('catalog.products.create.variants.allowBackorder', 'Allow backorder')}</th>
-                  <th className="px-3 py-2 text-center">{t('catalog.products.create.variants.inventoryKit', 'Has inventory kit')}</th>
+                  <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.sku', 'SKU')}</th>
+                  <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.manageInventory', 'Managed inventory')}</th>
+                  <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.allowBackorder', 'Allow backorder')}</th>
+                  <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.inventoryKit', 'Has inventory kit')}</th>
                   {priceKinds.map((kind) => (
                     <th key={kind.id} className="px-3 py-2 text-left">
                       <div className="flex items-center gap-1">
-                        <span>
-                          {t('catalog.products.create.variants.priceColumn', { defaultValue: 'Price {{title}}', title: kind.title }).replace('{{title}}', kind.title)}
-                        </span>
+                        <span>{t('catalog.products.create.variantsBuilder.priceColumn', 'Price {{title}}').replace('{{title}}', kind.title)}</span>
                         <small title={kind.displayMode === 'including-tax' ? t('catalog.priceKinds.form.displayMode.include', 'Including tax') : t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax')} className="text-xs text-muted-foreground">
                           {kind.displayMode === 'including-tax' ? 'Ⓣ' : 'Ⓝ'}
                         </small>
@@ -715,8 +709,8 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
                           onChange={() => markDefaultVariant(variant.id)}
                         />
                         {variant.isDefault
-                          ? t('catalog.products.create.variants.defaultLabel', 'Default option value')
-                          : t('catalog.products.create.variants.makeDefault', 'Set as default')}
+                          ? t('catalog.products.create.variantsBuilder.defaultLabel', 'Default option value')
+                          : t('catalog.products.create.variantsBuilder.makeDefault', 'Set as default')}
                       </label>
                       {values.hasVariants && variant.optionValues
                         ? (
@@ -728,14 +722,14 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
                       <Input
                         value={variant.title}
                         onChange={(event) => setVariantField(variant.id, 'title', event.target.value)}
-                        placeholder={t('catalog.products.create.variants.titlePlaceholder', 'Variant title')}
+                        placeholder={t('catalog.products.create.variantsBuilder.titlePlaceholder', 'Variant title')}
                       />
                     </td>
                     <td className="px-3 py-2">
                       <Input
                         value={variant.sku}
                         onChange={(event) => setVariantField(variant.id, 'sku', event.target.value)}
-                        placeholder={t('catalog.products.create.variants.skuPlaceholder', 'e.g., SKU-001')}
+                        placeholder={t('catalog.products.create.variantsBuilder.skuPlaceholder', 'e.g., SKU-001')}
                       />
                     </td>
                     <td className="px-3 py-2 text-center">
@@ -785,7 +779,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
             {!priceKinds.length ? (
               <div className="flex items-center gap-2 border-t px-4 py-3 text-sm text-muted-foreground">
                 <AlertCircle className="h-4 w-4" />
-                {t('catalog.products.create.variants.noPriceKinds', 'Configure price kinds in Catalog settings to add price columns.')}
+                {t('catalog.products.create.variantsBuilder.noPriceKinds', 'Configure price kinds in Catalog settings to add price columns.')}
               </div>
             ) : null}
           </div>

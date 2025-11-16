@@ -74,6 +74,38 @@
       },
       "create": {
         "title": "Produkt erstellen",
+        "submit": "Create product",
+        "placeholders": {
+          "title": "e.g., Summer sneaker",
+          "subtitle": "Optional subtitle",
+          "handle": "e.g., summer-sneaker",
+          "description": "Describe the product..."
+        },
+        "fields": {
+          "currency": "Primary currency"
+        },
+        "actions": {
+          "generateHandle": "Generate",
+          "usePlain": "Use plain text",
+          "useMarkdown": "Use markdown"
+        },
+        "steps": {
+          "general": "General data",
+          "organize": "Organize",
+          "variants": "Variants",
+          "previous": "Previous",
+          "continue": "Continue",
+          "review": "Review"
+        },
+        "handleHelp": "Handle is used for URLs and must be unique.",
+        "attachments": {
+          "title": "Media",
+          "help": "Drag and drop images here or click to upload.",
+          "remove": "Remove"
+        },
+        "organize": {
+          "placeholder": "Work in progress on this tab."
+        },
         "tabs": {
           "label": "Produktabschnitte",
           "attributes": "Attribute",
@@ -83,7 +115,29 @@
         "errors": {
           "scope": "Wähle zuerst eine Organisation aus, bevor du Produkte erstellst.",
           "missingId": "Produkt-ID nach dem Erstellen nicht vorhanden.",
-          "titleRequired": "Provide a product title."
+          "titleRequired": "Provide a product title.",
+          "id": "Product id missing after create.",
+          "variant": "Failed to create variant.",
+          "currency": "Provide a currency for all price kinds."
+        },
+        "currency": {
+          "placeholder": "Select currency…",
+          "add": "Add currency",
+          "addPrompt": "Provide a currency code.",
+          "dialogTitle": "Add currency",
+          "valueLabel": "Currency code",
+          "valuePlaceholder": "e.g. USD",
+          "labelLabel": "Display label (optional)",
+          "labelPlaceholder": "e.g. US Dollar",
+          "required": "Currency code is required.",
+          "cancel": "Cancel",
+          "save": "Save",
+          "saveShortcut": "Press Enter to save",
+          "success": "Currency added.",
+          "loadError": "Unable to load currencies.",
+          "error": "Unable to add currency.",
+          "loading": "Loading currencies…",
+          "manage": "Manage currencies"
         },
         "pricing": {
           "net": "Nettopreis",
@@ -209,6 +263,27 @@
           "schemaLoadPlaceholder": "Loading…",
           "saveTemplateTitle": "Save option schema",
           "saveTemplateDescription": "Reuse this option set across future products."
+        },
+        "optionsBuilder": {
+          "title": "Product options",
+          "add": "Add option",
+          "placeholder": "e.g., Color",
+          "values": "Values",
+          "empty": "No options yet. Add your first option to generate variants."
+        },
+        "variantsBuilder": {
+          "toggle": "Yes, this is a product with variants",
+          "defaultOption": "Default option",
+          "sku": "SKU",
+          "manageInventory": "Managed inventory",
+          "allowBackorder": "Allow backorder",
+          "inventoryKit": "Has inventory kit",
+          "defaultLabel": "Default option value",
+          "makeDefault": "Set as default",
+          "titlePlaceholder": "Variant title",
+          "skuPlaceholder": "e.g., SKU-001",
+          "priceColumn": "Price {{title}}",
+          "noPriceKinds": "Configure price kinds in Catalog settings to add price columns."
         },
         "remove": "Entfernen",
         "selectPlaceholder": "Wert auswählen"
