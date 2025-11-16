@@ -169,45 +169,6 @@
           "currencyLoadError": "Unable to load currencies.",
           "unitLoadError": "Unable to load units."
         },
-        "attributeSchema": {
-          "loadError": "Attributschemata konnten nicht geladen werden",
-          "custom": "Benutzerdefiniertes Schema",
-          "new": "Neues Schema",
-          "label": "Attributschema",
-          "select": "Schema auswählen",
-          "customize": "Anpassen",
-          "newButton": "Neues Schema",
-          "reset": "Zurücksetzen",
-          "nameLabel": "Schema name",
-          "namePlaceholder": "e.g., Fashion base attributes",
-          "dialogTitle": "Customize attribute schema",
-          "errors": {
-            "key": "Schlüssel ist erforderlich",
-            "kind": "Typ ist erforderlich"
-          },
-          "dialogDescription": "Definiere die Attributfelder, die für dieses Produkt erfasst werden sollen.",
-          "empty": "Noch keine Felder. Füge dein erstes Attribut hinzu.",
-          "fieldKey": "Schlüssel",
-          "fieldLabel": "Bezeichnung",
-          "kind": "Kind",
-          "scope": "Gültigkeitsbereich",
-          "scope.product": "Produkt",
-          "scope.variant": "Variante",
-          "scope.shared": "Geteilt",
-          "required": "Pflichtfeld",
-          "removeField": "Entfernen",
-          "addField": "Feld hinzufügen",
-          "options": "Optionen",
-          "noOptions": "Noch keine Optionen.",
-          "optionValue": "Wert",
-          "optionLabel": "Label",
-          "remove": "Entfernen",
-          "addOption": "Option hinzufügen"
-        },
-        "attributeValues": {
-          "title": "Attributwerte",
-          "empty": "Wähle oder definiere ein Schema, um Attribute zu erfassen."
-        },
         "variants": {
           "add": "Variante hinzufügen",
           "generate": "Aus Attributen erzeugen",

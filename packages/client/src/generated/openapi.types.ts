@@ -497,38 +497,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/catalog/attribute-schemas": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * GET /catalog/attribute-schemas
-         * @description Requires features: catalog.products.view
-         */
-        get: operations["catalog_get_catalog_attribute_schemas"];
-        /**
-         * PUT /catalog/attribute-schemas
-         * @description Requires features: catalog.settings.manage
-         */
-        put: operations["catalog_put_catalog_attribute_schemas"];
-        /**
-         * POST /catalog/attribute-schemas
-         * @description Requires features: catalog.settings.manage
-         */
-        post: operations["catalog_post_catalog_attribute_schemas"];
-        /**
-         * DELETE /catalog/attribute-schemas
-         * @description Requires features: catalog.settings.manage
-         */
-        delete: operations["catalog_delete_catalog_attribute_schemas"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/catalog/dictionaries/{key}": {
         parameters: {
             query?: never;
@@ -4080,41 +4048,6 @@ export interface components {
             error: components["schemas"]["DocPathsAuthUsersPutResponses404ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsAuthUsersPutResponses404ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsCatalogAttributeSchemasDeleteResponses401ContentApplicationJsonSchema: {
-            error: components["schemas"]["DocPathsCatalogAttributeSchemasDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
-        };
-        DocPathsCatalogAttributeSchemasDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsCatalogAttributeSchemasDeleteResponses403ContentApplicationJsonSchema: {
-            error: components["schemas"]["DocPathsCatalogAttributeSchemasDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
-        };
-        DocPathsCatalogAttributeSchemasDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsCatalogAttributeSchemasGetResponses200ContentApplicationJsonSchema: Record<string, never>;
-        DocPathsCatalogAttributeSchemasGetResponses401ContentApplicationJsonSchema: {
-            error: components["schemas"]["DocPathsCatalogAttributeSchemasGetResponses401ContentApplicationJsonSchemaPropertiesError"];
-        };
-        DocPathsCatalogAttributeSchemasGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsCatalogAttributeSchemasGetResponses403ContentApplicationJsonSchema: {
-            error: components["schemas"]["DocPathsCatalogAttributeSchemasGetResponses403ContentApplicationJsonSchemaPropertiesError"];
-        };
-        DocPathsCatalogAttributeSchemasGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsCatalogAttributeSchemasPostResponses201ContentApplicationJsonSchema: Record<string, never>;
-        DocPathsCatalogAttributeSchemasPostResponses401ContentApplicationJsonSchema: {
-            error: components["schemas"]["DocPathsCatalogAttributeSchemasPostResponses401ContentApplicationJsonSchemaPropertiesError"];
-        };
-        DocPathsCatalogAttributeSchemasPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsCatalogAttributeSchemasPostResponses403ContentApplicationJsonSchema: {
-            error: components["schemas"]["DocPathsCatalogAttributeSchemasPostResponses403ContentApplicationJsonSchemaPropertiesError"];
-        };
-        DocPathsCatalogAttributeSchemasPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsCatalogAttributeSchemasPutResponses200ContentApplicationJsonSchema: Record<string, never>;
-        DocPathsCatalogAttributeSchemasPutResponses401ContentApplicationJsonSchema: {
-            error: components["schemas"]["DocPathsCatalogAttributeSchemasPutResponses401ContentApplicationJsonSchemaPropertiesError"];
-        };
-        DocPathsCatalogAttributeSchemasPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsCatalogAttributeSchemasPutResponses403ContentApplicationJsonSchema: {
-            error: components["schemas"]["DocPathsCatalogAttributeSchemasPutResponses403ContentApplicationJsonSchemaPropertiesError"];
-        };
-        DocPathsCatalogAttributeSchemasPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsCatalogDictionariesKeyGetParameters0Schema: string;
         DocPathsCatalogDictionariesKeyGetResponses200ContentApplicationJsonSchema: Record<string, never>;
         DocPathsCatalogDictionariesKeyGetResponses401ContentApplicationJsonSchema: {
@@ -9104,6 +9037,8 @@ export interface components {
         DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchema: {
             definitions: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesDefinitions"];
             entityId: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesEntityId"];
+            fieldsets?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsets"];
+            singleFieldsetPerRecord?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesSingleFieldsetPerRecord"];
         };
         DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesDefinitions: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesDefinitionsItems"][];
         DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesDefinitionsItems: {
@@ -9120,6 +9055,30 @@ export interface components {
         DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesDefinitionsItemsPropertiesKind: "text" | "multiline" | "integer" | "float" | "boolean" | "select" | "relation" | "attachment" | "dictionary";
         /** Format: regex */
         DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesEntityId: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsets: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItems"][];
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesCode"];
+            description?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesDescription"];
+            groups?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroups"];
+            icon?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesIcon"];
+            label: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesLabel"];
+        };
+        /** Format: regex */
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesDescription: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroups: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItems"][];
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesCode"];
+            hint?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesHint"];
+            title?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesTitle"];
+        };
+        /** Format: regex */
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesHint: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesTitle: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesIcon: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesLabel: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesSingleFieldsetPerRecord: boolean;
         DocPathsEntitiesDefinitionsBatchPostResponses200ContentApplicationJsonSchema: {
             ok: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostResponses200ContentApplicationJsonSchemaPropertiesOk"];
         };
@@ -9175,8 +9134,18 @@ export interface components {
         DocPathsEntitiesDefinitionsGetParameters0SchemaOneOf1: components["schemas"]["DocPathsEntitiesDefinitionsGetParameters0SchemaOneOf1Items"][];
         DocPathsEntitiesDefinitionsGetParameters0SchemaOneOf1Items: string;
         DocPathsEntitiesDefinitionsGetParameters1Schema: string;
+        /** Format: regex */
+        DocPathsEntitiesDefinitionsGetParameters2Schema: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchema: {
+            entitySettings?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettings"];
+            fieldsetsByEntity?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntity"];
             items: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettings: {
+            [key: string]: unknown;
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntity: {
+            [key: string]: unknown;
         };
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
@@ -9186,8 +9155,10 @@ export interface components {
             dictionaryInlineCreate?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDictionaryInlineCreate"];
             editor?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesEditor"];
             entityId: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesEntityId"];
+            fieldset?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFieldset"];
             filterable?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFilterable"];
             formEditable?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFormEditable"];
+            group?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroup"];
             input?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesInput"];
             key: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKey"];
             kind: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKind"];
@@ -9206,8 +9177,17 @@ export interface components {
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDictionaryInlineCreate: boolean;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesEditor: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesEntityId: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFieldset: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFilterable: boolean;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFormEditable: boolean;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroup: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesCode"];
+            hint?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesHint"];
+            title?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesTitle"];
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesCode: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesHint: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesTitle: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesInput: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKey: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKind: string;
@@ -9233,10 +9213,33 @@ export interface components {
         DocPathsEntitiesDefinitionsManageGetParameters0Schema: string;
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchema: {
             deletedKeys: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesDeletedKeys"];
+            fieldsets?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsets"];
             items: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+            settings?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesSettings"];
         };
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesDeletedKeys: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesDeletedKeysItems"][];
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesDeletedKeysItems: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsets: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItems"][];
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesCode"];
+            description?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesDescription"];
+            groups?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroups"];
+            icon?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesIcon"];
+            label: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesLabel"];
+        };
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesDescription: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroups: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItems"][];
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesCode"];
+            hint?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesHint"];
+            title?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesTitle"];
+        };
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesHint: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesTitle: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesIcon: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesLabel: string;
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
             configJson?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesConfigJson"];
@@ -9265,6 +9268,10 @@ export interface components {
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0: null;
         /** Format: uuid */
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf1: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesSettings: {
+            singleFieldsetPerRecord?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesSettingsPropertiesSingleFieldsetPerRecord"];
+        };
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesSettingsPropertiesSingleFieldsetPerRecord: boolean;
         DocPathsEntitiesDefinitionsManageGetResponses400ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses400ContentApplicationJsonSchemaPropertiesError"];
         };
@@ -9289,8 +9296,10 @@ export interface components {
             dictionaryId?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesDictionaryId"];
             dictionaryInlineCreate?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesDictionaryInlineCreate"];
             editor?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesEditor"];
+            fieldset?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFieldset"];
             filterable?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFilterable"];
             formEditable?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFormEditable"];
+            group?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroup"];
             input?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesInput"];
             label?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesLabel"];
             listVisible?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesListVisible"];
@@ -9308,8 +9317,19 @@ export interface components {
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesDictionaryId: string;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesDictionaryInlineCreate: boolean;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesEditor: string;
+        /** Format: regex */
+        DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFieldset: string;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFilterable: boolean;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFormEditable: boolean;
+        DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroup: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesCode"];
+            hint?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesHint"];
+            title?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesTitle"];
+        };
+        /** Format: regex */
+        DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesCode: string;
+        DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesHint: string;
+        DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesTitle: string;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesInput: string;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesLabel: string;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesListVisible: boolean;
@@ -14208,196 +14228,6 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsAuthUsersAclPutResponses403ContentApplicationJsonSchema"];
-                };
-            };
-        };
-    };
-    catalog_get_catalog_attribute_schemas: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocPathsCatalogAttributeSchemasGetResponses200ContentApplicationJsonSchema"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": "string"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["DocPathsCatalogAttributeSchemasGetResponses401ContentApplicationJsonSchema"];
-                };
-            };
-            /** @description Forbidden – missing required features */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": "string"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["DocPathsCatalogAttributeSchemasGetResponses403ContentApplicationJsonSchema"];
-                };
-            };
-        };
-    };
-    catalog_put_catalog_attribute_schemas: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocPathsCatalogAttributeSchemasPutResponses200ContentApplicationJsonSchema"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": "string"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["DocPathsCatalogAttributeSchemasPutResponses401ContentApplicationJsonSchema"];
-                };
-            };
-            /** @description Forbidden – missing required features */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": "string"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["DocPathsCatalogAttributeSchemasPutResponses403ContentApplicationJsonSchema"];
-                };
-            };
-        };
-    };
-    catalog_post_catalog_attribute_schemas: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocPathsCatalogAttributeSchemasPostResponses201ContentApplicationJsonSchema"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": "string"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["DocPathsCatalogAttributeSchemasPostResponses401ContentApplicationJsonSchema"];
-                };
-            };
-            /** @description Forbidden – missing required features */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": "string"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["DocPathsCatalogAttributeSchemasPostResponses403ContentApplicationJsonSchema"];
-                };
-            };
-        };
-    };
-    catalog_delete_catalog_attribute_schemas: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": "string"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["DocPathsCatalogAttributeSchemasDeleteResponses401ContentApplicationJsonSchema"];
-                };
-            };
-            /** @description Forbidden – missing required features */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": "string"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["DocPathsCatalogAttributeSchemasDeleteResponses403ContentApplicationJsonSchema"];
                 };
             };
         };
@@ -21652,6 +21482,8 @@ export interface operations {
                 entityId?: components["schemas"]["DocPathsEntitiesDefinitionsGetParameters0Schema"];
                 /** @example string */
                 entityIds?: components["schemas"]["DocPathsEntitiesDefinitionsGetParameters1Schema"];
+                /** @example string */
+                fieldset?: components["schemas"]["DocPathsEntitiesDefinitionsGetParameters2Schema"];
             };
             header?: never;
             path?: never;

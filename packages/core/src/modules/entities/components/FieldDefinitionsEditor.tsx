@@ -368,7 +368,7 @@ export function FieldDefinitionsEditor({
             onRegisterGroup={registerGroup}
           />
         </div>
-      ))}
+      )})}
       <div>
         <button
           type="button"

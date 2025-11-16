@@ -169,45 +169,6 @@
           "currencyLoadError": "Unable to load currencies.",
           "unitLoadError": "Unable to load units."
         },
-        "attributeSchema": {
-          "loadError": "No se pudieron cargar los esquemas de atributos",
-          "custom": "Esquema personalizado",
-          "new": "Nuevo esquema",
-          "label": "Esquema de atributos",
-          "select": "Selecciona un esquema",
-          "customize": "Personalizar",
-          "newButton": "Nuevo esquema",
-          "reset": "Restablecer",
-          "nameLabel": "Schema name",
-          "namePlaceholder": "e.g., Fashion base attributes",
-          "dialogTitle": "Customize attribute schema",
-          "errors": {
-            "key": "La clave es obligatoria",
-            "kind": "El tipo es obligatorio"
-          },
-          "dialogDescription": "Define los campos de atributo que deben capturarse para este producto.",
-          "empty": "Aún no hay campos. Agrega tu primer atributo.",
-          "fieldKey": "Clave",
-          "fieldLabel": "Etiqueta",
-          "kind": "Kind",
-          "scope": "Ámbito",
-          "scope.product": "Producto",
-          "scope.variant": "Variante",
-          "scope.shared": "Compartido",
-          "required": "Obligatorio",
-          "removeField": "Eliminar",
-          "addField": "Agregar campo",
-          "options": "Opciones",
-          "noOptions": "Aún no hay opciones.",
-          "optionValue": "Valor",
-          "optionLabel": "Etiqueta",
-          "remove": "Eliminar",
-          "addOption": "Agregar opción"
-        },
-        "attributeValues": {
-          "title": "Valores de atributo",
-          "empty": "Selecciona o define un esquema para capturar atributos."
-        },
         "variants": {
           "add": "Añadir variante",
           "generate": "Generar desde atributos",
