@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { CATALOG_PRICE_DISPLAY_MODES, CATALOG_PRODUCT_TYPES } from './types'
 
 const uuid = () => z.string().uuid()
@@ -45,36 +44,6 @@ const optionConfigurationSchema = z
   )
   .optional()
 
-const attributeDefinitionSchema = z.object({
-  key: z
-    .string()
-    .trim()
-    .regex(/^[a-zA-Z0-9\-_]+$/, 'attribute key must be alphanumeric with dashes or underscores')
-    .max(120),
-  label: z.string().trim().min(1).max(255),
-  kind: z.enum(CUSTOM_FIELD_KINDS),
-  scope: z.enum(['product', 'variant', 'shared']).optional(),
-  required: z.boolean().optional(),
-  defaultValue: z.unknown().optional(),
-  options: z
-    .array(
-      z.object({
-        value: z.union([z.string(), z.number(), z.boolean()]),
-        label: z.string().trim().max(255).optional(),
-      })
-    )
-    .optional(),
-  dictionaryId: uuid().optional(),
-  config: z.record(z.string(), z.unknown()).optional(),
-})
-
-const attributeSchema = z.object({
-  version: z.number().int().min(1).optional(),
-  definitions: z.array(attributeDefinitionSchema).max(64),
-})
-
-const attributeValuesSchema = z.record(z.string(), z.unknown())
-
 const optionChoiceSchema = z.object({
   code: slugSchema,
   label: z.string().trim().max(255).optional(),
@@ -100,7 +69,6 @@ const optionSchema = z.object({
 const offerContentSchema = z.object({
   title: z.string().trim().max(255).optional(),
   description: z.string().trim().max(4000).optional(),
-  attributesOverride: attributeValuesSchema.optional(),
 })
 
 const offerInputSchema = z.object({
@@ -126,12 +94,11 @@ export const productCreateSchema = scoped.extend({
   primaryCurrencyCode: currencyCodeSchema.optional(),
   defaultUnit: z.string().trim().max(50).optional(),
   optionSchemaId: uuid().nullable().optional(),
+  customFieldsetCode: slugSchema.nullable().optional(),
   isConfigurable: z.boolean().optional(),
   isActive: z.boolean().optional(),
   metadata: metadataSchema,
   attributeSchemaId: uuid().nullable().optional(),
-  attributeSchema: attributeSchema.optional(),
-  attributeValues: attributeValuesSchema.optional(),
   offers: z.array(offerInputSchema.omit({ id: true })).optional(),
 })
 
@@ -169,8 +136,7 @@ export const variantCreateSchema = scoped.extend({
     .optional(),
   metadata: metadataSchema,
   optionConfiguration: optionConfigurationSchema,
-  attributeSchema: attributeSchema.optional(),
-  attributeValues: attributeValuesSchema.optional(),
+  customFieldsetCode: slugSchema.nullable().optional(),
 })
 
 export const variantUpdateSchema = z
@@ -222,21 +188,6 @@ export const optionValueUpdateSchema = z
     id: uuid(),
   })
   .merge(optionValueCreateSchema.partial())
-
-export const attributeSchemaTemplateCreateSchema = scoped.extend({
-  name: z.string().trim().min(1).max(255),
-  code: slugSchema,
-  description: z.string().trim().max(4000).optional(),
-  schema: attributeSchema,
-  metadata: metadataSchema,
-  isActive: z.boolean().optional(),
-})
-
-export const attributeSchemaTemplateUpdateSchema = z
-  .object({
-    id: uuid(),
-  })
-  .merge(attributeSchemaTemplateCreateSchema.partial())
 
 export const optionSchemaTemplateCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
@@ -305,8 +256,6 @@ export type OptionCreateInput = z.infer<typeof optionCreateSchema>
 export type OptionUpdateInput = z.infer<typeof optionUpdateSchema>
 export type OptionValueCreateInput = z.infer<typeof optionValueCreateSchema>
 export type OptionValueUpdateInput = z.infer<typeof optionValueUpdateSchema>
-export type AttributeSchemaTemplateCreateInput = z.infer<typeof attributeSchemaTemplateCreateSchema>
-export type AttributeSchemaTemplateUpdateInput = z.infer<typeof attributeSchemaTemplateUpdateSchema>
 export type OptionSchemaTemplateCreateInput = z.infer<typeof optionSchemaTemplateCreateSchema>
 export type OptionSchemaTemplateUpdateInput = z.infer<typeof optionSchemaTemplateUpdateSchema>
 export type PriceKindCreateInput = z.infer<typeof priceKindCreateSchema>

@@ -11,7 +11,6 @@ import {
   CatalogProduct,
   CatalogProductOption,
   CatalogProductVariant,
-  CatalogAttributeSchemaTemplate,
   CatalogOptionSchemaTemplate,
 } from '../data/entities'
 import {
@@ -22,8 +21,6 @@ import {
   type ProductUpdateInput,
 } from '../data/validators'
 import type {
-  CatalogAttributeSchema,
-  CatalogAttributeSchemaSource,
   CatalogOfferLocalizedContent,
   CatalogProductType,
 } from '../data/types'
@@ -33,10 +30,8 @@ import {
   ensureSameScope,
   ensureTenantScope,
   extractUndoPayload,
-  requireAttributeSchemaTemplate,
   requireOptionSchemaTemplate,
 } from './shared'
-import { resolveAttributeSchema } from '../lib/attributeSchemas'
 
 type ProductSnapshot = {
   id: string
@@ -52,12 +47,8 @@ type ProductSnapshot = {
   primaryCurrencyCode: string | null
   defaultUnit: string | null
   optionSchemaId: string | null
+  customFieldsetCode: string | null
   metadata: Record<string, unknown> | null
-  attributeSchemaId: string | null
-  attributeSchemaOverride: CatalogAttributeSchema | null
-  attributeSchemaSource: CatalogAttributeSchemaSource | null
-  attributeSchema: CatalogAttributeSchema | null
-  attributeValues: Record<string, unknown> | null
   isConfigurable: boolean
   isActive: boolean
   createdAt: string
@@ -92,9 +83,7 @@ const PRODUCT_CHANGE_KEYS = [
   'primaryCurrencyCode',
   'defaultUnit',
   'optionSchemaId',
-  'attributeSchemaId',
-  'attributeSchema',
-  'attributeValues',
+  'customFieldsetCode',
   'metadata',
   'isConfigurable',
   'isActive',
@@ -242,7 +231,7 @@ async function loadProductSnapshot(
   const record = await em.findOne(
     CatalogProduct,
     { id, deletedAt: null },
-    { populate: ['attributeSchemaTemplate', 'optionSchemaTemplate'] }
+    { populate: ['optionSchemaTemplate'] }
   )
   if (!record) return null
   const offers = await loadOfferSnapshots(em, record.id)
@@ -252,28 +241,11 @@ async function loadProductSnapshot(
     tenantId: record.tenantId,
     organizationId: record.organizationId,
   })
-  const schemaTemplate = record.attributeSchemaTemplate
-  const templateId =
-    typeof schemaTemplate === 'string'
-      ? schemaTemplate
-      : schemaTemplate?.id ?? null
   const optionSchemaTemplate = record.optionSchemaTemplate
   const optionTemplateId =
     typeof optionSchemaTemplate === 'string'
       ? optionSchemaTemplate
       : optionSchemaTemplate?.id ?? null
-  const templateSource =
-    schemaTemplate && typeof schemaTemplate !== 'string'
-      ? {
-          id: schemaTemplate.id,
-          name: schemaTemplate.name,
-          code: schemaTemplate.code,
-          description: schemaTemplate.description ?? null,
-          schema: schemaTemplate.schema ? cloneJson(schemaTemplate.schema) : null,
-        }
-      : null
-  const override = record.attributeSchema ? cloneJson(record.attributeSchema) : null
-  const resolvedSchema = resolveAttributeSchema(templateSource?.schema ?? null, override)
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -287,12 +259,8 @@ async function loadProductSnapshot(
     statusEntryId: record.statusEntryId ?? null,
     primaryCurrencyCode: record.primaryCurrencyCode ?? null,
     defaultUnit: record.defaultUnit ?? null,
+    customFieldsetCode: record.customFieldsetCode ?? null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
-    attributeSchemaId: templateId,
-    attributeSchemaOverride: override,
-    attributeSchemaSource: templateSource,
-    attributeSchema: resolvedSchema,
-    attributeValues: record.attributeValues ? cloneJson(record.attributeValues) : null,
     isConfigurable: record.isConfigurable,
     isActive: record.isActive,
     optionSchemaId: optionTemplateId,
@@ -320,15 +288,10 @@ function applyProductSnapshot(
   record.primaryCurrencyCode = snapshot.primaryCurrencyCode ?? null
   record.defaultUnit = snapshot.defaultUnit ?? null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
-  record.attributeSchema =
-    snapshot.attributeSchemaOverride ? cloneJson(snapshot.attributeSchemaOverride) : null
-  record.attributeSchemaTemplate = snapshot.attributeSchemaId
-    ? em.getReference(CatalogAttributeSchemaTemplate, snapshot.attributeSchemaId)
-    : null
+  record.customFieldsetCode = snapshot.customFieldsetCode ?? null
   record.optionSchemaTemplate = snapshot.optionSchemaId
     ? em.getReference(CatalogOptionSchemaTemplate, snapshot.optionSchemaId)
     : null
-  record.attributeValues = snapshot.attributeValues ? cloneJson(snapshot.attributeValues) : null
   record.isConfigurable = snapshot.isConfigurable
   record.isActive = snapshot.isActive
   record.createdAt = new Date(snapshot.createdAt)
@@ -343,15 +306,6 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
-    let schemaTemplate: CatalogAttributeSchemaTemplate | null = null
-    if (parsed.attributeSchemaId) {
-      schemaTemplate = await requireAttributeSchemaTemplate(
-        em,
-        parsed.attributeSchemaId,
-        'Attribute schema not found'
-      )
-      ensureSameScope(schemaTemplate, parsed.organizationId, parsed.tenantId)
-    }
     let optionSchemaTemplate: CatalogOptionSchemaTemplate | null = null
     if (parsed.optionSchemaId) {
       optionSchemaTemplate = await requireOptionSchemaTemplate(
@@ -374,12 +328,8 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       primaryCurrencyCode: parsed.primaryCurrencyCode ?? null,
       defaultUnit: parsed.defaultUnit ?? null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
-      attributeSchema: parsed.attributeSchema
-        ? (cloneJson(parsed.attributeSchema) as CatalogAttributeSchema)
-        : null,
-      attributeSchemaTemplate: schemaTemplate,
+      customFieldsetCode: parsed.customFieldsetCode ?? null,
       optionSchemaTemplate,
-      attributeValues: parsed.attributeValues ? cloneJson(parsed.attributeValues) : null,
       isConfigurable: parsed.isConfigurable ?? false,
       isActive: parsed.isActive ?? true,
       createdAt: now,
@@ -486,19 +436,6 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }
-    if (parsed.attributeSchemaId !== undefined) {
-      if (!parsed.attributeSchemaId) {
-        record.attributeSchemaTemplate = null
-      } else {
-        const template = await requireAttributeSchemaTemplate(
-          em,
-          parsed.attributeSchemaId,
-          'Attribute schema not found'
-        )
-        ensureSameScope(template, organizationId, tenantId)
-        record.attributeSchemaTemplate = template
-      }
-    }
     if (parsed.optionSchemaId !== undefined) {
       if (!parsed.optionSchemaId) {
         record.optionSchemaTemplate = null
@@ -512,13 +449,8 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         record.optionSchemaTemplate = optionTemplate
       }
     }
-    if (parsed.attributeSchema !== undefined) {
-      record.attributeSchema = parsed.attributeSchema
-        ? (cloneJson(parsed.attributeSchema) as CatalogAttributeSchema)
-        : null
-    }
-    if (parsed.attributeValues !== undefined) {
-      record.attributeValues = parsed.attributeValues ? cloneJson(parsed.attributeValues) : null
+    if (parsed.customFieldsetCode !== undefined) {
+      record.customFieldsetCode = parsed.customFieldsetCode ?? null
     }
     if (parsed.isConfigurable !== undefined) record.isConfigurable = parsed.isConfigurable
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
@@ -587,13 +519,10 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
-        attributeSchema: before.attributeSchemaOverride
-          ? cloneJson(before.attributeSchemaOverride)
+        customFieldsetCode: before.customFieldsetCode ?? null,
+        optionSchemaTemplate: before.optionSchemaId
+          ? em.getReference(CatalogOptionSchemaTemplate, before.optionSchemaId)
           : null,
-        attributeSchemaTemplate: before.attributeSchemaId
-          ? em.getReference(CatalogAttributeSchemaTemplate, before.attributeSchemaId)
-          : null,
-        attributeValues: before.attributeValues ? cloneJson(before.attributeValues) : null,
         productType: before.productType ?? 'simple',
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,
@@ -699,20 +628,19 @@ const deleteProductCommand: CommandHandler<
         id: before.id,
         organizationId: before.organizationId,
         tenantId: before.tenantId,
-        name: before.title,
+        title: before.title,
+        subtitle: before.subtitle ?? null,
         description: before.description ?? null,
-        code: before.sku ?? null,
+        sku: before.sku ?? null,
+        handle: before.handle ?? null,
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
-        attributeSchema: before.attributeSchemaOverride
-          ? cloneJson(before.attributeSchemaOverride)
+        customFieldsetCode: before.customFieldsetCode ?? null,
+        optionSchemaTemplate: before.optionSchemaId
+          ? em.getReference(CatalogOptionSchemaTemplate, before.optionSchemaId)
           : null,
-        attributeSchemaTemplate: before.attributeSchemaId
-          ? em.getReference(CatalogAttributeSchemaTemplate, before.attributeSchemaId)
-          : null,
-        attributeValues: before.attributeValues ? cloneJson(before.attributeValues) : null,
         productType: before.productType ?? 'simple',
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,

@@ -1,7 +1,13 @@
 import type { CrudField } from '../CrudForm'
-import type { CustomFieldDefDto, CustomFieldDefinitionsPayload } from './customFieldDefs'
-import { filterCustomFieldDefs } from './customFieldDefs'
-import { fetchCustomFieldDefs, fetchCustomFieldDefinitionsPayload } from './customFieldDefs'
+import type {
+  CustomFieldDefDto,
+  CustomFieldDefinitionsPayload,
+} from './customFieldDefs'
+import {
+  filterCustomFieldDefs,
+  fetchCustomFieldDefs,
+  fetchCustomFieldDefinitionsPayload,
+} from './customFieldDefs'
 import { FieldRegistry, loadGeneratedFieldRegistrations } from '../fields/registry'
 import { apiCall } from './apiCall'
 
@@ -51,94 +57,97 @@ async function loadRemoteOptions(url: string): Promise<Array<{ value: string; la
   }
 }
 
-export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?: { bareIds?: boolean }): CrudField[] {
-  const fields: CrudField[] = []
-  const visible = filterCustomFieldDefs(defs, 'form')
-  const seenKeys = new Set<string>() // case-insensitive de-dupe
-  for (const d of visible) {
-    const keyLower = String(d.key).toLowerCase()
-    if (seenKeys.has(keyLower)) continue
-    seenKeys.add(keyLower)
-    const id = opts?.bareIds ? d.key : `cf_${d.key}`
-    const label = d.label || d.key
-    const required = Array.isArray((d as any).validation) ? ((d as any).validation as any[]).some((r) => r && r.rule === 'required') : false
-    switch (d.kind) {
-      case 'boolean':
-        fields.push({ id, label, type: 'checkbox', description: d.description, required })
-        break
-      case 'integer':
-      case 'float':
-        fields.push({ id, label, type: 'number', description: d.description, required })
-        break
-      case 'multiline': {
-        // Prefer rich text editors for multiline; allow override via definition.editor
-        // Supported editor values:
-        // - 'markdown' (default) -> uiw markdown editor
-        // - 'simpleMarkdown'    -> SimpleMarkdownEditor
-        // - 'htmlRichText'      -> HtmlRichTextEditor
-        let editor: 'simple' | 'uiw' | 'html' = 'uiw'
-        if (d.editor === 'simpleMarkdown') editor = 'simple'
-        else if (d.editor === 'htmlRichText') editor = 'html'
-        // Any other value (including 'markdown' or undefined) falls back to 'uiw'
-        fields.push({ id, label, type: 'richtext', description: d.description, editor, required })
-        break
-      }
-      case 'select':
-      case 'relation':
-        fields.push({
-          id,
-          label,
-          type: 'select',
-          description: d.description,
-          options: (d.options || []).map((o) => ({ value: String(o), label: String(o) })),
-          multiple: !!d.multi,
-          required,
-          ...(d.optionsUrl
-            ? {
-                loadOptions: async (query?: string) => {
-                  const url = buildOptionsUrl(d.optionsUrl!, query)
-                  return loadRemoteOptions(url)
-                },
-              }
-            : {}),
-          // UI hint: render multi-select as listbox
-          ...(d.multi && d.input === 'listbox' ? { listbox: true } as any : {}),
-        })
-        break
-      default:
-        // If text + multi => render as tags input for free-form tagging
-        if (d.kind === 'text' && d.multi) {
-          const base: any = { id, label, type: 'tags', description: d.description, required }
-          // Provide static suggestions from options if present
-          if (Array.isArray(d.options) && d.options.length > 0) {
-            base.options = d.options.map((o) => ({ value: String(o), label: String(o) }))
-          }
-          // Enable async suggestions when optionsUrl provided
-          if (d.optionsUrl) {
-            base.loadOptions = async (query?: string) => {
-              const url = buildOptionsUrl(d.optionsUrl!, query)
-              return loadRemoteOptions(url)
+export function buildFormFieldFromCustomFieldDef(
+  def: CustomFieldDefDto,
+  opts?: { bareIds?: boolean }
+): CrudField | null {
+  const id = opts?.bareIds ? def.key : `cf_${def.key}`
+  const label = def.label || def.key
+  const required = Array.isArray((def as any).validation)
+    ? ((def as any).validation as any[]).some((rule) => rule && rule.rule === 'required')
+    : false
+
+  switch (def.kind) {
+    case 'boolean':
+      return { id, label, type: 'checkbox', description: def.description, required }
+    case 'integer':
+    case 'float':
+      return { id, label, type: 'number', description: def.description, required }
+    case 'multiline': {
+      let editor: 'simple' | 'uiw' | 'html' = 'uiw'
+      if (def.editor === 'simpleMarkdown') editor = 'simple'
+      else if (def.editor === 'htmlRichText') editor = 'html'
+      return { id, label, type: 'richtext', description: def.description, editor, required }
+    }
+    case 'select':
+    case 'relation':
+      return {
+        id,
+        label,
+        type: 'select',
+        description: def.description,
+        options: (def.options || []).map((option) => ({ value: String(option), label: String(option) })),
+        multiple: !!def.multi,
+        required,
+        ...(def.optionsUrl
+          ? {
+              loadOptions: async (query?: string) => {
+                const url = buildOptionsUrl(def.optionsUrl!, query)
+                return loadRemoteOptions(url)
+              },
             }
-          }
-          fields.push(base)
-        } else if (d.kind === 'text' && typeof d.editor === 'string' && d.editor) {
-          // Allow per-field editor override even when kind is 'text'
-          // Map to richtext when an editor hint is provided
-          let editor: 'simple' | 'uiw' | 'html' = 'uiw'
-          if (d.editor === 'simpleMarkdown') editor = 'simple'
-          else if (d.editor === 'htmlRichText') editor = 'html'
-          // Any other value (including 'markdown') falls back to 'uiw'
-          fields.push({ id, label, type: 'richtext', description: d.description, editor, required })
-        } else {
-          // Try registry-provided input for custom kind
-          const input = FieldRegistry.getInput(d.kind)
-          if (input) {
-            fields.push({ id, label, type: 'custom', required, description: d.description, component: (props) => input({ ...props, def: d }) })
-          } else {
-            fields.push({ id, label, type: 'text', description: d.description, required })
+          : {}),
+        ...(def.multi && def.input === 'listbox' ? ({ listbox: true } as any) : {}),
+      }
+    default: {
+      if (def.kind === 'text' && def.multi) {
+        const base: any = { id, label, type: 'tags', description: def.description, required }
+        if (Array.isArray(def.options) && def.options.length > 0) {
+          base.options = def.options.map((option) => ({ value: String(option), label: String(option) }))
+        }
+        if (def.optionsUrl) {
+          base.loadOptions = async (query?: string) => {
+            const url = buildOptionsUrl(def.optionsUrl!, query)
+            return loadRemoteOptions(url)
           }
         }
+        return base
+      }
+      if (def.kind === 'text' && typeof def.editor === 'string' && def.editor) {
+        let editor: 'simple' | 'uiw' | 'html' = 'uiw'
+        if (def.editor === 'simpleMarkdown') editor = 'simple'
+        else if (def.editor === 'htmlRichText') editor = 'html'
+        return { id, label, type: 'richtext', description: def.description, editor, required }
+      }
+      const input = FieldRegistry.getInput(def.kind)
+      if (input) {
+        return {
+          id,
+          label,
+          type: 'custom',
+          required,
+          description: def.description,
+          component: (props) => input({ ...props, def }),
+        }
+      }
+      return { id, label, type: 'text', description: def.description, required }
     }
+  }
+}
+
+export function buildFormFieldsFromCustomFields(
+  defs: CustomFieldDefDto[],
+  opts?: { bareIds?: boolean }
+): CrudField[] {
+  const fields: CrudField[] = []
+  const visible = filterCustomFieldDefs(defs, 'form')
+  const seenKeys = new Set<string>()
+  for (const def of visible) {
+    const keyLower = String(def.key).toLowerCase()
+    if (seenKeys.has(keyLower)) continue
+    seenKeys.add(keyLower)
+    const field = buildFormFieldFromCustomFieldDef(def, opts)
+    if (field) fields.push(field)
   }
   return fields
 }

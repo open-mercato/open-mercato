@@ -10,63 +10,12 @@ import {
   Unique,
 } from '@mikro-orm/core'
 import type {
-  CatalogAttributeSchema,
-  CatalogAttributeValues,
   CatalogOfferLocalizedContent,
   CatalogPriceDisplayMode,
   CatalogProductOptionSchema,
   CatalogProductRelationType,
   CatalogProductType,
 } from './types'
-
-@Entity({ tableName: 'catalog_product_attribute_schemas' })
-@Index({
-  name: 'catalog_product_attribute_schemas_scope_idx',
-  properties: ['organizationId', 'tenantId'],
-})
-@Unique({
-  name: 'catalog_product_attribute_schemas_code_unique',
-  properties: ['organizationId', 'tenantId', 'code'],
-})
-export class CatalogAttributeSchemaTemplate {
-  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
-
-  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
-  id!: string
-
-  @Property({ name: 'organization_id', type: 'uuid' })
-  organizationId!: string
-
-  @Property({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string
-
-  @Property({ type: 'text' })
-  name!: string
-
-  @Property({ type: 'text' })
-  code!: string
-
-  @Property({ type: 'text', nullable: true })
-  description?: string | null
-
-  @Property({ name: 'schema', type: 'jsonb' })
-  schema!: CatalogAttributeSchema
-
-  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
-  metadata?: Record<string, unknown> | null
-
-  @Property({ name: 'is_active', type: 'boolean', default: true })
-  isActive: boolean = true
-
-  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
-  createdAt: Date = new Date()
-
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
-  updatedAt: Date = new Date()
-
-  @Property({ name: 'deleted_at', type: Date, nullable: true })
-  deletedAt?: Date | null
-}
 
 @Entity({ tableName: 'catalog_product_option_schemas' })
 @Index({
@@ -163,6 +112,16 @@ export class CatalogProduct {
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 
+  @Property({ name: 'custom_fieldset_code', type: 'text', nullable: true })
+  customFieldsetCode?: string | null
+
+  @ManyToOne(() => CatalogOptionSchemaTemplate, {
+    fieldName: 'option_schema_id',
+    nullable: true,
+    deleteRule: 'set null',
+  })
+  optionSchemaTemplate?: CatalogOptionSchemaTemplate | null
+
   @Property({ name: 'is_configurable', type: 'boolean', default: false })
   isConfigurable: boolean = false
 
@@ -177,26 +136,6 @@ export class CatalogProduct {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
-
-  @Property({ name: 'attribute_schema', type: 'jsonb', nullable: true })
-  attributeSchema?: CatalogAttributeSchema | null
-
-  @ManyToOne(() => CatalogAttributeSchemaTemplate, {
-    fieldName: 'attribute_schema_id',
-    nullable: true,
-    deleteRule: 'set null',
-  })
-  attributeSchemaTemplate?: CatalogAttributeSchemaTemplate | null
-
-  @ManyToOne(() => CatalogOptionSchemaTemplate, {
-    fieldName: 'option_schema_id',
-    nullable: true,
-    deleteRule: 'set null',
-  })
-  optionSchemaTemplate?: CatalogOptionSchemaTemplate | null
-
-  @Property({ name: 'attribute_values', type: 'jsonb', nullable: true })
-  attributeValues?: CatalogAttributeValues | null
 
   @OneToMany(() => CatalogProductVariant, (variant) => variant.product)
   variants = new Collection<CatalogProductVariant>(this)
@@ -317,11 +256,8 @@ export class CatalogProductVariant {
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 
-  @Property({ name: 'attribute_schema', type: 'jsonb', nullable: true })
-  attributeSchema?: CatalogAttributeSchema | null
-
-  @Property({ name: 'attribute_values', type: 'jsonb', nullable: true })
-  attributeValues?: CatalogAttributeValues | null
+  @Property({ name: 'custom_fieldset_code', type: 'text', nullable: true })
+  customFieldsetCode?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

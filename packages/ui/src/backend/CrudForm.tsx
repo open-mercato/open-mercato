@@ -8,15 +8,16 @@ import { DataLoader } from '../primitives/DataLoader'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
-import { Trash2, Save } from 'lucide-react'
+import { Trash2, Save, Settings, Layers, Tag, Sparkles, Package, Shirt, Grid } from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
-import type { CustomFieldDefDto, CustomFieldDefinitionsPayload } from './utils/customFieldDefs'
-import { buildFormFieldsFromCustomFields } from './utils/customFieldForms'
+import type { CustomFieldDefDto, CustomFieldDefinitionsPayload, CustomFieldsetDto } from './utils/customFieldDefs'
+import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } from './utils/customFieldForms'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -111,6 +112,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   embedded?: boolean
   // Optional custom content injected between the header actions and the form body
   contentHeader?: React.ReactNode
+  // Optional mapping of entityId -> form value key storing the selected fieldset code
+  customFieldsetBindings?: Record<string, { valueKey: string }>
 }
 
 // Group-level custom component context
@@ -132,6 +135,40 @@ export type CrudFormGroup = {
   component?: (ctx: CrudFormGroupComponentProps) => React.ReactNode
   // When kind === 'customFields', the group renders form-editable custom fields
   kind?: 'customFields'
+}
+
+const FIELDSET_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?: string }>> = {
+  layers: Layers,
+  tag: Tag,
+  sparkles: Sparkles,
+  package: Package,
+  shirt: Shirt,
+  grid: Grid,
+}
+
+type CustomFieldGroupLayout = {
+  code: string | null
+  label?: string
+  hint?: string
+  fields: CrudField[]
+}
+
+type CustomFieldSectionLayout = {
+  entityId: string
+  fieldsetCode: string | null
+  fieldset?: CustomFieldsetDto
+  title: string
+  description?: string
+  groups: CustomFieldGroupLayout[]
+}
+
+type CustomFieldEntityLayout = {
+  entityId: string
+  sections: CustomFieldSectionLayout[]
+  availableFieldsets: CustomFieldsetDto[]
+  singleFieldsetPerRecord: boolean
+  hasFieldsets: boolean
+  activeFieldset: string | null
 }
 
 export function CrudForm<TValues extends Record<string, unknown>>({
@@ -157,6 +194,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   embedded = false,
   extraActions,
   contentHeader,
+  customFieldsetBindings,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
@@ -169,6 +207,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const savingLabel = t('ui.forms.status.saving')
   const backLabel = t('ui.navigation.back')
   const customFieldsLabel = t('entities.customFields.title')
+  const fieldsetSelectorLabel = t('entities.customFields.fieldsetSelectorLabel', 'Fieldset')
+  const emptyFieldsetMessage = t('entities.customFields.emptyFieldset', 'No fields defined for this fieldset.')
+  const defaultFieldsetLabel = t('entities.customFields.defaultFieldset', 'Default')
+  const manageFieldsetLabel = t('entities.customFields.manageFieldset', 'Manage fields')
+  const fieldsetDialogTitle = t('entities.customFields.manageDialogTitle', 'Edit custom fields')
+  const fieldsetDialogUnavailable = t('entities.customFields.manageDialogUnavailable', 'Field definitions page is unavailable.')
+  const fieldsetDialogPrimaryLabel = t('entities.customFields.openInNewTab', 'Open full editor')
   const deleteConfirmMessage = t('ui.forms.confirmDelete')
   const deleteSuccessMessage = t('ui.forms.flash.deleteSuccess')
   const deleteErrorMessage = t('ui.forms.flash.deleteError')
@@ -185,6 +230,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const [cfMetadata, setCfMetadata] = React.useState<CustomFieldDefinitionsPayload | null>(null)
   const [cfFieldsetSelections, setCfFieldsetSelections] = React.useState<Record<string, string | null>>({})
   const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
+  const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null } | null>(null)
   const resolvedEntityIds = React.useMemo(() => {
     if (Array.isArray(entityIds) && entityIds.length) {
       const dedup = new Set<string>()
@@ -203,6 +249,20 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return []
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
+
+  const buildCustomFieldsManageHref = React.useCallback(
+    (targetEntityId: string | null) => {
+      if (!targetEntityId) return null
+      try {
+        const encoded = encodeURIComponent(targetEntityId)
+        return customEntity ? `/backend/entities/user/${encoded}` : `/backend/entities/system/${encoded}`
+      } catch {
+        return null
+      }
+    },
+    [customEntity],
+  )
+
   const recordId = React.useMemo(() => {
     const raw = values.id
     if (typeof raw === 'string') return raw
@@ -254,13 +314,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           setCfDefinitions(definitions)
           setCfMetadata(metadata)
           setCfFieldsetSelections((prev) => {
-            const next = { ...prev }
+            const next: Record<string, string | null> = {}
+            let changed = false
             resolvedEntityIds.forEach((entityId) => {
-              if (next[entityId] !== undefined) return
+              const existing = prev[entityId]
               const fieldsets = metadata.fieldsetsByEntity?.[entityId] ?? []
-              next[entityId] = fieldsets[0]?.code ?? null
+              const defaultSelection = fieldsets[0]?.code ?? null
+              const value = existing !== undefined ? existing : defaultSelection
+              next[entityId] = value
+              if (existing !== value) changed = true
             })
-            return next
+            if (Object.keys(prev).length !== Object.keys(next).length) changed = true
+            return changed ? next : prev
           })
           setIsLoadingCustomFields(false)
         }
@@ -275,6 +340,203 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     load()
     return () => { cancelled = true }
   }, [resolvedEntityIds, customEntity])
+
+  React.useEffect(() => {
+    if (!customFieldsetBindings) return
+    setCfFieldsetSelections((prev) => {
+      let changed = false
+      const next = { ...prev }
+      resolvedEntityIds.forEach((entityId) => {
+        const binding = customFieldsetBindings[entityId]
+        if (!binding) return
+        const raw = values[binding.valueKey]
+        if (typeof raw === 'string' && raw.trim().length > 0) {
+          const normalized = raw.trim()
+          if (next[entityId] !== normalized) {
+            next[entityId] = normalized
+            changed = true
+          }
+        }
+      })
+      return changed ? next : prev
+    })
+  }, [customFieldsetBindings, resolvedEntityIds, values])
+
+  const fieldsetsByEntity = cfMetadata?.fieldsetsByEntity ?? {}
+  const entitySettings = cfMetadata?.entitySettings ?? {}
+
+  const { cfFields, customFieldLayout } = React.useMemo(() => {
+    if (!cfDefinitions.length) return { cfFields: [], customFieldLayout: [] as CustomFieldEntityLayout[] }
+    const aggregated: CrudField[] = []
+    const layout: CustomFieldEntityLayout[] = []
+    const defsByEntity = new Map<string, CustomFieldDefDto[]>()
+    cfDefinitions.forEach((def) => {
+      const entityId = typeof def.entityId === 'string' && def.entityId.trim().length
+        ? def.entityId.trim()
+        : resolvedEntityIds[0]
+      if (!entityId) return
+      const bucket = defsByEntity.get(entityId) ?? []
+      bucket.push(def)
+      defsByEntity.set(entityId, bucket)
+    })
+
+    const buildSection = (
+      entityId: string,
+      fieldsetCode: string | null,
+      defList: CustomFieldDefDto[],
+      fieldset?: CustomFieldsetDto,
+    ): CustomFieldSectionLayout | null => {
+      if (!defList.length) return null
+      const groupsMap = new Map<string, CustomFieldGroupLayout>()
+      const order: string[] = []
+      const fieldsetGroupMap = new Map<string, { title?: string; hint?: string; code: string }>()
+      if (Array.isArray(fieldset?.groups)) {
+        fieldset.groups.forEach((group) => {
+          if (!group?.code) return
+          fieldsetGroupMap.set(group.code, { code: group.code, title: group.title, hint: group.hint })
+        })
+      }
+      const sortedDefs = [...defList].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
+      const ensureBucket = (code: string | null, def: CustomFieldDefDto): CustomFieldGroupLayout => {
+        const key = code ?? '__default__'
+        let bucket = groupsMap.get(key)
+        if (!bucket) {
+          const fallbackMeta = code ? fieldsetGroupMap.get(code) : undefined
+          const directMeta = code ? def.group : undefined
+          const label =
+            code === null
+              ? undefined
+              : directMeta?.title || fallbackMeta?.title || directMeta?.code || fallbackMeta?.code || code
+          const hint = directMeta?.hint || fallbackMeta?.hint
+          bucket = { code, label, hint, fields: [] }
+          groupsMap.set(key, bucket)
+          order.push(key)
+        } else if (code && !bucket.label) {
+          const fallbackMeta = fieldsetGroupMap.get(code)
+          const directMeta = def.group ?? undefined
+          bucket.label = directMeta?.title || fallbackMeta?.title || directMeta?.code || fallbackMeta?.code || bucket.label
+          bucket.hint = directMeta?.hint || fallbackMeta?.hint || bucket.hint
+        }
+        return bucket
+      }
+      sortedDefs.forEach((definition) => {
+        const field = buildFormFieldFromCustomFieldDef(definition, { bareIds: customEntity })
+        if (!field) return
+        aggregated.push(field)
+        const bucket = ensureBucket(definition.group?.code ?? null, definition)
+        bucket.fields.push(field)
+      })
+      const groups = order
+        .map((key) => groupsMap.get(key)!)
+        .filter((group) => group.fields.length > 0)
+      if (!groups.length) return null
+      return {
+        entityId,
+        fieldsetCode,
+        fieldset,
+        title: fieldset?.label ?? customFieldsLabel,
+        description: fieldset?.description,
+        groups,
+      }
+    }
+
+    const entityIds = resolvedEntityIds.length ? resolvedEntityIds : Array.from(defsByEntity.keys())
+    entityIds.forEach((entityId) => {
+      const defsForEntity = defsByEntity.get(entityId) ?? []
+      if (!defsForEntity.length) return
+      const availableFieldsets = fieldsetsByEntity[entityId] ?? []
+      const hasFieldsets = availableFieldsets.length > 0
+      const singleFieldsetPerRecord =
+        entitySettings[entityId]?.singleFieldsetPerRecord !== false
+      const defsByFieldset = new Map<string | null, CustomFieldDefDto[]>()
+      defsForEntity.forEach((def) => {
+        const code = typeof def.fieldset === 'string' && def.fieldset.trim().length > 0 ? def.fieldset.trim() : null
+        const bucket = defsByFieldset.get(code) ?? []
+        bucket.push(def)
+        defsByFieldset.set(code, bucket)
+      })
+      const sections: CustomFieldSectionLayout[] = []
+
+      const createEmptySection = (code: string | null): CustomFieldSectionLayout => {
+        const fieldset = code ? availableFieldsets.find((fs) => fs.code === code) : undefined
+        return {
+          entityId,
+          fieldsetCode: code,
+          fieldset,
+          title: fieldset?.label ?? customFieldsLabel,
+          description: fieldset?.description,
+          groups: [],
+        }
+      }
+
+      if (!hasFieldsets) {
+        const fallbackDefs =
+          defsByFieldset.get(null) ?? Array.from(defsByFieldset.values()).flat()
+        const section = buildSection(entityId, null, fallbackDefs, undefined)
+        if (section) sections.push(section)
+      } else if (singleFieldsetPerRecord) {
+        const availableCodes = availableFieldsets.map((fs) => fs.code)
+        const activeFieldset =
+          cfFieldsetSelections[entityId] && availableCodes.includes(cfFieldsetSelections[entityId]!)
+            ? cfFieldsetSelections[entityId]
+            : availableFieldsets[0]?.code ?? null
+        const targetDefs = activeFieldset ? defsByFieldset.get(activeFieldset) ?? [] : defsByFieldset.get(null) ?? []
+        const targetSection = activeFieldset
+          ? buildSection(
+              entityId,
+              activeFieldset,
+              targetDefs,
+              availableFieldsets.find((fs) => fs.code === activeFieldset),
+            )
+          : buildSection(entityId, null, targetDefs, undefined)
+        if (targetSection) {
+          sections.push(targetSection)
+        } else if (activeFieldset) {
+          sections.push(createEmptySection(activeFieldset))
+        }
+        const unassigned = defsByFieldset.get(null)
+        if (unassigned?.length && activeFieldset) {
+          const generalSection = buildSection(entityId, null, unassigned, undefined)
+          if (generalSection) sections.push(generalSection)
+        }
+      } else {
+        availableFieldsets.forEach((fieldset) => {
+          const list = defsByFieldset.get(fieldset.code) ?? []
+          const section = buildSection(entityId, fieldset.code, list, fieldset)
+          if (section) sections.push(section)
+        })
+        const unassigned = defsByFieldset.get(null)
+        if (unassigned?.length) {
+          const section = buildSection(entityId, null, unassigned, undefined)
+          if (section) sections.push(section)
+        }
+      }
+
+      if (!sections.length && hasFieldsets) {
+        const fallbackCode = availableFieldsets[0]?.code ?? null
+        sections.push(createEmptySection(fallbackCode))
+      }
+
+      layout.push({
+        entityId,
+        sections,
+        availableFieldsets,
+        singleFieldsetPerRecord,
+        hasFieldsets,
+        activeFieldset: cfFieldsetSelections[entityId] ?? availableFieldsets[0]?.code ?? null,
+      })
+    })
+
+    return { cfFields: aggregated, customFieldLayout: layout }
+  }, [
+    cfDefinitions,
+    cfFieldsetSelections,
+    customEntity,
+    customFieldsLabel,
+    entitySettings,
+    fieldsetsByEntity,
+    resolvedEntityIds,
+  ])
 
   const allFields = React.useMemo(() => {
     if (!cfFields.length) return fields
@@ -307,15 +569,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return result
   }, [cfFields, fieldById])
 
-  const customFieldsManageHref = React.useMemo(() => {
-    if (!primaryEntityId) return null
-    try {
-      const encoded = encodeURIComponent(primaryEntityId)
-      return customEntity ? `/backend/entities/user/${encoded}` : `/backend/entities/system/${encoded}`
-    } catch {
-      return null
-    }
-  }, [customEntity, primaryEntityId])
+  const customFieldsManageHref = React.useMemo(() => buildCustomFieldsManageHref(primaryEntityId), [buildCustomFieldsManageHref, primaryEntityId])
 
   const customFieldsEmptyState = React.useMemo(() => {
     const text = t('entities.customFields.empty')
@@ -458,11 +712,49 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     })
   }, [])
 
+  const handleFieldsetSelectionChange = React.useCallback(
+    (entityId: string, nextCode: string | null) => {
+      setCfFieldsetSelections((prev) => ({ ...prev, [entityId]: nextCode }))
+      const bindingKey = customFieldsetBindings?.[entityId]?.valueKey
+      if (bindingKey) {
+        setValue(bindingKey, nextCode ?? undefined)
+      }
+    },
+    [customFieldsetBindings, setValue],
+  )
+
+  const handleOpenFieldsetEditor = React.useCallback(
+    (entityId: string, fieldsetCode: string | null) => {
+      const href = buildCustomFieldsManageHref(entityId)
+      if (!href) return
+      setFieldsetEditorTarget({ entityId, fieldsetCode })
+    },
+    [buildCustomFieldsManageHref],
+  )
+
   // Apply initialValues when provided (reapply when initialValues change for edit forms)
   React.useEffect(() => {
     if (!initialValues) return
     setValues((prev) => ({ ...prev, ...initialValues } as CrudFormValues<TValues>))
   }, [initialValues])
+
+  const fieldsetEditorHref = React.useMemo(() => {
+    if (!fieldsetEditorTarget) return null
+    const base = buildCustomFieldsManageHref(fieldsetEditorTarget.entityId)
+    if (!base) return null
+    if (fieldsetEditorTarget.fieldsetCode) {
+      const connector = base.includes('?') ? '&' : '?'
+      return `${base}${connector}fieldset=${encodeURIComponent(fieldsetEditorTarget.fieldsetCode)}`
+    }
+    return base
+  }, [buildCustomFieldsManageHref, fieldsetEditorTarget])
+
+  const handleFieldsetDialogPrimary = React.useCallback(() => {
+    if (!fieldsetEditorHref) return
+    if (typeof window !== 'undefined') {
+      window.open(fieldsetEditorHref, '_blank', 'noopener,noreferrer')
+    }
+  }, [fieldsetEditorHref])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -733,6 +1025,169 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     )
   }
 
+  const renderCustomFieldsContent = React.useCallback(() => {
+    if (!customFieldLayout.length) return customFieldsEmptyState
+    const multipleEntities = customFieldLayout.length > 1
+    return customFieldLayout.map((entityLayout) => {
+      const manageHref = buildCustomFieldsManageHref(entityLayout.entityId)
+      const showSelector =
+        entityLayout.hasFieldsets &&
+        entityLayout.singleFieldsetPerRecord &&
+        entityLayout.availableFieldsets.length > 0
+      return (
+        <div key={entityLayout.entityId} className="space-y-4">
+          {multipleEntities ? (
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {entityLayout.entityId}
+            </div>
+          ) : null}
+          {showSelector ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <label className="text-xs uppercase tracking-wide text-muted-foreground">
+                {fieldsetSelectorLabel}
+              </label>
+              <select
+                className="h-9 rounded border px-2 text-sm"
+                value={entityLayout.activeFieldset ?? ''}
+                onChange={(event) =>
+                  handleFieldsetSelectionChange(
+                    entityLayout.entityId,
+                    event.target.value || null,
+                  )}
+              >
+                <option value="">{defaultFieldsetLabel}</option>
+                {entityLayout.availableFieldsets.map((fs) => (
+                  <option key={fs.code} value={fs.code}>
+                    {fs.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded border text-muted-foreground hover:text-foreground"
+                onClick={() =>
+                  handleOpenFieldsetEditor(entityLayout.entityId, entityLayout.activeFieldset ?? null)}
+                disabled={!manageHref}
+                title={manageFieldsetLabel}
+              >
+                <Settings className="size-4" />
+                <span className="sr-only">{manageFieldsetLabel}</span>
+              </button>
+            </div>
+          ) : null}
+          {entityLayout.sections.length
+            ? entityLayout.sections.map((section) => {
+                const FieldsetIcon = section.fieldset?.icon
+                  ? FIELDSET_ICON_COMPONENTS[section.fieldset.icon]
+                  : null
+                const sectionKey = `${entityLayout.entityId}:${section.fieldsetCode ?? 'default'}`
+                const manageDisabled = !manageHref
+                return (
+                  <div key={sectionKey} className="rounded-md border p-4 space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2">
+                        {FieldsetIcon ? (
+                          <FieldsetIcon className="size-5 text-muted-foreground" />
+                        ) : null}
+                        <div>
+                          <div className="text-sm font-medium">{section.title}</div>
+                          {section.description ? (
+                            <div className="text-xs text-muted-foreground">
+                              {section.description}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                        onClick={() => handleOpenFieldsetEditor(entityLayout.entityId, section.fieldsetCode)}
+                        disabled={manageDisabled}
+                      >
+                        <Settings className="size-4" />
+                        {manageFieldsetLabel}
+                      </button>
+                    </div>
+                    {section.groups.map((group) => {
+                      const groupKey = `${section.fieldsetCode ?? 'default'}:${group.code ?? 'default'}`
+                      return (
+                        <div key={groupKey} className="space-y-2">
+                          {group.label ? (
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                {group.label}
+                              </div>
+                              {group.hint ? (
+                                <div className="text-xs text-muted-foreground">{group.hint}</div>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {renderFields(group.fields)}
+                        </div>
+                      )
+                    })}
+                    {!section.groups.length ? (
+                      <div className="text-xs text-muted-foreground">{emptyFieldsetMessage}</div>
+                    ) : null}
+                  </div>
+                )
+              })
+            : customFieldsEmptyState}
+        </div>
+      )
+    })
+  }, [
+    buildCustomFieldsManageHref,
+    customFieldLayout,
+    customFieldsEmptyState,
+    defaultFieldsetLabel,
+    emptyFieldsetMessage,
+    fieldsetSelectorLabel,
+    handleFieldsetSelectionChange,
+    handleOpenFieldsetEditor,
+    manageFieldsetLabel,
+    renderFields,
+  ])
+
+  const fieldsetManagerDialog = (
+    <Dialog open={fieldsetEditorTarget !== null} onOpenChange={(open) => { if (!open) setFieldsetEditorTarget(null) }}>
+      <DialogContent
+        className="max-w-5xl w-full"
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault()
+            handleFieldsetDialogPrimary()
+          }
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>{fieldsetDialogTitle}</DialogTitle>
+        </DialogHeader>
+        <div className="h-[70vh] overflow-hidden rounded-md border bg-muted/30">
+          {fieldsetEditorHref ? (
+            <iframe
+              src={fieldsetEditorHref}
+              title="Field definitions editor"
+              className="h-full w-full border-0"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground px-4 text-center">
+              {fieldsetDialogUnavailable}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => setFieldsetEditorTarget(null)}>
+            {cancelLabel}
+          </Button>
+          <Button type="button" onClick={handleFieldsetDialogPrimary} disabled={!fieldsetEditorHref}>
+            {fieldsetDialogPrimaryLabel}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+
   // If groups are provided, render the two-column grouped layout
   if (groups && groups.length) {
 
@@ -787,7 +1242,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               <div className="space-y-4">
                 {col1.map((g) => {
                   const isCustomFieldsGroup = g.kind === 'customFields'
-                  const groupFields = resolveGroupFields(g)
+                  const groupFields = isCustomFieldsGroup ? [] : resolveGroupFields(g)
                   return (
                     <div key={g.id} className="rounded-lg border bg-card p-4 space-y-3">
                       {g.title || isCustomFieldsGroup ? (
@@ -803,9 +1258,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                         spinnerSize="md"
                         className="min-h-[1px]"
                       >
-                        {groupFields.length > 0
-                          ? renderFields(groupFields)
-                          : (isCustomFieldsGroup ? customFieldsEmptyState : <div className="min-h-[1px]" />)}
+                        {isCustomFieldsGroup
+                          ? renderCustomFieldsContent()
+                          : groupFields.length > 0
+                            ? renderFields(groupFields)
+                            : <div className="min-h-[1px]" />}
                       </DataLoader>
                     </div>
                   )
@@ -814,7 +1271,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               <div className="space-y-4">
                 {col2.map((g) => {
                   const isCustomFieldsGroup = g.kind === 'customFields'
-                  const groupFields = resolveGroupFields(g)
+                  const groupFields = isCustomFieldsGroup ? [] : resolveGroupFields(g)
                   return (
                     <div key={g.id} className="rounded-lg border bg-card p-4 space-y-3">
                       {g.title || isCustomFieldsGroup ? (
@@ -830,9 +1287,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                         spinnerSize="md"
                         className="min-h-[1px]"
                       >
-                        {groupFields.length > 0
-                          ? renderFields(groupFields)
-                          : (isCustomFieldsGroup ? customFieldsEmptyState : <div className="min-h-[1px]" />)}
+                        {isCustomFieldsGroup
+                          ? renderCustomFieldsContent()
+                          : groupFields.length > 0
+                            ? renderFields(groupFields)
+                            : <div className="min-h-[1px]" />}
                       </DataLoader>
                     </div>
                   )
@@ -863,6 +1322,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             </div>
           </form>
         </DataLoader>
+        {fieldsetManagerDialog}
       </div>
     )
   }
@@ -957,6 +1417,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           </form>
         </div>
       </DataLoader>
+      {fieldsetManagerDialog}
     </div>
   )
 }
