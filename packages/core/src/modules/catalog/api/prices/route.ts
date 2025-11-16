@@ -95,7 +95,7 @@ const crud = makeCrudRoute({
       'variant_id',
       'offer_id',
       FP.currency_code,
-      FP.price_kind_id,
+      'price_kind_id',
       FP.kind,
       FP.min_quantity,
       FP.max_quantity,
@@ -115,7 +115,7 @@ const crud = makeCrudRoute({
     ],
     sortFieldMap: {
       currencyCode: FP.currency_code,
-      priceKindId: FP.price_kind_id,
+      priceKindId: 'price_kind_id',
       kind: FP.kind,
       minQuantity: FP.min_quantity,
       createdAt: FP.created_at,

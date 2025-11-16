@@ -209,68 +209,6 @@ export class CatalogProduct {
 
 }
 
-@Entity({ tableName: 'catalog_product_variant_relations' })
-@Index({
-  name: 'catalog_product_variant_relations_parent_idx',
-  properties: ['parentVariant', 'organizationId', 'tenantId'],
-})
-@Index({
-  name: 'catalog_product_variant_relations_child_idx',
-  properties: ['childVariant', 'organizationId', 'tenantId'],
-})
-@Unique({
-  name: 'catalog_product_variant_relations_unique',
-  properties: ['parentVariant', 'childVariant', 'relationType'],
-})
-export class CatalogProductVariantRelation {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
-
-  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
-  id!: string
-
-  @ManyToOne(() => CatalogProductVariant, {
-    fieldName: 'parent_variant_id',
-    deleteRule: 'cascade',
-  })
-  parentVariant!: CatalogProductVariant
-
-  @ManyToOne(() => CatalogProductVariant, {
-    fieldName: 'child_variant_id',
-    deleteRule: 'cascade',
-  })
-  childVariant!: CatalogProductVariant
-
-  @Property({ name: 'organization_id', type: 'uuid' })
-  organizationId!: string
-
-  @Property({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string
-
-  @Property({ name: 'relation_type', type: 'text' })
-  relationType: CatalogProductRelationType = 'grouped'
-
-  @Property({ name: 'is_required', type: 'boolean', default: false })
-  isRequired: boolean = false
-
-  @Property({ name: 'min_quantity', type: 'integer', nullable: true })
-  minQuantity?: number | null
-
-  @Property({ name: 'max_quantity', type: 'integer', nullable: true })
-  maxQuantity?: number | null
-
-  @Property({ type: 'integer', default: 0 })
-  position: number = 0
-
-  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
-  metadata?: Record<string, unknown> | null
-
-  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
-  createdAt: Date = new Date()
-
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
-  updatedAt: Date = new Date()
-}
-
 @Entity({ tableName: 'catalog_product_offers' })
 @Index({ name: 'catalog_product_offers_scope_idx', properties: ['organizationId', 'tenantId'] })
 @Unique({
@@ -405,6 +343,68 @@ export class CatalogProductVariant {
 
   @OneToMany(() => CatalogProductVariantRelation, (relation) => relation.childVariant)
   parentRelations = new Collection<CatalogProductVariantRelation>(this)
+}
+
+@Entity({ tableName: 'catalog_product_variant_relations' })
+@Index({
+  name: 'catalog_product_variant_relations_parent_idx',
+  properties: ['parentVariant', 'organizationId', 'tenantId'],
+})
+@Index({
+  name: 'catalog_product_variant_relations_child_idx',
+  properties: ['childVariant', 'organizationId', 'tenantId'],
+})
+@Unique({
+  name: 'catalog_product_variant_relations_unique',
+  properties: ['parentVariant', 'childVariant', 'relationType'],
+})
+export class CatalogProductVariantRelation {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProductVariant, {
+    fieldName: 'parent_variant_id',
+    deleteRule: 'cascade',
+  })
+  parentVariant!: CatalogProductVariant
+
+  @ManyToOne(() => CatalogProductVariant, {
+    fieldName: 'child_variant_id',
+    deleteRule: 'cascade',
+  })
+  childVariant!: CatalogProductVariant
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'relation_type', type: 'text' })
+  relationType: CatalogProductRelationType = 'grouped'
+
+  @Property({ name: 'is_required', type: 'boolean', default: false })
+  isRequired: boolean = false
+
+  @Property({ name: 'min_quantity', type: 'integer', nullable: true })
+  minQuantity?: number | null
+
+  @Property({ name: 'max_quantity', type: 'integer', nullable: true })
+  maxQuantity?: number | null
+
+  @Property({ type: 'integer', default: 0 })
+  position: number = 0
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
 
 @Entity({ tableName: 'catalog_product_options' })

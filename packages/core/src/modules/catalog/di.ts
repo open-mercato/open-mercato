@@ -4,9 +4,8 @@ import { DefaultCatalogPricingService } from './services/catalogPricingService'
 
 export function register(container: AppContainer) {
   container.register({
-    catalogPricingService: asFunction((cradle) => {
-      const eventBus = cradle.eventBus ?? null
-      return new DefaultCatalogPricingService(eventBus)
+    catalogPricingService: asFunction(({ eventBus }: AppContainer) => {
+      return new DefaultCatalogPricingService(eventBus ?? null)
     }).singleton(),
   })
 }
