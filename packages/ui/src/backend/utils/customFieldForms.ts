@@ -1,7 +1,7 @@
 import type { CrudField } from '../CrudForm'
-import type { CustomFieldDefDto } from './customFieldDefs'
+import type { CustomFieldDefDto, CustomFieldDefinitionsPayload } from './customFieldDefs'
 import { filterCustomFieldDefs } from './customFieldDefs'
-import { fetchCustomFieldDefs } from './customFieldDefs'
+import { fetchCustomFieldDefs, fetchCustomFieldDefinitionsPayload } from './customFieldDefs'
 import { FieldRegistry, loadGeneratedFieldRegistrations } from '../fields/registry'
 import { apiCall } from './apiCall'
 
@@ -143,23 +143,31 @@ export function buildFormFieldsFromCustomFields(defs: CustomFieldDefDto[], opts?
   return fields
 }
 
+export async function fetchCustomFieldFormStructure(
+  entityIds: string | string[],
+  fetchImpl?: typeof fetch,
+  options?: { bareIds?: boolean },
+): Promise<{ fields: CrudField[]; definitions: CustomFieldDefDto[]; metadata: CustomFieldDefinitionsPayload }> {
+  await ensureFieldRegistryReady()
+  const metadata = await fetchCustomFieldDefinitionsPayload(entityIds, fetchImpl)
+  const definitions = Array.isArray(metadata.items) ? metadata.items : []
+  const fields = buildFormFieldsFromCustomFields(definitions, options)
+  return { fields, definitions, metadata }
+}
+
 export async function fetchCustomFieldFormFields(
   entityIds: string | string[],
   fetchImpl?: typeof fetch,
   options?: { bareIds?: boolean },
 ): Promise<CrudField[]> {
-  await ensureFieldRegistryReady()
-  const defs: CustomFieldDefDto[] = await fetchCustomFieldDefs(entityIds, fetchImpl)
-  return buildFormFieldsFromCustomFields(defs, options)
+  const { fields } = await fetchCustomFieldFormStructure(entityIds, fetchImpl, options)
+  return fields
 }
 
 export async function fetchCustomFieldFormFieldsWithDefinitions(
   entityIds: string | string[],
   fetchImpl?: typeof fetch,
   options?: { bareIds?: boolean },
-): Promise<{ fields: CrudField[]; definitions: CustomFieldDefDto[] }> {
-  await ensureFieldRegistryReady()
-  const definitions = await fetchCustomFieldDefs(entityIds, fetchImpl)
-  const fields = buildFormFieldsFromCustomFields(definitions, options)
-  return { fields, definitions }
+): Promise<{ fields: CrudField[]; definitions: CustomFieldDefDto[]; metadata: CustomFieldDefinitionsPayload }> {
+  return fetchCustomFieldFormStructure(entityIds, fetchImpl, options)
 }

@@ -77,7 +77,19 @@ export async function GET(req: Request) {
     tenantId: d.tenantId ?? null,
   }))
   const deletedKeys = Array.from(tombstonedKeys)
-  return NextResponse.json({ items, deletedKeys })
+  const configMap = await loadEntityFieldsetConfigs(em, {
+    entityIds: [entityId],
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    mode: 'manage',
+  })
+  const cfg = configMap.get(entityId) ?? { fieldsets: [], singleFieldsetPerRecord: true }
+  return NextResponse.json({
+    items,
+    deletedKeys,
+    fieldsets: cfg.fieldsets,
+    settings: { singleFieldsetPerRecord: cfg.singleFieldsetPerRecord },
+  })
 }
 
 const definitionsManageQuerySchema = z.object({
@@ -94,9 +106,25 @@ const managedDefinitionSchema = z.object({
   tenantId: z.string().uuid().nullable(),
 })
 
+const manageFieldsetGroupSchema = z.object({
+  code: z.string(),
+  title: z.string().optional(),
+  hint: z.string().optional(),
+})
+
+const manageFieldsetSchema = z.object({
+  code: z.string(),
+  label: z.string(),
+  icon: z.string().optional(),
+  description: z.string().optional(),
+  groups: z.array(manageFieldsetGroupSchema).optional(),
+})
+
 const definitionsManageResponseSchema = z.object({
   items: z.array(managedDefinitionSchema),
   deletedKeys: z.array(z.string()),
+  fieldsets: z.array(manageFieldsetSchema).optional(),
+  settings: z.object({ singleFieldsetPerRecord: z.boolean().optional() }).optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {

@@ -19,7 +19,9 @@ import { FieldDefinitionsEditor, type FieldDefinition, type FieldDefinitionError
 
 type Def = FieldDefinition
 type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
-type DefinitionsManageResponse = { items?: any[]; deletedKeys?: string[] }
+type FieldsetGroup = { code: string; title?: string; hint?: string }
+type FieldsetDefinition = { code: string; label: string; icon?: string; description?: string; groups?: FieldsetGroup[] }
+type DefinitionsManageResponse = { items?: any[]; deletedKeys?: string[]; fieldsets?: FieldsetDefinition[]; settings?: { singleFieldsetPerRecord?: boolean } }
 
 type DefErrors = FieldDefinitionError
 
@@ -42,6 +44,43 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [error, setError] = useState<string | null>(null)
   const [deletedKeys, setDeletedKeys] = useState<string[]>([])
   const [defErrors, setDefErrors] = useState<Record<number, DefErrors>>({})
+  const [fieldsets, setFieldsets] = useState<FieldsetDefinition[]>([])
+  const [activeFieldset, setActiveFieldset] = useState<string | null>(null)
+  const [singleFieldsetPerRecord, setSingleFieldsetPerRecord] = useState(true)
+  const normalizeGroupPayload = React.useCallback((value: unknown) => {
+    if (!value) return null
+    if (typeof value === 'string') {
+      const code = value.trim()
+      return code ? { code } : null
+    }
+    if (typeof value !== 'object') return null
+    const entry = value as Record<string, unknown>
+    const code = typeof entry.code === 'string' ? entry.code.trim() : ''
+    if (!code) return null
+    const group: FieldsetGroup = { code }
+    if (typeof entry.title === 'string' && entry.title.trim()) group.title = entry.title.trim()
+    if (typeof entry.hint === 'string' && entry.hint.trim()) group.hint = entry.hint.trim()
+    return group
+  }, [])
+
+  const buildFieldsetPayload = React.useCallback(() => {
+    const groupMap = new Map<string, FieldsetGroup[]>()
+    defs.forEach((definition) => {
+      const code = typeof definition.configJson?.fieldset === 'string' ? definition.configJson.fieldset : null
+      if (!code) return
+      const normalized = normalizeGroupPayload(definition.configJson?.group)
+      if (!normalized) return
+      const list = groupMap.get(code) ?? []
+      if (!list.some((entry) => entry.code === normalized.code)) {
+        list.push(normalized)
+        groupMap.set(code, list)
+      }
+    })
+    return fieldsets.map((fs) => ({
+      ...fs,
+      groups: groupMap.get(fs.code) ?? [],
+    }))
+  }, [defs, fieldsets, normalizeGroupPayload])
 
   const validateDef = React.useCallback((d: Def): DefErrors => {
     const parsed = upsertCustomFieldDefSchema.safeParse({ entityId, key: d.key, kind: d.kind, configJson: d.configJson, isActive: d.isActive })
@@ -112,6 +151,13 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           setDefs(loaded)
           setDefErrors({})
           setDeletedKeys(Array.isArray(json.deletedKeys) ? json.deletedKeys : [])
+          const loadedFieldsets = Array.isArray(json.fieldsets) ? json.fieldsets : []
+          setFieldsets(loadedFieldsets)
+          setActiveFieldset((prev) => {
+            if (prev && loadedFieldsets.some((fs) => fs.code === prev)) return prev
+            return loadedFieldsets[0]?.code ?? null
+          })
+          setSingleFieldsetPerRecord(json.settings?.singleFieldsetPerRecord !== false)
         }
       } catch (e: any) {
         if (mounted) setError(e.message || 'Failed to load')
@@ -124,7 +170,15 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   }, [entityId])
 
   function addField() {
-    setDefs((arr) => [...arr, { key: '', kind: 'text', configJson: {}, isActive: true }])
+    setDefs((arr) => [
+      ...arr,
+      {
+        key: '',
+        kind: 'text',
+        configJson: activeFieldset ? { fieldset: activeFieldset } : {},
+        isActive: true,
+      },
+    ])
   }
 
   async function restoreField(key: string) {
@@ -214,6 +268,34 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     }
   }
 
+  const handleFieldsetCodeChange = React.useCallback((previousCode: string, nextCode: string) => {
+    if (!previousCode || !nextCode || previousCode === nextCode) return
+    setDefs((arr) =>
+      arr.map((entry) => {
+        const current = typeof entry.configJson?.fieldset === 'string' ? entry.configJson.fieldset : undefined
+        if (current !== previousCode) return entry
+        const nextConfig = { ...(entry.configJson || {}) }
+        nextConfig.fieldset = nextCode
+        return { ...entry, configJson: nextConfig }
+      })
+    )
+    setActiveFieldset((current) => (current === previousCode ? nextCode : current))
+  }, [])
+
+  const handleFieldsetRemoved = React.useCallback((code: string) => {
+    if (!code) return
+    setDefs((arr) =>
+      arr.map((entry) => {
+        const current = typeof entry.configJson?.fieldset === 'string' ? entry.configJson.fieldset : undefined
+        if (current !== code) return entry
+        const nextConfig = { ...(entry.configJson || {}) }
+        delete nextConfig.fieldset
+        delete nextConfig.group
+        return { ...entry, configJson: nextConfig }
+      })
+    )
+  }, [])
+
   async function saveOrderIfDirty() {
     if (!orderDirty) return
     setOrderSaving(true)
@@ -291,6 +373,19 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         definitions={defs}
         errors={defErrors}
         deletedKeys={deletedKeys}
+        fieldsets={fieldsets}
+        activeFieldset={activeFieldset}
+        onActiveFieldsetChange={setActiveFieldset}
+        onFieldsetsChange={(next) => {
+          setFieldsets(next)
+          if (!next.some((fs) => fs.code === activeFieldset)) {
+            setActiveFieldset(next[0]?.code ?? null)
+          }
+        }}
+        onFieldsetCodeChange={handleFieldsetCodeChange}
+        onFieldsetRemoved={handleFieldsetRemoved}
+        singleFieldsetPerRecord={singleFieldsetPerRecord}
+        onSingleFieldsetPerRecordChange={setSingleFieldsetPerRecord}
         onAddField={addField}
         onRemoveField={(index) => { void removeField(index) }}
         onDefinitionChange={(index, nextDef) => {
@@ -382,6 +477,8 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
                 configJson: d.configJson,
                 isActive: d.isActive !== false,
               })),
+              fieldsets: buildFieldsetPayload(),
+              singleFieldsetPerRecord,
             }
             const callDefs = await apiCall('/api/entities/definitions.batch', {
               method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(defsPayload)

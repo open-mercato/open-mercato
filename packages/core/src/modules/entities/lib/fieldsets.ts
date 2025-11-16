@@ -102,17 +102,13 @@ export async function loadEntityFieldsetConfigs(
     deletedAt: null,
     isActive: true,
   }
-  const filters: any[] = []
-  if (options.tenantId) {
-    filters.push({ tenantId: options.tenantId })
-  }
-  filters.push({ tenantId: null })
-  where.$and = [{ $or: filters }]
+  const tenantMatch = options.tenantId ?? undefined
+  where.$and = [
+    { $or: [{ tenantId: tenantMatch as any }, { tenantId: null }] },
+  ]
   if (options.mode === 'manage') {
-    const orgFilters: any[] = []
-    if (options.organizationId) orgFilters.push({ organizationId: options.organizationId })
-    orgFilters.push({ organizationId: null })
-    where.$and.push({ $or: orgFilters })
+    const orgMatch = options.organizationId ?? undefined
+    where.$and.push({ $or: [{ organizationId: orgMatch as any }, { organizationId: null }] })
   }
 
   const rows: CustomFieldEntityConfig[] = await em.find(CustomFieldEntityConfig, where as any)
@@ -126,8 +122,14 @@ export async function loadEntityFieldsetConfigs(
 
   const scopeScore = (row: CustomFieldEntityConfig) => {
     let score = 0
-    if (row.tenantId) score += 2
-    if (row.organizationId) score += 1
+    if (row.tenantId) {
+      score += row.tenantId === options.tenantId ? 2 : 0
+    } else {
+      score += 1
+    }
+    if (row.organizationId) {
+      score += row.organizationId === options.organizationId ? 1 : -1
+    }
     return score
   }
 

@@ -10,6 +10,8 @@ import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
 import { Trash2, Save } from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
+import type { CustomFieldDefDto, CustomFieldDefinitionsPayload } from './utils/customFieldDefs'
+import { buildFormFieldsFromCustomFields } from './utils/customFieldForms'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
@@ -179,7 +181,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const [pending, setPending] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
-  const [cfFields, setCfFields] = React.useState<CrudField[]>([])
+  const [cfDefinitions, setCfDefinitions] = React.useState<CustomFieldDefDto[]>([])
+  const [cfMetadata, setCfMetadata] = React.useState<CustomFieldDefinitionsPayload | null>(null)
+  const [cfFieldsetSelections, setCfFieldsetSelections] = React.useState<Record<string, string | null>>({})
   const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
   const resolvedEntityIds = React.useMemo(() => {
     if (Array.isArray(entityIds) && entityIds.length) {
@@ -236,7 +240,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     let cancelled = false
     async function load() {
       if (!resolvedEntityIds.length) { 
-        setCfFields([])
+        setCfDefinitions([])
+        setCfMetadata(null)
         setIsLoadingCustomFields(false)
         return 
       }
@@ -244,14 +249,25 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       setIsLoadingCustomFields(true)
       try {
         const mod = await import('./utils/customFieldForms')
-        const f = await mod.fetchCustomFieldFormFields(resolvedEntityIds, undefined, { bareIds: customEntity })
+        const { definitions, metadata } = await mod.fetchCustomFieldFormStructure(resolvedEntityIds, undefined, { bareIds: customEntity })
         if (!cancelled) {
-          setCfFields(f)
+          setCfDefinitions(definitions)
+          setCfMetadata(metadata)
+          setCfFieldsetSelections((prev) => {
+            const next = { ...prev }
+            resolvedEntityIds.forEach((entityId) => {
+              if (next[entityId] !== undefined) return
+              const fieldsets = metadata.fieldsetsByEntity?.[entityId] ?? []
+              next[entityId] = fieldsets[0]?.code ?? null
+            })
+            return next
+          })
           setIsLoadingCustomFields(false)
         }
       } catch {
         if (!cancelled) {
-          setCfFields([])
+          setCfDefinitions([])
+          setCfMetadata(null)
           setIsLoadingCustomFields(false)
         }
       }

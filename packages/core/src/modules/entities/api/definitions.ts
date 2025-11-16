@@ -14,7 +14,7 @@ import {
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { filterSelectableSystemEntityIds, isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { loadEntityFieldsetConfigs } from '../lib/fieldsets'
+import { loadEntityFieldsetConfigs, CustomFieldsetDefinition } from '../lib/fieldsets'
 
 export const metadata = {
   // Reading definitions is needed by record forms; keep it auth-protected but accessible to all authenticated users
@@ -58,7 +58,12 @@ async function resolveEntityDefaultEditor(em: any, entityId: string, tenantId: s
 }
 
 function normalizeFieldGroup(raw: unknown): { code: string; title?: string; hint?: string } | undefined {
-  if (!raw || typeof raw !== 'object') return undefined
+  if (!raw) return undefined
+  if (typeof raw === 'string') {
+    const code = raw.trim()
+    return code ? { code } : undefined
+  }
+  if (typeof raw !== 'object') return undefined
   const entry = raw as Record<string, unknown>
   const code = typeof entry.code === 'string' ? entry.code.trim() : ''
   if (!code) return undefined
@@ -252,7 +257,7 @@ export async function GET(req: Request) {
   })
   sanitized.sort((a: any, b: any) => ((a.priority ?? 0) - (b.priority ?? 0)))
 
-  const fieldsetsByEntity: Record<string, unknown[]> = {}
+  const fieldsetsByEntity: Record<string, CustomFieldsetDefinition[]> = {}
   const entitySettings: Record<string, { singleFieldsetPerRecord: boolean }> = {}
   for (const entityId of entityIds) {
     const cfg = fieldsetConfigs.get(entityId) ?? { fieldsets: [], singleFieldsetPerRecord: true }
