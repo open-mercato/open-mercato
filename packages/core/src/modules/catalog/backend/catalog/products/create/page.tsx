@@ -163,17 +163,31 @@ export default function CreateCatalogProductPage() {
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
       id: 'builder',
+      column: 1,
       component: ({ values, setValue, errors }: CrudFormGroupComponentProps) => (
         <ProductBuilder
           values={values as ProductFormValues}
           setValue={setValue}
           errors={errors}
           priceKinds={priceKinds}
+        />
+      ),
+    },
+    {
+      id: 'product-meta',
+      column: 2,
+      title: t('catalog.products.create.meta.title', 'Product meta'),
+      description: t('catalog.products.create.meta.description', 'Manage subtitle, handle, and currency for storefronts.'),
+      component: ({ values, setValue, errors }: CrudFormGroupComponentProps) => (
+        <ProductMetaSection
+          values={values as ProductFormValues}
+          setValue={setValue}
+          errors={errors}
           currencyOptionsLoader={fetchCurrencyOptions}
         />
       ),
     },
-  ], [priceKinds, fetchCurrencyOptions])
+  ], [priceKinds, fetchCurrencyOptions, t])
 
   return (
     <Page>
@@ -187,7 +201,6 @@ export default function CreateCatalogProductPage() {
           schema={productFormSchema}
           submitLabel={t('catalog.products.create.submit', 'Create')}
           cancelHref="/backend/catalog/products"
-          embedded
           onSubmit={async (formValues) => {
             const title = formValues.title?.trim()
             if (!title) {
@@ -296,10 +309,16 @@ type ProductBuilderProps = {
   setValue: (id: string, value: unknown) => void
   errors: Record<string, string>
   priceKinds: PriceKindSummary[]
+}
+
+type ProductMetaSectionProps = {
+  values: ProductFormValues
+  setValue: (id: string, value: unknown) => void
+  errors: Record<string, string>
   currencyOptionsLoader: () => Promise<Array<{ value: string; label: string; color: string | null; icon: string | null }>>
 }
 
-function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsLoader }: ProductBuilderProps) {
+function ProductBuilder({ values, setValue, errors, priceKinds }: ProductBuilderProps) {
   const t = useT()
   const [currentStep, setCurrentStep] = React.useState(0)
 
@@ -442,26 +461,6 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
     setValue('options', next)
   }, [values.options, setValue])
 
-  const currencyLabels = React.useMemo(() => ({
-    placeholder: t('catalog.products.create.currency.placeholder', 'Select currency…'),
-    addLabel: t('catalog.products.create.currency.add', 'Add currency'),
-    addPrompt: t('catalog.products.create.currency.addPrompt', 'Provide a currency code.'),
-    dialogTitle: t('catalog.products.create.currency.dialogTitle', 'Add currency'),
-    valueLabel: t('catalog.products.create.currency.valueLabel', 'Currency code'),
-    valuePlaceholder: t('catalog.products.create.currency.valuePlaceholder', 'e.g. USD'),
-    labelLabel: t('catalog.products.create.currency.labelLabel', 'Display label'),
-    labelPlaceholder: t('catalog.products.create.currency.labelPlaceholder', 'e.g. US Dollar'),
-    emptyError: t('catalog.products.create.currency.required', 'Currency code is required.'),
-    cancelLabel: t('catalog.products.create.currency.cancel', 'Cancel'),
-    saveLabel: t('catalog.products.create.currency.save', 'Save'),
-    saveShortcutHint: t('catalog.products.create.currency.saveShortcut', 'Press Enter to save'),
-    successCreateLabel: t('catalog.products.create.currency.success', 'Currency added.'),
-    errorLoad: t('catalog.products.create.currency.loadError', 'Unable to load currencies.'),
-    errorSave: t('catalog.products.create.currency.error', 'Unable to add currency.'),
-    loadingLabel: t('catalog.products.create.currency.loading', 'Loading currencies…'),
-    manageTitle: t('catalog.products.create.currency.manage', 'Manage currencies'),
-  }), [t])
-
   const attachments = Array.isArray(values.attachments) ? values.attachments : []
 
   return (
@@ -489,58 +488,17 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
 
       {currentStep === 0 ? (
         <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>{t('catalog.products.form.title', 'Title')}</Label>
-              <Input
-                value={values.title}
-                onChange={(event) => setValue('title', event.target.value)}
-                placeholder={t('catalog.products.create.placeholders.title', 'e.g., Summer sneaker')}
-              />
-              {errors.title ? <p className="text-xs text-red-600">{errors.title}</p> : null}
-            </div>
-            <div className="space-y-2">
-              <Label>{t('catalog.products.form.subtitle', 'Subtitle')}</Label>
-              <Input
-                value={values.subtitle}
-                onChange={(event) => setValue('subtitle', event.target.value)}
-                placeholder={t('catalog.products.create.placeholders.subtitle', 'Optional subtitle')}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{t('catalog.products.form.handle', 'Handle')}</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={values.handle}
-                  onChange={(event) => setValue('handle', event.target.value)}
-                  placeholder={t('catalog.products.create.placeholders.handle', 'e.g., summer-sneaker')}
-                  className="font-mono lowercase"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    const slug = slugify(values.title)
-                    setValue('handle', slug)
-                  }}
-                >
-                  {t('catalog.products.create.actions.generateHandle', 'Generate')}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t('catalog.products.create.handleHelp', 'Handle is used for URLs and must be unique.')}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label>{t('catalog.products.create.fields.currency', 'Primary currency')}</Label>
-              <DictionaryEntrySelect
-                value={values.primaryCurrencyCode || undefined}
-                onChange={(value) => setValue('primaryCurrencyCode', value ?? '')}
-                fetchOptions={currencyOptionsLoader}
-                labels={currencyLabels}
-                allowInlineCreate={false}
-              />
-            </div>
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1">
+              {t('catalog.products.form.title', 'Title')}
+              <span className="text-red-600">*</span>
+            </Label>
+            <Input
+              value={values.title}
+              onChange={(event) => setValue('title', event.target.value)}
+              placeholder={t('catalog.products.create.placeholders.title', 'e.g., Summer sneaker')}
+            />
+            {errors.title ? <p className="text-xs text-red-600">{errors.title}</p> : null}
           </div>
 
           <div className="space-y-2">
@@ -554,7 +512,9 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
                 className="gap-2 text-xs"
               >
                 {values.useMarkdown ? <AlignLeft className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
-                {values.useMarkdown ? t('catalog.products.create.actions.usePlain', 'Use plain text') : t('catalog.products.create.actions.useMarkdown', 'Use markdown')}
+                {values.useMarkdown
+                  ? t('catalog.products.create.actions.usePlain', 'Use plain text')
+                  : t('catalog.products.create.actions.useMarkdown', 'Use markdown')}
               </Button>
             </div>
             {values.useMarkdown ? (
@@ -808,6 +768,84 @@ function ProductBuilder({ values, setValue, errors, priceKinds, currencyOptionsL
           {currentStep === steps.length - 1 ? t('catalog.products.create.steps.review', 'Review') : t('catalog.products.create.steps.continue', 'Continue')}
           <ChevronRight className="h-4 w-4" />
         </Button>
+      </div>
+    </div>
+  )
+}
+
+function ProductMetaSection({ values, setValue, errors, currencyOptionsLoader }: ProductMetaSectionProps) {
+  const t = useT()
+  const currencyLabels = React.useMemo(() => ({
+    placeholder: t('catalog.products.create.currency.placeholder', 'Select currency…'),
+    addLabel: t('catalog.products.create.currency.add', 'Add currency'),
+    addPrompt: t('catalog.products.create.currency.addPrompt', 'Provide a currency code.'),
+    dialogTitle: t('catalog.products.create.currency.dialogTitle', 'Add currency'),
+    valueLabel: t('catalog.products.create.currency.valueLabel', 'Currency code'),
+    valuePlaceholder: t('catalog.products.create.currency.valuePlaceholder', 'e.g. USD'),
+    labelLabel: t('catalog.products.create.currency.labelLabel', 'Display label'),
+    labelPlaceholder: t('catalog.products.create.currency.labelPlaceholder', 'e.g. US Dollar'),
+    emptyError: t('catalog.products.create.currency.required', 'Currency code is required.'),
+    cancelLabel: t('catalog.products.create.currency.cancel', 'Cancel'),
+    saveLabel: t('catalog.products.create.currency.save', 'Save'),
+    saveShortcutHint: t('catalog.products.create.currency.saveShortcut', 'Press Enter to save'),
+    successCreateLabel: t('catalog.products.create.currency.success', 'Currency added.'),
+    errorLoad: t('catalog.products.create.currency.loadError', 'Unable to load currencies.'),
+    errorSave: t('catalog.products.create.currency.error', 'Unable to add currency.'),
+    loadingLabel: t('catalog.products.create.currency.loading', 'Loading currencies…'),
+    manageTitle: t('catalog.products.create.currency.manage', 'Manage currencies'),
+  }), [t])
+
+  const handleValue = typeof values.handle === 'string' ? values.handle : ''
+  const titleSource = typeof values.title === 'string' ? values.title : ''
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>{t('catalog.products.form.subtitle', 'Subtitle')}</Label>
+        <Input
+          value={typeof values.subtitle === 'string' ? values.subtitle : ''}
+          onChange={(event) => setValue('subtitle', event.target.value)}
+          placeholder={t('catalog.products.create.placeholders.subtitle', 'Optional subtitle')}
+        />
+        {errors.subtitle ? <p className="text-xs text-red-600">{errors.subtitle}</p> : null}
+      </div>
+
+      <div className="space-y-2">
+        <Label>{t('catalog.products.form.handle', 'Handle')}</Label>
+        <div className="flex gap-2">
+          <Input
+            value={handleValue}
+            onChange={(event) => setValue('handle', event.target.value)}
+            placeholder={t('catalog.products.create.placeholders.handle', 'e.g., summer-sneaker')}
+            className="font-mono lowercase"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              const slug = slugify(titleSource)
+              setValue('handle', slug)
+            }}
+          >
+            {t('catalog.products.create.actions.generateHandle', 'Generate')}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t('catalog.products.create.handleHelp', 'Handle is used for URLs and must be unique.')}
+        </p>
+        {errors.handle ? <p className="text-xs text-red-600">{errors.handle}</p> : null}
+      </div>
+
+      <div className="space-y-2">
+        <Label>{t('catalog.products.create.fields.currency', 'Primary currency')}</Label>
+        <DictionaryEntrySelect
+          value={values.primaryCurrencyCode || undefined}
+          onChange={(value) => setValue('primaryCurrencyCode', value ?? '')}
+          fetchOptions={currencyOptionsLoader}
+          labels={currencyLabels}
+          allowInlineCreate={false}
+        />
+        {errors.primaryCurrencyCode ? <p className="text-xs text-red-600">{errors.primaryCurrencyCode}</p> : null}
       </div>
     </div>
   )

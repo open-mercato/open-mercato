@@ -84,6 +84,10 @@
         "fields": {
           "currency": "Primary currency"
         },
+        "meta": {
+          "title": "Metadatos del producto",
+          "description": "Administra el subtítulo, el identificador y la moneda para las vitrinas."
+        },
         "actions": {
           "generateHandle": "Generate",
           "usePlain": "Use plain text",

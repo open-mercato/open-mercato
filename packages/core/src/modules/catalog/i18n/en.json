@@ -84,6 +84,10 @@
         "fields": {
           "currency": "Primary currency"
         },
+        "meta": {
+          "title": "Product meta",
+          "description": "Manage subtitle, handle, and currency for storefronts."
+        },
         "actions": {
           "generateHandle": "Generate",
           "usePlain": "Use plain text",
